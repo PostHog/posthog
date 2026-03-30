@@ -104,6 +104,12 @@ export interface EndpointColumnApi {
 }
 
 /**
+ * Per-column bucket overrides for range variable materialization.
+ * @nullable
+ */
+export type EndpointResponseApiBucketOverrides = { [key: string]: unknown } | null | null
+
+/**
  * Full endpoint representation returned by list/retrieve/create/update.
  */
 export interface EndpointResponseApi {
@@ -154,8 +160,18 @@ export interface EndpointResponseApi {
      * @nullable
      */
     derived_from_insight: string | null
+    /**
+     * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+     * @nullable
+     */
+    last_executed_at: string | null
     /** Materialization status and configuration for the current version. */
     materialization: EndpointMaterializationApi
+    /**
+     * Per-column bucket overrides for range variable materialization.
+     * @nullable
+     */
+    bucket_overrides: EndpointResponseApiBucketOverrides
     /** Column names and types from the query's SELECT clause. */
     columns: EndpointColumnApi[]
 }
@@ -231,6 +247,89 @@ export interface EndpointRequestApi {
      * @nullable
      */
     deleted?: boolean | null
+}
+
+/**
+ * Per-column bucket overrides for range variable materialization.
+ * @nullable
+ */
+export type EndpointVersionResponseApiBucketOverrides = { [key: string]: unknown } | null | null
+
+/**
+ * Extended endpoint representation when viewing a specific version.
+ */
+export interface EndpointVersionResponseApi {
+    /** Unique endpoint identifier (UUID). */
+    id: string
+    /** URL-safe endpoint name, unique per team. */
+    name: string
+    /**
+     * Human-readable description of the endpoint.
+     * @nullable
+     */
+    description: string | null
+    /** The HogQL or insight query definition (JSON object with 'kind' key). */
+    query: unknown
+    /** Whether the endpoint can be executed via the API. */
+    is_active: boolean
+    /**
+     * Cache TTL in seconds, or null for default interval-based caching.
+     * @nullable
+     */
+    cache_age_seconds: number | null
+    /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+    endpoint_path: string
+    /**
+     * Absolute URL to execute this endpoint.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * Absolute URL to view this endpoint in the PostHog UI.
+     * @nullable
+     */
+    ui_url: string | null
+    /** When the endpoint was created (ISO 8601). */
+    created_at: string
+    /** When the endpoint was last updated (ISO 8601). */
+    updated_at: string
+    /** User who created the endpoint. */
+    readonly created_by: UserBasicApi
+    /** Whether the current version's results are pre-computed to S3. */
+    is_materialized: boolean
+    /** Latest version number. */
+    current_version: number
+    /** Total number of versions for this endpoint. */
+    versions_count: number
+    /**
+     * Short ID of the source insight, if derived from one.
+     * @nullable
+     */
+    derived_from_insight: string | null
+    /**
+     * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+     * @nullable
+     */
+    last_executed_at: string | null
+    /** Materialization status and configuration for the current version. */
+    materialization: EndpointMaterializationApi
+    /**
+     * Per-column bucket overrides for range variable materialization.
+     * @nullable
+     */
+    bucket_overrides: EndpointVersionResponseApiBucketOverrides
+    /** Column names and types from the query's SELECT clause. */
+    columns: EndpointColumnApi[]
+    /** Version number. */
+    version: number
+    /** Version unique identifier (UUID). */
+    version_id: string
+    /** Whether the parent endpoint is active (distinct from version.is_active). */
+    endpoint_is_active: boolean
+    /** ISO 8601 timestamp when this version was created. */
+    version_created_at: string
+    /** User who created this version. */
+    readonly version_created_by: UserBasicApi | null
 }
 
 /**
@@ -802,73 +901,6 @@ Unknown variable names will return a 400 error.
      * @nullable
      */
     version?: number | null
-}
-
-/**
- * Extended endpoint representation when viewing a specific version.
- */
-export interface EndpointVersionResponseApi {
-    /** Unique endpoint identifier (UUID). */
-    id: string
-    /** URL-safe endpoint name, unique per team. */
-    name: string
-    /**
-     * Human-readable description of the endpoint.
-     * @nullable
-     */
-    description: string | null
-    /** The HogQL or insight query definition (JSON object with 'kind' key). */
-    query: unknown
-    /** Whether the endpoint can be executed via the API. */
-    is_active: boolean
-    /**
-     * Cache TTL in seconds, or null for default interval-based caching.
-     * @nullable
-     */
-    cache_age_seconds: number | null
-    /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
-    endpoint_path: string
-    /**
-     * Absolute URL to execute this endpoint.
-     * @nullable
-     */
-    url: string | null
-    /**
-     * Absolute URL to view this endpoint in the PostHog UI.
-     * @nullable
-     */
-    ui_url: string | null
-    /** When the endpoint was created (ISO 8601). */
-    created_at: string
-    /** When the endpoint was last updated (ISO 8601). */
-    updated_at: string
-    /** User who created the endpoint. */
-    readonly created_by: UserBasicApi
-    /** Whether the current version's results are pre-computed to S3. */
-    is_materialized: boolean
-    /** Latest version number. */
-    current_version: number
-    /** Total number of versions for this endpoint. */
-    versions_count: number
-    /**
-     * Short ID of the source insight, if derived from one.
-     * @nullable
-     */
-    derived_from_insight: string | null
-    /** Materialization status and configuration for the current version. */
-    materialization: EndpointMaterializationApi
-    /** Column names and types from the query's SELECT clause. */
-    columns: EndpointColumnApi[]
-    /** Version number. */
-    version: number
-    /** Version unique identifier (UUID). */
-    version_id: string
-    /** Whether the parent endpoint is active (distinct from version.is_active). */
-    endpoint_is_active: boolean
-    /** ISO 8601 timestamp when this version was created. */
-    version_created_at: string
-    /** User who created this version. */
-    readonly version_created_by: UserBasicApi | null
 }
 
 export interface PaginatedEndpointVersionResponseListApi {

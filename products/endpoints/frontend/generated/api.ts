@@ -14,6 +14,7 @@ import type {
     EndpointRequestApi,
     EndpointResponseApi,
     EndpointRunRequestApi,
+    EndpointVersionResponseApi,
     EndpointsListParams,
     EndpointsVersionsListParams,
     MaterializationPreviewRequestApi,
@@ -83,8 +84,8 @@ export const endpointsRetrieve = async (
     projectId: string,
     name: string,
     options?: RequestInit
-): Promise<EndpointResponseApi> => {
-    return apiMutator<EndpointResponseApi>(getEndpointsRetrieveUrl(projectId, name), {
+): Promise<EndpointVersionResponseApi> => {
+    return apiMutator<EndpointVersionResponseApi>(getEndpointsRetrieveUrl(projectId, name), {
         ...options,
         method: 'GET',
     })

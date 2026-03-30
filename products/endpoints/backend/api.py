@@ -422,7 +422,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return Response({"results": results})
 
     @extend_schema(
-        responses={200: EndpointResponseSerializer},
+        responses={200: EndpointVersionResponseSerializer},
         description="Retrieve an endpoint, or a specific version via ?version=N.",
     )
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:

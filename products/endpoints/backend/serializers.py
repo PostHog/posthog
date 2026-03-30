@@ -158,8 +158,16 @@ class EndpointResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Short ID of the source insight, if derived from one.",
     )
+    last_executed_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When this endpoint was last executed via the API (ISO 8601), or null if never executed.",
+    )
     materialization = EndpointMaterializationSerializer(
         help_text="Materialization status and configuration for the current version.",
+    )
+    bucket_overrides = serializers.DictField(
+        allow_null=True,
+        help_text="Per-column bucket overrides for range variable materialization.",
     )
     columns = EndpointColumnSerializer(
         many=True,

@@ -12667,6 +12667,12 @@ export namespace Schemas {
     }
 
     /**
+     * Per-column bucket overrides for range variable materialization.
+     * @nullable
+     */
+    export type EndpointResponseBucketOverrides = {[key: string]: unknown} | null | null;
+
+    /**
      * Full endpoint representation returned by list/retrieve/create/update.
      */
     export interface EndpointResponse {
@@ -12717,8 +12723,18 @@ export namespace Schemas {
        * @nullable
        */
       derived_from_insight: string | null;
+      /**
+       * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+       * @nullable
+       */
+      last_executed_at: string | null;
       /** Materialization status and configuration for the current version. */
       materialization: EndpointMaterialization;
+      /**
+       * Per-column bucket overrides for range variable materialization.
+       * @nullable
+       */
+      bucket_overrides: EndpointResponseBucketOverrides;
       /** Column names and types from the query's SELECT clause. */
       columns: EndpointColumn[];
     }
@@ -12781,6 +12797,12 @@ export namespace Schemas {
     }
 
     /**
+     * Per-column bucket overrides for range variable materialization.
+     * @nullable
+     */
+    export type EndpointVersionResponseBucketOverrides = {[key: string]: unknown} | null | null;
+
+    /**
      * Extended endpoint representation when viewing a specific version.
      */
     export interface EndpointVersionResponse {
@@ -12831,8 +12853,18 @@ export namespace Schemas {
        * @nullable
        */
       derived_from_insight: string | null;
+      /**
+       * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+       * @nullable
+       */
+      last_executed_at: string | null;
       /** Materialization status and configuration for the current version. */
       materialization: EndpointMaterialization;
+      /**
+       * Per-column bucket overrides for range variable materialization.
+       * @nullable
+       */
+      bucket_overrides: EndpointVersionResponseBucketOverrides;
       /** Column names and types from the query's SELECT clause. */
       columns: EndpointColumn[];
       /** Version number. */
