@@ -312,7 +312,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         )}
 
                         <div>
-                            <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
+                            <div className="text-sm font-semibold uppercase text-muted mb-2">Requested permissions</div>
                             {resourceScopesLoading ? (
                                 <div className="flex items-center gap-2 py-2">
                                     <Spinner className="text-muted" />
