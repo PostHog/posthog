@@ -138,14 +138,12 @@ export class VisualReviewClient {
         runId: string,
         input: {
             snapshots: SnapshotManifestItemApi[]
-            baselineHashes?: Record<string, string>
         }
     ): Promise<{ added: number; uploads: UploadTargetApi[] }> {
         return this.request(`/visual_review/runs/${runId}/add-snapshots/`, {
             method: 'POST',
             body: JSON.stringify({
                 snapshots: input.snapshots,
-                baseline_hashes: input.baselineHashes ?? {},
             }),
         })
     }

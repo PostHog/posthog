@@ -288,8 +288,6 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
     const { client } = makeClient(options)
 
     const dirPath = resolve(options.dir)
-    const baselinePath = resolve(options.baseline)
-    const baselineHashes = readBaselineHashes(baselinePath)
 
     // Scan and hash
     log(`Scanning ${dirPath} for PNGs...`)
@@ -314,37 +312,16 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
         snapshots.push(...results)
     }
 
-    // Compute delta against baseline
-    const changedOrNew: typeof snapshots = []
-    let unchangedCount = 0
-    for (const s of snapshots) {
-        const signed = baselineHashes[s.identifier]
-        if (!signed || s.hash !== extractContentHash(signed)) {
-            changedOrNew.push(s)
-        } else {
-            unchangedCount++
-        }
-    }
+    log(`Sending ${snapshots.length} snapshots to backend`)
 
-    // Build baseline hashes for changed snapshots only
-    const deltaBaselines: Record<string, string> = {}
-    for (const s of changedOrNew) {
-        if (baselineHashes[s.identifier]) {
-            deltaBaselines[s.identifier] = baselineHashes[s.identifier]
-        }
-    }
-
-    log(`Delta: ${changedOrNew.length} changed/new, ${unchangedCount} unchanged`)
-
-    // Add snapshots to run
+    // Send ALL identifiers — backend fetches baseline and classifies
     const addResult = await client.addSnapshots(options.runId, {
-        snapshots: changedOrNew.map((s) => ({
+        snapshots: snapshots.map((s) => ({
             identifier: s.identifier,
             content_hash: s.hash,
             width: s.width,
             height: s.height,
         })),
-        baselineHashes: deltaBaselines,
     })
 
     log(`Registered ${addResult.added} snapshot(s), ${addResult.uploads.length} upload(s) needed`)

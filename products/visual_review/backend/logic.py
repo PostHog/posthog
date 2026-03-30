@@ -301,6 +301,36 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
     return verified
 
 
+def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
+    """Fetch baseline content hashes from GitHub for snapshot comparison.
+
+    Returns a dict of identifier → content_hash (plain, not signed).
+    The baseline YAML in the repo is the source of truth.
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+
+        baseline_paths = repo.baseline_file_paths or {}
+        baseline_path = baseline_paths.get(run_type) or baseline_paths.get("default", ".snapshots.yml")
+
+        baselines_signed, _sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, branch)
+
+        # Verify HMAC signatures and extract content hashes
+        return _verify_baseline_hashes(
+            repo,
+            {
+                identifier: entry["hash"]
+                for identifier, entry in baselines_signed.items()
+                if isinstance(entry, dict) and "hash" in entry
+            },
+        )
+    except Exception:
+        logger.warning("visual_review.baseline_resolve_failed", repo_id=str(repo.id), exc_info=True)
+        return {}
+
+
 @transaction.atomic(using=WRITER_DB)
 def create_run(
     repo_id: UUID,
@@ -310,7 +340,7 @@ def create_run(
     branch: str,
     pr_number: int | None,
     snapshots: list[dict],
-    baseline_hashes: dict[str, str],
+    baseline_hashes: dict[str, str] | None = None,
     unchanged_count: int = 0,
     removed_identifiers: list[str] | None = None,
     purpose: str = RunPurpose.REVIEW,
@@ -321,12 +351,14 @@ def create_run(
 
     Returns the run and list of upload targets for missing artifacts.
     Each upload target has: content_hash, url, fields
+
+    baseline_hashes is deprecated — the backend fetches baselines from GitHub.
+    Kept for backward compat with older CLI versions that still send them.
     """
     repo = get_repo(repo_id, team_id)
 
-    # Verify HMAC signatures on baseline hashes before trusting them.
-    # Unsigned or invalid hashes are silently dropped (treated as no baseline → NEW).
-    verified_baselines = _verify_baseline_hashes(repo, baseline_hashes)
+    # baseline_hashes param is deprecated — ignored. Backend fetches from GitHub.
+    verified_baselines = _resolve_baselines(repo, run_type, branch)
 
     # Supersede ALL old runs before inserting the new one. The unique
     # partial index on (repo, branch, run_type) WHERE superseded_by IS NULL
@@ -481,12 +513,13 @@ def add_snapshots_to_run(
     run_id: UUID,
     team_id: int,
     snapshots: list[dict],
-    baseline_hashes: dict[str, str],
+    baseline_hashes: dict[str, str] | None = None,
     unchanged_count: int = 0,
 ) -> tuple[int, list[dict]]:
     """Add a batch of snapshots to an existing run (shard-based flow).
 
     Returns (added_count, upload_targets). Idempotent — safe for retries.
+    baseline_hashes is deprecated — backend fetches from GitHub.
     """
     run = get_run(run_id, team_id=team_id)
 
@@ -494,7 +527,7 @@ def add_snapshots_to_run(
         raise ValueError(f"Can only add snapshots to pending runs (current status: {run.status})")
 
     repo = run.repo
-    verified_baselines = _verify_baseline_hashes(repo, baseline_hashes)
+    verified_baselines = _resolve_baselines(repo, run.run_type, run.branch)
 
     added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
 
