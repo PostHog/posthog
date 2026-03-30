@@ -164,25 +164,53 @@ def test_build_error_origin_prefers_deepest_repo_frame() -> None:
     assert error_origin == f"{repo_frame.filename}:{repo_frame.lineno} in {repo_frame.name}"
 
 
+@pytest.mark.parametrize(
+    "overrides,expected_outcome,expected_extra_properties",
+    [
+        (
+            [("fail", {"reason": "partial_failure", "failed_checks": 1})],
+            SloOutcome.FAILURE,
+            {
+                "calculation_interval": "weekly",
+                "reason": "partial_failure",
+                "failed_checks": 1,
+            },
+        ),
+        (
+            [
+                ("fail", {"reason": "partial_failure", "failed_checks": 1}),
+                ("succeed", {"recovered": True}),
+            ],
+            SloOutcome.SUCCESS,
+            {
+                "calculation_interval": "weekly",
+                "reason": "partial_failure",
+                "failed_checks": 1,
+                "recovered": True,
+            },
+        ),
+    ],
+)
 @patch("posthog.slo.context.emit_slo_completed")
 @patch("posthog.slo.context.emit_slo_started")
-def test_slo_operation_allows_no_exception_failure_override(
-    mock_emit_slo_started: MagicMock, mock_emit_slo_completed: MagicMock
+def test_slo_operation_allows_no_exception_outcome_override(
+    mock_emit_slo_started: MagicMock,
+    mock_emit_slo_completed: MagicMock,
+    overrides: list[tuple[str, dict[str, object]]],
+    expected_outcome: SloOutcome,
+    expected_extra_properties: dict[str, object],
 ) -> None:
     spec = _build_spec()
 
     with slo_operation(spec=spec, properties={"calculation_interval": "weekly"}) as slo:
-        slo.fail(reason="partial_failure", failed_checks=1)
+        for method_name, props in overrides:
+            getattr(slo, method_name)(**props)
 
     mock_emit_slo_started.assert_called_once()
     mock_emit_slo_completed.assert_called_once()
     completed_kwargs = mock_emit_slo_completed.call_args.kwargs
-    assert completed_kwargs["properties"].outcome == SloOutcome.FAILURE
-    assert completed_kwargs["extra_properties"] == {
-        "calculation_interval": "weekly",
-        "reason": "partial_failure",
-        "failed_checks": 1,
-    }
+    assert completed_kwargs["properties"].outcome == expected_outcome
+    assert completed_kwargs["extra_properties"] == expected_extra_properties
 
 
 @patch("posthog.slo.context.emit_slo_completed")
