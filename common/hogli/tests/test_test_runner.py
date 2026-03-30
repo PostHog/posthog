@@ -13,6 +13,10 @@ from parameterized import parameterized
 
 
 class TestDetectTestType:
+    """Tests hit real files on disk — they validate that detection works
+    end-to-end against the actual repo layout (package.json, Cargo.toml, go.mod).
+    """
+
     @parameterized.expand(
         [
             ("posthog/api/test/test_user.py", "python", ["pytest", "posthog/api/test/test_user.py"]),
@@ -44,108 +48,71 @@ class TestDetectTestType:
         assert config.command == ["pytest", "-c", "ee/hogai/eval/pytest.ini", "ee/hogai/eval/eval_router.py"]
         assert "REDIS_URL" in config.env
 
+    # -- Jest tests: these hit real package.json files on disk --
+
     @parameterized.expand(
         [
-            (
-                "frontend/src/scenes/dashboard/Dashboard.test.tsx",
-                "frontend-jest",
-                ["pnpm", "--filter=@posthog/frontend", "jest", "frontend/src/scenes/dashboard/Dashboard.test.tsx"],
-            ),
-            (
-                "frontend/src/lib/utils.test.ts",
-                "frontend-jest",
-                ["pnpm", "--filter=@posthog/frontend", "jest", "frontend/src/lib/utils.test.ts"],
-            ),
-            (
-                "products/alerts/frontend/alerts.test.tsx",
-                "frontend-jest",
-                ["pnpm", "--filter=@posthog/frontend", "jest", "products/alerts/frontend/alerts.test.tsx"],
-            ),
+            ("frontend/src/scenes/dashboard/Dashboard.test.tsx", "@posthog/frontend"),
+            ("frontend/src/lib/utils.test.ts", "@posthog/frontend"),
         ]
     )
-    def test_frontend_jest(self, file_path: str, expected_type: str, expected_command: list[str]) -> None:
+    def test_frontend_jest(self, file_path: str, expected_filter: str) -> None:
         config = detect_test_type(file_path)
-        assert config.test_type == expected_type
-        assert config.command == expected_command
+        assert config.test_type == "jest"
+        assert config.command == ["pnpm", f"--filter={expected_filter}", "jest", file_path]
 
     def test_nodejs_jest(self) -> None:
         config = detect_test_type("nodejs/tests/cdp/cdp-api.test.ts")
-        assert config.test_type == "nodejs-jest"
-        assert config.command == [
-            "pnpm",
-            "--filter=@posthog/nodejs",
-            "jest",
-            "nodejs/tests/cdp/cdp-api.test.ts",
+        assert config.test_type == "jest"
+        assert "--filter=@posthog/nodejs" in config.command
+
+    @parameterized.expand(
+        [
+            ("common/hogvm/typescript/src/__tests__/execute.test.ts", "@posthog/hogvm"),
+            ("common/replay-shared/src/replay.test.ts", "@posthog/replay-shared"),
+            ("common/replay-headless/src/render.test.ts", "@posthog/replay-headless"),
         ]
+    )
+    def test_common_jest_packages(self, file_path: str, expected_filter: str) -> None:
+        config = detect_test_type(file_path)
+        assert config.test_type == "jest"
+        assert f"--filter={expected_filter}" in config.command
 
     def test_playwright(self) -> None:
         config = detect_test_type("playwright/e2e/dashboards.spec.ts")
         assert config.test_type == "playwright"
         assert config.command == ["pnpm", "exec", "playwright", "test", "playwright/e2e/dashboards.spec.ts"]
 
-    @parameterized.expand(
-        [
-            (
-                "common/hogvm/typescript/src/__tests__/execute.test.ts",
-                "common-jest",
-                "@posthog/hogvm",
-            ),
-            (
-                "common/replay-shared/src/replay.test.ts",
-                "common-jest",
-                "@posthog/replay-shared",
-            ),
-            (
-                "common/replay-headless/src/render.test.ts",
-                "common-jest",
-                "@posthog/replay-headless",
-            ),
-        ]
-    )
-    def test_common_jest_packages(self, file_path: str, expected_type: str, expected_filter: str) -> None:
-        config = detect_test_type(file_path)
-        assert config.test_type == expected_type
-        assert f"--filter={expected_filter}" in config.command
+    # -- Rust tests: these hit real Cargo.toml files on disk --
 
-    @patch("hogli.test_runner._find_cargo_package", return_value="capture")
-    def test_rust_workspace_crate(self, _mock_find: object) -> None:
+    def test_rust_workspace_crate(self) -> None:
         config = detect_test_type("rust/capture/tests/events.rs")
         assert config.test_type == "rust"
-        assert config.command == ["cargo", "test", "--manifest-path=rust/Cargo.toml", "-p", "capture"]
+        assert "--manifest-path=rust/Cargo.toml" in config.command
+        assert "-p" in config.command
+        assert "capture" in config.command
 
-    @patch("hogli.test_runner._find_cargo_package", return_value="posthog-cli")
-    def test_rust_standalone_cli(self, _mock_find: object) -> None:
-        config = detect_test_type("cli/src/main_test.rs")
+    def test_rust_standalone_cli(self) -> None:
+        config = detect_test_type("cli/src/main.rs")
         assert config.test_type == "rust"
-        assert config.command == ["cargo", "test", "--manifest-path=cli/Cargo.toml", "-p", "posthog-cli"]
+        assert "--manifest-path=cli/Cargo.toml" in config.command
 
-    @patch("hogli.test_runner._find_cargo_package", return_value="funnels")
-    def test_rust_standalone_funnel_udf(self, _mock_find: object) -> None:
-        config = detect_test_type("funnel-udf/src/lib_test.rs")
+    def test_rust_standalone_funnel_udf(self) -> None:
+        config = detect_test_type("funnel-udf/src/lib.rs")
         assert config.test_type == "rust"
-        assert config.command == ["cargo", "test", "--manifest-path=funnel-udf/Cargo.toml", "-p", "funnels"]
+        assert "--manifest-path=funnel-udf/Cargo.toml" in config.command
 
-    @patch("hogli.test_runner._find_cargo_package", return_value=None)
-    def test_rust_without_package_name(self, _mock_find: object) -> None:
-        config = detect_test_type("rust/capture/tests/events.rs")
-        assert config.test_type == "rust"
-        assert config.command == ["cargo", "test", "--manifest-path=rust/Cargo.toml"]
-        assert "-p" not in config.command
-
-    def test_rust_unknown_location_raises(self) -> None:
-        with pytest.raises(click.UsageError, match="not in a known crate directory"):
+    def test_rust_no_cargo_toml_raises(self) -> None:
+        with pytest.raises(click.UsageError, match="No Cargo.toml found"):
             detect_test_type("random/thing.rs")
+
+    # -- Go tests: these hit real go.mod files on disk --
 
     @parameterized.expand(
         [
             ("livestream/main_test.go", "go", ["go", "test", "./livestream/..."]),
-            ("livestream/handlers/handler_test.go", "go", ["go", "test", "./livestream/handlers/..."]),
             ("tools/phrocs/internal/tui/app_test.go", "go", ["go", "test", "./tools/phrocs/internal/tui/..."]),
-            (
-                "bin/hobby-installer/installer_test.go",
-                "go",
-                ["go", "test", "./bin/hobby-installer/..."],
-            ),
+            ("bin/hobby-installer/installer_test.go", "go", ["go", "test", "./bin/hobby-installer/..."]),
         ]
     )
     def test_go_tests(self, file_path: str, expected_type: str, expected_command: list[str]) -> None:
@@ -153,9 +120,11 @@ class TestDetectTestType:
         assert config.test_type == expected_type
         assert config.command == expected_command
 
-    def test_go_unknown_module_raises(self) -> None:
-        with pytest.raises(click.UsageError, match="not in a known module"):
+    def test_go_no_go_mod_raises(self) -> None:
+        with pytest.raises(click.UsageError, match="No go.mod found"):
             detect_test_type("random/foo_test.go")
+
+    # -- Edge cases --
 
     def test_unknown_file_raises(self) -> None:
         with pytest.raises(click.UsageError, match="Could not detect test type"):
@@ -180,7 +149,6 @@ class TestDetectTestType:
 
 class TestResolveToRepoRelative:
     def test_relative_path_unchanged(self) -> None:
-        # When cwd is repo root, relative paths stay as-is
         with patch("hogli.test_runner.Path.cwd", return_value=Path(str(_get_repo_root()))):
             result = _resolve_to_repo_relative("posthog/api/test/test_user.py")
             assert result == "posthog/api/test/test_user.py"

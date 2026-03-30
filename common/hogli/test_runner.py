@@ -6,6 +6,7 @@ Detects the test type from a file path and dispatches to the correct runner
 
 from __future__ import annotations
 
+import json
 import platform
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -14,13 +15,6 @@ import click
 from hogli.core.cli import cli
 from hogli.core.command_types import _run
 from hogli.core.manifest import REPO_ROOT
-
-# Known common TS packages with jest configs
-_COMMON_JS_PACKAGES: dict[str, str] = {
-    "common/hogvm/typescript": "@posthog/hogvm",
-    "common/replay-shared": "@posthog/replay-shared",
-    "common/replay-headless": "@posthog/replay-headless",
-}
 
 _PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/")
 
@@ -72,74 +66,114 @@ def _resolve_to_repo_relative(file_path: str) -> str:
         return file_path + node_id_suffix
 
 
-def _find_cargo_package(file_path: str) -> str | None:
-    """Walk upward from file_path to find the nearest Cargo.toml and return its package name."""
-    path = REPO_ROOT / file_path
-    for parent in path.parents:
-        cargo_toml = parent / "Cargo.toml"
-        if cargo_toml.exists():
-            # Quick parse: look for name = "..." in [package] section
-            in_package = False
-            for line in cargo_toml.read_text().splitlines():
-                stripped = line.strip()
-                if stripped == "[package]":
-                    in_package = True
-                elif stripped.startswith("[") and in_package:
-                    break
-                elif in_package and stripped.startswith("name"):
-                    # name = "foo"
-                    _, _, value = stripped.partition("=")
-                    return value.strip().strip('"').strip("'")
-            return None
-        if parent == REPO_ROOT:
+def _find_nearest(file_path: str, target_filename: str) -> Path | None:
+    """Walk upward from file_path to find the nearest file with target_filename.
+
+    Stops at REPO_ROOT to avoid escaping the repo.
+    """
+    current = (REPO_ROOT / file_path).parent
+    while True:
+        candidate = current / target_filename
+        if candidate.exists():
+            return candidate
+        if current == REPO_ROOT:
             break
+        current = current.parent
     return None
 
 
-def _detect_rust_test(file_only: str, file_path: str) -> TestRunConfig:
-    """Detect Rust test configuration."""
-    # Determine the cargo manifest directory
-    if file_only.startswith("rust/"):
-        # Inside the rust/ workspace — use workspace root and target the specific package
-        manifest_dir = "rust"
-    elif file_only.startswith("cli/"):
-        manifest_dir = "cli"
-    elif file_only.startswith("funnel-udf/"):
-        manifest_dir = "funnel-udf"
+def _parse_cargo_package_name(cargo_toml: Path) -> str | None:
+    """Extract the package name from a Cargo.toml [package] section."""
+    in_package = False
+    for line in cargo_toml.read_text().splitlines():
+        stripped = line.strip()
+        if stripped == "[package]":
+            in_package = True
+        elif stripped.startswith("[") and in_package:
+            break
+        elif in_package and stripped.startswith("name"):
+            _, _, value = stripped.partition("=")
+            return value.strip().strip('"').strip("'")
+    return None
+
+
+def _parse_package_json_name(package_json: Path) -> str | None:
+    """Extract the name field from a package.json."""
+    try:
+        data = json.loads(package_json.read_text())
+        return data.get("name")
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _detect_rust_test(file_only: str) -> TestRunConfig:
+    """Detect Rust test configuration by finding the nearest Cargo.toml.
+
+    If the nearest Cargo.toml is a crate inside a workspace, uses the workspace
+    root manifest with ``-p <package>`` to target the specific crate.
+    """
+    crate_toml = _find_nearest(file_only, "Cargo.toml")
+    if not crate_toml:
+        raise click.UsageError(f"No Cargo.toml found for: {file_only}")
+
+    package_name = _parse_cargo_package_name(crate_toml)
+
+    # Check if there's a parent workspace Cargo.toml above this one
+    workspace_toml = None
+    parent = crate_toml.parent.parent
+    while parent >= REPO_ROOT:
+        candidate = parent / "Cargo.toml"
+        if candidate.exists() and "[workspace]" in candidate.read_text():
+            workspace_toml = candidate
+            break
+        if parent == REPO_ROOT:
+            break
+        parent = parent.parent
+
+    if workspace_toml:
+        manifest_path = str(workspace_toml.relative_to(REPO_ROOT))
+        command = ["cargo", "test", f"--manifest-path={manifest_path}"]
+        if package_name:
+            command.extend(["-p", package_name])
+        desc = f"Rust test (cargo test -p {package_name})" if package_name else "Rust test (cargo test)"
     else:
-        raise click.UsageError(
-            f"Rust file not in a known crate directory: {file_path}\nExpected rust/**, cli/**, or funnel-udf/**"
-        )
+        manifest_path = str(crate_toml.relative_to(REPO_ROOT))
+        command = ["cargo", "test", f"--manifest-path={manifest_path}"]
+        desc = "Rust test (cargo test)"
 
-    package_name = _find_cargo_package(file_only)
-    command = ["cargo", "test", f"--manifest-path={manifest_dir}/Cargo.toml"]
-    if package_name:
-        command.extend(["-p", package_name])
-
-    desc = f"Rust test (cargo test -p {package_name})" if package_name else "Rust test (cargo test)"
     return TestRunConfig(test_type="rust", command=command, description=desc)
 
 
 def _detect_go_test(file_only: str) -> TestRunConfig:
-    """Detect Go test configuration."""
-    # Find the Go module root by locating the nearest go.mod
-    path = PurePosixPath(file_only)
-    # The Go module roots in this repo
-    go_modules = ["livestream", "tools/phrocs", "bin/hobby-installer"]
+    """Detect Go test configuration by finding the nearest go.mod."""
+    go_mod = _find_nearest(file_only, "go.mod")
+    if not go_mod:
+        raise click.UsageError(f"No go.mod found for: {file_only}")
 
-    for mod_root in go_modules:
-        if file_only.startswith(mod_root + "/"):
-            # Get the package directory (dir containing the test file)
-            pkg_dir = str(path.parent)
-            return TestRunConfig(
-                test_type="go",
-                command=["go", "test", f"./{pkg_dir}/..."],
-                description=f"Go test (go test in {mod_root})",
-            )
+    mod_root = str(go_mod.parent.relative_to(REPO_ROOT))
+    pkg_dir = str(PurePosixPath(file_only).parent)
 
-    raise click.UsageError(
-        f"Go test file not in a known module: {file_only}\n"
-        "Expected livestream/**, tools/phrocs/**, or bin/hobby-installer/**"
+    return TestRunConfig(
+        test_type="go",
+        command=["go", "test", f"./{pkg_dir}/..."],
+        description=f"Go test (go test in {mod_root})",
+    )
+
+
+def _detect_jest_test(file_only: str, file_path: str) -> TestRunConfig:
+    """Detect Jest test configuration by finding the nearest package.json."""
+    package_json = _find_nearest(file_only, "package.json")
+    if not package_json:
+        raise click.UsageError(f"No package.json found for: {file_path}")
+
+    pkg_name = _parse_package_json_name(package_json)
+    if not pkg_name:
+        raise click.UsageError(f"No name field in {package_json.relative_to(REPO_ROOT)}")
+
+    return TestRunConfig(
+        test_type="jest",
+        command=["pnpm", f"--filter={pkg_name}", "jest", file_path],
+        description=f"Jest test (via {pkg_name})",
     )
 
 
@@ -178,53 +212,26 @@ def detect_test_type(file_path: str) -> TestRunConfig:
             env=_python_env(),
         )
 
-    # 4. Node.js (plugin server) tests
-    if len(parts) > 0 and parts[0] == "nodejs" and file_only.endswith(".test.ts"):
-        return TestRunConfig(
-            test_type="nodejs-jest",
-            command=["pnpm", "--filter=@posthog/nodejs", "jest", file_path],
-            description="Node.js test (Jest via @posthog/nodejs)",
-        )
+    # 4. Jest tests (*.test.ts, *.test.tsx) — finds nearest package.json to determine pnpm filter
+    if file_only.endswith((".test.ts", ".test.tsx")):
+        return _detect_jest_test(file_only, file_path)
 
-    # 5. Common TS package tests
-    for pkg_path, pkg_name in _COMMON_JS_PACKAGES.items():
-        if file_only.startswith(pkg_path + "/") and (file_only.endswith(".test.ts") or file_only.endswith(".test.tsx")):
-            return TestRunConfig(
-                test_type="common-jest",
-                command=["pnpm", f"--filter={pkg_name}", "jest", file_path],
-                description=f"Common package test (Jest via {pkg_name})",
-            )
-
-    # 6. Frontend Jest tests (includes products/*/frontend/)
-    is_frontend_test = file_only.endswith((".test.ts", ".test.tsx"))
-    is_frontend_path = file_only.startswith("frontend/src/") or (
-        file_only.startswith("products/") and "/frontend/" in file_only
-    )
-    if is_frontend_test and is_frontend_path:
-        return TestRunConfig(
-            test_type="frontend-jest",
-            command=["pnpm", "--filter=@posthog/frontend", "jest", file_path],
-            description="Frontend test (Jest via @posthog/frontend)",
-        )
-
-    # 7. Rust tests (cargo workspace at rust/, plus standalone cli/ and funnel-udf/)
+    # 5. Rust tests — finds nearest Cargo.toml
     if ext == ".rs":
-        return _detect_rust_test(file_only, file_path)
+        return _detect_rust_test(file_only)
 
-    # 8. Go tests
+    # 6. Go tests — finds nearest go.mod
     if file_only.endswith("_test.go"):
         return _detect_go_test(file_only)
 
     raise click.UsageError(
         f"Could not detect test type for: {file_path}\n\n"
         "Supported patterns:\n"
-        "  Python:     posthog/**/test_*.py, ee/**/test_*.py, products/*/backend/**/test_*.py\n"
-        "  Frontend:   frontend/src/**/*.test.ts(x), products/*/frontend/**/*.test.ts(x)\n"
-        "  Node.js:    nodejs/**/*.test.ts\n"
+        "  Python:     **/*.py (under posthog/, ee/, products/, common/, dags/)\n"
+        "  Jest:       **/*.test.ts(x) (finds nearest package.json)\n"
         "  Playwright: playwright/**/*.spec.ts\n"
-        "  Common:     common/hogvm/typescript/**/*.test.ts, common/replay-*/**/*.test.ts\n"
-        "  Rust:       rust/**/*.rs, cli/**/*.rs, funnel-udf/**/*.rs\n"
-        "  Go:         livestream/**/*_test.go, tools/phrocs/**/*_test.go"
+        "  Rust:       **/*.rs (finds nearest Cargo.toml)\n"
+        "  Go:         **/*_test.go (finds nearest go.mod)"
     )
 
 
@@ -232,9 +239,9 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     name="test",
     help=(
         "Auto-detect test type and run the correct test runner.\n\n"
-        "Detects Python (pytest), Frontend Jest, Node.js Jest, Playwright,\n"
-        "Rust (cargo test), Go (go test), and common package tests based on the\n"
-        "file path.\n\n"
+        "Detects Python (pytest), Jest, Playwright, Rust (cargo test), and\n"
+        "Go (go test) based on the file path. For Jest, Rust, and Go it finds\n"
+        "the nearest package.json, Cargo.toml, or go.mod automatically.\n\n"
         "Extra arguments are passed through to the underlying test runner.\n\n"
         "Examples:\n\n"
         "  hogli test posthog/api/test/test_user.py\n\n"
