@@ -13,13 +13,30 @@ class TestMCPAnalyticsLogic(APIBaseTest):
             contracts.CreateFeedbackSubmission(
                 goal="understand MCP usage",
                 feedback="Need clearer explanations for query failures",
-                category=enums.FeedbackCategory.RESULTS,
+                category=MCPAnalyticsSubmission.FeedbackCategory.RESULTS,
+                context=contracts.SubmissionContext(
+                    attempted_tool="query_run",
+                    mcp_client_name="Claude Desktop",
+                    mcp_client_version="1.0.0",
+                    mcp_protocol_version="2025-03-26",
+                    mcp_transport="streamable_http",
+                    mcp_session_id="session-123",
+                    mcp_trace_id="trace-456",
+                ),
             ),
         )
 
         assert submission.kind == MCPAnalyticsSubmission.Kind.FEEDBACK
+        assert submission.goal == "understand MCP usage"
         assert submission.summary == "Need clearer explanations for query failures"
         assert submission.category == MCPAnalyticsSubmission.FeedbackCategory.RESULTS
+        assert submission.attempted_tool == "query_run"
+        assert submission.mcp_client_name == "Claude Desktop"
+        assert submission.mcp_client_version == "1.0.0"
+        assert submission.mcp_protocol_version == "2025-03-26"
+        assert submission.mcp_transport == "streamable_http"
+        assert submission.mcp_session_id == "session-123"
+        assert submission.mcp_trace_id == "trace-456"
 
     def test_list_submissions_filters_by_kind(self) -> None:
         logic.create_feedback_submission(

@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -12,6 +13,7 @@ from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.permissions import SingleTenancyOrAdmin
 
+from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
 
 from .serializers import (
@@ -21,13 +23,18 @@ from .serializers import (
 )
 
 
+class MCPAnalyticsPagination(LimitOffsetPagination):
+    default_limit = 100
+    max_limit = 500
+
+
 @extend_schema(tags=["mcp_analytics"])
 class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPAnalyticsSubmissionSerializer
+    # Keep these endpoints staff-only until the MCP tools and auth model are ready for customer traffic.
     permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
     scope_object = "INTERNAL"
-    scope_object_read_actions = ["list"]
-    scope_object_write_actions = ["create"]
+    pagination_class = MCPAnalyticsPagination
     user_action_name: str = ""
 
     def _submission_context(self, validated_data: dict[str, Any]) -> contracts.SubmissionContext:
@@ -57,9 +64,12 @@ class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             request=request,
         )
 
-    def _list_response(self, submissions: list[contracts.Submission]) -> Response:
-        serializer = self.get_serializer(submissions, many=True)
-        return Response({"results": serializer.data})
+    def _list_response(self, request: Request, kind: enums.SubmissionKind) -> Response:
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(logic.list_submissions(self.team, kind), request, view=self)
+        assert page is not None
+        serializer = self.get_serializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
@@ -78,7 +88,7 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
             contracts.CreateFeedbackSubmission(
                 goal=request.validated_data["goal"],
                 feedback=request.validated_data["feedback"],
-                category=enums.FeedbackCategory(request.validated_data["category"]),
+                category=request.validated_data["category"],
                 context=self._submission_context(request.validated_data),
             ),
         )
@@ -90,7 +100,7 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
         description="List MCP feedback submissions for the current project, newest first.",
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._list_response(api.list_feedback_submissions(self.team))
+        return self._list_response(request, enums.SubmissionKind.FEEDBACK)
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
@@ -121,4 +131,4 @@ class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
         description="List missing capability reports for the current project, newest first.",
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._list_response(api.list_missing_capability_submissions(self.team))
+        return self._list_response(request, enums.SubmissionKind.MISSING_CAPABILITY)

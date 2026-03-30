@@ -1,3 +1,5 @@
+from django.db.models import QuerySet
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -5,8 +7,8 @@ from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 
-def list_submissions(team: Team, kind: enums.SubmissionKind) -> list[MCPAnalyticsSubmission]:
-    return list(MCPAnalyticsSubmission.objects.filter(team=team, kind=kind).order_by("-created_at"))
+def list_submissions(team: Team, kind: enums.SubmissionKind) -> QuerySet[MCPAnalyticsSubmission]:
+    return MCPAnalyticsSubmission.objects.filter(team=team, kind=kind).order_by("-created_at")
 
 
 def create_feedback_submission(

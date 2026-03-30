@@ -33,7 +33,21 @@ class Migration(migrations.Migration):
                 ),
                 ("goal", models.TextField()),
                 ("summary", models.TextField()),
-                ("category", models.CharField(blank=True, default="", max_length=32)),
+                (
+                    "category",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("results", "Results"),
+                            ("usability", "Usability"),
+                            ("bug", "Bug"),
+                            ("docs", "Docs"),
+                            ("other", "Other"),
+                        ],
+                        default="",
+                        max_length=32,
+                    ),
+                ),
                 ("blocked", models.BooleanField(blank=True, null=True)),
                 ("attempted_tool", models.CharField(blank=True, default="", max_length=200)),
                 ("mcp_client_name", models.CharField(blank=True, default="", max_length=200)),

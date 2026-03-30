@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
@@ -29,6 +30,51 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         assert data["attempted_tool"] == "feature_flag_get_all"
         assert data["mcp_client_name"] == "Claude Desktop"
 
+    def test_create_feedback_submission_requires_authentication(self) -> None:
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+            {"goal": "understand usage", "feedback": "Need clearer results"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_create_feedback_submission_is_staff_only_in_cloud(self) -> None:
+        with self.is_cloud(True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+                {"goal": "understand usage", "feedback": "Need clearer results"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_feedback_list_is_staff_only_in_cloud(self) -> None:
+        with self.is_cloud(True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/feedback/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("missing_goal", {"feedback": "Need clearer results"}, "goal"),
+            (
+                "invalid_category",
+                {"goal": "understand usage", "feedback": "Need clearer results", "category": "bad"},
+                "category",
+            ),
+            ("goal_too_long", {"goal": "g" * 501, "feedback": "Need clearer results"}, "goal"),
+            ("feedback_too_long", {"goal": "understand usage", "feedback": "f" * 5001}, "feedback"),
+        ]
+    )
+    def test_feedback_validation_errors(self, _name: str, payload: dict[str, str], field: str) -> None:
+        response = self.client.post(f"/api/environments/{self.team.id}/mcp_analytics/feedback/", payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert field in response.json()
+
     def test_create_missing_capability_submission_defaults_blocked(self) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_analytics/missing_capabilities/",
@@ -46,6 +92,25 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         assert data["kind"] == MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY
         assert data["blocked"] is True
         assert data["attempted_tool"] == "survey_get"
+
+    @parameterized.expand(
+        [
+            ("missing_goal", {"missing_capability": "Need an eligibility explainer"}, "goal"),
+            ("goal_too_long", {"goal": "g" * 501, "missing_capability": "Need an eligibility explainer"}, "goal"),
+            (
+                "missing_capability_too_long",
+                {"goal": "debug surveys", "missing_capability": "m" * 5001},
+                "missing_capability",
+            ),
+        ]
+    )
+    def test_missing_capability_validation_errors(self, _name: str, payload: dict[str, str], field: str) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/missing_capabilities/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert field in response.json()
 
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(
@@ -98,3 +163,21 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         assert [entry["kind"] for entry in missing_response.json()["results"]] == [
             MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY
         ]
+
+    def test_feedback_list_is_paginated(self) -> None:
+        for index in range(101):
+            MCPAnalyticsSubmission.objects.create(
+                team=self.team,
+                created_by=self.user,
+                kind=MCPAnalyticsSubmission.Kind.FEEDBACK,
+                goal=f"goal {index}",
+                summary=f"Feedback entry {index}",
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/feedback/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["count"] == 101
+        assert len(data["results"]) == 100
+        assert data["next"] is not None

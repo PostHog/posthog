@@ -23,7 +23,7 @@ class MCPAnalyticsSubmission(UUIDModel):
     kind = models.CharField(max_length=32, choices=Kind.choices)
     goal = models.TextField()
     summary = models.TextField()
-    category = models.CharField(max_length=32, blank=True, default="")
+    category = models.CharField(max_length=32, choices=FeedbackCategory.choices, blank=True, default="")
     blocked = models.BooleanField(null=True, blank=True)
     attempted_tool = models.CharField(max_length=200, blank=True, default="")
 

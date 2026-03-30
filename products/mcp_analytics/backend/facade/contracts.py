@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from .enums import FeedbackCategory, SubmissionKind
+from .enums import SubmissionKind
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,7 @@ class SubmissionContext:
 class CreateFeedbackSubmission:
     goal: str
     feedback: str
-    category: FeedbackCategory = FeedbackCategory.OTHER
+    category: str = "other"
     context: SubmissionContext = SubmissionContext()
 
 
