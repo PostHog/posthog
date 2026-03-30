@@ -303,7 +303,9 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             if insight.query is None:
                 raise ValueError("Alert's insight has no valid query")
             threshold_config = alert.threshold.configuration if alert.threshold else None
-            validate_alert_config(insight.query, alert.condition, alert.config, threshold_config)
+            validate_alert_config(
+                insight.query, alert.condition, alert.config, threshold_config, alert.calculation_interval
+            )
     except ValueError as e:
         _disable_invalid_alert(alert, str(e))
         return

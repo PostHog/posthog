@@ -4,6 +4,7 @@ import { initTracing } from '~/common/tracing/otel'
 import { defaultConfig } from '~/config/config'
 import { PluginServer } from '~/server'
 import { NodeServer } from '~/servers/base-server'
+import { ErrorTrackingServer } from '~/servers/error-tracking-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
 import { initSuperProperties } from '~/utils/posthog'
 
@@ -13,6 +14,9 @@ function createServer(): NodeServer {
         case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             return new IngestionGeneralServer()
+
+        case PluginServerMode.ingestion_error_tracking:
+            return new ErrorTrackingServer()
 
         default:
             // CDP modes, logs, evaluation scheduler, recordings, local dev (null), local-cdp

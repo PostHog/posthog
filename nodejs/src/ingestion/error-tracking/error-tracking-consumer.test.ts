@@ -11,6 +11,7 @@ import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
 /** Creates a mock KafkaConsumer for tests that don't need actual Kafka connections */
@@ -74,17 +75,17 @@ const createMockPersonRepository = (): jest.Mocked<PersonRepository> => ({
 // Cymbal receives event properties and returns them with fingerprint/issue_id added
 jest.mock('./cymbal', () => ({
     CymbalClient: jest.fn().mockImplementation(() => ({
-        processExceptions: jest.fn().mockImplementation((requests) =>
-            // Return a valid response for each request, preserving input properties
-            requests.map((req: any) => ({
-                uuid: req.uuid,
-                event: req.event,
-                team_id: req.team_id,
-                timestamp: req.timestamp,
+        processExceptions: jest.fn().mockImplementation((items) =>
+            // Return a valid response for each item, preserving input properties
+            items.map((item: any) => ({
+                uuid: item.request.uuid,
+                event: item.request.event,
+                team_id: item.request.team_id,
+                timestamp: item.request.timestamp,
                 properties: {
-                    ...req.properties,
-                    $exception_fingerprint: `fingerprint-${req.uuid}`,
-                    $exception_issue_id: `issue-${req.uuid}`,
+                    ...item.request.properties,
+                    $exception_fingerprint: `fingerprint-${item.request.uuid}`,
+                    $exception_issue_id: `issue-${item.request.uuid}`,
                 },
             }))
         ),
@@ -146,6 +147,7 @@ describe('ErrorTrackingConsumer', () => {
             outputTopic: hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
             cymbalBaseUrl: hub.ERROR_TRACKING_CYMBAL_BASE_URL,
             cymbalTimeoutMs: hub.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+            cymbalMaxBodyBytes: hub.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
             lane: hub.INGESTION_LANE ?? ('main' as const),
             overflowBucketCapacity: hub.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
             overflowBucketReplenishRate: hub.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
@@ -157,7 +159,12 @@ describe('ErrorTrackingConsumer', () => {
         // Create and store the mock so tests can configure it
         mockHogTransformer = createMockHogTransformer()
         const deps = {
-            kafkaProducer: hub.kafkaProducer,
+            outputs: new IngestionOutputs({
+                events: { topic: config.outputTopic, producer: hub.kafkaProducer },
+                ingestion_warnings: { topic: 'clickhouse_ingestion_warnings_test', producer: hub.kafkaProducer },
+                dlq: { topic: config.dlqTopic, producer: hub.kafkaProducer },
+                overflow: { topic: config.overflowTopic || '', producer: hub.kafkaProducer },
+            }),
             kafkaMetricsProducer: hub.kafkaProducer,
             teamManager: hub.teamManager,
             hogTransformer: mockHogTransformer,

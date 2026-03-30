@@ -16,8 +16,7 @@ use crate::{
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{
-            EvaluationMetadata, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
-            HypercacheFlagsWrapper,
+            EvaluationMetadata, FeatureFlag, FlagFilters, FlagPropertyGroup, HypercacheFlagsWrapper,
         },
         flag_service::FlagService,
     },
@@ -27,6 +26,7 @@ use crate::{
     },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     utils::test_utils::{
+        flag_list_with_metadata, flag_list_with_metadata_and_filter,
         insert_flags_for_team_in_redis, mock_group_type_cache, setup_hypercache_reader,
         setup_pg_reader_client, setup_pg_writer_client, setup_redis_client,
         setup_team_hypercache_reader, TestContext,
@@ -216,10 +216,7 @@ async fn test_evaluate_feature_flags() {
         bucketing_identifier: None,
     };
 
-    let feature_flag_list = FeatureFlagList {
-        flags: vec![flag],
-        ..Default::default()
-    };
+    let feature_flag_list = flag_list_with_metadata(vec![flag]);
 
     let mut person_properties = HashMap::new();
     person_properties.insert("country".to_string(), json!("US"));
@@ -324,10 +321,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         bucketing_identifier: None,
     }];
 
-    let feature_flag_list = FeatureFlagList {
-        flags,
-        ..Default::default()
-    };
+    let feature_flag_list = flag_list_with_metadata(flags);
 
     // Set up evaluation context
     let evaluation_context = FeatureFlagEvaluationContext {
@@ -751,10 +745,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         },
     ];
 
-    let feature_flag_list = FeatureFlagList {
-        flags,
-        ..Default::default()
-    };
+    let feature_flag_list = flag_list_with_metadata(flags);
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
@@ -872,10 +863,7 @@ async fn test_evaluate_feature_flags_details() {
         },
     ];
 
-    let feature_flag_list = FeatureFlagList {
-        flags,
-        ..Default::default()
-    };
+    let feature_flag_list = flag_list_with_metadata(flags);
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
@@ -1034,10 +1022,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         evaluation_tags: None,
         bucketing_identifier: None,
     };
-    let feature_flag_list = FeatureFlagList {
-        flags: vec![flag],
-        ..Default::default()
-    };
+    let feature_flag_list = flag_list_with_metadata(vec![flag]);
 
     let groups = HashMap::from([("project".to_string(), json!("project_123"))]);
     let group_property_overrides = HashMap::from([(
@@ -1148,10 +1133,7 @@ async fn test_long_distinct_id() {
         bucketing_identifier: None,
     };
 
-    let feature_flag_list = FeatureFlagList {
-        flags: vec![flag],
-        ..Default::default()
-    };
+    let feature_flag_list = flag_list_with_metadata(vec![flag]);
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
@@ -1534,7 +1516,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     };
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.clone(),
-        evaluation_metadata: Some(eval_metadata),
+        evaluation_metadata: eval_metadata,
         cohorts: None,
     };
     let json_string = serde_json::to_string(&wrapper).unwrap();
@@ -1558,11 +1540,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     .unwrap();
 
     assert_eq!(result.flags.len(), 2);
-    assert!(
-        result.evaluation_metadata.is_some(),
-        "evaluation_metadata should be preserved by fetch_and_filter, not dropped"
-    );
-    let ctx = result.evaluation_metadata.unwrap();
+    let ctx = &result.evaluation_metadata;
     assert_eq!(ctx.dependency_stages, vec![vec![1], vec![2]]);
     assert!(ctx.flags_with_missing_deps.is_empty());
     assert!(ctx.transitive_deps.contains_key(&2));
@@ -1795,17 +1773,16 @@ async fn test_parallel_path_matches_sequential_results() {
     // Flag id=4 is inactive (active=false), so it must be in the filter set
     let filtered_out_flag_ids = std::collections::HashSet::from([4]);
 
+    let seq_flag_list =
+        flag_list_with_metadata_and_filter(flags.clone(), filtered_out_flag_ids.clone());
+    let par_flag_list = flag_list_with_metadata_and_filter(flags, filtered_out_flag_ids);
+
     // Run sequential (threshold = 100, well above 4 flags)
     let sequential_context = FeatureFlagEvaluationContext {
         team_id: team.id,
         distinct_id: distinct_id.clone(),
         device_id: None,
-        feature_flags: FeatureFlagList {
-            flags: flags.clone(),
-            filtered_out_flag_ids: filtered_out_flag_ids.clone(),
-            evaluation_metadata: None,
-            cohorts: None,
-        },
+        feature_flags: seq_flag_list,
         persons_reader: reader.clone(),
         persons_writer: writer.clone(),
         non_persons_reader: reader.clone(),
@@ -1833,12 +1810,7 @@ async fn test_parallel_path_matches_sequential_results() {
         team_id: team.id,
         distinct_id: distinct_id.clone(),
         device_id: None,
-        feature_flags: FeatureFlagList {
-            flags,
-            filtered_out_flag_ids,
-            evaluation_metadata: None,
-            cohorts: None,
-        },
+        feature_flags: par_flag_list,
         persons_reader: reader.clone(),
         persons_writer: writer.clone(),
         non_persons_reader: reader.clone(),
@@ -1934,10 +1906,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         bucketing_identifier: None,
     };
 
-    let feature_flag_list = FeatureFlagList {
-        flags: vec![flag],
-        ..Default::default()
-    };
+    let feature_flag_list = flag_list_with_metadata(vec![flag]);
 
     // Test with realtime cohort evaluation DISABLED
     let provider_disabled = Arc::new(CountingCohortMembershipProvider::new());
