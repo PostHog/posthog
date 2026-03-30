@@ -267,7 +267,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
     except Exception:
         client_name = "CIMD Client"
 
-    redirect_uris = " ".join(metadata["redirect_uris"])
+    redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
 
     app = OAuthApplication(
@@ -305,7 +305,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
         except Exception:
             pass  # Keep existing name if new one is invalid
 
-    app.redirect_uris = " ".join(metadata["redirect_uris"])
+    app.redirect_uris = " ".join(metadata.get("redirect_uris", []))
     app.logo_uri = metadata.get("logo_uri") or None
     app.cimd_metadata_last_fetched = timezone.now()
 
