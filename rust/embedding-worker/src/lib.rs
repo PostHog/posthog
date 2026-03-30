@@ -190,11 +190,12 @@ pub fn generate_embedding_text(
     model: &EmbeddingModel,
     labels: &RequestLabels,
 ) -> Result<(String, usize)> {
+    let content = model.escape_input(content);
     let (text, count) = match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
             let encoder = tiktoken_rs::cl100k_base()?;
             let mut tokens: Vec<_> = encoder
-                .encode_with_special_tokens(content)
+                .encode_with_special_tokens(&content)
                 .into_iter()
                 .take(model.model_input_window())
                 .collect();
