@@ -86,11 +86,11 @@ export function EditorFiltersShell({
                     showing ? 'opacity-100' : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden border-0 !p-0'
                 )}
                 style={
-                    showing && panelWidth
-                        ? { width: panelWidth, minWidth: 320, maxWidth: 600 }
-                        : showing
-                          ? { width: 'max(min(30%, 600px), 420px)', minWidth: 320, maxWidth: 600 }
-                          : undefined
+                    showing
+                        ? ({
+                              '--editor-panel-width': panelWidth ? `${panelWidth}px` : 'max(min(30%, 600px), 420px)',
+                          } as React.CSSProperties)
+                        : undefined
                 }
             >
                 {showing && <Resizer {...resizerProps} />}

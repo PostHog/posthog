@@ -20,10 +20,10 @@
         .EditorFiltersWrapper {
             width: 100%;
 
-            @container (min-width: 768px) {
-                width: 30%;
-                min-width: 26rem;
-                max-width: 30rem;
+            @container (min-width: 900px) {
+                width: var(--editor-panel-width, max(min(30%, 600px), 420px));
+                min-width: 320px;
+                max-width: 600px;
             }
         }
 
