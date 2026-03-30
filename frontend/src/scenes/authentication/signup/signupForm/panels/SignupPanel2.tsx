@@ -9,14 +9,13 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { signupLogic } from '../signupLogic'
-import { TurnstileChallenge } from '../TurnstileChallenge'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function SignupPanel2(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { setSignupPanel2ManualErrors } = useActions(signupLogic)
-    const { isSignupPanel2Submitting, challengeRequired, turnstileSiteKey } = useValues(signupLogic)
+    const { isSignupPanel2Submitting } = useValues(signupLogic)
 
     return (
         <div className="deprecated-space-y-4 Signup__panel__2">
@@ -41,28 +40,24 @@ export function SignupPanel2(): JSX.Element | null {
                 <SignupReferralSource disabled={isSignupPanel2Submitting} />
                 <div className="divider" />
 
-                {challengeRequired && turnstileSiteKey ? (
-                    <TurnstileChallenge siteKey={turnstileSiteKey} />
-                ) : (
-                    <LemonButton
-                        fullWidth
-                        type="primary"
-                        center
-                        htmlType="submit"
-                        data-attr="signup-submit"
-                        onClick={() => setSignupPanel2ManualErrors({})}
-                        loading={isSignupPanel2Submitting}
-                        disabled={isSignupPanel2Submitting}
-                        status="alt"
-                        size="large"
-                    >
-                        {!preflight?.demo
-                            ? 'Create account'
-                            : !isSignupPanel2Submitting
-                              ? 'Enter the demo environment'
-                              : 'Preparing demo data…'}
-                    </LemonButton>
-                )}
+                <LemonButton
+                    fullWidth
+                    type="primary"
+                    center
+                    htmlType="submit"
+                    data-attr="signup-submit"
+                    onClick={() => setSignupPanel2ManualErrors({})}
+                    loading={isSignupPanel2Submitting}
+                    disabled={isSignupPanel2Submitting}
+                    status="alt"
+                    size="large"
+                >
+                    {!preflight?.demo
+                        ? 'Create account'
+                        : !isSignupPanel2Submitting
+                          ? 'Enter the demo environment'
+                          : 'Preparing demo data…'}
+                </LemonButton>
             </Form>
 
             <div className="text-center text-secondary">
