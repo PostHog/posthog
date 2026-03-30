@@ -81,7 +81,7 @@ export function EditorFiltersShell({
             <div
                 ref={panelRef}
                 className={clsx(
-                    'EditorFiltersWrapper relative self-stretch @container/editor-panel',
+                    'EditorFiltersWrapper relative self-stretch @container/editor-panel w-full @[768px]:w-[var(--editor-panel-width,max(min(30%,600px),420px))] @[768px]:min-w-[320px] @[768px]:max-w-[600px]',
                     isResizing ? '' : 'transition-all duration-300 ease-out',
                     showing
                         ? 'opacity-100 p-px overflow-visible'
@@ -95,7 +95,6 @@ export function EditorFiltersShell({
                         : undefined
                 }
             >
-                {showing && <Resizer {...resizerProps} />}
                 <MaxTool
                     identifier="create_insight"
                     context={{ current_query: querySource }}
@@ -138,6 +137,7 @@ export function EditorFiltersShell({
                         )}
                     </div>
                 </MaxTool>
+                {showing && <Resizer {...resizerProps} />}
             </div>
         )
     }
