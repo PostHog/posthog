@@ -83,7 +83,9 @@ export function EditorFiltersShell({
                 className={clsx(
                     'EditorFiltersWrapper relative self-stretch @container/editor-panel',
                     isResizing ? '' : 'transition-all duration-300 ease-out',
-                    showing ? 'opacity-100' : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden border-0 !p-0'
+                    showing
+                        ? 'opacity-100 p-px overflow-visible'
+                        : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden border-0 !p-0'
                 )}
                 style={
                     showing
@@ -121,10 +123,10 @@ export function EditorFiltersShell({
                         setQuery(node)
                     }}
                     initialMaxPrompt="Show me users who "
-                    className="h-full [&_button.absolute]:!-top-1 [&_button.absolute]:!-right-1"
+                    className="h-full mr-3 [&_button.absolute]:!-top-2.5 [&_button.absolute]:!-right-2.5"
                     active={maxToolActive}
                 >
-                    <div className={clsx('h-full overflow-y-auto', showing && 'pr-3 pb-4')}>
+                    <div className={clsx('h-full overflow-y-auto', showing && 'pb-4')}>
                         {shouldShowSessionAnalysisWarning ? <SessionAnalysisWarning /> : null}
                         {children}
                         {previousQuery && (
