@@ -420,7 +420,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
         hasEditChanges,
         editValidationErrors,
         editSaving,
-    } = useValues(featureFlagScheduleEditLogic)
+    } = useValues(featureFlagScheduleEditLogic({ id: featureFlag.id ?? 'new' }))
     const {
         openEdit,
         closeEdit,
@@ -430,7 +430,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
         setEditPayloadValue,
         setEditRepeatsValue,
         saveEdit,
-    } = useActions(featureFlagScheduleEditLogic)
+    } = useActions(featureFlagScheduleEditLogic({ id: featureFlag.id ?? 'new' }))
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 

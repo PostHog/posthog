@@ -1712,6 +1712,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     'The enable schedule was created, but the disable schedule failed. ' +
                         'You may want to create it manually or delete the enable schedule.'
                 )
+                // Reset form so retrying doesn't create a duplicate enable schedule
+                actions.setSchedulePreset(null)
+                actions.setScheduleDateMarker(null)
+                actions.setIsRecurring(false)
+                actions.setRecurrenceInterval(null)
+                actions.setCronExpression(null)
+                actions.setEndDate(null)
                 actions.loadScheduledChanges()
                 return
             }

@@ -1,5 +1,5 @@
 import { CronExpressionParser } from 'cron-parser'
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, key, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -12,11 +12,12 @@ import type { featureFlagScheduleEditLogicType } from './featureFlagScheduleEdit
 
 export interface FeatureFlagScheduleEditLogicProps {
     id: number | 'new' | 'link'
-    teamId: number
 }
 
 export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType>([
-    path(['scenes', 'feature-flags', 'featureFlagScheduleEditLogic']),
+    path((id) => ['scenes', 'feature-flags', 'featureFlagScheduleEditLogic', id]),
+    props({} as FeatureFlagScheduleEditLogicProps),
+    key(({ id }) => id),
     actions({
         openEdit: (schedule: ScheduledChangeType) => ({ schedule }),
         closeEdit: true,
@@ -178,6 +179,9 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                             errors.cronExpression = 'Invalid cron expression'
                         }
                     }
+                } else if (isRecurring && cron !== null) {
+                    // User is in cron mode (cron is '' rather than null) but hasn't entered an expression
+                    errors.cronExpression = 'Enter a cron expression'
                 }
                 if (endDate && scheduledAt && endDate.isBefore(scheduledAt)) {
                     errors.endDate = 'End date must be after the scheduled start date'
@@ -186,7 +190,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props: logicProps }) => ({
         setEditRepeatsValue: ({ value }) => {
             if (value === 'none') {
                 actions.setEditIsRecurring(false)
@@ -224,7 +228,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
             const { editingSchedule, editValidationErrors } = values
             if (!editingSchedule || Object.keys(editValidationErrors).length > 0) {
                 if (Object.keys(editValidationErrors).length > 0) {
-                    const firstError = Object.values(editValidationErrors)[0]
+                    const firstError = Object.values(editValidationErrors)[0] as string
                     lemonToast.error(firstError)
                 }
                 actions.saveEditFailure()
@@ -287,9 +291,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                 lemonToast.success('Schedule updated')
                 actions.saveEditSuccess()
                 // Reload the schedule list in the parent logic
-                featureFlagLogic
-                    .findMounted({ id: editingSchedule.record_id as number })
-                    ?.actions.loadScheduledChanges()
+                featureFlagLogic.findMounted({ id: logicProps.id })?.actions.loadScheduledChanges()
             } catch {
                 lemonToast.error('Failed to update schedule')
                 actions.saveEditFailure()
