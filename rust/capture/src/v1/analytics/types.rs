@@ -33,19 +33,13 @@ pub struct Batch {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Options {
-    #[serde(rename = "$cookieless_mode", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
-    #[serde(
-        rename = "$ignore_attempt_timestamp",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_attempt_timestamp: Option<bool>,
-    #[serde(rename = "$product_tour_id", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub product_tour_id: Option<String>,
-    #[serde(
-        rename = "$process_person_profile",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub process_person_profile: Option<bool>,
 }
 
@@ -55,9 +49,9 @@ pub struct Event {
     pub uuid: String,
     pub distinct_id: String,
     pub timestamp: String,
-    #[serde(rename = "$session_id", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    #[serde(rename = "$window_id", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub window_id: Option<String>,
     pub options: Options,
     #[serde(default = "empty_raw_object")]
@@ -89,7 +83,7 @@ impl HasEventName for WrappedEvent {
 
     fn has_property(&self, key: &str) -> bool {
         match key {
-            "$product_tour_id" => self.event.options.product_tour_id.is_some(),
+            "product_tour_id" => self.event.options.product_tour_id.is_some(),
             _ => false,
         }
     }
@@ -111,6 +105,13 @@ impl HasEventName for WrappedEvent {
 ///
 /// Will implement the upcoming `v1::Sink` trait to abstract serialization
 /// and partition key derivation.
+// TODO(v1::Sink): when publishing to Kafka, re-apply `$` prefixes to these
+// fields for legacy consumer compatibility:
+//   Event: session_id -> $session_id, window_id -> $window_id
+//   Options: cookieless_mode -> $cookieless_mode,
+//            ignore_attempt_timestamp -> $ignore_attempt_timestamp,
+//            product_tour_id -> $product_tour_id,
+//            process_person_profile -> $process_person_profile
 #[derive(Debug, Serialize)]
 pub struct IngestionEvent {
     pub uuid: String,
@@ -364,13 +365,13 @@ mod tests {
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "user-1",
                 "timestamp": "2026-03-19T14:29:58.123Z",
-                "$session_id": "sess-abc",
-                "$window_id": "win-xyz",
+                "session_id": "sess-abc",
+                "window_id": "win-xyz",
                 "options": {
-                    "$cookieless_mode": true,
-                    "$ignore_attempt_timestamp": true,
-                    "$product_tour_id": "tour-123",
-                    "$process_person_profile": false
+                    "cookieless_mode": true,
+                    "ignore_attempt_timestamp": true,
+                    "product_tour_id": "tour-123",
+                    "process_person_profile": false
                 }
             }]
         }"#;

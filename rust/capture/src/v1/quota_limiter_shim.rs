@@ -62,7 +62,7 @@ pub async fn apply_quota_limits(
             }
             let info = EventInfo {
                 name: ev.event_name(),
-                has_product_tour_id: ev.has_property("$product_tour_id"),
+                has_product_tour_id: ev.has_property("product_tour_id"),
             };
             if predicate(info) {
                 ev.result = EventResult::Limited;
