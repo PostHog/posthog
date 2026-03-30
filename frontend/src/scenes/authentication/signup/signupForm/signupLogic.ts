@@ -71,6 +71,12 @@ export const signupLogic = kea<signupLogicType>([
         setPasskeyRegistering: (registering: boolean) => ({ registering }),
         setPasskeyError: (error: string | null) => ({ error }),
         setError: (error: string | null) => ({ error }),
+        // Turnstile challenge actions
+        setChallengeRequired: (required: boolean) => ({ required }),
+        setChallengeNonce: (nonce: string | null) => ({ nonce }),
+        setTurnstileSiteKey: (siteKey: string | null) => ({ siteKey }),
+        setTurnstileToken: (token: string | null) => ({ token }),
+        resetChallenge: true,
     })),
     reducers(() => ({
         panel: [
@@ -108,6 +114,33 @@ export const signupLogic = kea<signupLogicType>([
             null as string | null,
             {
                 setError: (_, { error }) => error,
+            },
+        ],
+        challengeRequired: [
+            false,
+            {
+                setChallengeRequired: (_, { required }) => required,
+                resetChallenge: () => false,
+            },
+        ],
+        challengeNonce: [
+            null as string | null,
+            {
+                setChallengeNonce: (_, { nonce }) => nonce,
+                resetChallenge: () => null,
+            },
+        ],
+        turnstileSiteKey: [
+            null as string | null,
+            {
+                setTurnstileSiteKey: (_, { siteKey }) => siteKey,
+            },
+        ],
+        turnstileToken: [
+            null as string | null,
+            {
+                setTurnstileToken: (_, { token }) => token,
+                resetChallenge: () => null,
             },
         ],
     })),
@@ -206,6 +239,11 @@ export const signupLogic = kea<signupLogicType>([
                         signupData.password = values.signupPanelAuth.password
                     }
 
+                    if (values.turnstileToken && values.challengeNonce) {
+                        signupData.turnstile_token = values.turnstileToken
+                        signupData.challenge_nonce = values.challengeNonce
+                    }
+
                     const res = await api.create('api/signup/', signupData)
 
                     if (!payload.organization_name) {
@@ -221,6 +259,15 @@ export const signupLogic = kea<signupLogicType>([
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     const error = e as Record<string, any>
+
+                    if (error.code === 'challenge_required') {
+                        actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
+                        actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
+                        actions.setChallengeRequired(true)
+                        return
+                    }
+
+                    actions.resetChallenge()
 
                     if (error.code === 'throttled') {
                         actions.setSignupPanelOnboardingManualErrors({
@@ -311,14 +358,21 @@ export const signupLogic = kea<signupLogicType>([
                 try {
                     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
-                    const res = await api.create('api/signup/', {
+                    const signupData: Record<string, any> = {
                         ...values.signupPanel1,
                         ...payload,
                         first_name: payload.name.split(' ')[0],
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
                         next_url: nextUrl ?? undefined,
-                    })
+                    }
+
+                    if (values.turnstileToken && values.challengeNonce) {
+                        signupData.turnstile_token = values.turnstileToken
+                        signupData.challenge_nonce = values.challengeNonce
+                    }
+
+                    const res = await api.create('api/signup/', signupData)
 
                     if (!payload.organization_name) {
                         posthog.capture('sign up organization name not provided')
@@ -329,6 +383,15 @@ export const signupLogic = kea<signupLogicType>([
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     const error = e as Record<string, any>
+
+                    if (error.code === 'challenge_required') {
+                        actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
+                        actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
+                        actions.setChallengeRequired(true)
+                        return
+                    }
+
+                    actions.resetChallenge()
 
                     if (error.code === 'throttled') {
                         actions.setSignupPanel2ManualErrors({
@@ -433,6 +496,15 @@ export const signupLogic = kea<signupLogicType>([
             if (registered) {
                 // Advance to onboarding panel after successful passkey registration
                 actions.setPanel(2)
+            }
+        },
+        setTurnstileToken: ({ token }) => {
+            if (token && values.challengeNonce) {
+                if (values.passkeySignupEnabled) {
+                    actions.submitSignupPanelOnboarding()
+                } else {
+                    actions.submitSignupPanel2()
+                }
             }
         },
         registerPasskey: async () => {
