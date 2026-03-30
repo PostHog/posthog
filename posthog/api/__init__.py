@@ -79,6 +79,7 @@ from products.llm_analytics.backend.api import (
     ScoreDefinitionViewSet,
     TraceReviewViewSet,
 )
+from products.mcp_analytics.backend.presentation.views import MCPFeedbackViewSet, MCPMissingCapabilityViewSet
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
@@ -1379,6 +1380,20 @@ environments_router.register(
     r"mcp_servers",
     mcp_store.MCPServerViewSet,
     "environment_mcp_servers",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"mcp_analytics/feedback",
+    MCPFeedbackViewSet,
+    "environment_mcp_analytics_feedback",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"mcp_analytics/missing_capabilities",
+    MCPMissingCapabilityViewSet,
+    "environment_mcp_analytics_missing_capabilities",
     ["team_id"],
 )
 

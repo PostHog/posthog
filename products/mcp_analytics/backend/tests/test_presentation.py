@@ -1,0 +1,100 @@
+from posthog.test.base import APIBaseTest
+
+from rest_framework import status
+
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+
+
+class TestMCPAnalyticsPresentation(APIBaseTest):
+    def test_create_feedback_submission(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+            {
+                "goal": "understand why feature flag releases keep failing",
+                "feedback": "I need a better explanation of rollout blast radius before changing a flag.",
+                "category": "results",
+                "attempted_tool": "feature_flag_get_all",
+                "mcp_client_name": "Claude Desktop",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+
+        assert data["kind"] == MCPAnalyticsSubmission.Kind.FEEDBACK
+        assert data["goal"] == "understand why feature flag releases keep failing"
+        assert data["summary"] == "I need a better explanation of rollout blast radius before changing a flag."
+        assert data["category"] == "results"
+        assert data["attempted_tool"] == "feature_flag_get_all"
+        assert data["mcp_client_name"] == "Claude Desktop"
+
+    def test_create_missing_capability_submission_defaults_blocked(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/missing_capabilities/",
+            {
+                "goal": "debug why my survey is not showing",
+                "missing_capability": "I need a tool that explains survey eligibility for a specific user.",
+                "attempted_tool": "survey_get",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+
+        assert data["kind"] == MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY
+        assert data["blocked"] is True
+        assert data["attempted_tool"] == "survey_get"
+
+    def test_feedback_list_is_team_scoped(self) -> None:
+        MCPAnalyticsSubmission.objects.create(
+            team=self.team,
+            created_by=self.user,
+            kind=MCPAnalyticsSubmission.Kind.FEEDBACK,
+            goal="understand usage",
+            summary="Feedback for this team",
+        )
+        other_team = self.organization.teams.create(name="Other Team")
+        MCPAnalyticsSubmission.objects.create(
+            team=other_team,
+            created_by=self.user,
+            kind=MCPAnalyticsSubmission.Kind.FEEDBACK,
+            goal="other",
+            summary="Should not leak",
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/feedback/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["summary"] == "Feedback for this team"
+
+    def test_feedback_and_missing_capability_lists_are_split_by_kind(self) -> None:
+        MCPAnalyticsSubmission.objects.create(
+            team=self.team,
+            created_by=self.user,
+            kind=MCPAnalyticsSubmission.Kind.FEEDBACK,
+            goal="improve prompts",
+            summary="Feedback entry",
+        )
+        MCPAnalyticsSubmission.objects.create(
+            team=self.team,
+            created_by=self.user,
+            kind=MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY,
+            goal="debug tool errors",
+            summary="Missing capability entry",
+            blocked=False,
+        )
+
+        feedback_response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/feedback/")
+        missing_response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/missing_capabilities/")
+
+        assert feedback_response.status_code == status.HTTP_200_OK
+        assert missing_response.status_code == status.HTTP_200_OK
+        assert [entry["kind"] for entry in feedback_response.json()["results"]] == [
+            MCPAnalyticsSubmission.Kind.FEEDBACK
+        ]
+        assert [entry["kind"] for entry in missing_response.json()["results"]] == [
+            MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY
+        ]

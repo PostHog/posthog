@@ -652,6 +652,9 @@ importers:
       '@posthog/products-managed-migrations':
         specifier: workspace:*
         version: link:../products/managed_migrations
+      '@posthog/products-mcp-analytics':
+        specifier: workspace:*
+        version: link:../products/mcp_analytics
       '@posthog/products-mcp-store':
         specifier: workspace:*
         version: link:../products/mcp_store
@@ -2534,6 +2537,8 @@ importers:
         version: 18.3.1
 
   products/marketing_analytics: {}
+
+  products/mcp_analytics: {}
 
   products/mcp_store:
     dependencies:
