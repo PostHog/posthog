@@ -494,6 +494,16 @@ fn parse_request_start_ms(value: &str) -> Option<i64> {
     Some(ms)
 }
 
+/// Returns `Some(delta_ms)` when `start_ms` is plausibly in the past
+/// and within a 5-minute window; returns `None` otherwise.
+fn plausible_delta_ms(start_ms: i64, now_ms: i64) -> Option<i64> {
+    let delta = now_ms.checked_sub(start_ms)?;
+    if delta < 0 || delta >= 300_000 {
+        return None;
+    }
+    Some(delta)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::api::types::Compression;
