@@ -201,6 +201,27 @@ class TestQueryCoalescer(TestCase):
         after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
         self.assertEqual(after, before + 1)
 
+    def test_new_leader_preserves_done_key_from_previous_round(self):
+        """A new leader acquiring the lock must not delete the
+        done_key stored by the previous leader, otherwise followers of the
+        previous round will see not data."""
+        leader_a = QueryCoalescer(self.key)
+        leader_a.try_acquire()
+        leader_a.store_success_response(200, b'{"ok": true}', "application/json")
+        leader_a.cleanup()
+
+        # Leader B acquires the same key (simulates a new identical request)
+        leader_b = QueryCoalescer(self.key)
+        leader_b.try_acquire()
+
+        # Follower from round A should still be able to read the done_key
+        result = leader_b.get_success_response()
+        self.assertIsNotNone(
+            result, "done_key was deleted by new leader — followers from the previous round will crash"
+        )
+        self.assertEqual(result["status"], 200)
+        leader_b.cleanup()
+
     # -- Redis failure --
 
     def test_redis_failure_on_acquire_raises(self):

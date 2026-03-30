@@ -27,9 +27,14 @@ DONE_KEY_PREFIX = "http_qc_done"
 ERROR_KEY_PREFIX = "http_qc_err"
 CHANNEL_PREFIX = "http_qc_ch"
 LOCK_TTL_SECONDS = 60
-ERROR_TTL_SECONDS = 60
 POLL_INTERVAL_SECONDS = 0.2
 HEARTBEAT_INTERVAL_SECONDS = 5
+# Keep short: followers poll done_key every POLL_INTERVAL as a fallback for
+# missed pub/sub signals. A long TTL lets a NEW round's followers read a
+# stale result from the PREVIOUS round (same query, but possibly outdated
+# for force_blocking requests).
+DONE_TTL_SECONDS = 5
+ERROR_TTL_SECONDS = 5
 
 _RELEASE_LOCK_SCRIPT = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -125,7 +130,6 @@ class QueryCoalescer:
         acquired = self._redis.set(self._lock_key, self._lock_value, nx=True, ex=LOCK_TTL_SECONDS)
         self._is_leader = bool(acquired)
         if self._is_leader:
-            self._redis.delete(self._done_key, self._error_key)
             self._heartbeat = _Heartbeat(self._redis, self._lock_key, self._lock_value, self._channel_key)
             query_coalesce_counter.labels(outcome="leader").inc()
         elif self._dry_run:
@@ -197,7 +201,7 @@ class QueryCoalescer:
                     "content_type": content_type,
                 }
             )
-            self._redis.set(self._done_key, payload, ex=LOCK_TTL_SECONDS)
+            self._redis.set(self._done_key, payload, ex=DONE_TTL_SECONDS)
             self._redis.publish(self._channel_key, CoalesceSignal.DONE)
         except RedisError:
             pass
