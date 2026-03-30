@@ -444,6 +444,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_INCLUDE_HOST: 'web-analytics-include-host', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_LIVE_MAP: 'web-analytics-live-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_METRICS: 'web-analytics-live-metrics', // owner: @jordanm-posthog #team-web-analytics
+    WEB_ANALYTICS_LIVE_REFERRERS: 'web-analytics-live-referrers', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_OPEN_URL: 'web-analytics-open-url', // owner: @lricoy #team-web-analytics
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
