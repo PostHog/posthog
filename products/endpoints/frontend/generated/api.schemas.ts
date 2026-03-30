@@ -70,6 +70,8 @@ export interface UserBasicApi {
  * Materialization status for an endpoint version.
  */
 export interface EndpointMaterializationApi {
+    /** URL-safe endpoint name. */
+    name: string
     /** Current materialization status (e.g. 'Completed', 'Running'). */
     status?: string
     /** Whether this endpoint query can be materialized. */
@@ -330,6 +332,70 @@ export interface EndpointVersionResponseApi {
     version_created_at: string
     /** User who created this version. */
     readonly version_created_by: UserBasicApi | null
+}
+
+/**
+ * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
+ * @nullable
+ */
+export type PatchedEndpointRequestApiBucketOverrides = { [key: string]: unknown } | null | null
+
+/**
+ * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
+ */
+export interface PatchedEndpointRequestApi {
+    /**
+     * Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.
+     * @nullable
+     */
+    name?: string | null
+    /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
+    query?: unknown | null
+    /**
+     * Human-readable description of what this endpoint returns.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * Cache TTL in seconds (60–86400).
+     * @nullable
+     */
+    cache_age_seconds?: number | null
+    /**
+     * Whether this endpoint is available for execution via the API.
+     * @nullable
+     */
+    is_active?: boolean | null
+    /**
+     * Whether query results are materialized to S3.
+     * @nullable
+     */
+    is_materialized?: boolean | null
+    /**
+     * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
+     * @nullable
+     */
+    sync_frequency?: string | null
+    /**
+     * Short ID of the insight this endpoint was derived from.
+     * @nullable
+     */
+    derived_from_insight?: string | null
+    /**
+     * Target a specific version for updates (defaults to current version).
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
+     * @nullable
+     */
+    bucket_overrides?: PatchedEndpointRequestApiBucketOverrides
+    /**
+     * Set to true to soft-delete this endpoint.
+     * @nullable
+     */
+    deleted?: boolean | null
 }
 
 /**

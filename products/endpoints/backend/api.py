@@ -13,6 +13,7 @@ import structlog
 import posthoganalytics
 from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema_view
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
 from rest_framework import serializers, status, viewsets
@@ -277,6 +278,13 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_view(
+    partial_update=extend_schema(
+        request=EndpointRequestSerializer,
+        responses={200: EndpointResponseSerializer},
+        description="Update an existing endpoint.",
+    ),
+)
 @extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
@@ -333,10 +341,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return None
 
-    def _build_materialization_info(self, version: EndpointVersion) -> dict:
+    def _build_materialization_info(self, version: EndpointVersion, endpoint_name: str | None = None) -> dict:
         """Build materialization status dict for a version."""
         if version.saved_query:
-            return {
+            result = {
                 "status": version.saved_query.status or "Unknown",
                 "can_materialize": True,
                 "last_materialized_at": (
@@ -349,12 +357,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     version.saved_query.sync_frequency_interval
                 ),
             }
+        else:
+            can_mat, reason = version.can_materialize()
+            result = {
+                "can_materialize": can_mat,
+                "reason": reason if not can_mat else None,
+            }
 
-        can_mat, reason = version.can_materialize()
-        return {
-            "can_materialize": can_mat,
-            "reason": reason if not can_mat else None,
-        }
+        if endpoint_name is not None:
+            result["name"] = endpoint_name
+        return result
 
     def _serialize(
         self,
@@ -2205,7 +2217,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         else:
             version = endpoint.get_version()
 
-        return Response(self._build_materialization_info(version))
+        return Response(self._build_materialization_info(version, endpoint_name=endpoint.name))
 
     @validated_request(
         MaterializationPreviewRequestSerializer,

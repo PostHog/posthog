@@ -7,6 +7,7 @@ import {
     EndpointsDestroyParams,
     EndpointsListQueryParams,
     EndpointsMaterializationStatusRetrieveParams,
+    EndpointsPartialUpdateBody,
     EndpointsPartialUpdateParams,
     EndpointsRetrieveParams,
     EndpointsRunCreateBody,
@@ -14,11 +15,15 @@ import {
     EndpointsVersionsListParams,
     EndpointsVersionsListQueryParams,
 } from '@/generated/endpoints/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const EndpointsGetAllSchema = EndpointsListQueryParams
 
-const endpointsGetAll = (): ToolBase<typeof EndpointsGetAllSchema, unknown> => ({
+const endpointsGetAll = (): ToolBase<
+    typeof EndpointsGetAllSchema,
+    WithPostHogUrl<Schemas.PaginatedEndpointResponseList>
+> => ({
     name: 'endpoints-get-all',
     schema: EndpointsGetAllSchema,
     handler: async (context: Context, params: z.infer<typeof EndpointsGetAllSchema>) => {
@@ -33,33 +38,31 @@ const endpointsGetAll = (): ToolBase<typeof EndpointsGetAllSchema, unknown> => (
                 offset: params.offset,
             },
         })
-        const items = (result as any).results ?? result
-        return {
-            ...(result as any),
-            results: (items as any[]).map((item: any) => ({
-                ...item,
-                _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/endpoints/${item.name}`,
-            })),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/endpoints`,
-        }
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    result.results.map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                ),
+            },
+            '/endpoints'
+        )
     },
 })
 
 const EndpointGetSchema = EndpointsRetrieveParams.omit({ project_id: true })
 
-const endpointGet = (): ToolBase<typeof EndpointGetSchema, Schemas.EndpointResponse & { _posthogUrl: string }> => ({
+const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schemas.EndpointVersionResponse>> => ({
     name: 'endpoint-get',
     schema: EndpointGetSchema,
     handler: async (context: Context, params: z.infer<typeof EndpointGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EndpointResponse>({
+        const result = await context.api.request<Schemas.EndpointVersionResponse>({
             method: 'GET',
             path: `/api/projects/${projectId}/endpoints/${params.name}/`,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/endpoints/${(result as any).name}`,
-        }
+        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
     },
 })
 
@@ -72,10 +75,7 @@ const EndpointCreateSchema = EndpointsCreateBody.omit({
     deleted: true,
 })
 
-const endpointCreate = (): ToolBase<
-    typeof EndpointCreateSchema,
-    Schemas.EndpointResponse & { _posthogUrl: string }
-> => ({
+const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({
     name: 'endpoint-create',
     schema: EndpointCreateSchema,
     handler: async (context: Context, params: z.infer<typeof EndpointCreateSchema>) => {
@@ -101,39 +101,61 @@ const endpointCreate = (): ToolBase<
             path: `/api/projects/${projectId}/endpoints/`,
             body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/endpoints/${(result as any).name}`,
-        }
+        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
     },
 })
 
-const EndpointUpdateSchema = EndpointsPartialUpdateParams.omit({ project_id: true })
+const EndpointUpdateSchema = EndpointsPartialUpdateParams.omit({ project_id: true }).extend(
+    EndpointsPartialUpdateBody.omit({
+        name: true,
+        sync_frequency: true,
+        derived_from_insight: true,
+        bucket_overrides: true,
+        deleted: true,
+    }).shape
+)
 
-const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, unknown> => ({
+const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({
     name: 'endpoint-update',
     schema: EndpointUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof EndpointUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.cache_age_seconds !== undefined) {
+            body['cache_age_seconds'] = params.cache_age_seconds
+        }
+        if (params.is_active !== undefined) {
+            body['is_active'] = params.is_active
+        }
+        if (params.is_materialized !== undefined) {
+            body['is_materialized'] = params.is_materialized
+        }
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/endpoints/${params.name}/`,
+            body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/endpoints/${(result as any).name}`,
-        }
+        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
     },
 })
 
 const EndpointDeleteSchema = EndpointsDestroyParams.omit({ project_id: true })
 
-const endpointDelete = (): ToolBase<typeof EndpointDeleteSchema, unknown> => ({
+const endpointDelete = (): ToolBase<typeof EndpointDeleteSchema, Schemas.EndpointResponse> => ({
     name: 'endpoint-delete',
     schema: EndpointDeleteSchema,
     handler: async (context: Context, params: z.infer<typeof EndpointDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/endpoints/${params.name}/`,
             body: { deleted: true },
@@ -169,10 +191,7 @@ const endpointRun = (): ToolBase<typeof EndpointRunSchema, unknown> => ({
             path: `/api/projects/${projectId}/endpoints/${params.name}/run/`,
             body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/endpoints/${(result as any).name}`,
-        }
+        return result
     },
 })
 
@@ -180,10 +199,7 @@ const EndpointVersionsSchema = EndpointsVersionsListParams.omit({ project_id: tr
     EndpointsVersionsListQueryParams.shape
 )
 
-const endpointVersions = (): ToolBase<
-    typeof EndpointVersionsSchema,
-    Schemas.PaginatedEndpointVersionResponseList & { _posthogUrl: string }
-> => ({
+const endpointVersions = (): ToolBase<typeof EndpointVersionsSchema, Schemas.PaginatedEndpointVersionResponseList> => ({
     name: 'endpoint-versions',
     schema: EndpointVersionsSchema,
     handler: async (context: Context, params: z.infer<typeof EndpointVersionsSchema>) => {
@@ -198,10 +214,7 @@ const endpointVersions = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/endpoints/${(result as any).name}`,
-        }
+        return result
     },
 })
 
@@ -209,7 +222,7 @@ const EndpointMaterializationStatusSchema = EndpointsMaterializationStatusRetrie
 
 const endpointMaterializationStatus = (): ToolBase<
     typeof EndpointMaterializationStatusSchema,
-    Schemas.EndpointMaterialization & { _posthogUrl: string }
+    WithPostHogUrl<Schemas.EndpointMaterialization>
 > => ({
     name: 'endpoint-materialization-status',
     schema: EndpointMaterializationStatusSchema,
@@ -219,10 +232,7 @@ const endpointMaterializationStatus = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${projectId}/endpoints/${params.name}/materialization_status/`,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/endpoints/${(result as any).name}`,
-        }
+        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
     },
 })
 

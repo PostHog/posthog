@@ -74,6 +74,9 @@ class EndpointRequestSerializer(serializers.Serializer):
 class EndpointMaterializationSerializer(serializers.Serializer):
     """Materialization status for an endpoint version."""
 
+    name = serializers.CharField(
+        help_text="URL-safe endpoint name.",
+    )
     status = serializers.CharField(
         required=False,
         help_text="Current materialization status (e.g. 'Completed', 'Running').",

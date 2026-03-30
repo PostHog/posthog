@@ -87,6 +87,9 @@ export const EndpointsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Update an existing endpoint.
+ */
 export const EndpointsPartialUpdateParams = /* @__PURE__ */ zod.object({
     name: zod.string(),
     project_id: zod
@@ -95,6 +98,44 @@ export const EndpointsPartialUpdateParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .nullish()
+            .describe(
+                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+            ),
+        query: zod
+            .unknown()
+            .nullish()
+            .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
+        description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
+        cache_age_seconds: zod.number().nullish().describe('Cache TTL in seconds (60–86400).'),
+        is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
+        is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),
+        sync_frequency: zod
+            .string()
+            .nullish()
+            .describe("Materialization refresh frequency (e.g. 'every_hour', 'every_day')."),
+        derived_from_insight: zod
+            .string()
+            .nullish()
+            .describe('Short ID of the insight this endpoint was derived from.'),
+        version: zod
+            .number()
+            .nullish()
+            .describe('Target a specific version for updates (defaults to current version).'),
+        bucket_overrides: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.'
+            ),
+        deleted: zod.boolean().nullish().describe('Set to true to soft-delete this endpoint.'),
+    })
+    .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
 /**
  * Delete an endpoint and clean up materialized query.
@@ -153,7 +194,7 @@ export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnethreeTypeDefa
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnefourTypeDefault = `data_warehouse`
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnefiveTypeDefault = `data_warehouse_person_property`
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnesixTypeDefault = `error_tracking_issue`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOneeightTypeDefault = `revenue_analytics`
+export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnenineTypeDefault = `revenue_analytics`
 
 export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
     client_query_id: zod
@@ -1017,9 +1058,58 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                 'icontains_multi',
                                 'not_icontains_multi',
                             ]),
+                            type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
+                            value: zod
+                                .union([
+                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                    zod.string(),
+                                    zod.number(),
+                                    zod.boolean(),
+                                ])
+                                .nullish(),
+                        }),
+                        zod.object({
+                            key: zod.string(),
+                            label: zod.string().nullish(),
+                            operator: zod.enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'gte',
+                                'lt',
+                                'lte',
+                                'is_set',
+                                'is_not_set',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'between',
+                                'not_between',
+                                'min',
+                                'max',
+                                'in',
+                                'not_in',
+                                'is_cleaned_path_exact',
+                                'flag_evaluates_to',
+                                'semver_eq',
+                                'semver_neq',
+                                'semver_gt',
+                                'semver_gte',
+                                'semver_lt',
+                                'semver_lte',
+                                'semver_tilde',
+                                'semver_caret',
+                                'semver_wildcard',
+                                'icontains_multi',
+                                'not_icontains_multi',
+                            ]),
                             type: zod
                                 .enum(['revenue_analytics'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOneeightTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOnenineTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
