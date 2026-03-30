@@ -764,8 +764,6 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 
     _capture_provisioning_event("credential_rotation", "success", team_id=team_id)
 
-    personal_api_key = _create_provisioned_pat(user, team)
-
     service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
@@ -774,7 +772,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key:
+    if personal_api_key := _create_provisioned_pat(user, team):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
