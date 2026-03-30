@@ -53,17 +53,17 @@ const calculatingCohort: CohortData = {
 
 export const Dynamic: Story = {
     render: () => <CohortView cohort={dynamicCohort} />,
-    storyName: 'Dynamic cohort',
+    name: 'Dynamic cohort',
 }
 
 export const Static: Story = {
     render: () => <CohortView cohort={staticCohort} />,
-    storyName: 'Static cohort',
+    name: 'Static cohort',
 }
 
 export const Calculating: Story = {
     render: () => <CohortView cohort={calculatingCohort} />,
-    storyName: 'Calculating cohort',
+    name: 'Calculating cohort',
 }
 
 const sampleListData: CohortListData = {
@@ -73,5 +73,5 @@ const sampleListData: CohortListData = {
 
 export const List: Story = {
     render: () => <CohortListView data={sampleListData} />,
-    storyName: 'Cohort list',
+    name: 'Cohort list',
 }

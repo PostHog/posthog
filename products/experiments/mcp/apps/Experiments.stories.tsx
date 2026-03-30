@@ -79,17 +79,17 @@ const draftExperiment: ExperimentData = {
 
 export const Running: Story = {
     render: () => <ExperimentView experiment={runningExperiment} />,
-    storyName: 'Running experiment',
+    name: 'Running experiment',
 }
 
 export const Completed: Story = {
     render: () => <ExperimentView experiment={completedExperiment} />,
-    storyName: 'Completed with winner',
+    name: 'Completed with winner',
 }
 
 export const Draft: Story = {
     render: () => <ExperimentView experiment={draftExperiment} />,
-    storyName: 'Draft experiment',
+    name: 'Draft experiment',
 }
 
 const sampleListData: ExperimentListData = {
@@ -100,7 +100,7 @@ const sampleListData: ExperimentListData = {
 
 export const List: Story = {
     render: () => <ExperimentListView data={sampleListData} />,
-    storyName: 'Experiment list',
+    name: 'Experiment list',
 }
 
 const sampleResults: ExperimentResultsData = {
@@ -124,5 +124,5 @@ const sampleResults: ExperimentResultsData = {
 
 export const Results: Story = {
     render: () => <ExperimentResultsView data={sampleResults} />,
-    storyName: 'Experiment results',
+    name: 'Experiment results',
 }

@@ -89,17 +89,17 @@ const sampleInactiveFlag: FeatureFlagData = {
 
 export const BooleanFlag: Story = {
     render: () => <FeatureFlagView flag={sampleBooleanFlag} />,
-    storyName: 'Boolean flag',
+    name: 'Boolean flag',
 }
 
 export const MultivariateFlag: Story = {
     render: () => <FeatureFlagView flag={sampleMultivariateFlag} />,
-    storyName: 'Multivariate flag with variant override',
+    name: 'Multivariate flag with variant override',
 }
 
 export const InactiveFlag: Story = {
     render: () => <FeatureFlagView flag={sampleInactiveFlag} />,
-    storyName: 'Inactive flag',
+    name: 'Inactive flag',
 }
 
 const sampleListData: FeatureFlagListData = {
@@ -112,5 +112,5 @@ const sampleListData: FeatureFlagListData = {
 
 export const FlagList: Story = {
     render: () => <FeatureFlagListView data={sampleListData} />,
-    storyName: 'Flag list',
+    name: 'Flag list',
 }

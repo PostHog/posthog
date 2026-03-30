@@ -53,17 +53,17 @@ const archivedWorkflow: WorkflowData = {
 
 export const Active: Story = {
     render: () => <WorkflowView workflow={activeWorkflow} />,
-    storyName: 'Active workflow',
+    name: 'Active workflow',
 }
 
 export const DraftState: Story = {
     render: () => <WorkflowView workflow={draftWorkflow} />,
-    storyName: 'Draft workflow',
+    name: 'Draft workflow',
 }
 
 export const Archived: Story = {
     render: () => <WorkflowView workflow={archivedWorkflow} />,
-    storyName: 'Archived workflow',
+    name: 'Archived workflow',
 }
 
 const sampleListData: WorkflowListData = {
@@ -74,5 +74,5 @@ const sampleListData: WorkflowListData = {
 
 export const List: Story = {
     render: () => <WorkflowListView data={sampleListData} />,
-    storyName: 'Workflow list',
+    name: 'Workflow list',
 }

@@ -69,17 +69,17 @@ const suppressedIssue: ErrorIssueData = {
 
 export const Active: Story = {
     render: () => <ErrorIssueView issue={activeIssue} />,
-    storyName: 'Active issue',
+    name: 'Active issue',
 }
 
 export const Resolved: Story = {
     render: () => <ErrorIssueView issue={resolvedIssue} />,
-    storyName: 'Resolved issue',
+    name: 'Resolved issue',
 }
 
 export const WithExternalLinks: Story = {
     render: () => <ErrorIssueView issue={issueWithLinks} />,
-    storyName: 'Issue with external links',
+    name: 'Issue with external links',
 }
 
 const sampleListData: ErrorIssueListData = {
@@ -90,7 +90,7 @@ const sampleListData: ErrorIssueListData = {
 
 export const List: Story = {
     render: () => <ErrorIssueListView data={sampleListData} />,
-    storyName: 'Issue list',
+    name: 'Issue list',
 }
 
 // -- Stack Trace stories --
@@ -206,17 +206,17 @@ const pythonException: ExceptionData = {
 
 export const StackTrace: Story = {
     render: () => <StackTraceView exceptions={[jsException]} />,
-    storyName: 'Stack trace (JavaScript)',
+    name: 'Stack trace (JavaScript)',
 }
 
 export const PythonStackTrace: Story = {
     render: () => <StackTraceView exceptions={[pythonException]} />,
-    storyName: 'Stack trace (Python)',
+    name: 'Stack trace (Python)',
 }
 
 export const ChainedExceptions: Story = {
     render: () => <StackTraceView exceptions={[jsException, pythonException]} />,
-    storyName: 'Chained exceptions',
+    name: 'Chained exceptions',
 }
 
 const sampleErrorDetails: ErrorDetailsData = {
@@ -243,5 +243,5 @@ const sampleErrorDetails: ErrorDetailsData = {
 
 export const ErrorDetails: Story = {
     render: () => <ErrorDetailsView data={sampleErrorDetails} />,
-    storyName: 'Error details with stack trace',
+    name: 'Error details with stack trace',
 }

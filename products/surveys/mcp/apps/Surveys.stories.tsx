@@ -94,17 +94,17 @@ const completedSurvey: SurveyData = {
 
 export const ActivePopover: Story = {
     render: () => <SurveyView survey={activePopover} />,
-    storyName: 'Active popover survey',
+    name: 'Active popover survey',
 }
 
 export const DraftMultiQuestion: Story = {
     render: () => <SurveyView survey={draftMultiQuestion} />,
-    storyName: 'Draft with multiple question types',
+    name: 'Draft with multiple question types',
 }
 
 export const Completed: Story = {
     render: () => <SurveyView survey={completedSurvey} />,
-    storyName: 'Completed survey',
+    name: 'Completed survey',
 }
 
 const sampleListData: SurveyListData = {
@@ -114,7 +114,7 @@ const sampleListData: SurveyListData = {
 
 export const List: Story = {
     render: () => <SurveyListView data={sampleListData} />,
-    storyName: 'Survey list',
+    name: 'Survey list',
 }
 
 const sampleStats: SurveyStatsData = {
@@ -133,5 +133,5 @@ const sampleStats: SurveyStatsData = {
 
 export const Stats: Story = {
     render: () => <SurveyStatsView data={sampleStats} />,
-    storyName: 'Survey stats',
+    name: 'Survey stats',
 }

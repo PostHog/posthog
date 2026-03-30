@@ -65,17 +65,17 @@ const simpleAction: ActionData = {
 
 export const UrlMatching: Story = {
     render: () => <ActionView action={urlMatchingAction} />,
-    storyName: 'Action with URL matching',
+    name: 'Action with URL matching',
 }
 
 export const MultiStep: Story = {
     render: () => <ActionView action={multiStepAction} />,
-    storyName: 'Pinned action with multiple steps',
+    name: 'Pinned action with multiple steps',
 }
 
 export const Simple: Story = {
     render: () => <ActionView action={simpleAction} />,
-    storyName: 'Simple action',
+    name: 'Simple action',
 }
 
 const sampleListData: ActionListData = {
@@ -85,5 +85,5 @@ const sampleListData: ActionListData = {
 
 export const List: Story = {
     render: () => <ActionListView data={sampleListData} />,
-    storyName: 'Action list',
+    name: 'Action list',
 }
