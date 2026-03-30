@@ -45,10 +45,29 @@ pub fn should_route_to_node() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn test_rate_clamping() {
-        assert_eq!(150.0_f64.clamp(0.0, 100.0), 100.0);
-        assert_eq!((-10.0_f64).clamp(0.0, 100.0), 0.0);
-        assert_eq!(50.0_f64.clamp(0.0, 100.0), 50.0);
+    fn test_config_boundary_behavior() {
+        // Disabled with full rate should not route
+        let config = Config {
+            enabled: false,
+            rollout_rate: 100.0,
+        };
+        assert!(!config.enabled);
+
+        // Over 100 gets clamped to 100
+        let config = Config {
+            enabled: true,
+            rollout_rate: 150.0_f64.clamp(0.0, 100.0),
+        };
+        assert_eq!(config.rollout_rate, 100.0);
+
+        // Negative gets clamped to 0
+        let config = Config {
+            enabled: true,
+            rollout_rate: (-10.0_f64).clamp(0.0, 100.0),
+        };
+        assert_eq!(config.rollout_rate, 0.0);
     }
 }
