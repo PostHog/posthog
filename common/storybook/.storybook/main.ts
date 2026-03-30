@@ -5,7 +5,7 @@ import { createEntry } from '../webpack.config.js'
 const config: StorybookConfig = {
     stories: [
         '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
-        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        '../../../products/**/*.stories.@(js|jsx|ts|tsx|mdx)',
         '../../../common/mosaic/storybook/**/*.stories.@(js|jsx|ts|tsx|mdx)',
     ],
 
