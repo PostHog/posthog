@@ -1,7 +1,7 @@
 import time
-import logging
 from dataclasses import asdict
 from datetime import timedelta
+from typing import cast
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -18,7 +18,7 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.schedule import create_schedule, delete_schedule, schedule_exists
+from posthog.temporal.common.schedule import create_schedule, delete_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHOG_ORG_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
@@ -48,7 +48,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, **options):
-        logger.setLevel(logging.INFO)
         dags = DAG.objects.select_related("team").exclude(name__startswith="conflict_")
         if options.get("team_ids") is not None:
             try:
@@ -79,8 +78,12 @@ class Command(BaseCommand):
             except Exception:
                 failed += 1
                 logger.exception("Failed to migrate DAG", dag_id=str(dag.id), team_id=dag.team_id)
-            time.sleep(BATCH_DELAY_SECONDS)
-        logger.info(f"Done! Migrated: {migrated}, Skipped: {skipped}, Failed: {failed}")
+            if not options["dry_run"]:
+                time.sleep(BATCH_DELAY_SECONDS)
+        if options["dry_run"]:
+            logger.info(f"Dry run complete. Would migrate: {migrated}, Would skip: {skipped}")
+        else:
+            logger.info(f"Done! Migrated: {migrated}, Skipped: {skipped}, Failed: {failed}")
 
     def _migrate_dag(self, dag: DAG, *, dry_run: bool) -> bool:
         """Migrate a single DAG to a v2 schedule.
@@ -109,7 +112,7 @@ class Command(BaseCommand):
                 intervals=[str(i) for i in intervals],
             )
             return False
-        interval: timedelta = intervals[0]
+        interval = cast(timedelta, intervals[0])
         if dry_run:
             logger.info(
                 "Would migrate DAG",
@@ -120,10 +123,6 @@ class Command(BaseCommand):
                 scheduled_nodes=scheduled_nodes.count(),
             )
             return True
-        # rename the DAG to "Default"
-        dag.name = "Default"
-        dag.save(update_fields=["name"])
-        logger.info("Renamed DAG", dag_id=str(dag.id), team_id=team.pk)
         # create the v2 DAG schedule
         temporal = sync_connect()
         schedule_id = str(dag.id)
@@ -170,33 +169,46 @@ class Command(BaseCommand):
             search_attributes=search_attributes,
         )
         logger.info("Created v2 DAG schedule", dag_id=str(dag.id), team_id=team.pk, interval=str(interval))
+        # rename the DAG to "Default" only after schedule creation succeeded
+        dag.name = "Default"
+        dag.save(update_fields=["name"])
+        logger.info("Renamed DAG", dag_id=str(dag.id), team_id=team.pk)
         # delete old per-node schedules
-        if schedule_exists(temporal, schedule_id):
-            deleted_count = 0
-            for node in scheduled_nodes:
-                saved_query = node.saved_query
-                try:
-                    delete_schedule(temporal, schedule_id=str(saved_query.id))
-                    deleted_count += 1
-                except temporalio.service.RPCError as e:
-                    if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                        logger.warning(
-                            "Old schedule not found (already deleted?)",
-                            saved_query_id=str(saved_query.id),
-                            team_id=team.pk,
-                        )
-                    else:
-                        logger.exception(
-                            "Failed to delete old schedule",
-                            saved_query_id=str(saved_query.id),
-                            team_id=team.pk,
-                        )
-            logger.info(
-                "Deleted old per-node schedules",
+        deleted_count = 0
+        failed_schedule_ids: list[str] = []
+        for node in scheduled_nodes:
+            saved_query = node.saved_query
+            if saved_query is None:
+                continue
+            try:
+                delete_schedule(temporal, schedule_id=str(saved_query.id))
+                deleted_count += 1
+            except temporalio.service.RPCError as e:
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    logger.warning(
+                        "Old schedule not found (already deleted?)",
+                        saved_query_id=str(saved_query.id),
+                        team_id=team.pk,
+                    )
+                else:
+                    failed_schedule_ids.append(str(saved_query.id))
+                    logger.exception(
+                        "Failed to delete old schedule",
+                        saved_query_id=str(saved_query.id),
+                        team_id=team.pk,
+                    )
+        if failed_schedule_ids:
+            logger.warning(
+                "Some old schedules could not be deleted",
                 dag_id=str(dag.id),
                 team_id=team.pk,
-                deleted=deleted_count,
-                total=scheduled_nodes.count(),
+                failed_schedule_ids=failed_schedule_ids,
             )
-            return True
-        raise ValueError(f"Failed to create temporal schedule for DAG {dag.id}")
+        logger.info(
+            "Deleted old per-node schedules",
+            dag_id=str(dag.id),
+            team_id=team.pk,
+            deleted=deleted_count,
+            total=scheduled_nodes.count(),
+        )
+        return True
