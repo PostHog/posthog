@@ -234,14 +234,14 @@ describe('GroupTypeManager()', () => {
                 F: 4,
             })
 
-            // // Simulate deleting group type C (@ index 2)
+            // Simulate deleting group type C (@ index 2)
             await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 "DELETE FROM posthog_grouptypemapping WHERE project_id = 2 AND team_id = 2 AND group_type = 'C'",
                 undefined,
                 'deleteGroupType'
             )
-            // bust the cache for project 2 as we've made a call to `.fetchGroupTypes()` earlier
+            // Bust the cache for project 2 as we've made a call to `.fetchGroupTypes()` earlier
             // that cached the state of the group types.
             groupTypeManager['loader'].markForRefresh('2')
             expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
