@@ -2,9 +2,12 @@ version = 1
 revision = 3
 requires-python = "==3.12.12"
 resolution-markers = [
-    "platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
-    "platform_python_implementation == 'PyPy' and sys_platform != 'emscripten'",
-    "sys_platform == 'emscripten'",
+    "platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
+    "platform_machine == 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
+    "platform_machine != 's390x' and platform_python_implementation == 'PyPy' and sys_platform != 'emscripten'",
+    "platform_machine == 's390x' and platform_python_implementation == 'PyPy' and sys_platform != 'emscripten'",
+    "platform_machine != 's390x' and sys_platform == 'emscripten'",
+    "platform_machine == 's390x' and sys_platform == 'emscripten'",
 ]
 
 [[package]]
@@ -4170,7 +4173,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.5.1.17"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/78/4535c9c7f859a64781e43c969a3a7e84c54634e319a996d43ef32ce46f83/nvidia_cudnn_cu12-9.5.1.17-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:30ac3869f6db17d170e0e556dd6cc5eee02647abc31ca856634d5a40f82c15b2", size = 570988386, upload-time = "2024-10-25T19:54:26.39Z" },
@@ -4181,7 +4184,7 @@ name = "nvidia-cufft-cu12"
 version = "11.3.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/16/73727675941ab8e6ffd86ca3a4b7b47065edcca7a997920b831f8147c99d/nvidia_cufft_cu12-11.3.0.4-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:ccba62eb9cef5559abd5e0d54ceed2d9934030f51163df018532142a8ec533e5", size = 200221632, upload-time = "2024-11-20T17:41:32.357Z" },
@@ -4210,9 +4213,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.7.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "sys_platform != 'emscripten'" },
-    { name = "nvidia-cusparse-cu12", marker = "sys_platform != 'emscripten'" },
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-cusparse-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f0/6e/c2cf12c9ff8b872e92b4a5740701e51ff17689c4d726fca91875b07f655d/nvidia_cusolver_cu12-11.7.1.2-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:e9e49843a7707e42022babb9bcfa33c29857a93b88020c4e4434656a655b698c", size = 158229790, upload-time = "2024-11-20T17:43:43.211Z" },
@@ -4224,7 +4227,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.5.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/06/1e/b8b7c2f4099a37b96af5c9bb158632ea9e5d9d27d7391d7eb8fc45236674/nvidia_cusparse_cu12-12.5.4.2-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:7556d9eca156e18184b94947ade0fba5bb47d69cec46bf8660fd2c71a4b48b73", size = 216561367, upload-time = "2024-11-20T17:44:54.824Z" },
@@ -4275,7 +4278,7 @@ wheels = [
 
 [[package]]
 name = "onnx"
-version = "1.20.1"
+version = "1.21.0rc1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ml-dtypes" },
@@ -4283,14 +4286,11 @@ dependencies = [
     { name = "protobuf" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3b/8a/335c03a8683a88a32f9a6bb98899ea6df241a41df64b37b9696772414794/onnx-1.20.1.tar.gz", hash = "sha256:ded16de1df563d51fbc1ad885f2a426f814039d8b5f4feb77febe09c0295ad67", size = 12048980, upload-time = "2026-01-10T01:40:03.043Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/73/420eb8a17bcddd1e5d6dfaff434555a6208581ed225879ea84632ddb89e5/onnx-1.21.0rc1.tar.gz", hash = "sha256:509ce5e22ecdc3961b19d29e495136c329065af1bcb1c9129cebfbb5216625b1", size = 12075111, upload-time = "2026-03-06T20:46:25.701Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/4c/4b17e82f91ab9aa07ff595771e935ca73547b035030dc5f5a76e63fbfea9/onnx-1.20.1-cp312-abi3-macosx_12_0_universal2.whl", hash = "sha256:1d923bb4f0ce1b24c6859222a7e6b2f123e7bfe7623683662805f2e7b9e95af2", size = 17903547, upload-time = "2026-01-10T01:39:31.015Z" },
-    { url = "https://files.pythonhosted.org/packages/64/5e/1bfa100a9cb3f2d3d5f2f05f52f7e60323b0e20bb0abace1ae64dbc88f25/onnx-1.20.1-cp312-abi3-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ddc0b7d8b5a94627dc86c533d5e415af94cbfd103019a582669dad1f56d30281", size = 17412021, upload-time = "2026-01-10T01:39:33.885Z" },
-    { url = "https://files.pythonhosted.org/packages/fb/71/d3fec0dcf9a7a99e7368112d9c765154e81da70fcba1e3121131a45c245b/onnx-1.20.1-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9336b6b8e6efcf5c490a845f6afd7e041c89a56199aeda384ed7d58fb953b080", size = 17510450, upload-time = "2026-01-10T01:39:36.589Z" },
-    { url = "https://files.pythonhosted.org/packages/74/a7/edce1403e05a46e59b502fae8e3350ceeac5841f8e8f1561e98562ed9b09/onnx-1.20.1-cp312-abi3-win32.whl", hash = "sha256:564c35a94811979808ab5800d9eb4f3f32c12daedba7e33ed0845f7c61ef2431", size = 16238216, upload-time = "2026-01-10T01:39:39.46Z" },
-    { url = "https://files.pythonhosted.org/packages/8b/c7/8690c81200ae652ac550c1df52f89d7795e6cc941f3cb38c9ef821419e80/onnx-1.20.1-cp312-abi3-win_amd64.whl", hash = "sha256:9fe7f9a633979d50984b94bda8ceb7807403f59a341d09d19342dc544d0ca1d5", size = 16389207, upload-time = "2026-01-10T01:39:41.955Z" },
-    { url = "https://files.pythonhosted.org/packages/01/a0/4fb0e6d36eaf079af366b2c1f68bafe92df6db963e2295da84388af64abc/onnx-1.20.1-cp312-abi3-win_arm64.whl", hash = "sha256:21d747348b1c8207406fa2f3e12b82f53e0d5bb3958bcd0288bd27d3cb6ebb00", size = 16344155, upload-time = "2026-01-10T01:39:45.536Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/9f/3ff2d2025f01838bb91da35f70de7a25dd9cfc72e2c614f6f4229f51992e/onnx-1.21.0rc1-cp312-abi3-macosx_12_0_universal2.whl", hash = "sha256:3329f2e35a4653081d7747ca1c94b3e1d7bdbfb715d3235c146136b503fce47b", size = 17962705, upload-time = "2026-03-06T20:45:55.189Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/b3/74eee19fbd09601140cdd924e8e2fc3ab95ccf7eacf3e690bb2d717659c8/onnx-1.21.0rc1-cp312-abi3-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8182ceaf48a0776ab669ca2d284725ca2f02cde39c1d1759e103fbe36e89a2a4", size = 17527972, upload-time = "2026-03-06T20:45:59.798Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/85/164945530df3893a5557edf29cd59bbb6674c8a568fadd7b2707678988b0/onnx-1.21.0rc1-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:775c229ca269c549f4848a61f759108d22470725e34a461cb3caf21eefc8483e", size = 17610258, upload-time = "2026-03-06T20:46:02.919Z" },
 ]
 
 [[package]]
@@ -7539,7 +7539,7 @@ name = "triton"
 version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "setuptools", marker = "sys_platform != 'emscripten'" },
+    { name = "setuptools", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/24/5f/950fb373bf9c01ad4eb5a8cd5eaf32cdf9e238c02f9293557a2129b9c4ac/triton-3.3.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9999e83aba21e1a78c1f36f21bce621b77bcaa530277a50484a7cb4a822f6e43", size = 155669138, upload-time = "2025-05-29T23:39:51.771Z" },
