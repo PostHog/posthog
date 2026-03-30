@@ -351,6 +351,7 @@ export function InsightVizDisplay({
                     <InsightsTable
                         // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
                         isLegend={display !== ChartDisplayType.WorldMap}
+                        embedded={embedded}
                         editMode={editMode}
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
                         canEditSeriesNameInline={!hasFormula && editMode}
