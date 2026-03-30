@@ -270,7 +270,6 @@ pub async fn flags(
         .and_then(parse_request_start_ms)
         .and_then(|start_ms| plausible_delta_ms(start_ms, now_ms));
 
-
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
     let canonical_log = FlagsCanonicalLogLine {
@@ -451,6 +450,12 @@ fn create_request_span(
 /// Parse the `X-Request-Start` header value into epoch milliseconds.
 /// Contour sets this as `t=<epoch_seconds>.<fractional>` (e.g., `t=1774859827.782`).
 /// Also accepts the bare numeric form without the `t=` prefix.
+///
+/// Parsing is intentionally strict: no whitespace trimming, no comma-splitting for
+/// multi-value headers. This header is set exclusively by Contour in our infrastructure
+/// with a well-defined format, and malformed values are silently dropped (returns `None`)
+/// since this is metrics-only — strict rejection is the right tradeoff over accepting
+/// ambiguous input.
 ///
 /// Uses integer arithmetic to avoid f64 precision loss when converting seconds to ms.
 fn parse_request_start_ms(value: &str) -> Option<i64> {

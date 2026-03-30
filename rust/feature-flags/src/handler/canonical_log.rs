@@ -255,7 +255,6 @@ pub struct FlagsCanonicalLogLine {
     /// None when the header is missing or delta is outside [0, 5min).
     pub queue_time_ms: Option<i64>,
 
-
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
     pub team_cache_source: Option<&'static str>,
