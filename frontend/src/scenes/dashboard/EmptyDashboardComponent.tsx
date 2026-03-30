@@ -192,7 +192,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
             description={BASE_TEXT}
             isEmpty={true}
             customHog={GraphsHog}
-            hogLayout="stack-on-narrow"
+            hogLayout="responsive"
             useMainContentContainerQueries={true}
             docsURL={DASHBOARD_DOCS_URL}
             className="mt-4 mb-2 px-4 @min-[40rem]/main-content:px-8 py-20 @min-[48rem]/main-content:py-28"

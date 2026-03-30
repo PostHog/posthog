@@ -37,13 +37,14 @@ export type ProductIntroductionProps = {
     customHog?: React.ComponentType<{ className?: string }>
     className?: string
     /**
-     * Default hides the hog below `md`. Use `stack-on-narrow` to show the hog on small screens with a vertical
-     * layout (hog above copy), switching to the horizontal layout from `md` up.
+     * Default hides the hog below `md`. Use `responsive` to keep the hog visible on small screens with a vertical
+     * layout (hog above copy), switching to the horizontal layout from `md` up (or from `main-content` width when
+     * `useMainContentContainerQueries` is set).
      */
-    hogLayout?: 'default' | 'stack-on-narrow'
+    hogLayout?: 'default' | 'responsive'
     /**
-     * When set with `stack-on-narrow`, use the `main-content` container (see Navigation) instead of the viewport
-     * for breakpoints so layout responds when the side panel narrows the main column.
+     * When set with `hogLayout="responsive"`, use the `main-content` container (see Navigation) instead of the
+     * viewport for breakpoints so layout responds when the side panel narrows the main column.
      */
     useMainContentContainerQueries?: boolean
 }
@@ -77,7 +78,7 @@ export const ProductIntroduction = ({
     }
 
     const actionable = action || actionElementOverride
-    const stackHogOnNarrow = hogLayout === 'stack-on-narrow'
+    const isResponsiveHogLayout = hogLayout === 'responsive'
 
     return (
         <div
@@ -103,7 +104,7 @@ export const ProductIntroduction = ({
             <div
                 className={cn(
                     'flex w-full justify-center',
-                    stackHogOnNarrow
+                    isResponsiveHogLayout
                         ? useMainContentContainerQueries
                             ? 'flex-col @min-[48rem]/main-content:flex-row items-center gap-6 @min-[48rem]/main-content:gap-8'
                             : 'flex-col md:flex-row items-center gap-6 md:gap-8'
@@ -112,7 +113,7 @@ export const ProductIntroduction = ({
             >
                 <div
                     className={cn(
-                        stackHogOnNarrow &&
+                        isResponsiveHogLayout &&
                             (useMainContentContainerQueries
                                 ? 'w-full @min-[48rem]/main-content:w-auto flex justify-center'
                                 : 'w-full md:w-auto flex justify-center')
@@ -121,7 +122,7 @@ export const ProductIntroduction = ({
                     <div
                         className={cn(
                             'mx-auto',
-                            stackHogOnNarrow
+                            isResponsiveHogLayout
                                 ? useMainContentContainerQueries
                                     ? 'block w-36 sm:w-40 lg:w-50 mb-4 @min-[48rem]/main-content:mb-0'
                                     : 'block w-36 sm:w-40 lg:w-50 mb-4 md:mb-0'
@@ -140,7 +141,7 @@ export const ProductIntroduction = ({
                 <div
                     className={cn(
                         'flex-shrink max-w-140',
-                        stackHogOnNarrow &&
+                        isResponsiveHogLayout &&
                             (useMainContentContainerQueries
                                 ? 'w-full text-center @min-[48rem]/main-content:text-left'
                                 : 'w-full text-center md:text-left')
@@ -165,7 +166,7 @@ export const ProductIntroduction = ({
                     <div
                         className={cn(
                             'flex items-center gap-x-4 gap-y-2 mt-6 flex-wrap',
-                            stackHogOnNarrow &&
+                            isResponsiveHogLayout &&
                                 (useMainContentContainerQueries
                                     ? 'justify-center @min-[48rem]/main-content:justify-start'
                                     : 'justify-center md:justify-start')
