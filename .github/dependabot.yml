@@ -22,3 +22,13 @@ updates:
       open-pull-requests-limit: 0
       schedule:
           interval: weekly
+      reviewers:
+          - 'PostHog/team-devex'
+
+      # Cooldown period - avoid packages released in last 7 days (applies to version updates only)
+      cooldown:
+          default-days: 7
+
+      ignore:
+          # Exclude Django core from updates
+          - dependency-name: 'django'
