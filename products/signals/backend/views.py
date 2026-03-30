@@ -295,9 +295,9 @@ class SignalReportViewSet(
             Prefetch(
                 "artefacts",
                 queryset=SignalReportArtefact.objects.filter(
-                    type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
                 ).order_by("-created_at"),
-                to_attr="prefetched_actionability_artefacts",
+                to_attr="prefetched_priority_artefacts",
             )
         )
         return qs

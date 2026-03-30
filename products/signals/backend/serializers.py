@@ -133,12 +133,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_priority(self, obj: SignalReport) -> str | None:
-        prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
+        prefetched = getattr(obj, "prefetched_priority_artefacts", None)
         if prefetched is not None:
             art = prefetched[0] if prefetched else None
         else:
             art = (
-                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
                 .order_by("-created_at")
                 .first()
             )
