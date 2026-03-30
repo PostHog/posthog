@@ -28,7 +28,6 @@ from products.signals.backend.temporal.agentic.report import (
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
-    _TeamRepoContext,
     select_repository_activity,
 )
 from products.signals.backend.temporal.types import SignalData
@@ -159,7 +158,7 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
     )
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository._resolve_team_repo_context",
-        lambda team_id: _TeamRepoContext(team_id=team_id, user_id=1),
+        lambda team_id: 1,
     )
 
     async def fake_select_repo(*args, **kwargs):
@@ -217,7 +216,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
     )
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository._resolve_team_repo_context",
-        lambda team_id: _TeamRepoContext(team_id=team_id, user_id=1),
+        lambda team_id: 1,
     )
 
     async def fake_select_repo(*args, **kwargs):
@@ -247,7 +246,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
     )
 
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._resolve_user_id",
+        "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
         lambda team_id: 1,
     )
 
@@ -322,7 +321,7 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
     )
 
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._resolve_user_id",
+        "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
         lambda team_id: 1,
     )
 

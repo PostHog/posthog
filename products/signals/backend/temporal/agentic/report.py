@@ -7,7 +7,6 @@ import temporalio
 import posthoganalytics
 from pydantic import ValidationError
 
-from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -22,6 +21,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
+from products.signals.backend.temporal.agentic import resolve_user_id_for_team
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
@@ -87,21 +87,6 @@ class RunAgenticReportOutput:
     explanation: str
     already_addressed: bool
     repository: str
-
-
-def _resolve_user_id(team_id: int) -> int:
-    """Resolve the first org member's user ID for sandbox context."""
-    # TODO: Decide if it's a safe approach
-    team = Team.objects.select_related("organization").get(id=team_id)
-    membership = (
-        OrganizationMembership.objects.select_related("user")
-        .filter(organization=team.organization)
-        .order_by("id")
-        .first()
-    )
-    if not membership:
-        raise RuntimeError(f"No users in organization '{team.organization.name}' (team {team.id})")
-    return membership.user_id
 
 
 def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
@@ -225,7 +210,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
 
         async with Heartbeater():
             # 1. Get context for the sandbox
-            user_id = await database_sync_to_async(_resolve_user_id, thread_sensitive=False)(input.team_id)
+            user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(input.team_id)
             context = CustomPromptSandboxContext(
                 team_id=input.team_id,
                 user_id=user_id,
