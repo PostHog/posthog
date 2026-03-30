@@ -22,19 +22,18 @@ from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
-from posthog.schema import AIEventType, ProductKey
+from posthog.schema import AIEventType
 
 from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
-from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
@@ -47,6 +46,7 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models import (
     DataWarehouseSavedQuery,
     DataWarehouseTable,
@@ -832,11 +832,7 @@ def get_teams_with_api_queries_metrics(
         AND JSONExtractBool(log_comment, 'chargeable')
         GROUP BY team_id
     """
-    with tags_context(
-        product=ProductKey.PLATFORM_AND_SUPPORT,
-        feature=Feature.QUERY,
-        usage_report="get_teams_with_api_queries_metrics",
-    ):
+    with tags_context(usage_report="get_teams_with_api_queries_metrics"):
         results = sync_execute(
             query,
             {
@@ -1102,7 +1098,7 @@ def get_teams_with_ai_credits_used_in_period(
 
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
-    with tags_context(product=Product.MAX_AI, feature=Feature.QUERY, usage_report="ai_credits", kind="usage_report"):
+    with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
         results = sync_execute(
             """
             WITH trace_analysis AS (
@@ -2323,8 +2319,6 @@ def send_all_org_usage_reports(
     if are_usage_reports_disabled:
         posthoganalytics.capture_exception(Exception(f"Usage reports are disabled for {at}"))
         return
-
-    tag_queries(product=ProductKey.PLATFORM_AND_SUPPORT, feature=Feature.QUERY)
 
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
