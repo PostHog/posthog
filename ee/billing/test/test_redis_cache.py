@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -6,6 +8,7 @@ from ee.billing.salesforce_enrichment.redis_cache import (
     _decompress_redis_data,
     get_cached_org_mappings_count,
     get_org_mappings_from_redis,
+    get_org_mappings_page_from_redis,
     store_org_mappings_in_redis,
 )
 
@@ -43,7 +46,9 @@ class TestStoreOrgMappingsInRedis:
             {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
         ]
 
+        mock_pipe = AsyncMock()
         mock_redis = AsyncMock()
+        mock_redis.pipeline.return_value = mock_pipe
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -51,19 +56,19 @@ class TestStoreOrgMappingsInRedis:
         ):
             await store_org_mappings_in_redis(mappings)
 
-            mock_redis.setex.assert_called_once()
-            call_args = mock_redis.setex.call_args
-            # First arg is key, second is TTL, third is compressed data
-            assert call_args[0][0] == "salesforce-enrichment:global:org_mappings"
-            assert call_args[0][1] == 12 * 60 * 60  # Default TTL
-            assert isinstance(call_args[0][2], bytes)  # Compressed data
+            mock_pipe.delete.assert_called_once_with("salesforce-enrichment:global:org_mappings")
+            mock_pipe.rpush.assert_called_once()
+            mock_pipe.expire.assert_called_once_with("salesforce-enrichment:global:org_mappings", 12 * 60 * 60)
+            mock_pipe.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_store_org_mappings_custom_ttl(self):
         mappings = [{"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"}]
         custom_ttl = 3600
 
+        mock_pipe = AsyncMock()
         mock_redis = AsyncMock()
+        mock_redis.pipeline.return_value = mock_pipe
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -71,12 +76,13 @@ class TestStoreOrgMappingsInRedis:
         ):
             await store_org_mappings_in_redis(mappings, ttl=custom_ttl)
 
-            call_args = mock_redis.setex.call_args
-            assert call_args[0][1] == custom_ttl
+            mock_pipe.expire.assert_called_once_with("salesforce-enrichment:global:org_mappings", custom_ttl)
 
     @pytest.mark.asyncio
     async def test_store_org_mappings_empty_list(self):
+        mock_pipe = AsyncMock()
         mock_redis = AsyncMock()
+        mock_redis.pipeline.return_value = mock_pipe
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -84,75 +90,117 @@ class TestStoreOrgMappingsInRedis:
         ):
             await store_org_mappings_in_redis([])
 
-            mock_redis.setex.assert_called_once()
+            mock_pipe.delete.assert_called_once()
+            mock_pipe.rpush.assert_not_called()
+            mock_pipe.execute.assert_called_once()
 
 
-class TestGetOrgMappingsFromRedis:
+class TestGetOrgMappingsPageFromRedis:
     @pytest.mark.asyncio
-    async def test_get_org_mappings_success(self):
-        original_data = [
-            {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
-            {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
+    async def test_get_page_success(self):
+        raw_items = [
+            json.dumps({"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"}).encode(),
+            json.dumps({"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"}).encode(),
         ]
-        compressed_data = _compress_redis_data(
-            '[{"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"}, {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"}]'
-        )
 
         mock_redis = AsyncMock()
-        mock_redis.get.return_value = compressed_data
+        mock_redis.exists.return_value = True
+        mock_redis.lrange.return_value = raw_items
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
-            result = await get_org_mappings_from_redis()
+            result = await get_org_mappings_page_from_redis(0, 10000)
 
-            assert result == original_data
-            mock_redis.get.assert_called_once_with("salesforce-enrichment:global:org_mappings")
+            assert result == [
+                {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
+                {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
+            ]
+            mock_redis.lrange.assert_called_once_with("salesforce-enrichment:global:org_mappings", 0, 9999)
 
     @pytest.mark.asyncio
-    async def test_get_org_mappings_cache_miss(self):
+    async def test_get_page_with_offset(self):
         mock_redis = AsyncMock()
-        mock_redis.get.return_value = None
+        mock_redis.exists.return_value = True
+        mock_redis.lrange.return_value = []
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
-            result = await get_org_mappings_from_redis()
+            await get_org_mappings_page_from_redis(5000, 2500)
+
+            mock_redis.lrange.assert_called_once_with("salesforce-enrichment:global:org_mappings", 5000, 7499)
+
+    @pytest.mark.asyncio
+    async def test_get_page_cache_miss(self):
+        mock_redis = AsyncMock()
+        mock_redis.exists.return_value = False
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            result = await get_org_mappings_page_from_redis(0, 10000)
 
             assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_org_mappings_redis_error(self):
+    async def test_get_page_redis_error(self):
         mock_redis = AsyncMock()
-        mock_redis.get.side_effect = Exception("Redis connection error")
+        mock_redis.exists.side_effect = Exception("Redis connection error")
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
             with patch("ee.billing.salesforce_enrichment.redis_cache.capture_exception") as mock_capture:
-                result = await get_org_mappings_from_redis()
+                result = await get_org_mappings_page_from_redis(0, 10000)
 
                 assert result is None
                 mock_capture.assert_called_once()
 
 
-class TestGetCachedOrgMappingsCount:
+class TestGetOrgMappingsFromRedis:
     @pytest.mark.asyncio
-    async def test_get_cached_org_mappings_count_success(self):
-        original_data = [
-            {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
-            {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
-            {"salesforce_account_id": "001GHI", "posthog_org_id": "uuid-3"},
+    async def test_get_all_mappings(self):
+        raw_items = [
+            json.dumps({"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"}).encode(),
         ]
-        import json
-
-        compressed_data = _compress_redis_data(json.dumps(original_data))
 
         mock_redis = AsyncMock()
-        mock_redis.get.return_value = compressed_data
+        mock_redis.exists.return_value = True
+        mock_redis.lrange.return_value = raw_items
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            result = await get_org_mappings_from_redis()
+
+            assert result == [{"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"}]
+            mock_redis.lrange.assert_called_once_with("salesforce-enrichment:global:org_mappings", 0, -1)
+
+    @pytest.mark.asyncio
+    async def test_get_all_cache_miss(self):
+        mock_redis = AsyncMock()
+        mock_redis.exists.return_value = False
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            result = await get_org_mappings_from_redis()
+
+            assert result is None
+
+
+class TestGetCachedOrgMappingsCount:
+    @pytest.mark.asyncio
+    async def test_count_success(self):
+        mock_redis = AsyncMock()
+        mock_redis.llen.return_value = 280009
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -160,12 +208,13 @@ class TestGetCachedOrgMappingsCount:
         ):
             result = await get_cached_org_mappings_count()
 
-            assert result == 3
+            assert result == 280009
+            mock_redis.llen.assert_called_once_with("salesforce-enrichment:global:org_mappings")
 
     @pytest.mark.asyncio
-    async def test_get_cached_org_mappings_count_cache_miss(self):
+    async def test_count_empty_returns_none(self):
         mock_redis = AsyncMock()
-        mock_redis.get.return_value = None
+        mock_redis.llen.return_value = 0
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -176,19 +225,19 @@ class TestGetCachedOrgMappingsCount:
             assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_cached_org_mappings_count_empty_list(self):
-        compressed_data = _compress_redis_data("[]")
-
+    async def test_count_redis_error(self):
         mock_redis = AsyncMock()
-        mock_redis.get.return_value = compressed_data
+        mock_redis.llen.side_effect = Exception("Redis error")
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
-            result = await get_cached_org_mappings_count()
+            with patch("ee.billing.salesforce_enrichment.redis_cache.capture_exception") as mock_capture:
+                result = await get_cached_org_mappings_count()
 
-            assert result == 0
+                assert result is None
+                mock_capture.assert_called_once()
 
 
 class TestStoreAndRetrieveRoundTrip:
@@ -199,18 +248,23 @@ class TestStoreAndRetrieveRoundTrip:
             {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
         ]
 
-        stored_data = None
+        stored_list: list[bytes] = []
 
-        async def mock_setex(key, ttl, data):
-            nonlocal stored_data
-            stored_data = data
+        async def mock_execute():
+            pass
 
-        async def mock_get(key):
-            return stored_data
+        mock_pipe = AsyncMock()
+        mock_pipe.execute = mock_execute
+
+        def mock_rpush(key, *values):
+            stored_list.extend(values)
+
+        mock_pipe.rpush = mock_rpush
 
         mock_redis = AsyncMock()
-        mock_redis.setex = mock_setex
-        mock_redis.get = mock_get
+        mock_redis.pipeline.return_value = mock_pipe
+        mock_redis.exists.return_value = True
+        mock_redis.lrange.side_effect = lambda key, start, end: stored_list[start : end + 1 if end >= 0 else None]
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -227,24 +281,30 @@ class TestStoreAndRetrieveRoundTrip:
             {"salesforce_account_id": f"001{i:03d}", "posthog_org_id": f"uuid-{i}"} for i in range(100)
         ]
 
-        stored_data = None
+        stored_list: list[bytes] = []
 
-        async def mock_setex(key, ttl, data):
-            nonlocal stored_data
-            stored_data = data
+        async def mock_execute():
+            pass
 
-        async def mock_get(key):
-            return stored_data
+        mock_pipe = AsyncMock()
+        mock_pipe.execute = mock_execute
+
+        def mock_rpush(key, *values):
+            stored_list.extend(values)
+
+        mock_pipe.rpush = mock_rpush
 
         mock_redis = AsyncMock()
-        mock_redis.setex = mock_setex
-        mock_redis.get = mock_get
+        mock_redis.pipeline.return_value = mock_pipe
+        mock_redis.llen.return_value = 100
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
             await store_org_mappings_in_redis(original_mappings)
-            count = await get_cached_org_mappings_count()
 
+            assert len(stored_list) == 100
+
+            count = await get_cached_org_mappings_count()
             assert count == 100
