@@ -5,8 +5,8 @@ import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { AlertConditionType, BreakdownFilter, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
+import { isInsightVizNode, isTrendsQuery, isValidBreakdown } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
@@ -38,7 +38,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
         values: [
             insightVizDataLogic(props.insightLogicProps),
-            ['showAlertThresholdLines'],
+            ['showAlertThresholdLines', 'breakdownFilter'],
             insightLogic(props.insightLogicProps),
             ['insight'],
         ],
@@ -132,14 +132,28 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         ],
         /** Anomaly points from the latest check of detector-based alerts, merged with any active simulation points. */
         alertAnomalyPoints: [
-            (s) => [s.alerts, s.showAlertAnomalyPointsFlag, s.simulationAnomalyPoints],
-            (alerts: AlertType[], showFlag: boolean, simulationPoints: AnomalyPoint[]): AnomalyPoint[] => {
-                // Simulation points take priority when active (user is previewing)
+            (s) => [s.alerts, s.showAlertAnomalyPointsFlag, s.simulationAnomalyPoints, s.breakdownFilter],
+            (
+                alerts: AlertType[],
+                showFlag: boolean,
+                simulationPoints: AnomalyPoint[],
+                breakdownFilter: BreakdownFilter | null
+            ): AnomalyPoint[] => {
+                // Simulation points take priority when active (user is previewing).
+                // These already have correct per-breakdown seriesIndex from alertFormLogic.
                 if (simulationPoints.length > 0) {
                     return simulationPoints
                 }
 
                 if (!showFlag) {
+                    return []
+                }
+
+                // For breakdown insights, AlertCheck doesn't store which breakdown value
+                // triggered, so we can't map anomaly dots to the correct chart series.
+                // Skip anomaly points from checks to avoid showing them on the wrong series.
+                // (Simulation overlay still works correctly via breakdown_results.)
+                if (isValidBreakdown(breakdownFilter)) {
                     return []
                 }
 
