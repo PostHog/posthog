@@ -1,4 +1,5 @@
 import { actions, beforeUnmount, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -20,10 +21,9 @@ import type { sidepanelTicketsLogicType } from './sidepanelTicketsLogicType'
 const POLL_INTERVAL = 60 * 1000 // 60 seconds
 
 function removeRestoreTokenFromUrl(): void {
-    const url = new URL(window.location.href)
-    if (url.searchParams.has('ph_conv_restore')) {
-        url.searchParams.delete('ph_conv_restore')
-        window.history.replaceState(window.history.state, '', url.toString())
+    if ('ph_conv_restore' in router.values.searchParams) {
+        const { ph_conv_restore: _, ...rest } = router.values.searchParams
+        router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
     }
 }
 
@@ -127,6 +127,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         loadTickets: async () => {
             if (!values.isEnabled) {
                 return
+            }
+            if (cache.conversationsRetryTimer) {
+                clearTimeout(cache.conversationsRetryTimer)
+                cache.conversationsRetryTimer = null
             }
             if (!posthog.conversations) {
                 // Conversations extension loads lazily — retry until it's ready
@@ -288,8 +292,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         restoreFromUrlToken: async ({ token }) => {
             const conversations = posthog.conversations as any
             if (!conversations?.restoreFromToken) {
-                removeRestoreTokenFromUrl()
-                actions.loadTickets()
+                // Conversations not ready yet — retry until it is (reuses loadTickets counter)
+                if ((cache.conversationsRetries ?? 0) < 20) {
+                    cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
+                    cache.conversationsRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
+                } else {
+                    removeRestoreTokenFromUrl()
+                    actions.loadTickets()
+                }
                 return
             }
             try {
@@ -320,7 +330,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!enabled) {
                 return
             }
-            const restoreToken = new URL(window.location.href).searchParams.get('ph_conv_restore')
+            const restoreToken = router.values.searchParams['ph_conv_restore']
             if (restoreToken) {
                 actions.restoreFromUrlToken(restoreToken)
             } else {
@@ -355,7 +365,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     }),
     afterMount(({ values, actions }) => {
         if (values.isEnabled) {
-            actions.loadTickets()
+            const restoreToken = router.values.searchParams['ph_conv_restore']
+            if (restoreToken) {
+                actions.restoreFromUrlToken(restoreToken)
+            } else {
+                actions.loadTickets()
+            }
         }
     }),
 ])
