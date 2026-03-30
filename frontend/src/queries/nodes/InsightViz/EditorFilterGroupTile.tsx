@@ -37,9 +37,9 @@ export function EditorFilterGroupTile({ insightProps, editorFilterGroup }: Edito
                     sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
                     title={isRowExpanded ? 'Show less' : 'Show more'}
                     data-attr={'editor-filter-group-collapse-' + slugify(title)}
-                    className={clsx('rounded-b-none', isRowExpanded && 'mb-1')}
+                    className={clsx('rounded-b-none', isRowExpanded && 'border-b')}
                 >
-                    <div className="flex items-center gap-2 font-semibold text-[13px]">
+                    <div className="flex items-center gap-2 font-semibold text-sm">
                         <span>{title}</span>
                         {!isRowExpanded && collapsedSummary && (
                             <span className="text-xs font-normal text-secondary">{collapsedSummary}</span>
@@ -48,7 +48,7 @@ export function EditorFilterGroupTile({ insightProps, editorFilterGroup }: Edito
                 </LemonButton>
             ) : (
                 <div className="px-3 py-2">
-                    <span className="text-[13px] font-semibold text-secondary">{title}</span>
+                    <span className="text-sm font-semibold text-secondary">{title}</span>
                 </div>
             )}
             <div
