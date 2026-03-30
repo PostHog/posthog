@@ -81,11 +81,11 @@ export function EditorFiltersShell({
             <div
                 ref={panelRef}
                 className={clsx(
-                    'EditorFiltersWrapper relative self-stretch @container/editor-panel w-full @[768px]:w-[var(--editor-panel-width,max(min(30%,600px),420px))] @[768px]:min-w-[320px] @[768px]:max-w-[600px]',
+                    'EditorFiltersWrapper relative self-stretch @container/editor-panel',
                     isResizing ? '' : 'transition-all duration-300 ease-out',
                     showing
                         ? 'opacity-100 p-px overflow-visible'
-                        : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden border-0 !p-0'
+                        : '!w-0 !min-w-0 !max-w-0 opacity-0 overflow-hidden border-0 !p-0'
                 )}
                 style={
                     showing
@@ -95,49 +95,54 @@ export function EditorFiltersShell({
                         : undefined
                 }
             >
-                <MaxTool
-                    identifier="create_insight"
-                    context={{ current_query: querySource }}
-                    contextDescription={{ text: 'Current query', icon: <QueryTypeIcon /> }}
-                    callback={(
-                        toolOutput:
-                            | AssistantTrendsQuery
-                            | AssistantFunnelsQuery
-                            | AssistantRetentionQuery
-                            | AssistantHogQLQuery
-                    ) => {
-                        const source = castAssistantQuery(toolOutput)
-                        if (!source) {
-                            return
-                        }
-                        let node: QuerySchema
-                        if (isHogQLQuery(source)) {
-                            node = { kind: NodeKind.DataVisualizationNode, source } satisfies DataVisualizationNode
-                        } else if (isInsightQueryNode(source)) {
-                            node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                        } else {
-                            node = source
-                        }
-                        handleInsightSuggested(node)
-                        setQuery(node)
-                    }}
-                    initialMaxPrompt="Show me users who "
-                    className="h-full mr-3 [&_button.absolute]:!-top-2.5 [&_button.absolute]:!-right-2.5"
-                    active={maxToolActive}
-                >
-                    <div className={clsx('h-full overflow-y-auto', showing && 'pb-4')}>
-                        {shouldShowSessionAnalysisWarning ? <SessionAnalysisWarning /> : null}
-                        {children}
-                        {previousQuery && (
-                            <SuggestionBanner
-                                previousQuery={previousQuery}
-                                suggestedQuery={suggestedQuery}
-                                onReject={onRejectSuggestedInsight}
-                            />
-                        )}
-                    </div>
-                </MaxTool>
-                {showing && <Resizer {...resizerProps} />}
+                {showing ? (
+                    <MaxTool
+                        identifier="create_insight"
+                        context={{ current_query: querySource }}
+                        contextDescription={{ text: 'Current query', icon: <QueryTypeIcon /> }}
+                        callback={(
+                            toolOutput:
+                                | AssistantTrendsQuery
+                                | AssistantFunnelsQuery
+                                | AssistantRetentionQuery
+                                | AssistantHogQLQuery
+                        ) => {
+                            const source = castAssistantQuery(toolOutput)
+                            if (!source) {
+                                return
+                            }
+                            let node: QuerySchema
+                            if (isHogQLQuery(source)) {
+                                node = {
+                                    kind: NodeKind.DataVisualizationNode,
+                                    source,
+                                } satisfies DataVisualizationNode
+                            } else if (isInsightQueryNode(source)) {
+                                node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            } else {
+                                node = source
+                            }
+                            handleInsightSuggested(node)
+                            setQuery(node)
+                        }}
+                        initialMaxPrompt="Show me users who "
+                        className="h-full @min-[1100px]/insight-viz:mr-3 [&_button.absolute]:!-top-2.5 [&_button.absolute]:!-right-2.5"
+                        active={maxToolActive}
+                    >
+                        <div className="@min-[1100px]/insight-viz:h-full @min-[1100px]/insight-viz:overflow-y-auto pb-4">
+                            {shouldShowSessionAnalysisWarning ? <SessionAnalysisWarning /> : null}
+                            {children}
+                            {previousQuery && (
+                                <SuggestionBanner
+                                    previousQuery={previousQuery}
+                                    suggestedQuery={suggestedQuery}
+                                    onReject={onRejectSuggestedInsight}
+                                />
+                            )}
+                        </div>
+                    </MaxTool>
+                ) : null}
+                {showing && <Resizer {...resizerProps} className="hidden @min-[1100px]/insight-viz:block" />}
             </div>
         )
     }

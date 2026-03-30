@@ -4,6 +4,7 @@
     flex-direction: column;
     gap: 1rem;
     container-type: inline-size;
+    container-name: insight-viz;
 
     .PropertyGroupFilters__add-filter-group-inline {
         display: block;
@@ -20,10 +21,10 @@
         .EditorFiltersWrapper {
             width: 100%;
 
-            @container (min-width: 768px) {
-                width: 30%;
-                min-width: 26rem;
-                max-width: 30rem;
+            @container insight-viz (min-width: 1100px) {
+                width: var(--editor-panel-width, max(min(30%, 600px), 420px));
+                min-width: 320px;
+                max-width: 600px;
             }
         }
 

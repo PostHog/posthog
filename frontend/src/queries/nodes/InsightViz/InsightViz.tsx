@@ -140,7 +140,8 @@ export function InsightViz({
                                         ? clsx('InsightViz', {
                                               'InsightViz--horizontal':
                                                   editorPanelsEnabled || isFunnels || isRetention || isHorizontalAlways,
-                                              '!gap-4': editorPanelsEnabled,
+                                              '!gap-4': editorPanelsEnabled && editMode,
+                                              '!gap-0': editorPanelsEnabled && !editMode,
                                               'flex-1': editorPanelsEnabled && editMode,
                                           })
                                         : 'InsightCard__viz'
@@ -149,7 +150,7 @@ export function InsightViz({
                                 {(editorPanelsEnabled || !readOnly) && (
                                     <EditorFilters
                                         query={query.source}
-                                        showing={editorPanelsEnabled ? !readOnly && showingFilters : showingFilters}
+                                        showing={!readOnly && showingFilters}
                                         embedded={isEmbedded}
                                     />
                                 )}
