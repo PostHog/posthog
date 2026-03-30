@@ -96,49 +96,43 @@ class CIMDMetadataDocument(TypedDict, total=False):
     token_endpoint_auth_method: str
 
 
-def is_cimd_client_id(client_id: str | None) -> bool:
-    """Check whether a client_id looks like a CIMD URL - which is just an HTTPS URL with a path and no fragment/userinfo."""
-    if not client_id or not client_id.startswith("https://"):
-        return False
-    try:
-        parsed = urlparse(client_id)
-    except Exception:
-        return False
-    # Must have a path component beyond just "/"
-    if not parsed.path or parsed.path == "/":
-        return False
-    # Must not have fragments or userinfo
-    if parsed.fragment or parsed.username or parsed.password:
-        return False
-    return True
-
-
-def validate_cimd_url(url: str) -> tuple[bool, str | None]:
+def validate_cimd_url(url: str | None, *, perform_dns_check: bool = False) -> tuple[bool, str | None]:
     """
-    Validate a CIMD URL for safety and spec compliance.
+    Validate a CIMD URL for format and optionally SSRF safety.
 
     Returns (True, None) if valid, or (False, error_message).
+    Without perform_dns_check this is a cheap string-only check.
+    With perform_dns_check=True it also resolves DNS and blocks private IPs.
     """
+    if not url or not url.startswith("https://"):
+        return False, "CIMD client_id must use HTTPS"
+
     try:
         parsed = urlparse(url)
     except Exception:
         return False, "Invalid URL"
 
-    if parsed.scheme != "https":
-        return False, "CIMD client_id must use HTTPS"
     if not parsed.path or parsed.path == "/":
         return False, "CIMD client_id must include a path component"
     if parsed.fragment:
         return False, "CIMD client_id must not contain a fragment"
+    if parsed.query:
+        return False, "CIMD client_id must not contain query parameters"
     if parsed.username or parsed.password:
         return False, "CIMD client_id must not contain userinfo"
 
-    # SSRF protection
-    allowed, reason = is_url_allowed(url)
-    if not allowed:
-        return False, f"URL blocked: {reason}"
+    if perform_dns_check:
+        allowed, reason = is_url_allowed(url)
+        if not allowed:
+            return False, f"URL blocked: {reason}"
 
     return True, None
+
+
+def is_cimd_client_id(client_id: str | None) -> bool:
+    """Cheap format check: is this a valid CIMD URL shape?"""
+    valid, _ = validate_cimd_url(client_id)
+    return valid
 
 
 def _cache_key(url: str) -> str:
@@ -172,7 +166,7 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     Returns (metadata, cache_ttl_seconds).
     Raises CIMDFetchError on network/HTTP errors, CIMDValidationError on invalid content.
     """
-    valid, error = validate_cimd_url(url)
+    valid, error = validate_cimd_url(url, perform_dns_check=True)
     if not valid:
         raise CIMDValidationError(error)
 

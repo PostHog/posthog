@@ -85,6 +85,8 @@ def _mock_response(metadata: dict | None = None, status_code: int = 200, headers
         ("https://example.com/", False),
         ("https://example.com", False),
         ("https://example.com/metadata.json#section", False),
+        ("https://example.com/metadata.json?foo=bar", False),
+        ("https://user@example.com/metadata.json", False),
         ("https://user:pass@example.com/metadata.json", False),
         (None, False),
     ],
@@ -94,41 +96,49 @@ def test_is_cimd_client_id(url, expected):
 
 
 @pytest.mark.parametrize(
-    "url,expected_valid,expected_error_substring",
+    "url,expected_error",
     [
-        ("http://app.example.com/metadata.json", False, "HTTPS"),
-        ("https://example.com/", False, "path"),
-        ("https://example.com/metadata.json#frag", False, "fragment"),
-        ("https://user@example.com/metadata.json", False, "userinfo"),
+        ("http://app.example.com/metadata.json", "CIMD client_id must use HTTPS"),
+        ("https://example.com/", "CIMD client_id must include a path component"),
+        ("https://example.com/metadata.json#frag", "CIMD client_id must not contain a fragment"),
+        ("https://example.com/metadata.json?foo=bar", "CIMD client_id must not contain query parameters"),
+        ("https://user@example.com/metadata.json", "CIMD client_id must not contain userinfo"),
+        ("https://user:pass@example.com/metadata.json", "CIMD client_id must not contain userinfo"),
     ],
 )
-def test_validate_cimd_url_rejects_invalid(url, expected_valid, expected_error_substring):
+def test_validate_cimd_url_rejects_invalid_format(url, expected_error):
     valid, error = validate_cimd_url(url)
-    assert valid == expected_valid
-    assert error is not None
-    assert expected_error_substring in error
+    assert valid is False
+    assert error == expected_error
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
 def test_validate_cimd_url_accepts_valid(_mock):
-    valid, error = validate_cimd_url(VALID_CIMD_URL)
+    valid, error = validate_cimd_url(VALID_CIMD_URL, perform_dns_check=True)
     assert valid is True
     assert error is None
 
 
 @pytest.mark.parametrize(
-    "mock_return,url,expected_error_substring",
+    "mock_return,url,expected_error",
     [
-        ((False, "Private IP address not allowed"), "https://10.0.0.1/metadata.json", "Private IP"),
-        ((False, "Local/metadata host"), "https://169.254.169.254/metadata.json", "Local/metadata"),
+        (
+            (False, "Private IP address not allowed"),
+            "https://10.0.0.1/metadata.json",
+            "URL blocked: Private IP address not allowed",
+        ),
+        (
+            (False, "Local/metadata host"),
+            "https://169.254.169.254/metadata.json",
+            "URL blocked: Local/metadata host",
+        ),
     ],
 )
-def test_validate_cimd_url_ssrf_blocked(mock_return, url, expected_error_substring):
+def test_validate_cimd_url_ssrf_blocked(mock_return, url, expected_error):
     with patch("posthog.api.oauth.cimd.is_url_allowed", return_value=mock_return):
-        valid, error = validate_cimd_url(url)
+        valid, error = validate_cimd_url(url, perform_dns_check=True)
         assert valid is False
-        assert error is not None
-        assert expected_error_substring in error
+        assert error == expected_error
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))

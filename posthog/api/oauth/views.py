@@ -142,6 +142,7 @@ class OAuthValidator(OAuth2Validator):
 
         assert hasattr(request, "client"), '"request" instance has no "client" attribute'
 
+        # Already fetched previously before, just return what's been validated already
         if request.client:
             return request.client
 
