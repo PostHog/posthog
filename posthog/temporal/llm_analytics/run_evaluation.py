@@ -801,8 +801,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     error_type = details.get("error_type")
 
                     # Handle skippable errors - return success with skip info
-                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error"):
-                        if error_type == "trial_limit_reached":
+                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error", "model_not_allowed"):
+                        if error_type in ("trial_limit_reached", "model_not_allowed"):
                             await temporalio.workflow.execute_activity(
                                 disable_evaluation_activity,
                                 args=[evaluation["id"], evaluation["team_id"]],
