@@ -17,7 +17,7 @@ import { extractContentText } from '../sentimentUtils'
 import type { llmAnalyticsSentimentLogicType } from './llmAnalyticsSentimentLogicType'
 
 export type SentimentCategory = 'positive' | 'negative' | 'neutral'
-export type SentimentFeedbackLabel = 'positive' | 'negative' | 'neutral'
+export type SentimentFeedbackLabel = SentimentCategory
 
 /** @deprecated Use SentimentCategory with activeFilters set instead */
 export type SentimentFilterLabel = SentimentCategory | 'both'
@@ -374,7 +374,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                 return cards
             },
         ],
-        /** Counts of messages per sentiment category across all analyzed generations */
+        /** Counts of displayable cards per sentiment category (best-per-generation, matching sentimentCards logic) */
         sentimentSummary: [
             (s) => [s.generations, s.sentimentByGenerationId, s.intensityThreshold],
             (
@@ -388,15 +388,23 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     if (!sentimentData?.messages) {
                         continue
                     }
+                    // Use the same best-per-category-per-generation logic as sentimentCards
+                    const best: Partial<Record<SentimentCategory, number>> = {}
                     for (const msg of Object.values(sentimentData.messages)) {
                         const label = msg.label as SentimentCategory
-                        if (label in counts) {
-                            // Apply intensity threshold only to positive/negative (same as card filtering)
-                            if (label !== 'neutral' && msg.score < intensityThreshold) {
-                                continue
-                            }
-                            counts[label]++
+                        if (!(label in counts)) {
+                            continue
                         }
+                        if (label !== 'neutral' && msg.score < intensityThreshold) {
+                            continue
+                        }
+                        const prev = best[label]
+                        if (prev === undefined || msg.score > prev) {
+                            best[label] = msg.score
+                        }
+                    }
+                    for (const label of Object.keys(best) as SentimentCategory[]) {
+                        counts[label]++
                     }
                 }
                 return counts

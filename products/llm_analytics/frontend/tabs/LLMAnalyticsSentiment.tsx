@@ -3,15 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { urls } from 'scenes/urls'
 
 import { MessageSentimentBar, SENTIMENT_BAR_COLOR } from '../components/SentimentTag'
-import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { extractContentText, formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
@@ -238,37 +234,6 @@ function SentimentCardRow({
     )
 }
 
-function SentimentFilters(): JSX.Element {
-    const { dateFilter, shouldFilterTestAccounts, propertyFilters } = useValues(llmAnalyticsSharedLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
-    const { taxonomicGroupTypes, generationsLoading } = useValues(llmAnalyticsSentimentLogic)
-    const { loadGenerations } = useActions(llmAnalyticsSentimentLogic)
-
-    return (
-        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap pb-3 mb-3 border-b">
-            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-            <PropertyFilters
-                propertyFilters={propertyFilters}
-                taxonomicGroupTypes={taxonomicGroupTypes}
-                onChange={setPropertyFilters}
-                pageKey="llm-analytics-sentiment"
-            />
-            <div className="flex-1" />
-            <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
-            <LemonButton
-                icon={<IconRefresh />}
-                size="small"
-                type="secondary"
-                onClick={loadGenerations}
-                loading={generationsLoading}
-                data-attr="llma-sentiment-reload"
-            >
-                Reload
-            </LemonButton>
-        </div>
-    )
-}
-
 const CATEGORY_CONFIG: { value: SentimentCategory; label: string; activeClass: string }[] = [
     { value: 'positive', label: 'Positive', activeClass: 'bg-success-highlight border-success' },
     { value: 'negative', label: 'Negative', activeClass: 'bg-danger-highlight border-danger' },
@@ -276,9 +241,9 @@ const CATEGORY_CONFIG: { value: SentimentCategory; label: string; activeClass: s
 ]
 
 function SentimentControls(): JSX.Element {
-    const { activeFilters, intensityThreshold, sentimentSummary, stillAnalyzing } =
+    const { activeFilters, intensityThreshold, sentimentSummary, stillAnalyzing, generationsLoading } =
         useValues(llmAnalyticsSentimentLogic)
-    const { toggleSentimentCategory, setIntensityThreshold } = useActions(llmAnalyticsSentimentLogic)
+    const { toggleSentimentCategory, setIntensityThreshold, loadGenerations } = useActions(llmAnalyticsSentimentLogic)
     const total = sentimentSummary.positive + sentimentSummary.negative + sentimentSummary.neutral
 
     return (
@@ -328,6 +293,17 @@ function SentimentControls(): JSX.Element {
                 />
                 <span className="text-xs text-muted w-8 tabular-nums">{formatScore(intensityThreshold)}</span>
             </div>
+            <div className="flex-1" />
+            <LemonButton
+                icon={<IconRefresh />}
+                size="small"
+                type="secondary"
+                onClick={loadGenerations}
+                loading={generationsLoading}
+                data-attr="llma-sentiment-reload"
+            >
+                Reload
+            </LemonButton>
         </div>
     )
 }
@@ -346,7 +322,6 @@ export function LLMAnalyticsSentiment(): JSX.Element {
 
     return (
         <div data-attr="llma-sentiment-tab">
-            <SentimentFilters />
             <SentimentControls />
 
             {generationsLoading && generations.length === 0 ? (
