@@ -29,6 +29,21 @@ if TYPE_CHECKING:
 LOGGER = get_logger(__name__)
 
 
+def format_cohort_ids_for_logging(cohort_ids: list[int]) -> str:
+    """Format cohort IDs for logging, showing simplified text for large sets.
+
+    Args:
+        cohort_ids: List of cohort IDs
+
+    Returns:
+        String representation of cohort IDs, or simplified text if too many
+    """
+    if len(cohort_ids) > 10:
+        return f"More than 10... ({len(cohort_ids)} total)"
+    else:
+        return str(cohort_ids)
+
+
 def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, Any]:
     """Parse person properties from ClickHouse, handling both string and dict formats.
 
@@ -147,7 +162,7 @@ class BackfillPrecalculatedPersonPropertiesInputs:
         return {
             "team_id": self.team_id,
             "cohort_count": len(self.cohort_ids),
-            "cohort_ids": self.cohort_ids,
+            "cohort_ids": format_cohort_ids_for_logging(self.cohort_ids),
             "filter_storage_key": self.filter_storage_key,
             "batch_size": self.batch_size,
             "cursor": self.cursor,
@@ -168,7 +183,9 @@ async def backfill_precalculated_person_properties_activity(
     """
     bind_contextvars()
     cohort_ids = inputs.cohort_ids
-    logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
+    logger = LOGGER.bind(
+        team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=format_cohort_ids_for_logging(cohort_ids)
+    )
 
     # Load filters and person properties from Redis storage without blocking the event loop
     storage_result = await asyncio.to_thread(get_filters_and_properties, inputs.filter_storage_key)
@@ -200,7 +217,7 @@ async def backfill_precalculated_person_properties_activity(
         logger.info("No person properties detected or using legacy storage format")
 
     logger.info(
-        f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids}, "
+        f"Starting person properties precalculation for {len(cohort_ids)} cohorts {format_cohort_ids_for_logging(cohort_ids)}, "
         f"processing {len(filters)} total filters from cursor {inputs.cursor} "
         f"with batch size {inputs.batch_size} ({len(filters)} filters = ~{inputs.batch_size * len(filters)} events per batch)"
     )
@@ -338,7 +355,7 @@ async def backfill_precalculated_person_properties_activity(
                             )
                             matches = bool(bytecode_result.result) if bytecode_result else False
                         except Exception as e:
-                            logger.warning(
+                            logger.debug(
                                 f"Error evaluating person {person_id} against filter {filter_obj.condition_hash}: {e}",
                                 person_id=person_id,
                                 condition_hash=filter_obj.condition_hash,
@@ -453,7 +470,7 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
         workflow_logger = temporalio.workflow.logger
         cohort_ids = inputs.cohort_ids
         workflow_logger.info(
-            f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids} "
+            f"Starting person properties precalculation for {len(cohort_ids)} cohorts {format_cohort_ids_for_logging(cohort_ids)} "
             f"(team {inputs.team_id})"
         )
 
