@@ -83,6 +83,8 @@ export class VisualReviewClient {
         snapshots: SnapshotManifestItemApi[]
         prNumber?: number
         baselineHashes?: Record<string, string>
+        unchangedCount?: number
+        removedIdentifiers?: string[]
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
             repo_id: input.repoId,
@@ -92,6 +94,8 @@ export class VisualReviewClient {
             snapshots: input.snapshots,
             pr_number: input.prNumber,
             baseline_hashes: input.baselineHashes,
+            unchanged_count: input.unchangedCount ?? 0,
+            removed_identifiers: input.removedIdentifiers ?? [],
         }
 
         return this.request<CreateRunResultApi>('/visual_review/runs/', {

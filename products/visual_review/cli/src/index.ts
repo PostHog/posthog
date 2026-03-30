@@ -93,6 +93,11 @@ function log(message: string): void {
     process.stdout.write(message + '\n')
 }
 
+function extractContentHash(signedHash: string): string {
+    const parts = signedHash.split('.')
+    return parts.length === 4 ? parts[2] : signedHash
+}
+
 function getCurrentBranch(): string {
     try {
         return execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8' }).trim()
@@ -164,10 +169,7 @@ async function runVerify(options: VerifyOptions): Promise<number> {
         if (!baselineSignedHash) {
             added.push(identifier)
         } else {
-            // Extract the plain content hash from the signed format: v1.<kid>.<hash>.<tag>
-            const parts = baselineSignedHash.split('.')
-            const baselineContentHash = parts.length === 4 ? parts[2] : baselineSignedHash
-            if (hash !== baselineContentHash) {
+            if (hash !== extractContentHash(baselineSignedHash)) {
                 changed.push(identifier)
             }
         }
@@ -271,10 +273,39 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     const baselineHashes = readBaselineHashes(baselinePath)
     log(`Loaded ${Object.keys(baselineHashes).length} baseline hashes from ${baselinePath}`)
 
-    // 4. Create run with manifest
+    // 4. Compute delta — only send changed/new snapshots to backend
+    const baselineIds = new Set(Object.keys(baselineHashes))
+    const changedOrNew: typeof snapshots = []
+    let unchangedCount = 0
+
+    for (const s of snapshots) {
+        const signed = baselineHashes[s.identifier]
+        if (!signed) {
+            changedOrNew.push(s) // new
+        } else if (s.hash !== extractContentHash(signed)) {
+            changedOrNew.push(s) // changed
+        } else {
+            unchangedCount++
+        }
+    }
+
+    const currentIds = new Set(snapshots.map((s) => s.identifier))
+    const removedIdentifiers = [...baselineIds].filter((id) => !currentIds.has(id))
+
+    log(`Delta: ${changedOrNew.length} changed/new, ${unchangedCount} unchanged, ${removedIdentifiers.length} removed`)
+
+    // 5. Create run with delta manifest
     const branch = options.branch ?? getCurrentBranch()
     const commit = options.commit ?? getCurrentCommit()
-    log(`Creating run: ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`)
+    log(`Creating run: branch=${branch}, commit=${commit.slice(0, 10)}`)
+
+    // Only send baseline hashes for changed snapshots (backend needs them for diff)
+    const deltaBaselineHashes: Record<string, string> = {}
+    for (const s of changedOrNew) {
+        if (baselineHashes[s.identifier]) {
+            deltaBaselineHashes[s.identifier] = baselineHashes[s.identifier]
+        }
+    }
 
     const result = await client.createRun({
         repoId: repo,
@@ -282,21 +313,23 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         commitSha: commit,
         branch,
         prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
-        snapshots: snapshots.map((s) => ({
+        snapshots: changedOrNew.map((s) => ({
             identifier: s.identifier,
             content_hash: s.hash,
             width: s.width,
             height: s.height,
         })),
-        baselineHashes,
+        baselineHashes: deltaBaselineHashes,
+        unchangedCount,
+        removedIdentifiers,
     })
 
     log(`Run created: ${result.run_id}`)
     log(
-        `Backend requested ${result.uploads.length} upload(s), ${snapshots.length - result.uploads.length} already exist`
+        `Backend requested ${result.uploads.length} upload(s), ${changedOrNew.length - result.uploads.length} already exist`
     )
 
-    // 5. Upload missing artifacts (10 concurrent uploads)
+    // 6. Upload missing artifacts (10 concurrent uploads)
     if (result.uploads.length > 0) {
         const hashToSnapshot = new Map(snapshots.map((s) => [s.hash, s]))
         const CONCURRENCY = 10
