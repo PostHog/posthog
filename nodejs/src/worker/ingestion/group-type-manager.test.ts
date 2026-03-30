@@ -1,6 +1,7 @@
 import { createTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { Hub, ProjectId } from '../../types'
+import { Hub, ProjectId, TeamId } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { PostgresUse } from '../../utils/db/postgres'
 import { captureTeamEvent } from '../../utils/posthog'
 import { GroupTypeManager } from './group-type-manager'
 
