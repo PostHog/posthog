@@ -989,6 +989,69 @@ const AssistantPathsQuery = z.object({
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
 })
 
+const LifecycleToggle = z.enum(['new', 'resurrecting', 'returning', 'dormant'])
+
+const AssistantLifecycleFilter = z.object({
+    showLegend: z.coerce.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
+    showValuesOnSeries: z.coerce
+        .boolean()
+        .describe('Whether to show a value on each data point.')
+        .default(false)
+        .optional(),
+    stacked: z.coerce.boolean().describe('Whether the lifecycle bars should be stacked.').default(true).optional(),
+    toggledLifecycles: z
+        .array(LifecycleToggle)
+        .describe(
+            'Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.'
+        )
+        .optional(),
+})
+
+const AssistantLifecycleEventsNode = z.object({
+    custom_name: z.string().optional(),
+    event: z.string().nullable().describe('The event or `null` for all events.').optional(),
+    kind: z
+        .literal('EventsNode')
+        .describe('Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.')
+        .default('EventsNode'),
+    name: z.string().optional(),
+    properties: z.array(AssistantPropertyFilter).optional(),
+})
+
+const AssistantLifecycleActionsNode = z.object({
+    custom_name: z.string().optional(),
+    id: integer,
+    kind: z
+        .literal('ActionsNode')
+        .describe(
+            'Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.'
+        )
+        .default('ActionsNode'),
+    name: z.string().describe('Action name from the plan.'),
+    properties: z.array(AssistantPropertyFilter).optional(),
+})
+
+const AssistantLifecycleSeriesNode = z.union([AssistantLifecycleEventsNode, AssistantLifecycleActionsNode])
+
+const AssistantLifecycleQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe('Exclude internal and test users by applying the respective filters')
+        .default(false)
+        .optional(),
+    interval: IntervalType.describe('Granularity of the response. Can be one of `hour`, `day`, `week` or `month`')
+        .default('day')
+        .optional(),
+    kind: z.literal('LifecycleQuery').default('LifecycleQuery'),
+    lifecycleFilter: AssistantLifecycleFilter.describe('Properties specific to the lifecycle insight').optional(),
+    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    series: z
+        .array(AssistantLifecycleSeriesNode)
+        .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
+})
+
 const DateRange = z.object({
     date_from: z.string().nullable().optional(),
     date_to: z.string().nullable().optional(),
@@ -1263,6 +1326,12 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-paths',
         schema: AssistantPathsQuery,
         kind: 'PathsQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+    }),
+    'query-lifecycle': createQueryWrapper({
+        name: 'query-lifecycle',
+        schema: AssistantLifecycleQuery,
+        kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
     }),
     'query-traces-list': createQueryWrapper({ name: 'query-traces-list', schema: TracesQuery, kind: 'TracesQuery' }),

@@ -8,6 +8,7 @@ from posthog.schema import (
     AssistantHogQLQuery,
     AssistantPathsQuery,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsQuery,
     FunnelsQuery,
     HogQLQuery,
@@ -17,6 +18,7 @@ from posthog.schema import (
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsTopCustomersQuery,
+    StickinessQuery,
     TrendsQuery,
 )
 
@@ -30,6 +32,7 @@ from .revenue_analytics import (
     RevenueAnalyticsTopCustomersResultsFormatter,
 )
 from .sql import TRUNCATED_MARKER, SQLResultsFormatter
+from .stickiness import StickinessResultsFormatter
 from .trends import TrendsResultsFormatter
 
 if TYPE_CHECKING:
@@ -57,6 +60,8 @@ def format_query_results_for_llm(
         return FunnelResultsFormatter(query, response["results"], team, utc_now).format()
     elif isinstance(query, AssistantPathsQuery | PathsQuery):
         return PathsResultsFormatter(response["results"]).format()
+    elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
+        return StickinessResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RetentionResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
@@ -78,6 +83,7 @@ __all__ = [
     "PathsResultsFormatter",
     "RetentionResultsFormatter",
     "SQLResultsFormatter",
+    "StickinessResultsFormatter",
     "TrendsResultsFormatter",
     "RevenueAnalyticsGrossRevenueResultsFormatter",
     "RevenueAnalyticsMetricsResultsFormatter",

@@ -1,20 +1,19 @@
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { useCallback, useRef, useState } from 'react'
 
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
-import { signupLogic } from './signupLogic'
-
 interface TurnstileChallengeProps {
     siteKey: string
+    onSuccess: (token: string) => void
+    tokenReceived: boolean
+    email?: string
 }
 
-export function TurnstileChallenge({ siteKey }: TurnstileChallengeProps): JSX.Element {
-    const { setTurnstileToken } = useActions(signupLogic)
-    const { turnstileToken, signupPanelEmail } = useValues(signupLogic)
+export function TurnstileChallenge({ siteKey, onSuccess, tokenReceived, email }: TurnstileChallengeProps): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
     const turnstileRef = useRef<TurnstileInstance>(null)
     const [error, setError] = useState(false)
@@ -30,7 +29,7 @@ export function TurnstileChallenge({ siteKey }: TurnstileChallengeProps): JSX.El
         setError(true)
     }, [])
 
-    if (turnstileToken) {
+    if (tokenReceived) {
         return (
             <div className="flex items-center justify-center gap-2 py-2">
                 <Spinner className="text-base" />
@@ -44,7 +43,7 @@ export function TurnstileChallenge({ siteKey }: TurnstileChallengeProps): JSX.El
             <Turnstile
                 ref={turnstileRef}
                 siteKey={siteKey}
-                onSuccess={setTurnstileToken}
+                onSuccess={onSuccess}
                 onError={handleError}
                 onExpire={handleError}
                 options={{ theme: 'auto' }}
@@ -64,7 +63,7 @@ export function TurnstileChallenge({ siteKey }: TurnstileChallengeProps): JSX.El
                                     openSupportForm({
                                         kind: 'support',
                                         target_area: 'login',
-                                        email: signupPanelEmail.email,
+                                        email,
                                     })
                                 }}
                             >
