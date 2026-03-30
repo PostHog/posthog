@@ -93,6 +93,18 @@ jobs:
                     exit 1
                   fi
 
+            - name: Check generated UI apps are up to date
+              run: |
+                  cd services/mcp && pnpm run generate:ui-apps
+                  if ! git diff --exit-code -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts; then
+                    echo ""
+                    echo "::warning::The following generated files are out of date:"
+                    git diff --name-only -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts
+                    echo ""
+                    echo "::error::Generated UI app files are out of date. Run 'pnpm --filter=@posthog/mcp run generate:ui-apps' and commit the result."
+                    exit 1
+                  fi
+
             - name: Lint tool names
               run: cd services/mcp && pnpm lint-tool-names
 
