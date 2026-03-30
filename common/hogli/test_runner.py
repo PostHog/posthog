@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import platform
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -17,6 +18,22 @@ from hogli.core.command_types import _run
 from hogli.core.manifest import REPO_ROOT
 
 _PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/")
+
+
+def _is_test_file(path: str) -> bool:
+    """Check if a file path looks like a test file for any supported language."""
+    name = PurePosixPath(path).name
+    if path.endswith(".py"):
+        return name.startswith("test_") or name.startswith("eval_")
+    if path.endswith((".test.ts", ".test.tsx")):
+        return True
+    if path.endswith(".spec.ts") and path.startswith("playwright/"):
+        return True
+    if path.endswith("_test.go"):
+        return True
+    if path.endswith("_test.rs") or "/tests/" in path and path.endswith(".rs"):
+        return True
+    return False
 
 
 @dataclass
@@ -302,28 +319,179 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     )
 
 
+# ---------------------------------------------------------------------------
+# --changed: find test files changed on the current branch and run them
+# ---------------------------------------------------------------------------
+
+
+def _get_changed_files() -> list[str]:
+    """Get files changed on the current branch vs master, plus uncommitted changes."""
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    if branch == "master":
+        raise click.UsageError("Cannot use --changed on the master branch.")
+
+    # Files changed between master and HEAD
+    diff_vs_master = (
+        subprocess.run(
+            ["git", "diff", "--name-only", "master...HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+        .splitlines()
+    )
+
+    # Uncommitted / staged changes
+    porcelain = (
+        subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+        .splitlines()
+    )
+    uncommitted = [line[3:] for line in porcelain if len(line) > 3]
+
+    return sorted(set(diff_vs_master + uncommitted))
+
+
+def _run_changed(extra_args: list[str]) -> None:
+    """Find changed test files, group by type, and run each group."""
+    changed = _get_changed_files()
+    test_files = [f for f in changed if _is_test_file(f)]
+
+    if not test_files:
+        click.secho("No changed test files found on this branch.", fg="yellow")
+        raise SystemExit(0)
+
+    click.secho(f"Found {len(test_files)} changed test file(s):", fg="cyan")
+    for f in test_files:
+        click.echo(f"  {f}")
+    click.echo()
+
+    # Group by test type and run each group
+    groups: dict[str, list[str]] = {}
+    for f in test_files:
+        try:
+            config = detect_test_type(f)
+            groups.setdefault(config.test_type, []).append(f)
+        except click.UsageError:
+            click.secho(f"  Skipping (unknown type): {f}", fg="yellow")
+
+    for test_type, files in groups.items():
+        if test_type in ("python", "python-eval"):
+            # pytest can take multiple files at once
+            config = detect_test_type(files[0])
+            command = config.command[:-1] + files  # replace last arg (single file) with all files
+            click.secho(f"Running {len(files)} Python test file(s)...", fg="cyan")
+            _run(command + extra_args, env=config.env if config.env else None)
+        elif test_type == "jest":
+            # jest can take multiple files at once
+            config = detect_test_type(files[0])
+            command = config.command[:-1] + files
+            click.secho(f"Running {len(files)} Jest test file(s)...", fg="cyan")
+            _run(command + extra_args, env=config.env if config.env else None)
+        else:
+            # Other types: run individually
+            for f in files:
+                config = detect_test_type(f)
+                click.secho(f"Running: {f}", fg="cyan")
+                _run(config.command + extra_args, env=config.env if config.env else None)
+
+
+# ---------------------------------------------------------------------------
+# --watch: re-run tests on file changes
+# ---------------------------------------------------------------------------
+
+
+def _run_watch(file_path: str, extra_args: list[str]) -> None:
+    """Run tests in watch mode, re-executing on file changes."""
+    resolved = _resolve_to_repo_relative(file_path)
+    config = detect_test_type(resolved)
+
+    if config.test_type in ("python", "python-eval"):
+        # Use nodemon for Python, matching bin/tests behavior
+        watch_dirs = ["./posthog", "./common/hogvm/python", "./ee", "./dags", "./products"]
+        watch_flags = " ".join(f"-w {d}" for d in watch_dirs)
+        inner_cmd = " ".join(config.command + extra_args)
+
+        env_prefix = " ".join(f"{k}={v}" for k, v in config.env.items()) if config.env else ""
+        if env_prefix:
+            inner_cmd = f"{env_prefix} {inner_cmd}"
+
+        nodemon_cmd = f'nodemon {watch_flags} --ext py --exec "{inner_cmd}"'
+        click.secho(f"Watching: {config.description}", fg="cyan")
+        _run(nodemon_cmd, shell=True)
+
+    elif config.test_type == "jest":
+        # Jest has built-in --watch
+        click.secho(f"Watching: {config.description}", fg="cyan")
+        _run([*config.command, "--watch", *extra_args], env=config.env if config.env else None)
+
+    else:
+        raise click.UsageError(
+            f"Watch mode is not supported for {config.test_type} tests.\n"
+            "Supported: Python (nodemon) and Jest (--watch)."
+        )
+
+
+# ---------------------------------------------------------------------------
+# CLI command
+# ---------------------------------------------------------------------------
+
+
 @cli.command(
-    name="test",
+    name="test:run",
     help=(
         "Auto-detect test type and run the correct test runner.\n\n"
         "Accepts files, directories, and pytest node IDs. Detects Python\n"
         "(pytest), Jest, Playwright, Rust (cargo test), and Go (go test)\n"
         "based on file extension or directory context.\n\n"
         "Extra arguments are passed through to the underlying test runner.\n\n"
+        "Options:\n\n"
+        "  --changed  Run tests for files changed on the current branch\n\n"
+        "  --watch    Re-run tests on file changes (Python and Jest only)\n\n"
         "Examples:\n\n"
-        "  hogli test posthog/api/test/test_user.py\n\n"
-        "  hogli test posthog/api/test/test_user.py::TestUserAPI::test_retrieve_current_user\n\n"
-        "  hogli test posthog/api/test/\n\n"
-        "  hogli test frontend/src/scenes/dashboard/Dashboard.test.tsx\n\n"
-        "  hogli test rust/capture/tests/\n\n"
-        "  hogli test livestream/"
+        "  hogli test:run posthog/api/test/test_user.py\n\n"
+        "  hogli test:run posthog/api/test/\n\n"
+        "  hogli test:run posthog/api/test/test_user.py --watch\n\n"
+        "  hogli test:run --changed\n\n"
+        "  hogli test:run livestream/"
     ),
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
-@click.argument("file_path")
+@click.argument("file_path", required=False)
+@click.option("--changed", is_flag=True, help="Run tests for files changed on the current branch")
+@click.option("--watch", is_flag=True, help="Re-run tests on file changes (Python and Jest)")
 @click.pass_context
-def test_command(ctx: click.Context, file_path: str) -> None:
+def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool) -> None:
     """Auto-detect test type and run the correct test runner."""
+    if changed:
+        if file_path:
+            raise click.UsageError("Cannot combine --changed with a file path.")
+        if watch:
+            raise click.UsageError("Cannot combine --changed with --watch.")
+        _run_changed(list(ctx.args))
+        return
+
+    if not file_path:
+        raise click.UsageError(
+            "Missing argument FILE_PATH.\n\nUsage: hogli test [OPTIONS] FILE_PATH\n       hogli test --changed"
+        )
+
+    if watch:
+        _run_watch(file_path, list(ctx.args))
+        return
+
     resolved = _resolve_to_repo_relative(file_path)
     config = detect_test_type(resolved)
 

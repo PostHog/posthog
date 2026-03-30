@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import patch
 
 import click
-from hogli.test_runner import _resolve_to_repo_relative, detect_test_type
+from hogli.test_runner import _is_test_file, _resolve_to_repo_relative, _run_changed, detect_test_type
 from parameterized import parameterized
 
 
@@ -210,6 +210,59 @@ class TestResolveToRepoRelative:
         with patch("hogli.test_runner.Path.cwd", return_value=Path(str(_get_repo_root()))):
             result = _resolve_to_repo_relative("posthog/test_foo.py::TestBar")
             assert result == "posthog/test_foo.py::TestBar"
+
+
+class TestIsTestFile:
+    @parameterized.expand(
+        [
+            ("posthog/api/test/test_user.py", True),
+            ("ee/hogai/eval_router.py", True),
+            ("ee/hogai/router.py", False),
+            ("posthog/models/team.py", False),
+            ("frontend/src/scenes/dashboard/Dashboard.test.tsx", True),
+            ("frontend/src/scenes/dashboard/Dashboard.tsx", False),
+            ("playwright/e2e/dashboards.spec.ts", True),
+            ("playwright/e2e/helpers.ts", False),
+            ("rust/capture/tests/events.rs", True),
+            ("rust/capture/src/api.rs", False),
+            ("rust/capture/src/api_test.rs", True),
+            ("livestream/main_test.go", True),
+            ("livestream/main.go", False),
+        ]
+    )
+    def test_is_test_file(self, path: str, expected: bool) -> None:
+        assert _is_test_file(path) == expected
+
+
+class TestRunChanged:
+    @patch("hogli.test_runner._run")
+    @patch("hogli.test_runner._get_changed_files")
+    def test_runs_changed_python_files(self, mock_changed, mock_run) -> None:
+        mock_changed.return_value = [
+            "posthog/api/test/test_user.py",
+            "posthog/api/test/test_comments.py",
+            "posthog/api/views.py",  # not a test file
+        ]
+        _run_changed([])
+
+        mock_run.assert_called_once()
+        command = mock_run.call_args[0][0]
+        assert command[0] == "pytest"
+        assert "posthog/api/test/test_user.py" in command
+        assert "posthog/api/test/test_comments.py" in command
+        assert "posthog/api/views.py" not in command
+
+    @patch("hogli.test_runner._get_changed_files")
+    def test_no_changed_files_exits(self, mock_changed) -> None:
+        mock_changed.return_value = ["posthog/api/views.py"]
+        with pytest.raises(SystemExit):
+            _run_changed([])
+
+    @patch("hogli.test_runner._get_changed_files")
+    def test_changed_on_master_raises(self, mock_changed) -> None:
+        mock_changed.side_effect = click.UsageError("Cannot use --changed on the master branch.")
+        with pytest.raises(click.UsageError, match="master"):
+            _run_changed([])
 
 
 def _get_repo_root():
