@@ -235,9 +235,9 @@ function SentimentCardRow({
 }
 
 const CATEGORY_CONFIG: { value: SentimentCategory; label: string; activeClass: string }[] = [
-    { value: 'positive', label: 'Positive', activeClass: 'bg-success-highlight border-success' },
-    { value: 'negative', label: 'Negative', activeClass: 'bg-danger-highlight border-danger' },
-    { value: 'neutral', label: 'Neutral', activeClass: 'bg-border-light border-border' },
+    { value: 'positive', label: 'Positive', activeClass: 'bg-success/20 border-success' },
+    { value: 'negative', label: 'Negative', activeClass: 'bg-danger/20 border-danger' },
+    { value: 'neutral', label: 'Neutral', activeClass: 'bg-border/20 border-border' },
 ]
 
 function SentimentControls(): JSX.Element {
