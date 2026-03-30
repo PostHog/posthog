@@ -1,1 +1,1 @@
-0029_multi_email_config
+0028_multi_email_channel

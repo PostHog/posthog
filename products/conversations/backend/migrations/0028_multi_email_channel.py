@@ -5,16 +5,26 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    """Create EmailChannel model with UUID PK and many-per-team support.
+    """Replace TeamConversationsEmailConfig with EmailChannel.
 
-    Also adds Ticket.email_config FK to link tickets to their receiving channel.
+    Removes the old one-per-team model from Django state (table left in DB
+    for cleanup later) and creates EmailChannel with UUID PK and
+    many-per-team support. Adds Ticket.email_config FK.
     """
 
     dependencies = [
-        ("conversations", "0028_remove_old_email_config"),
+        ("conversations", "0027_slack_config_unique_slack_team_id"),
     ]
 
     operations = [
+        # Remove old model from Django state only (table stays in DB, empty in prod)
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.DeleteModel(name="TeamConversationsEmailConfig"),
+            ],
+            database_operations=[],
+        ),
+        # Create new model with UUID PK, ForeignKey to team, different table name
         migrations.CreateModel(
             name="EmailChannel",
             fields=[
