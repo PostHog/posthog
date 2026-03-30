@@ -635,6 +635,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 columns = None
             EndpointVersion.objects.create(
                 endpoint=endpoint,
+                team=self.team,
                 version=1,
                 query=query_dict,
                 description=data.description or "",
