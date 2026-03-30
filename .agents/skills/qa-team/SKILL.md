@@ -26,7 +26,7 @@ analysis will be performed. This ensures findings are fully independent.
 ### Step 1: Gather the diff
 
 Determine the base branch. If the user provided `$ARGUMENTS`, use that as the base branch.
-Otherwise, default to `main`.
+Otherwise, default to `master`.
 
 Run these commands to collect context:
 
@@ -267,10 +267,10 @@ in the summary.
 
 Compute an overall risk score:
 
-- CRITICAL: Any agent found a CRITICAL issue -> overall CRITICAL
-- HIGH: 2+ agents found HIGH issues, or 1 HIGH + 2 MEDIUM -> overall HIGH
-- MEDIUM: 1+ HIGH or 3+ MEDIUM findings -> overall MEDIUM
-- LOW: Only LOW/NONE findings -> overall LOW
+- CRITICAL: Any agent returned Risk Level CRITICAL -> overall CRITICAL
+- HIGH: 2+ agents returned Risk Level HIGH, or 1 HIGH + 2 MEDIUM agents -> overall HIGH
+- MEDIUM: 1 agent returned Risk Level HIGH, or 3+ agents returned Risk Level MEDIUM -> overall MEDIUM
+- LOW: Only LOW/NONE agent risk levels -> overall LOW
 
 #### 4c. Verdict
 
