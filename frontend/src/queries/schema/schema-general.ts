@@ -1816,6 +1816,8 @@ export interface EndpointRequest {
     version?: integer
     /** Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month). */
     bucket_overrides?: Record<string, string>
+    /** Set to true to soft-delete this endpoint */
+    deleted?: boolean
 }
 
 /**
