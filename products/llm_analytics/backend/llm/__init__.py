@@ -44,6 +44,39 @@ def get_default_models() -> list[ModelInfo]:
     return models
 
 
+def get_trial_models() -> list[ModelInfo]:
+    """Returns the models available to trial users (PostHog pays).
+
+    This is a curated subset excluding expensive models like pro/opus tiers
+    while including one flagship per provider for quality evaluation.
+    """
+    models: list[ModelInfo] = []
+    models.extend(
+        [
+            {"id": m, "name": m, "provider": "OpenAI", "description": "", "is_recommended": True}
+            for m in OpenAIConfig.TRIAL_MODELS
+        ]
+    )
+    models.extend(
+        [
+            {"id": m, "name": m, "provider": "Anthropic", "description": "", "is_recommended": True}
+            for m in AnthropicConfig.TRIAL_MODELS
+        ]
+    )
+    models.extend(
+        [
+            {"id": m, "name": m, "provider": "Gemini", "description": "", "is_recommended": True}
+            for m in GeminiConfig.TRIAL_MODELS
+        ]
+    )
+    return models
+
+
+TRIAL_MODEL_IDS: frozenset[str] = frozenset(
+    OpenAIConfig.TRIAL_MODELS + AnthropicConfig.TRIAL_MODELS + GeminiConfig.TRIAL_MODELS
+)
+
+
 __all__ = [
     "Client",
     "CompletionRequest",
@@ -55,7 +88,9 @@ __all__ = [
     "ProviderMismatchError",
     "UnsupportedProviderError",
     "SUPPORTED_MODELS_WITH_THINKING",
+    "TRIAL_MODEL_IDS",
     "get_default_models",
+    "get_trial_models",
     "OpenAIConfig",
     "AnthropicConfig",
     "GeminiConfig",
