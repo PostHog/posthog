@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from products.llm_analytics.backend.llm.client import Client
 from products.llm_analytics.backend.llm.errors import LLMError, ProviderMismatchError, UnsupportedProviderError
@@ -22,7 +22,7 @@ class ModelInfo(TypedDict):
 
 # Single registry of providers. Add new providers here and everything else
 # (model lists, trial models, ID sets) derives from it automatically.
-_PROVIDERS: list[tuple[str, type[OpenAIConfig] | type[AnthropicConfig] | type[GeminiConfig]]] = [
+PROVIDERS: list[tuple[str, Any]] = [
     ("OpenAI", OpenAIConfig),
     ("Anthropic", AnthropicConfig),
     ("Gemini", GeminiConfig),
@@ -36,7 +36,7 @@ def _build_model_infos(provider: str, models: list[str]) -> list[ModelInfo]:
 def get_default_models() -> list[ModelInfo]:
     """Returns the full list of supported models across all providers."""
     result: list[ModelInfo] = []
-    for display_name, config in _PROVIDERS:
+    for display_name, config in PROVIDERS:
         result.extend(_build_model_infos(display_name, config.SUPPORTED_MODELS))
     return result
 
@@ -48,16 +48,16 @@ def get_trial_models() -> list[ModelInfo]:
     while including one flagship per provider for quality evaluation.
     """
     result: list[ModelInfo] = []
-    for display_name, config in _PROVIDERS:
+    for display_name, config in PROVIDERS:
         result.extend(_build_model_infos(display_name, config.TRIAL_MODELS))
     return result
 
 
-TRIAL_MODEL_IDS: frozenset[str] = frozenset(model for _, config in _PROVIDERS for model in config.TRIAL_MODELS)
+TRIAL_MODEL_IDS: frozenset[str] = frozenset(model for _, config in PROVIDERS for model in config.TRIAL_MODELS)
 
 # Provider-keyed lookup (lowercase keys matching DB provider values)
 TRIAL_MODELS_BY_PROVIDER: dict[str, list[str]] = {
-    display_name.lower(): config.TRIAL_MODELS for display_name, config in _PROVIDERS
+    display_name.lower(): config.TRIAL_MODELS for display_name, config in PROVIDERS
 }
 
 
@@ -71,6 +71,7 @@ __all__ = [
     "ModelInfo",
     "ProviderMismatchError",
     "UnsupportedProviderError",
+    "PROVIDERS",
     "SUPPORTED_MODELS_WITH_THINKING",
     "TRIAL_MODEL_IDS",
     "TRIAL_MODELS_BY_PROVIDER",

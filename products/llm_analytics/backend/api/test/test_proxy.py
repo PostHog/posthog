@@ -19,7 +19,7 @@ from posthog.rate_limit import (
 )
 
 from products.llm_analytics.backend.api.proxy import LLMProxyCompletionSerializer, LLMProxyViewSet
-from products.llm_analytics.backend.llm import _PROVIDERS, TRIAL_MODEL_IDS, get_default_models, get_trial_models
+from products.llm_analytics.backend.llm import PROVIDERS, TRIAL_MODEL_IDS, get_default_models, get_trial_models
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 TRIAL_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
@@ -156,14 +156,14 @@ class TestLLMProxyThrottles(APIBaseTest):
 
 class TestTrialModelAllowlist(TestCase):
     def test_trial_models_are_subset_of_supported_models(self) -> None:
-        for _, config in _PROVIDERS:
+        for _, config in PROVIDERS:
             assert set(config.TRIAL_MODELS) <= set(config.SUPPORTED_MODELS), (
                 f"{config.__name__}.TRIAL_MODELS contains models not in SUPPORTED_MODELS"
             )
 
     def test_no_supported_only_model_leaks_into_trial(self) -> None:
         supported_only = set()
-        for _, config in _PROVIDERS:
+        for _, config in PROVIDERS:
             supported_only |= set(config.SUPPORTED_MODELS) - set(config.TRIAL_MODELS)
         assert TRIAL_MODEL_IDS.isdisjoint(supported_only)
 
