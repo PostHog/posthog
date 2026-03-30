@@ -6296,11 +6296,11 @@ export interface HogFunctionMappingType {
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: CyclotronJobFiltersType | null
+    use_all_events_by_default?: boolean
 }
 export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
     name: string
     include_by_default?: boolean
-    use_all_events_by_default?: boolean
 }
 
 export type HogFunctionTypeType =

@@ -93,9 +93,8 @@ export function HogFunctionMapping({
     parentConfiguration: Pick<HogFunctionConfigurationType, 'inputs_schema' | 'inputs'>
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { showSource, sampleGlobalsWithInputs, mappingTemplates } = useValues(hogFunctionConfigurationLogic)
-    const matchingTemplate = mappingTemplates.find((t) => t.name === mapping.name)
-    const hideEventFilter = matchingTemplate?.use_all_events_by_default === true
+    const { showSource, sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    const hideEventFilter = mapping.use_all_events_by_default === true
 
     return (
         <>
