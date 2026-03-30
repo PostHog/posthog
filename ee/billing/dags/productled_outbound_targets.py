@@ -8,13 +8,11 @@ import polars as pl
 import dagster
 from dagster import AssetKey, JsonMetadataValue, MetadataValue
 
-from posthog.schema import ProductKey
-
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import ClayWebhookResource
 from posthog.models import Team
@@ -85,7 +83,7 @@ def build_team_product_df(org_ids: list[str]) -> pl.DataFrame:
         FROM models.posthog_team
         WHERE organization_id IN %(org_ids)s
     """
-    tag_queries(product=ProductKey.PLATFORM_AND_SUPPORT, feature=Feature.QUERY)
+    tag_queries(product=Product.BILLING, feature=Feature.BILLING_ETL)
     results = sync_execute(query, {"org_ids": org_ids})
 
     if not results:
@@ -149,7 +147,7 @@ def fetch_org_usage(org_ids: list[str]) -> pl.DataFrame:
         ORDER BY _inserted_at DESC
         LIMIT 1 BY id
     """
-    tag_queries(product=ProductKey.PLATFORM_AND_SUPPORT, feature=Feature.QUERY)
+    tag_queries(product=Product.BILLING, feature=Feature.BILLING_ETL)
     results = sync_execute(query, {"org_ids": org_ids})
 
     if not results:
@@ -338,7 +336,7 @@ def plo_base_targets(
     context.log.info("Querying ProductLed_Outbound saved query")
 
     team = Team.objects.get(id=PLO_TEAM_ID)
-    tag_queries(product=ProductKey.PLATFORM_AND_SUPPORT, feature=Feature.QUERY)
+    tag_queries(product=Product.BILLING, feature=Feature.BILLING_ETL)
     query = f"""
         SELECT {", ".join(BASE_COLUMNS)}
         FROM ProductLed_Outbound
