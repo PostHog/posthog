@@ -35,7 +35,7 @@ export function DistributionModal(): JSX.Element {
         if (isDistributionModalOpen) {
             setVariants(experiment.feature_flag?.filters?.multivariate?.variants || [])
         }
-    }, [isDistributionModalOpen, experiment.feature_flag.filters.multivariate.variants])
+    }, [isDistributionModalOpen, experiment.feature_flag?.filters?.multivariate?.variants])
 
     const handleClose = (): void => {
         closeDistributionModal()
