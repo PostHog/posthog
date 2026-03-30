@@ -3,6 +3,7 @@ package tui
 import (
 	"image/color"
 
+	"charm.land/bubbles/v2/help"
 	"charm.land/lipgloss/v2"
 	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
 	"github.com/posthog/posthog/phrocs/internal/process"
@@ -241,6 +242,24 @@ func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, c
 	unfilledPart := unfilledStyle.Render(string(unfilledRunes))
 
 	return iconSeg + filledPart + unfilledPart
+}
+
+func helpStyles(isDark bool) help.Styles {
+	lightDark := lipgloss.LightDark(isDark)
+
+	keyStyle := lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#555555"), colorGrey))
+	descStyle := lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#777777"), colorMidGrey))
+	sepStyle := lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#AAAAAA"), colorDarkGrey))
+
+	return help.Styles{
+		ShortKey:       keyStyle,
+		ShortDesc:      descStyle,
+		ShortSeparator: sepStyle,
+		Ellipsis:       sepStyle,
+		FullKey:        keyStyle,
+		FullDesc:       descStyle,
+		FullSeparator:  sepStyle,
+	}
 }
 
 func truncate(s string, maxLen int) string {

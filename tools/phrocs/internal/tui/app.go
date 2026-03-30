@@ -166,7 +166,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.BackgroundColorMsg:
 		isDark := msg.IsDark()
-		m.help.Styles = help.DefaultStyles(isDark)
+		m.help.Styles = helpStyles(isDark)
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
