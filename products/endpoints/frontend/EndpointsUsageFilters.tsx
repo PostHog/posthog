@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonInputSelect, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
@@ -153,6 +154,30 @@ const BreakdownFilter = ({ tabId }: { tabId: string }): JSX.Element => {
     )
 }
 
+const RefreshButton = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { canRefresh } = useValues(endpointsUsageLogic({ tabId }))
+    const { refresh } = useActions(endpointsUsageLogic({ tabId }))
+
+    return (
+        <Tooltip
+            title={
+                canRefresh
+                    ? 'Refresh data. Note: usage data may be delayed by a few minutes and is not realtime.'
+                    : 'Refresh available every 15 minutes. Usage data may be delayed by a few minutes and is not realtime.'
+            }
+        >
+            <LemonButton
+                icon={<IconRefresh />}
+                size="small"
+                type="secondary"
+                disabledReason={!canRefresh ? 'You can refresh once every 15 minutes' : undefined}
+                onClick={refresh}
+                aria-label="Refresh usage data"
+            />
+        </Tooltip>
+    )
+}
+
 export const EndpointsUsageFilters = ({ tabId }: { tabId: string }): JSX.Element => {
     const { dateFilter } = useValues(endpointsUsageLogic({ tabId }))
     const { setDates } = useActions(endpointsUsageLogic({ tabId }))
@@ -177,6 +202,7 @@ export const EndpointsUsageFilters = ({ tabId }: { tabId: string }): JSX.Element
                     <MaterializationTypeFilter tabId={tabId} />
                     <IntervalFilter tabId={tabId} />
                     <BreakdownFilter tabId={tabId} />
+                    <RefreshButton tabId={tabId} />
                 </>
             }
         />

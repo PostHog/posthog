@@ -41,6 +41,7 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         setMaterializationType: (materializationType: 'materialized' | 'inline' | null) => ({ materializationType }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setBreakdownBy: (breakdownBy: EndpointsUsageBreakdown | null) => ({ breakdownBy }),
+        refresh: true,
     }),
 
     reducers({
@@ -77,6 +78,18 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                 setBreakdownBy: (_, { breakdownBy }) => breakdownBy,
             },
         ],
+        lastRefreshedAt: [
+            null as number | null,
+            {
+                refresh: () => Date.now(),
+            },
+        ],
+        refreshKey: [
+            0,
+            {
+                refresh: (state) => state + 1,
+            },
+        ],
     }),
 
     selectors({
@@ -89,6 +102,15 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                     .sort(),
         ],
         endpointNamesLoading: [(s) => [s.allEndpointsLoading], (loading: boolean): boolean => loading],
+        canRefresh: [
+            (s) => [s.lastRefreshedAt],
+            (lastRefreshedAt: number | null): boolean => {
+                if (lastRefreshedAt === null) {
+                    return true
+                }
+                return Date.now() - lastRefreshedAt >= 15 * 60 * 1000
+            },
+        ],
         dateRange: [
             (s) => [s.dateFilter],
             (dateFilter): { date_from: string | null; date_to: string | null } => {
