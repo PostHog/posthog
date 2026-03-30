@@ -1,7 +1,7 @@
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { createContext } from './helpers'
+import { createOkContext } from './helpers'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResult, isOkResult, ok } from './results'
+import { PipelineResult, isOkResult } from './results'
 
 export type FeedResult = { ok: true } | { ok: false; reason: string }
 
@@ -122,7 +122,7 @@ export class BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput extends B
         const batchId = this.nextBatchId++
 
         const beforeInput: BeforeBatchInput<TInput, CInput> = { elements, batchId }
-        const beforeResult = await this.beforePipeline.process(createContext(ok(beforeInput)))
+        const beforeResult = await this.beforePipeline.process(createOkContext(beforeInput, {}))
 
         if (!isOkResult(beforeResult.result)) {
             return { ok: false, reason: `beforeBatch hook returned non-ok result for batch ${batchId}` }
@@ -206,7 +206,7 @@ export class BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput extends B
                         batchContext: batch.batchContext,
                         batchId,
                     }
-                    const afterResult = await this.afterPipeline.process(createContext(ok(afterInput)))
+                    const afterResult = await this.afterPipeline.process(createOkContext(afterInput, {}))
 
                     if (!isOkResult(afterResult.result)) {
                         throw new Error(`batching_pipeline afterBatch hook returned non-ok result for batch ${batchId}`)

@@ -1,9 +1,12 @@
+import copy
 from dataclasses import dataclass
 from typing import Any, Optional
 
 from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.functions.aggregations import COMBINATORS
+from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, find_hogql_aggregation
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.timings import HogQLTimings
@@ -54,6 +57,8 @@ class MaterializableVariable:
     value_wrapper_fns: Optional[list[str]] = None
     cte_name: Optional[str] = None  # CTE containing the variable; None = top-level query
 
+    bucket_fn: Optional[str] = None  # e.g. "toStartOfDay" for range variables on timestamp
+
 
 @dataclass
 class VariableUsageInWhere:
@@ -64,6 +69,79 @@ class VariableUsageInWhere:
     operator: ast.CompareOperationOp
     column_ast: Optional[ast.Expr] = None
     value_wrapper_fns: Optional[list[str]] = None
+
+
+RANGE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+)
+
+
+@dataclass(frozen=True)
+class AggregateReaggregation:
+    """Defines how a base aggregate function is re-aggregated after bucketed materialization."""
+
+    reaggregate_fn: str  # function to apply at read time (e.g., "sum" for count)
+
+
+# Base functions that CAN be re-aggregated, and how.
+# A combined function (e.g., sumIf) inherits from its base (sum).
+REAGGREGATABLE_BASE_FUNCTIONS: dict[str, AggregateReaggregation] = {
+    "count": AggregateReaggregation(reaggregate_fn="sum"),
+    "sum": AggregateReaggregation(reaggregate_fn="sum"),
+    "min": AggregateReaggregation(reaggregate_fn="min"),
+    "max": AggregateReaggregation(reaggregate_fn="max"),
+}
+
+
+def _strip_combinators(func_name: str) -> str | None:
+    """Strip ClickHouse combinator suffixes to find the base aggregate function.
+
+    Uses the COMBINATORS registry from posthog.hogql.functions.aggregations.
+    Returns the base function name (lowercased), or None if no match found.
+
+    Examples:
+        "sumIf" -> "sum"
+        "countArrayIf" -> "count"
+        "uniqMerge" -> "uniq" (but uniq is not in REAGGREGATABLE_BASE_FUNCTIONS)
+        "count" -> "count"
+    """
+    name_lower = func_name.lower()
+    if name_lower in REAGGREGATABLE_BASE_FUNCTIONS:
+        return name_lower
+
+    sorted_suffixes = sorted(COMBINATORS.keys(), key=len, reverse=True)
+
+    def strip_recursive(name: str) -> str:
+        for suffix in sorted_suffixes:
+            if name.endswith(suffix.lower()) and len(name) > len(suffix):
+                return strip_recursive(name[: -len(suffix)])
+        return name
+
+    base = strip_recursive(name_lower)
+    return base if base != name_lower or base in REAGGREGATABLE_BASE_FUNCTIONS else None
+
+
+def get_reaggregation(func_name: str) -> AggregateReaggregation | None:
+    """Look up how to re-aggregate a (possibly combined) aggregate function.
+
+    Returns AggregateReaggregation if the function can be re-aggregated, None otherwise.
+    Handles ClickHouse combinators by stripping suffixes to find the base function.
+
+    Examples:
+        "count" -> AggregateReaggregation(reaggregate_fn="sum")
+        "sumIf" -> AggregateReaggregation(reaggregate_fn="sum")
+        "avg" -> None (not re-aggregatable)
+        "uniqArrayIf" -> None (base "uniq" not in registry)
+    """
+    base = _strip_combinators(func_name)
+    if base is None:
+        return None
+    return REAGGREGATABLE_BASE_FUNCTIONS.get(base)
 
 
 SUPPORTED_MATERIALIZATION_OPS = frozenset(
@@ -83,6 +161,7 @@ SUPPORTED_MATERIALIZATION_OPS = frozenset(
 
 def analyze_variables_for_materialization(
     hogql_query: dict[str, Any],
+    bucket_overrides: dict[str, str] | None = None,
 ) -> tuple[bool, str, list[MaterializableVariable]]:
     """
     Check if query variables can be materialized.
@@ -174,6 +253,23 @@ def analyze_variables_for_materialization(
                 cte_name=cte_name,
             )
         )
+
+    # Detect range variables and set bucket_fn for bucketed materialization.
+    # Single-bound ranges (e.g., just >= start) are supported — we materialize all data
+    # bucketed and filter at read time with the user's value.
+    _detect_range_variables(result_vars, bucket_overrides=bucket_overrides)
+
+    # If range variables exist, ALL aggregate functions must be re-aggregatable
+    has_range_vars = any(v.bucket_fn is not None for v in result_vars)
+    if has_range_vars and isinstance(ast_node, ast.SelectQuery) and ast_node.select:
+        for expr in ast_node.select:
+            agg_name = _extract_aggregate_name(expr)
+            if agg_name and get_reaggregation(agg_name) is None:
+                return (
+                    False,
+                    f"Aggregate function '{agg_name}' cannot be re-aggregated for range variable materialization",
+                    [],
+                )
 
     # Safety check: CTE variables + top-level JOINs produce wrong results.
     # Removing a CTE's WHERE changes its row cardinality, which changes JOIN
@@ -341,33 +437,123 @@ class VariableInWhereFinder(TraversingVisitor):
         return []
 
 
-def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: Team) -> list[ast.Expr]:
+SUPPORTED_BUCKET_FUNCTIONS: dict[str, str] = {
+    "minute": "toStartOfMinute",
+    "fifteen_minutes": "toStartOfFifteenMinutes",
+    "hour": "toStartOfHour",
+    "day": "toStartOfDay",
+    "week": "toStartOfWeek",
+    "month": "toStartOfMonth",
+}
+
+
+def _is_property_column(column_chain: list[str]) -> bool:
+    """Check if a column chain references a properties field (e.g. properties.price)."""
+    return "properties" in column_chain
+
+
+def _detect_range_variables(
+    variables: list[MaterializableVariable],
+    bucket_overrides: dict[str, str] | None = None,
+) -> None:
+    """Detect range variables and set bucket_fn for bucketed materialization.
+
+    Any variable with a range operator on a plain column (no column_ast)
+    gets bucket_fn set. For single-bound ranges, we materialize all data
+    bucketed and filter at read time with the user's value.
+
+    Properties columns (e.g. properties.price) are skipped unless the user
+    explicitly provides a bucket_override — bucket functions like toStartOfDay
+    only make sense on DateTime columns, not on string/numeric properties.
+    """
+    for var in variables:
+        if var.column_ast is not None:
+            continue
+        if var.operator not in RANGE_OPS:
+            continue
+
+        col_key = ".".join(var.column_chain) if var.column_chain else var.column_expression
+
+        if bucket_overrides and col_key in bucket_overrides:
+            override = bucket_overrides[col_key]
+            if override not in SUPPORTED_BUCKET_FUNCTIONS:
+                raise ValueError(
+                    f"Unsupported bucket override '{override}'. Supported: {list(SUPPORTED_BUCKET_FUNCTIONS.keys())}"
+                )
+            var.bucket_fn = SUPPORTED_BUCKET_FUNCTIONS[override]
+        elif not _is_property_column(var.column_chain):
+            var.bucket_fn = "toStartOfDay"
+
+
+def _extract_aggregate_name(expr: ast.Expr) -> Optional[str]:
+    """Extract the aggregate function name from a SELECT expression, if any.
+
+    Handles two distinct-count syntaxes:
+    - count(DISTINCT x): HogQL parses as Call(name="count", distinct=True) -> returns "countDistinct"
+    - countDistinct(x): HogQL parses as Call(name="countDistinct") -> returns "countDistinct"
+
+    Also recognizes functions with ClickHouse combinators (e.g., sumIf, countArrayIf)
+    by checking if stripping combinators yields a known base aggregate function.
+    """
+    if isinstance(expr, ast.Alias):
+        return _extract_aggregate_name(expr.expr)
+    if isinstance(expr, ast.Call):
+        # count(DISTINCT x) and countDistinct(x) are both non-reaggregatable
+        if expr.name == "count" and getattr(expr, "distinct", False):
+            return "countDistinct"
+        if expr.name == "countDistinct":
+            return "countDistinct"
+
+        if find_hogql_aggregation(expr.name):
+            return expr.name
+
+        # Recognize aggregate functions with combinators (e.g., sumIf, countArrayIf)
+        # that aren't in the HogQL aggregation registry
+        if _strip_combinators(expr.name) is not None:
+            return expr.name
+    return None
+
+
+@dataclass
+class MaterializedColumn:
+    """A column in the materialized table with metadata for read-time re-aggregation."""
+
+    expr: ast.Expr
+    is_aggregate: bool
+    reaggregate_fn: Optional[str] = None  # e.g. "sum" for count/sum, "min" for min, etc.
+
+
+def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: Team) -> list[MaterializedColumn]:
     """
     Transform SELECT expressions to reference pre-computed columns in materialized table.
 
-    The materialized table has pre-aggregated data, so we need to select the
-    column names directly instead of re-computing expressions.
+    Returns list of MaterializedColumn with re-aggregation metadata.
 
     Examples:
-    - count() -> Field(chain=["count()"])
-    - count() as total -> Field(chain=["total"])
-    - toStartOfDay(timestamp) as date -> Field(chain=["date"])
+    - count() -> MaterializedColumn(Field(chain=["count()"]), is_aggregate=True, reaggregate_fn="sum")
+    - count() as total -> MaterializedColumn(Field(chain=["total"]), is_aggregate=True, reaggregate_fn="sum")
+    - toStartOfDay(timestamp) as date -> MaterializedColumn(Field(chain=["date"]), is_aggregate=False)
     """
-    transformed: list[ast.Expr] = []
+    result: list[MaterializedColumn] = []
     for expr in select_exprs:
+        agg_name = _extract_aggregate_name(expr)
+        is_agg = agg_name is not None
+        reagg = get_reaggregation(agg_name) if agg_name else None
+        reaggregate_fn = reagg.reaggregate_fn if reagg else None
         if isinstance(expr, ast.Alias):
-            transformed.append(ast.Field(chain=[expr.alias]))
+            field = ast.Field(chain=[expr.alias])
         else:
-            expr_str = expr.to_hogql()
-            transformed.append(ast.Field(chain=[expr_str]))
+            field = ast.Field(chain=[expr.to_hogql()])
+        result.append(MaterializedColumn(expr=field, is_aggregate=is_agg, reaggregate_fn=reaggregate_fn))
 
-    return transformed
+    return result
 
 
 def transform_query_for_materialization(
     hogql_query: dict[str, Any],
     variable_infos: MaterializableVariable | list[MaterializableVariable],
     team: Team,
+    bucket_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """
     Transform query by:
@@ -381,9 +567,23 @@ def transform_query_for_materialization(
     Example (multi, same column):
         Before: SELECT count() FROM events WHERE hour >= {variables.start} AND hour < {variables.end}
         After:  SELECT count(), hour AS start, hour AS end FROM events GROUP BY hour
+
+    If bucket_overrides is provided, re-runs range pair detection with the overrides
+    so that bucket_fn on the variable_infos is updated before the transform.
     """
+
     if isinstance(variable_infos, MaterializableVariable):
         variable_infos = [variable_infos]
+
+    variable_infos = copy.deepcopy(variable_infos)
+
+    # Re-apply range variable detection with overrides if provided
+    if bucket_overrides:
+        # Reset existing bucket_fn values so detection can re-apply with overrides
+        for v in variable_infos:
+            if v.bucket_fn is not None:
+                v.bucket_fn = None
+        _detect_range_variables(variable_infos, bucket_overrides=bucket_overrides)
 
     query_str = hogql_query.get("query")
     if not query_str:
@@ -481,8 +681,6 @@ class MaterializationTransformer(CloningVisitor):
     @staticmethod
     def _has_aggregate_functions(node: ast.SelectQuery) -> bool:
         """Check if any SELECT expression uses an aggregate function (sum, count, avg, etc.)."""
-        from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS
-
         agg_names = set(HOGQL_AGGREGATIONS.keys())
 
         class AggFinder(TraversingVisitor):
@@ -551,10 +749,17 @@ class MaterializationTransformer(CloningVisitor):
         Uses the original AST expression when available (e.g. for function calls
         like toDate(timestamp) that can't be reconstructed from column_chain).
         Always returns a fresh copy to avoid sharing AST nodes between SELECT and GROUP BY.
+        When bucket_fn is set, wraps the column expression with the bucket function.
         """
         if var.column_ast is not None:
-            return CloningVisitor().visit(var.column_ast)
-        return ast.Field(chain=list(var.column_chain))
+            base = CloningVisitor().visit(var.column_ast)
+        else:
+            base = ast.Field(chain=list(var.column_chain))
+
+        if var.bucket_fn:
+            return ast.Call(name=var.bucket_fn, args=[base])
+
+        return base
 
     def _remove_variable_from_where(self, where_node: Optional[ast.Expr]) -> Optional[ast.Expr]:
         if where_node is None:

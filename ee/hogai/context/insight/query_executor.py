@@ -16,12 +16,14 @@ from rest_framework.exceptions import APIException
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     CurrencyCode,
     FunnelsQuery,
     FunnelVizType,
     HogQLQuery,
+    PathsQuery,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMetricsQuery,
@@ -48,6 +50,7 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.context.insight.format import (
     TRUNCATED_MARKER,
     FunnelResultsFormatter,
+    PathsResultsFormatter,
     RetentionResultsFormatter,
     RevenueAnalyticsGrossRevenueResultsFormatter,
     RevenueAnalyticsMetricsResultsFormatter,
@@ -69,6 +72,7 @@ from .prompts import (
     FUNNEL_STEPS_EXAMPLE_PROMPT,
     FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
     FUNNEL_TRENDS_EXAMPLE_PROMPT,
+    PATHS_EXAMPLE_PROMPT,
     QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
     REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT,
@@ -91,6 +95,8 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | TrendsQuery
         | AssistantFunnelsQuery
         | FunnelsQuery
+        | AssistantPathsQuery
+        | PathsQuery
         | AssistantRetentionQuery
         | RetentionQuery
         | AssistantHogQLQuery
@@ -446,6 +452,9 @@ class AssistantQueryExecutor:
                 formatter = FunnelResultsFormatter(query, response["results"], self._team, self._utc_now_datetime)
                 # Contains a nested ClickHouse query in the date ranges
                 result = await database_sync_to_async(formatter.format, thread_sensitive=False)()
+            elif isinstance(query, AssistantPathsQuery | PathsQuery):
+                formatter_name = "PathsResultsFormatter"
+                result = PathsResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
@@ -506,6 +515,8 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         if query.funnelsFilter.funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT
         return FUNNEL_TRENDS_EXAMPLE_PROMPT
+    if isinstance(query, AssistantPathsQuery | PathsQuery):
+        return PATHS_EXAMPLE_PROMPT
     if isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RETENTION_EXAMPLE_PROMPT
     if isinstance(query, AssistantHogQLQuery | HogQLQuery):

@@ -98,6 +98,7 @@ class Integration(models.Model):
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
         GOOGLE_SHEETS = "google-sheets"
+        GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
@@ -121,7 +122,7 @@ class Integration(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = field_access_control(models.CharField(max_length=20, choices=IntegrationKind.choices), "project", "admin")
+    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind.choices), "project", "admin")
     # The ID of the integration in the external system
     integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend
@@ -1170,6 +1171,114 @@ class GoogleAdsIntegration:
         return all_accounts
 
 
+def is_unique_service_account_by_organization_id(service_account_email: str, organization_id: str) -> bool:
+    """Check if the service account is only in one organization.
+
+    This is used as a security measure to block multiple organizations from
+    impersonating the same service account.
+
+    In the future we may lift this restriction, but initially we want to make sure about
+    service account ownership with this check. This complements other runtime checks in
+    batch exports; see `verify_impersonated_service_account_ownership` in
+    `bigquery_batch_export.py`.
+    """
+    same_service_account_integrations = (
+        Integration.objects.select_related("team__organization")
+        .filter(kind="google-cloud-service-account", config__service_account_email=service_account_email)
+        # If private key is present, then we are not impersonating
+        .exclude(sensitive_config__has_key="private_key")
+    )
+    for integration in same_service_account_integrations:
+        if str(integration.team.organization.id) != organization_id:
+            return False
+
+    return True
+
+
+class GoogleCloudServiceAccountIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        self.integration = integration
+
+    @classmethod
+    def integration_from_service_account(
+        cls,
+        team_id: int,
+        organization_id: str,
+        service_account_email: str,
+        project_id: str,
+        private_key: str | None = None,
+        private_key_id: str | None = None,
+        token_uri: str | None = None,
+        created_by: User | None = None,
+    ) -> Integration:
+        if private_key is None:
+            if not is_unique_service_account_by_organization_id(service_account_email, organization_id):
+                raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
+
+        sensitive_config = {}
+        is_impersonated = True
+        if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
+            sensitive_config["private_key"] = private_key
+            sensitive_config["private_key_id"] = private_key_id
+            sensitive_config["token_uri"] = token_uri
+
+            is_impersonated = False
+
+        variant = "impersonated" if is_impersonated else "key-file"
+
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value,
+            # Including team_id to allow teams from the same organization to use the
+            # same service account. Otherwise different teams would overwrite each other.
+            integration_id=f"{service_account_email}-{team_id}-{variant}",
+            defaults={
+                "config": {
+                    "project_id": project_id,
+                    "service_account_email": service_account_email,
+                },
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    def has_key(self) -> bool:
+        """Return if this integration has a key associated with a service account.
+
+        If not, then it is a service account we are meant to impersonate.
+        """
+        keys = ("private_key", "private_key_id")
+        return all(key in self.integration.sensitive_config for key in keys) and all(
+            self.integration.sensitive_config[key] for key in keys
+        )
+
+    @property
+    def project_id(self) -> str:
+        return self.integration.config["project_id"]
+
+    @property
+    def service_account_email(self) -> str:
+        return self.integration.config["service_account_email"]
+
+    @property
+    def service_account_info(self) -> dict[str, str]:
+        return {
+            "private_key": self.integration.sensitive_config["private_key"],
+            "private_key_id": self.integration.sensitive_config["private_key_id"],
+            "token_uri": self.integration.sensitive_config["token_uri"],
+            "client_email": self.service_account_email,
+            "project_id": self.project_id,
+        }
+
+
 class GoogleCloudIntegration:
     supported_kinds = ["google-pubsub", "google-cloud-storage"]
     integration: Integration
@@ -1202,9 +1311,11 @@ class GoogleCloudIntegration:
                 "config": {
                     "expires_in": credentials.expiry.timestamp() - int(time.time()),
                     "refreshed_at": int(time.time()),
+                },
+                "sensitive_config": {
+                    "key_info": key_info,
                     "access_token": credentials.token,
                 },
-                "sensitive_config": key_info,
                 "created_by": created_by,
             },
         )
@@ -1237,9 +1348,8 @@ class GoogleCloudIntegration:
         else:
             raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
 
-        credentials = service_account.Credentials.from_service_account_info(
-            self.integration.sensitive_config, scopes=[scope]
-        )
+        key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
+        credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:
             credentials.refresh(GoogleRequest())
@@ -1249,12 +1359,27 @@ class GoogleCloudIntegration:
         self.integration.config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
-            "access_token": credentials.token,
         }
+        # Migrate pre-migration integrations where sensitive_config contains the
+        # keyfile directly (not nested under "key_info"). Without this, setting
+        # access_token pollutes the keyfile dict and breaks subsequent refreshes.
+        if "key_info" not in self.integration.sensitive_config:
+            self.integration.sensitive_config = {
+                "key_info": self.integration.sensitive_config,
+                "access_token": credentials.token,
+            }
+        else:
+            self.integration.sensitive_config["access_token"] = credentials.token
         self.integration.save()
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for {self}")
+
+    def get_access_token(self) -> str:
+        if self.access_token_expired():
+            self.refresh_access_token()
+        # Fall back to config for pre-migration integrations
+        return self.integration.sensitive_config.get("access_token") or self.integration.config.get("access_token", "")
 
 
 class FirebaseIntegration:
@@ -2057,7 +2182,39 @@ class GitHubIntegration:
         if not isinstance(body, list):
             return []
 
-        return [branch["name"] for branch in body if isinstance(branch, dict) and isinstance(branch.get("name"), str)]
+        def extract_names(data: list) -> list[str]:
+            return [
+                branch["name"] for branch in data if isinstance(branch, dict) and isinstance(branch.get("name"), str)
+            ]
+
+        all_branches = extract_names(body)
+
+        # Paginate through remaining pages (w/cap)
+        max_pages = 20
+        current_page = 1
+        while current_page < max_pages and 'rel="next"' in response.headers.get("Link", ""):
+            current_page += 1
+            try:
+                response = fetch(current_page)
+            except requests.RequestException:
+                break
+            if response.status_code != 200:
+                logger.warning(
+                    "GitHubIntegration.list_branches pagination stopped",
+                    status_code=response.status_code,
+                    page=current_page,
+                    repo=repo,
+                )
+                break
+            try:
+                body = response.json()
+            except Exception:
+                break
+            if not isinstance(body, list):
+                break
+            all_branches.extend(extract_names(body))
+
+        return all_branches
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
@@ -2083,23 +2240,26 @@ class GitHubIntegration:
 
     def get_default_branch(self, repository: str) -> str:
         """Get the default branch for a repository."""
-        org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        access_token = self.integration.sensitive_config.get("access_token")
+        if not access_token:
+            raise ValueError("GitHub access token not configured")
 
         response = requests.get(
-            f"https://api.github.com/repos/{org}/{repository}",
+            f"https://api.github.com/repos/{repo_path}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
+            timeout=10,
         )
 
         if response.status_code == 200:
             repo_data = response.json()
             return repo_data.get("default_branch", "main")
         else:
-            return "main"
+            raise Exception(f"Failed to get default branch: HTTP {response.status_code}")
 
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""

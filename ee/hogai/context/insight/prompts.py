@@ -114,6 +114,19 @@ Date|$pageview -> sign up conversion|$pageview -> sign up drop-off
 """.strip()
 
 
+PATHS_EXAMPLE_PROMPT = """
+You are given a table with the results of a paths query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row. Each row represents an edge in the user path graph, showing the source step, target step, the number of users who traversed that edge, and the average time to convert between steps. Source and target values are prefixed with their step number (e.g., "1_/home" means step 1 at "/home").
+
+Example:
+```
+Source|Target|Users|Avg. conversion time
+1_/home|2_/pricing|150|2m 30s
+1_/home|2_/docs|80|1m 15s
+2_/pricing|3_/signup|120|45s
+2_/docs|3_/signup|40|3m
+```
+""".strip()
+
 RETENTION_EXAMPLE_PROMPT = """
 You are given a matrix with the results of a retention query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with series names received from the query. The first column is the date, the second column is the count of persons who completed the action on that date, and the rest are the retention values for each day relative to the following days.
 

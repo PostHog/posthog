@@ -12,6 +12,20 @@ DEFAULT_VERSION_PAGE_SIZE = 50
 MAX_PROMPT_PAYLOAD_BYTES = 1_000_000
 
 
+def validate_prompt_name_value(value: str) -> str:
+    if value.lower() in RESERVED_PROMPT_NAMES:
+        raise serializers.ValidationError(
+            "'new' is a reserved name and cannot be used.",
+            code="reserved_name",
+        )
+    if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+        raise serializers.ValidationError(
+            "Only letters, numbers, hyphens (-) and underscores (_) are allowed.",
+            code="invalid_name",
+        )
+    return value
+
+
 def validate_prompt_payload_size(prompt_payload: Any) -> Any:
     prompt_payload_bytes = len(json.dumps(prompt_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     if prompt_payload_bytes > MAX_PROMPT_PAYLOAD_BYTES:
@@ -136,19 +150,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         return value.isoformat().replace("+00:00", "Z")
 
     def validate_name(self, value: str) -> str:
-        if value.lower() in RESERVED_PROMPT_NAMES:
-            raise serializers.ValidationError(
-                "'new' is a reserved name and cannot be used.",
-                code="reserved_name",
-            )
-
-        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
-            raise serializers.ValidationError(
-                "Only letters, numbers, hyphens (-) and underscores (_) are allowed.",
-                code="invalid_name",
-            )
-
-        return value
+        return validate_prompt_name_value(value)
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
@@ -215,6 +217,16 @@ class LLMPromptPublicSerializer(serializers.Serializer):
     latest_version = serializers.IntegerField()
     version_count = serializers.IntegerField()
     first_version_created_at = serializers.DateTimeField()
+
+
+class LLMPromptDuplicateSerializer(serializers.Serializer):
+    new_name = serializers.CharField(
+        max_length=255,
+        help_text="Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        return validate_prompt_name_value(value)
 
 
 class LLMPromptResolveResponseSerializer(serializers.Serializer):

@@ -157,7 +157,7 @@ class Task(DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
-        repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         create_pr: bool = True,
         mode: str = "background",
         slack_thread_context: Optional["SlackThreadContext"] = None,
@@ -170,10 +170,11 @@ class Task(DeletedMetaFields, models.Model):
 
         created_by = User.objects.get(id=user_id)
 
-        github_integration = Integration.objects.filter(team=team, kind="github").first()
-
-        if not github_integration:
-            raise ValueError(f"Team {team.id} does not have a GitHub integration")
+        github_integration = None
+        if repository:
+            github_integration = Integration.objects.filter(team=team, kind="github").first()
+            if not github_integration:
+                raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         task = Task.objects.create(
             team=team,
@@ -227,6 +228,7 @@ class TaskRun(models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
+
     environment = models.CharField(
         max_length=10,
         choices=Environment.choices,
@@ -283,6 +285,25 @@ class TaskRun(models.Model):
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
 
+    def get_sandbox_environment(self) -> Optional["SandboxEnvironment"]:
+        """Resolve the SandboxEnvironment for this run, scoped to team and respecting privacy.
+
+        Private environments are only accessible if the task creator matches the
+        environment creator. If either created_by is null, private environments
+        are not accessible.
+        """
+        env_id = (self.state or {}).get("sandbox_environment_id")
+        if not env_id:
+            return None
+        env = SandboxEnvironment.objects.filter(id=env_id, team_id=self.team_id).first()
+        if not env:
+            return None
+        if env.private:
+            task_user_id = self.task.created_by_id
+            if not task_user_id or env.created_by_id != task_user_id:
+                return None
+        return env
+
     @staticmethod
     def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
         """Get the Temporal workflow ID for a task run."""
@@ -294,9 +315,6 @@ class TaskRun(models.Model):
         return self.get_workflow_id(self.task_id, self.id)
 
     def heartbeat_workflow(self) -> None:
-        if self.mode != "background":
-            return
-
         from django.core.cache import cache
 
         cache_key = f"tasks:task_run:heartbeat:{self.id}"

@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "distinct_id": {
+            "description": "Filter list by distinct id.",
+            "type": "string"
+        },
+        "email": {
+            "description": "Filter persons by email (exact match)",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "search": {
+            "description": "Search persons, either by email (full text search) or distinct_id (exact match).",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

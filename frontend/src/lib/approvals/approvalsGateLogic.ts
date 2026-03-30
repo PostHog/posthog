@@ -2,6 +2,7 @@ import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ApprovalPolicy, AvailableFeature } from '~/types'
@@ -12,7 +13,7 @@ export const approvalsGateLogic = kea<approvalsGateLogicType>([
     path(['lib', 'approvals', 'approvalsGateLogic']),
 
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature']],
+        values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeamIdStrict']],
     })),
 
     loaders(({ values }) => ({
@@ -25,7 +26,9 @@ export const approvalsGateLogic = kea<approvalsGateLogicType>([
                     }
 
                     try {
-                        const response = await api.get('api/environments/@current/approval_policies/')
+                        const response = await api.get(
+                            `api/environments/${values.currentTeamIdStrict}/approval_policies/`
+                        )
                         return (response.results || []).filter((p: ApprovalPolicy) => p.enabled)
                     } catch {
                         return []

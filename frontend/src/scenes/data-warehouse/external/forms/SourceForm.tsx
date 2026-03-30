@@ -40,7 +40,7 @@ const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Redshift: 5439,
 }
 
-const sourceFieldToElement = (
+export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfig,
     lastValue?: any,
@@ -182,6 +182,7 @@ const sourceFieldToElement = (
                         value={value}
                         onChange={onChange}
                         integration={field.kind}
+                        schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
                     />
                 )}
             </LemonField>

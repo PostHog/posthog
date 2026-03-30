@@ -5,11 +5,13 @@ edition = "2021"
 publish = false
 
 [dependencies]
+futures = { workspace = true }
 http = { workspace = true }
 metrics = { workspace = true }
 pin-project = "1.1"
 sqlx = { workspace = true }
 tokio = { workspace = true }
+tonic = { workspace = true }
 tower = { workspace = true }
 
 [lints]

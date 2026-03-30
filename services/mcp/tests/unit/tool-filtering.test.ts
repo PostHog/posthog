@@ -46,9 +46,14 @@ describe('Tool Filtering - Features', () => {
             ],
         },
         {
+            features: ['error_tracking'],
+            description: 'error tracking tools (underscore)',
+            expectedTools: ['list-errors', 'error-details', 'update-issue-status', 'error-tracking-issues-list'],
+        },
+        {
             features: ['error-tracking'],
-            description: 'error tracking tools',
-            expectedTools: ['list-errors', 'error-details', 'update-issue-status'],
+            description: 'error tracking tools (hyphen, normalized)',
+            expectedTools: ['list-errors', 'error-details', 'update-issue-status', 'error-tracking-issues-list'],
         },
         {
             features: ['experiments'],
@@ -56,8 +61,13 @@ describe('Tool Filtering - Features', () => {
             expectedTools: ['experiment-get-all'],
         },
         {
+            features: ['llm_analytics'],
+            description: 'LLM analytics tools (underscore)',
+            expectedTools: ['get-llm-total-costs-for-project'],
+        },
+        {
             features: ['llm-analytics'],
-            description: 'LLM analytics tools',
+            description: 'LLM analytics tools (hyphen, normalized)',
             expectedTools: ['get-llm-total-costs-for-project'],
         },
         {
@@ -86,13 +96,13 @@ describe('Tool Filtering - Features', () => {
             }
         })
 
-        it('should not expose annotation list/get tools in v2', () => {
+        it('should expose all annotation tools in v2', () => {
             const tools = getToolsForFeatures({ features: ['annotations'], version: 2 })
 
             expect(tools).toContain('annotation-create')
             expect(tools).toContain('annotation-delete')
-            expect(tools).not.toContain('annotations-list')
-            expect(tools).not.toContain('annotation-retrieve')
+            expect(tools).toContain('annotations-list')
+            expect(tools).toContain('annotation-retrieve')
         })
     })
 })
@@ -320,7 +330,6 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,
-                MCP_APPS_BASE_URL: undefined,
                 POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },
@@ -346,7 +355,6 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,
-                MCP_APPS_BASE_URL: undefined,
                 POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },

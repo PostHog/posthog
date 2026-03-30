@@ -127,6 +127,10 @@ export default function SchemaForm(): JSX.Element {
                                         )
                                     }
 
+                                    if (schema.sync_type === 'webhook') {
+                                        return <LemonTag type="success">Webhook</LemonTag>
+                                    }
+
                                     if (
                                         schema.sync_type !== 'full_refresh' &&
                                         schema.sync_type !== null &&
@@ -238,6 +242,7 @@ const SyncMethodModal = (): JSX.Element => {
             <SyncMethodForm
                 schema={currentSyncMethodModalSchema}
                 onClose={cancelSyncMethodModal}
+                isNewSource
                 onSave={(syncType, incrementalField, incrementalFieldType) => {
                     if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(

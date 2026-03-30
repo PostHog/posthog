@@ -160,7 +160,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 file: 'Python',
                                 code: dedent`
                                     response = client.responses.create(
-                                        model="gpt-4o-mini",
+                                        model="gpt-5-mini",
                                         input=[
                                             {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
@@ -179,7 +179,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 file: 'Node',
                                 code: dedent`
                                     const completion = await openai.responses.create({
-                                        model: "gpt-4o-mini",
+                                        model: "gpt-5-mini",
                                         input: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
                                         posthogDistinctId: "user_123", // optional
                                         posthogTraceId: "trace_123", // optional

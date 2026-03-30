@@ -72,7 +72,7 @@ export function SDKInstallNuxtJSInstructions(): JSX.Element {
             <JSInstallSnippet />
             <h3>Add environment variables</h3>
             <p>
-                Add your PostHog API key and host to your <code>nuxt.config.js</code> file.
+                Add your PostHog project token and host to your <code>nuxt.config.js</code> file.
             </p>
             <NuxtEnvVarsSnippet />
 

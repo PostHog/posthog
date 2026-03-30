@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
 import { funnelPathsExpansionLogic } from 'scenes/funnels/FunnelFlowGraph/funnelPathsExpansionLogic'
 import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
@@ -144,7 +145,21 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             funnelPathsExpansionLogic(JOURNEY_BUILDER_INSIGHT_PROPS),
             ['collapsePath'],
             customerJourneysLogic,
-            ['addJourney', 'addJourneySuccess', 'addJourneyFailure'],
+            [
+                'addJourney',
+                'addJourneySuccess',
+                'addJourneyFailure',
+                'updateJourney',
+                'updateJourneySuccess',
+                'updateJourneyFailure',
+            ],
+            eventUsageLogic,
+            [
+                'reportCustomerJourneyCreated',
+                'reportCustomerJourneyUpdated',
+                'reportCustomerJourneyBuilderStepAdded',
+                'reportCustomerJourneyBuilderStepRemoved',
+            ],
         ],
         values: [
             featureFlagLogic,
@@ -181,6 +196,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
         saveJourneyFailure: (error: string) => ({ error }),
         loadFromInsight: (insightId: number) => ({ insightId }),
         applyTemplate: (templateKey: string) => ({ templateKey }),
+        setEditingJourney: (journeyId: string, insightId: number) => ({ journeyId, insightId }),
         resetBuilder: true,
     }),
 
@@ -191,37 +207,63 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 setQuery: (_, { query }) => query,
                 setQueryFromViz: (_, { query }) => query,
                 addJourneySuccess: () => createDefaultQuery(),
+                updateJourneySuccess: () => createDefaultQuery(),
+                resetBuilder: () => createDefaultQuery(),
             },
         ],
         journeyName: [
             '',
             {
                 setJourneyName: (_, { name }) => name,
-                addJourneySuccess: () => '',
+                resetBuilder: () => '',
             },
         ],
         journeyDescription: [
             '',
             {
                 setJourneyDescription: (_, { description }) => description,
-                addJourneySuccess: () => '',
+                resetBuilder: () => '',
             },
         ],
         isSaving: [
             false,
             {
                 saveJourney: () => true,
-                addJourneySuccess: () => false,
+                resetBuilder: () => false,
                 addJourneyFailure: () => false,
+                updateJourneyFailure: () => false,
                 saveJourneyFailure: () => false,
+            },
+        ],
+        editingJourneyId: [
+            null as string | null,
+            {
+                setEditingJourney: (_, { journeyId }) => journeyId,
+                resetBuilder: () => null,
+            },
+        ],
+        editingInsightId: [
+            null as number | null,
+            {
+                setEditingJourney: (_, { insightId }) => insightId,
+                resetBuilder: () => null,
+            },
+        ],
+        creationSource: [
+            null as string | null,
+            {
+                applyTemplate: (_, { templateKey }) => templateKey as string,
+                loadFromInsight: () => 'existing_funnel',
+                resetBuilder: () => null,
             },
         ],
     }),
 
     selectors({
+        isEditMode: [(s) => [s.editingJourneyId], (id): boolean => !!id],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.isEditMode, s.journeyName],
+            (isEditMode, journeyName): Breadcrumb[] => [
                 {
                     key: Scene.CustomerAnalytics,
                     name: 'Customer analytics',
@@ -233,15 +275,24 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                     name: 'Customer journeys',
                     path: urls.customerAnalyticsJourneys(),
                 },
-                {
-                    key: Scene.CustomerJourneyTemplates,
-                    name: 'Templates',
-                    path: urls.customerJourneyTemplates(),
-                },
-                {
-                    key: Scene.CustomerJourneyBuilder,
-                    name: 'New journey',
-                },
+                ...(isEditMode
+                    ? [
+                          {
+                              key: Scene.CustomerJourneyBuilder,
+                              name: journeyName || 'Edit journey',
+                          },
+                      ]
+                    : [
+                          {
+                              key: Scene.CustomerJourneyTemplates,
+                              name: 'Templates',
+                              path: urls.customerJourneyTemplates(),
+                          },
+                          {
+                              key: Scene.CustomerJourneyBuilder,
+                              name: 'New journey',
+                          },
+                      ]),
             ],
         ],
         stepCount: [(s) => [s.query], (query): number => query.source.series.length],
@@ -264,6 +315,10 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        resetBuilder: () => {
+            actions.setInsightQuery(createDefaultQuery())
+        },
+
         setQuery: () => {
             actions.collapsePath()
             actions.setInsightQuery(values.query)
@@ -281,6 +336,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             const query = { ...values.query, source: { ...values.query.source, series } }
             actions.setQuery(query)
             actions.setInsightQuery(query)
+            actions.reportCustomerJourneyBuilderStepAdded(insertAtIndex, series.length)
         },
 
         removeStep: ({ stepIndex }) => {
@@ -291,6 +347,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             const query = { ...values.query, source: { ...values.query.source, series } }
             actions.setQuery(query)
             actions.setInsightQuery(query)
+            actions.reportCustomerJourneyBuilderStepRemoved(stepIndex, series.length)
         },
 
         updateStepEvent: ({ stepIndex, value, groupType, item }) => {
@@ -402,8 +459,41 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             }
         },
 
+        setEditingJourney: async ({ insightId }, breakpoint) => {
+            try {
+                const insight = await insightsApi.getByNumericId(insightId)
+                breakpoint()
+                if (!insight?.query) {
+                    lemonToast.error('Could not load journey')
+                    router.actions.push(urls.customerAnalyticsJourneys())
+                    return
+                }
+                const vizNode = insight.query as InsightVizNode<FunnelsQuery>
+                const modifiedQuery: InsightVizNode<FunnelsQuery> = {
+                    ...vizNode,
+                    source: {
+                        ...vizNode.source,
+                        funnelsFilter: {
+                            ...vizNode.source.funnelsFilter,
+                            funnelVizType: FunnelVizType.Flow,
+                        },
+                    },
+                    full: true,
+                    showFilters: true,
+                }
+                actions.setQuery(modifiedQuery)
+                actions.setJourneyName(insight.name?.replace(INSIGHT_NAME_PREFIX, '') || '')
+                actions.setJourneyDescription(insight.description || '')
+                actions.setInsightQuery(modifiedQuery)
+            } catch (e) {
+                posthog.captureException(e)
+                lemonToast.error('Failed to load journey')
+                router.actions.push(urls.customerAnalyticsJourneys())
+            }
+        },
+
         saveJourney: async () => {
-            const { series, journeyName, journeyDescription, query } = values
+            const { series, journeyName, journeyDescription, query, editingJourneyId, editingInsightId } = values
             const name = (journeyName.trim() || 'Untitled journey').slice(0, JOURNEY_NAME_MAX_LENGTH)
             const insightName = `${INSIGHT_NAME_PREFIX}${name}`.slice(0, JOURNEY_NAME_MAX_LENGTH)
 
@@ -426,33 +516,64 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             }
 
             try {
-                const insight = await insightsApi.create({
-                    query,
-                    name: insightName,
-                    description: journeyDescription.trim() || undefined,
-                    saved: true,
-                })
+                const saveQuery: InsightVizNode<FunnelsQuery> = {
+                    ...query,
+                    source: {
+                        ...query.source,
+                        funnelsFilter: {
+                            ...query.source.funnelsFilter,
+                            funnelVizType: FunnelVizType.Steps,
+                        },
+                    },
+                }
 
-                // Delegate journey creation + list reload to customerJourneysLogic
-                // addJourney creates the record, reloads the list, and addJourneySuccess selects it
-                actions.addJourney({
-                    insightId: insight.id,
-                    name,
-                    description: journeyDescription.trim() || undefined,
-                })
-
-                actions.resetBuilder()
-                router.actions.push(urls.customerAnalyticsJourneys())
+                if (editingJourneyId && editingInsightId) {
+                    await insightsApi.update(editingInsightId, {
+                        query: saveQuery,
+                        name: insightName,
+                        description: journeyDescription.trim() || undefined,
+                    })
+                    actions.updateJourney({
+                        journeyId: editingJourneyId,
+                        name,
+                        description: journeyDescription.trim() || undefined,
+                    })
+                    actions.reportCustomerJourneyUpdated(editingJourneyId, name, series.length)
+                } else {
+                    const insight = await insightsApi.create({
+                        query: saveQuery,
+                        name: insightName,
+                        description: journeyDescription.trim() || undefined,
+                        saved: true,
+                    })
+                    actions.addJourney({
+                        insightId: insight.id,
+                        name,
+                        description: journeyDescription.trim() || undefined,
+                    })
+                    actions.reportCustomerJourneyCreated(name, series.length, values.creationSource)
+                }
             } catch (e) {
                 const message = e instanceof Error ? e.message : 'Failed to save journey'
                 actions.saveJourneyFailure(message)
                 lemonToast.error(message)
             }
         },
+
+        updateJourneySuccess: () => {
+            actions.resetBuilder()
+            router.actions.push(urls.customerAnalyticsJourneys())
+        },
+
+        addJourneySuccess: () => {
+            actions.resetBuilder()
+            router.actions.push(urls.customerAnalyticsJourneys())
+        },
     })),
 
     urlToAction(({ actions }) => ({
         [urls.customerJourneyBuilder()]: (_, searchParams) => {
+            actions.resetBuilder()
             const template = searchParams.template
             if (template && template !== 'scratch') {
                 actions.applyTemplate(template)
@@ -462,6 +583,15 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             if (fromInsight) {
                 actions.loadFromInsight(Number(fromInsight))
             }
+        },
+        [urls.customerJourneyEdit(':id')]: ({ id }, searchParams) => {
+            const insightId = Number(searchParams.insightId)
+            if (!id || !insightId || isNaN(insightId)) {
+                lemonToast.error('Invalid journey or insight ID')
+                router.actions.push(urls.customerAnalyticsJourneys())
+                return
+            }
+            actions.setEditingJourney(id, insightId)
         },
     })),
 

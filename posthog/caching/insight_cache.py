@@ -13,9 +13,11 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, Insight, InsightCachingState
+from posthog.models import Insight, InsightCachingState
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.tasks import update_cache_task
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -129,7 +131,7 @@ def update_cached_state(
     if result is not None:  # This is particularly the case for HogQL-based queries, which cache.set() on their own
         from posthog.caching.query_cache_routing import get_query_cache
 
-        query_cache = get_query_cache(team_id)
+        query_cache = get_query_cache()
         query_cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
         INSIGHT_CACHE_WRITE_COUNTER.inc()
 

@@ -12,6 +12,7 @@ import type {
     EndpointLastExecutionTimesRequestApi,
     EndpointRequestApi,
     EndpointRunRequestApi,
+    MaterializationPreviewRequestApi,
     QueryStatusResponseApi,
 } from './api.schemas'
 
@@ -106,6 +107,27 @@ export const endpointsDestroy = async (projectId: string, name: string, options?
     return apiMutator<void>(getEndpointsDestroyUrl(projectId, name), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
+ */
+export const getEndpointsMaterializationPreviewCreateUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/materialization_preview/`
+}
+
+export const endpointsMaterializationPreviewCreate = async (
+    projectId: string,
+    name: string,
+    materializationPreviewRequestApi: MaterializationPreviewRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEndpointsMaterializationPreviewCreateUrl(projectId, name), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(materializationPreviewRequestApi),
     })
 }
 

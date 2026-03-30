@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "edited_history_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Activity log ID from the last known edit. Used for conflict detection."
+        },
+        "id": {
+            "description": "A UUID string identifying this data warehouse saved query.",
+            "type": "string"
+        },
+        "is_test": {
+            "description": "Whether this view is for testing only and will auto-expire.",
+            "type": "boolean"
+        },
+        "name": {
+            "description": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "query": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

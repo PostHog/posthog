@@ -37,7 +37,7 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
                 <div className="inline-block mt-4 w-full">
                     <LemonSwitch
                         disabled={!hasFilters}
-                        checked={hasFilters ? pathReplacements || false : false}
+                        checked={hasFilters && !!pathReplacements}
                         onChange={(checked: boolean) => {
                             updateInsightFilter({ pathReplacements: checked })
                         }}

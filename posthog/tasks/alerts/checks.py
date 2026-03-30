@@ -22,6 +22,8 @@ from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.alerts.trends import check_trends_alert, check_trends_alert_with_detector
 from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
@@ -171,13 +173,18 @@ def check_alerts_task() -> None:
         ),
     )
 
-    grouped_by_team = defaultdict(list)
+    grouped_by_team: defaultdict[int, list[tuple[str, int, str | None]]] = defaultdict(list)
     for alert in sorted_alerts:
-        grouped_by_team[alert.team].append(alert.id)
+        grouped_by_team[alert.team_id].append((str(alert.id), alert.team_id, alert.calculation_interval))
 
-    for alert_ids in grouped_by_team.values():
+    for alert_data in grouped_by_team.values():
         # We chain the task execution to prevent queries *for a single team* running at the same time
-        chain(*(check_alert_task.si(str(alert_id)).set(expires=expire_after) for alert_id in alert_ids))()
+        chain(
+            *(
+                check_alert_task.si(alert_id, team_id, calculation_interval).set(expires=expire_after)
+                for alert_id, team_id, calculation_interval in alert_data
+            )
+        )()
 
 
 @shared_task(
@@ -186,9 +193,20 @@ def check_alerts_task() -> None:
     expires=60 * 60,
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
-def check_alert_task(alert_id: str) -> None:
+def check_alert_task(alert_id: str, team_id: int = 0, calculation_interval: str | None = None) -> None:
     with ph_scoped_capture() as capture_ph_event:
-        check_alert(alert_id, capture_ph_event)
+        with slo_operation(
+            spec=SloSpec(
+                distinct_id=alert_id,
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_CHECK,
+                team_id=team_id,
+                resource_id=alert_id,
+            ),
+            properties={"calculation_interval": calculation_interval},
+            capture=capture_ph_event,
+        ):
+            check_alert(alert_id, capture_ph_event)
 
 
 @retry(
@@ -259,7 +277,9 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             if insight.query is None:
                 raise ValueError("Alert's insight has no valid query")
             threshold_config = alert.threshold.configuration if alert.threshold else None
-            validate_alert_config(insight.query, alert.condition, alert.config, threshold_config)
+            validate_alert_config(
+                insight.query, alert.condition, alert.config, threshold_config, alert.calculation_interval
+            )
     except ValueError as e:
         _disable_invalid_alert(alert, str(e))
         return

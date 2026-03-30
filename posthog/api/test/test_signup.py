@@ -9,21 +9,26 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
+from django.contrib.sessions.backends.base import UpdateError
 from django.core import mail
 from django.core.cache import cache
+from django.test import override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.api.signup import _save_session_with_recovery, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.utils import get_instance_realm
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -1267,6 +1272,111 @@ class TestSignupAPI(APIBaseTest):
                     User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
 
 
+class TestSignupChallengeAPI(APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        TEST_clear_instance_license_cache()
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar.create_challenge_nonce", return_value="challenge:abc123:uuid")
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(
+        WORKOS_RADAR_ENABLED=True,
+        WORKOS_RADAR_API_KEY="test_key",
+        CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123",
+    )
+    def test_signup_challenge_returns_428_with_nonce_and_site_key(
+        self, mock_call_api, mock_log_event, mock_create_nonce
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "challenge@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Test Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, 428)
+        data = response.json()
+        self.assertEqual(data["code"], "challenge_required")
+        self.assertEqual(data["extra"]["challenge_nonce"], "challenge:abc123:uuid")
+        self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
+    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @patch("posthoganalytics.capture")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_signup_challenge_resubmit_with_valid_token_succeeds(
+        self, mock_capture, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "challenge@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Test Org",
+                "turnstile_token": "valid_token",
+                "challenge_nonce": "challenge:abc123:uuid",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="challenge@posthog.com")
+        self.assertEqual(user.first_name, "John")
+
+
+class TestInviteSignupChallengeAPI(APIBaseTest):
+    CONFIG_EMAIL = None
+
+    @patch("posthog.workos_radar.create_challenge_nonce", return_value="challenge:invite123:uuid")
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(
+        WORKOS_RADAR_ENABLED=True,
+        WORKOS_RADAR_API_KEY="test_key",
+        CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123",
+    )
+    def test_invite_signup_challenge_returns_428_with_nonce_and_site_key(
+        self, mock_call_api, mock_log_event, mock_create_nonce
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="invite+challenge@posthog.com", organization=self.organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Jane",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+
+        self.assertEqual(response.status_code, 428)
+        data = response.json()
+        self.assertEqual(data["code"], "challenge_required")
+        self.assertEqual(data["extra"]["challenge_nonce"], "challenge:invite123:uuid")
+        self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+
+
 class TestPasskeySignupAPI(APIBaseTest):
     """
     Tests passkey signup flow, specifically that the temporary UUID generated during
@@ -1479,6 +1589,25 @@ class TestPasskeySignupAPI(APIBaseTest):
             },
         )
         self.assertEqual(User.objects.count(), count)
+
+
+class TestSignupSessionSaveRecovery(unittest.TestCase):
+    def test_save_session_with_recovery_uses_save_when_row_exists(self):
+        session = mock.Mock()
+
+        _save_session_with_recovery(session)
+
+        session.save.assert_called_once_with()
+        session.create.assert_not_called()
+
+    def test_save_session_with_recovery_recreates_session_on_update_error(self):
+        session = mock.Mock()
+        session.save.side_effect = UpdateError
+
+        _save_session_with_recovery(session)
+
+        session.save.assert_called_once_with()
+        session.create.assert_called_once_with()
 
 
 class TestInviteSignupAPI(APIBaseTest):
@@ -2325,3 +2454,41 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # AND then
         self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
+
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
+    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @patch("posthoganalytics.capture")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_invite_signup_challenge_resubmit_with_turnstile_token_succeeds(
+        self, mock_capture, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="challenge+test@posthog.com", organization=self.organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Challenged",
+                "password": VALID_TEST_PASSWORD,
+                "turnstile_token": "valid_token_from_cf",
+                "challenge_nonce": "challenge:abc123:uuid",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="challenge+test@posthog.com")
+        self.assertEqual(user.first_name, "Challenged")
+        mock_validate_nonce.assert_called_once()
+        mock_verify_token.assert_called_once()
+
+    def test_process_social_invite_signup_returns_none_for_nonexistent_invite(self):
+        nonexistent_id = str(uuid.uuid4())
+        result = process_social_invite_signup(mock.MagicMock(), nonexistent_id, "test@example.com", "Test User")
+        self.assertIsNone(result)

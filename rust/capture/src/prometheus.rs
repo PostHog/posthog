@@ -23,6 +23,11 @@ pub fn report_internal_error_metrics(err_type: &'static str, stage_tag: &'static
     counter!("capture_error_by_stage_and_type", &tags).increment(1);
 }
 
+pub fn report_clock_skew(skew: chrono::Duration) {
+    let skew_seconds = skew.num_milliseconds().saturating_abs() as f64 / 1000.0;
+    metrics::histogram!("capture_client_clock_skew_seconds").record(skew_seconds);
+}
+
 pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> PrometheusHandle {
     // Ok I broke it at the end, but the limit on our ingress is 60 and that's a nicer way of reaching it
     const EXPONENTIAL_SECONDS: &[f64] = &[
@@ -102,6 +107,12 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         100.0, 500.0, 1000.0, 5000.0, 10000.0, 15000.0, 30000.0, 60000.0,
     ];
 
+    // Absolute client clock skew buckets (in seconds).
+    // Fine granularity near zero for finding the right skew correction threshold.
+    const CLOCK_SKEW_SECONDS: &[f64] = &[
+        0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0, 3600.0, 86400.0,
+    ];
+
     PrometheusBuilder::new()
         .add_global_label("role", role)
         .add_global_label("capture_mode", capture_mode)
@@ -175,6 +186,11 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .set_buckets_for_metric(
             Matcher::Full("global_rate_limiter_sync_staleness_ms".to_string()),
             GLOBAL_RATE_LIMITER_STALENESS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_client_clock_skew_seconds".to_string()),
+            CLOCK_SKEW_SECONDS,
         )
         .unwrap()
         .install_recorder()

@@ -20,7 +20,6 @@ from rest_framework.request import Request
 
 from posthog.schema import SharingConfigurationSettings
 
-from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
@@ -34,7 +33,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
 from posthog.models.user import User
@@ -44,6 +42,9 @@ from posthog.session_recordings.session_recording_api import SessionRecordingSer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
+
+from products.dashboards.backend.api.dashboard import DashboardSerializer
+from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -648,6 +649,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     AvailableFeature.WHITE_LABELLING
                 ):
                     exported_data["whitelabel"] = True
+                if settings_data.get("theme") in {"light", "dark", "system"}:
+                    exported_data["theme"] = settings_data["theme"]
 
                 # Don't include app_context in the initial unlock page for security
                 # It will be provided after authentication
@@ -772,13 +775,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     session_id=session_recording_id, team=resource.team
                 )
 
-                # Create a JWT for the recording
+                # Create a scoped JWT for the recording
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),  # 5 mins should be enough for the export to complete
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Session Recording"
@@ -829,13 +832,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound("Invalid heatmap export - missing heatmap_type")
 
             try:
-                # Create a JWT to access the heatmap data
+                # Create a scoped JWT to access the heatmap data
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Heatmap"
@@ -881,7 +884,25 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             merged_data = base_settings.model_dump()
             for field_name in base_settings.model_fields.keys():
                 if field_name in request.GET:
-                    merged_data[field_name] = bool(request.GET[field_name])
+                    raw_value = request.GET.get(field_name)
+                    if field_name == "theme":
+                        if raw_value in {"light", "dark", "system"}:
+                            merged_data[field_name] = raw_value
+                        continue
+
+                    # For legacy boolean settings we support either presence-only params
+                    # (`?legend`) or explicit values (`?legend=false`).
+                    if raw_value in (None, ""):
+                        merged_data[field_name] = True
+                        continue
+
+                    lowered = str(raw_value).strip().lower()
+                    if lowered in {"1", "true", "yes", "on"}:
+                        merged_data[field_name] = True
+                    elif lowered in {"0", "false", "no", "off"}:
+                        merged_data[field_name] = False
+                    else:
+                        merged_data[field_name] = True
             final_settings = SharingConfigurationSettings.model_validate(merged_data, strict=False)
         else:
             final_settings = base_settings
@@ -902,6 +923,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"detailed": True})
         if final_settings.hideExtraDetails:
             exported_data.update({"hideExtraDetails": True})
+        if final_settings.theme in {"light", "dark", "system"}:
+            exported_data.update({"theme": final_settings.theme})
+
         if request.path.endswith(f".json"):
             # For password-protected POST requests, only return basic metadata and JWT token
             if request.method == "POST" and isinstance(resource, SharingConfiguration) and resource.password_required:
@@ -914,6 +938,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "showInspector": exported_data.get("showInspector", False),
                     "legend": exported_data.get("legend", False),
                     "detailed": exported_data.get("detailed", False),
+                    "theme": exported_data.get("theme"),
                 }
                 return response.Response(minimal_data)
             return response.Response(exported_data)

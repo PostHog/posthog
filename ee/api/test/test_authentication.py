@@ -13,7 +13,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
-from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthFailed
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
@@ -373,22 +373,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         """
         We need the email address to know how to route the SAML request.
         """
-        with self.assertRaises(AuthMissingParameter) as e:
-            self.client.get("/login/saml/")
-
-        self.assertEqual(str(e.exception), "Missing needed parameter email")
+        response = self.client.get("/login/saml/")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     def test_cannot_initiate_saml_flow_for_unconfigured_domain(self):
         """
         SAML settings have not been configured for the domain.
         """
-        with self.assertRaises(AuthFailed) as e:
-            self.client.get("/login/saml/?email=hellohello@gmail.com")
-
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: SAML not configured for this user.",
-        )
+        response = self.client.get("/login/saml/?email=hellohello@gmail.com")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     def test_cannot_initiate_saml_flow_for_unverified_domain(self):
         """
@@ -398,13 +391,8 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.organization_domain.verified_at = None
         self.organization_domain.save()
 
-        with self.assertRaises(AuthFailed) as e:
-            self.client.get("/login/saml/?email=hellohello@gmail.com")
-
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: SAML not configured for this user.",
-        )
+        response = self.client.get("/login/saml/?email=hellohello@gmail.com")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     # Finish SAML flow (i.e. actual log in)
 
@@ -780,13 +768,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
             response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
         )
 
-        # Cannot start SAML flow
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Your organization does not have the required license to use SAML.",
-        )
+        # Cannot start SAML flow - sso_login catches AuthFailed and redirects
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
         # Attempting to use SAML fails
         _session = self.client.session
@@ -895,6 +879,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
+        self.assertEqual(extra_args["prompt"], "select_account")
         # Should only contain base arguments from parent class, no login_hint
         self.assertNotIn("login_hint", extra_args)
 
@@ -913,6 +898,38 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         extra_args = self.google_oauth.auth_extra_arguments()
 
         self.assertEqual(extra_args["login_hint"], "test@posthog.com")
+        self.assertEqual(extra_args["prompt"], "select_account")
+
+    def test_auth_extra_arguments_reauth_does_not_force_select_account(self):
+        """Test that reauth flow does not force account picker prompt."""
+        mock_request = type("MockRequest", (), {})()
+        mock_request.GET = {"reauth": "true"}
+
+        mock_strategy = type("MockStrategy", (), {})()
+        mock_strategy.request = mock_request
+        mock_strategy.setting = lambda name, default=None, backend=None: default
+
+        self.google_oauth.strategy = mock_strategy
+
+        extra_args = self.google_oauth.auth_extra_arguments()
+
+        self.assertNotIn("prompt", extra_args)
+
+    def test_auth_extra_arguments_preserves_existing_prompt(self):
+        """Test that auth_extra_arguments appends select_account to existing prompt values."""
+        mock_request = type("MockRequest", (), {})()
+        mock_request.GET = {}
+
+        mock_strategy = type("MockStrategy", (), {})()
+        mock_strategy.request = mock_request
+        mock_strategy.setting = lambda name, default=None, backend=None: default
+
+        self.google_oauth.strategy = mock_strategy
+
+        with patch("ee.api.authentication.GoogleOAuth2.auth_extra_arguments", return_value={"prompt": "consent"}):
+            extra_args = self.google_oauth.auth_extra_arguments()
+
+        self.assertEqual(extra_args["prompt"], "consent select_account")
 
     def test_get_user_id_existing_user_with_sub(self):
         """Test that a user with sub as uid continues using that sub."""

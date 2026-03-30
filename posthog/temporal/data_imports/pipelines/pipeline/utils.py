@@ -490,9 +490,12 @@ def append_partition_key_to_table(
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.date):
                     partition_array.append(date.strftime(date_format))
-                elif isinstance(date, str):
+                elif isinstance(date, str) and date.strip():
                     date = parser.parse(date)
                     partition_array.append(date.strftime(date_format))
+                elif isinstance(date, str):
+                    # Empty string — treat as unknown date
+                    partition_array.append("1970-01")
                 else:
                     partition_array.append("1970-01")
             else:
@@ -632,7 +635,13 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
 def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.dtype[Any]]):
     if isinstance(column_data, pa.ChunkedArray):
-        return column_data.combine_chunks().tolist()
+        try:
+            return column_data.combine_chunks().tolist()
+        except pa.ArrowInvalid as e:
+            if "consider casting input from `string` to `large_string`" in "".join(e.args):
+                return column_data.cast(pa.large_string()).combine_chunks().tolist()
+
+            raise
 
     return column_data.tolist()
 

@@ -145,7 +145,11 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
     } else if (isActorsQuery(query.source)) {
         taxonomicGroupTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.HogQLExpression]
     } else if (isSessionsQuery(query.source)) {
-        taxonomicGroupTypes = [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+        taxonomicGroupTypes = [
+            TaxonomicFilterGroupType.SessionProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.HogQLExpression,
+        ]
     } else {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.EventProperties,

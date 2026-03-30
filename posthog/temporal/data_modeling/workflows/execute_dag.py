@@ -11,8 +11,18 @@ from temporalio.workflow import ParentClosePolicy
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.data_modeling.activities import GetDAGStructureInputs, get_dag_structure_activity
+from posthog.temporal.data_modeling.activities import (
+    GetDAGStructureInputs,
+    PreemptDAGRunInputs,
+    get_dag_structure_activity,
+    preempt_dag_run_activity,
+)
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
+from posthog.temporal.data_modeling.metrics import (
+    get_dag_duration_metric,
+    get_dag_finished_metric,
+    get_dag_node_count_metric,
+)
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
@@ -30,7 +40,7 @@ class EmptyDAGOrCycleError(Exception):
 
 @dataclasses.dataclass
 class ExecuteDAGInputs:
-    """Inputs for the DAGOrchestratorWorkflow.
+    """Inputs for the ExecuteDAGWorkflow.
 
     Attributes:
         team_id: the team ID that owns the DAG.
@@ -42,7 +52,7 @@ class ExecuteDAGInputs:
     team_id: int
     dag_id: str
     node_ids: list[str] | None = None
-    v2_only: bool = False
+    duckgres_only: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -68,7 +78,7 @@ class NodeResult:
 
 @dataclasses.dataclass
 class ExecuteDAGResult:
-    """Result from the DAGOrchestratorWorkflow.
+    """Result from the ExecuteDAGWorkflow.
 
     Attributes:
         dag_id: The DAG that was orchestrated.
@@ -182,9 +192,30 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
-        temporalio.workflow.logger.info("Starting DAGOrchestratorWorkflow", extra=inputs.properties_to_log)
-        start_time = temporalio.workflow.now()
+        temporalio.workflow.logger.info("Starting ExecuteDAGWorkflow", extra=inputs.properties_to_log)
+        # preempt any previous run of this DAG that is still in progress
+        await temporalio.workflow.execute_activity(
+            preempt_dag_run_activity,
+            PreemptDAGRunInputs(
+                team_id=inputs.team_id,
+                dag_id=inputs.dag_id,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=2),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=3,
+            ),
+        )
+        try:
+            return await self._execute_dag(inputs)
+        except asyncio.CancelledError:
+            temporalio.workflow.logger.warning(
+                "ExecuteDAGWorkflow was cancelled",
+                extra=inputs.properties_to_log,
+            )
+            raise
 
+    async def _execute_dag(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
+        start_time = temporalio.workflow.now()
         # fetch DAG structure
         dag_structure = await temporalio.workflow.execute_activity(
             get_dag_structure_activity,
@@ -292,7 +323,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                             team_id=inputs.team_id,
                             dag_id=inputs.dag_id,
                             node_id=node_id,
-                            v2_only=inputs.v2_only,
+                            duckgres_only=inputs.duckgres_only,
                         ),
                         id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
                         parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
@@ -351,7 +382,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         skipped_nodes = sum(1 for r in node_results if r.skipped)
 
         temporalio.workflow.logger.info(
-            "DAGOrchestratorWorkflow completed",
+            "ExecuteDAGWorkflow completed",
             extra={
                 "total_nodes": len(node_results),
                 "successful_nodes": successful_nodes,
@@ -361,6 +392,20 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 **inputs.properties_to_log,
             },
         )
+        # DAG-level metrics
+        if failed_nodes == 0 and skipped_nodes == 0:
+            dag_status = "completed"
+        elif successful_nodes == 0 and failed_nodes == 0:
+            dag_status = "skipped"
+        elif successful_nodes == 0:
+            dag_status = "failed"
+        else:
+            dag_status = "partial_failure"
+        get_dag_finished_metric(dag_status).add(1)
+        get_dag_duration_metric().record(duration_seconds)
+        get_dag_node_count_metric("successful").record(successful_nodes)
+        get_dag_node_count_metric("failed").record(failed_nodes)
+        get_dag_node_count_metric("skipped").record(skipped_nodes)
 
         return ExecuteDAGResult(
             dag_id=inputs.dag_id,

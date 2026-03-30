@@ -52,6 +52,8 @@ class ErrorTrackingIssue(UUIDTModel):
             overrides = update_error_tracking_issue_fingerprints(
                 team_id=self.team.pk, issue_id=self.id, fingerprints=fingerprints
             )
+            # Reassign spike events from merged issues before deleting them
+            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue_id__in=issue_ids).update(issue=self)
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
@@ -82,6 +84,8 @@ class ErrorTrackingIssue(UUIDTModel):
                     )
                 )
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            # Spike events are no longer meaningful after splitting since the issue composition changed
+            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue=self).delete()
         return new_issues
 
 

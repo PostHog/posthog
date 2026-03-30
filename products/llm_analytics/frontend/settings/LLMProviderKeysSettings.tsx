@@ -13,11 +13,10 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMProviderIcon, LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import {
@@ -132,7 +131,7 @@ function KeyValidationStatus({
     )
 }
 
-function AddKeyModal(): JSX.Element {
+function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }): JSX.Element {
     const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading, evaluationConfig } =
         useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, createProviderKey, preValidateKey, clearPreValidation } =
@@ -229,6 +228,7 @@ function AddKeyModal(): JSX.Element {
                         onClick={handleSubmit}
                         loading={providerKeysLoading}
                         disabled={!isValid}
+                        disabledReason={restrictionReason}
                     >
                         Add key
                     </LemonButton>
@@ -281,7 +281,13 @@ function AddKeyModal(): JSX.Element {
     )
 }
 
-function EditKeyModal({ keyToEdit }: { keyToEdit: LLMProviderKey }): JSX.Element {
+function EditKeyModal({
+    keyToEdit,
+    restrictionReason,
+}: {
+    keyToEdit: LLMProviderKey
+    restrictionReason: string | null
+}): JSX.Element {
     const { providerKeysLoading, preValidationResult, preValidationResultLoading } = useValues(llmProviderKeysLogic)
     const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation } = useActions(llmProviderKeysLogic)
     const [name, setName] = useState(keyToEdit.name)
@@ -334,6 +340,7 @@ function EditKeyModal({ keyToEdit }: { keyToEdit: LLMProviderKey }): JSX.Element
                         onClick={handleSubmit}
                         loading={providerKeysLoading}
                         disabled={!isValid}
+                        disabledReason={restrictionReason}
                     >
                         Save changes
                     </LemonButton>
@@ -384,10 +391,12 @@ function DeleteKeyModal({
     keyToDelete,
     dependentConfigs,
     dependentConfigsLoading,
+    restrictionReason,
 }: {
     keyToDelete: LLMProviderKey
     dependentConfigs: DependentConfigsResponse | null
     dependentConfigsLoading: boolean
+    restrictionReason: string | null
 }): JSX.Element {
     const { providerKeysLoading } = useValues(llmProviderKeysLogic)
     const { setKeyToDelete, confirmDelete } = useActions(llmProviderKeysLogic)
@@ -434,6 +443,7 @@ function DeleteKeyModal({
                         onClick={handleDelete}
                         loading={providerKeysLoading}
                         disabled={dependentConfigsLoading}
+                        disabledReason={restrictionReason}
                     >
                         Delete key
                     </LemonButton>
@@ -505,6 +515,10 @@ export function LLMProviderKeysSettings(): JSX.Element {
         dependentConfigsLoading,
     } = useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, validateProviderKey, setEditingKey, setKeyToDelete } = useActions(llmProviderKeysLogic)
+    const restrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const columns: LemonTableColumns<LLMProviderKey> = [
         {
@@ -565,40 +579,32 @@ export function LLMProviderKeysSettings(): JSX.Element {
             width: 150,
             render: (_, key) => (
                 <div className="flex gap-1">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        loading={validatingKeyId === key.id}
+                        onClick={() => validateProviderKey({ id: key.id })}
+                        disabledReason={restrictionReason}
                     >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconRefresh />}
-                            loading={validatingKeyId === key.id}
-                            onClick={() => validateProviderKey({ id: key.id })}
-                        >
-                            Validate
-                        </LemonButton>
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
+                        Validate
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => setEditingKey(key)}
+                        disabledReason={restrictionReason}
                     >
-                        <LemonButton size="small" type="secondary" onClick={() => setEditingKey(key)}>
-                            Edit
-                        </LemonButton>
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            status="danger"
-                            icon={<IconTrash />}
-                            onClick={() => setKeyToDelete(key)}
-                        />
-                    </AccessControlAction>
+                        Edit
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        status="danger"
+                        icon={<IconTrash />}
+                        onClick={() => setKeyToDelete(key)}
+                        disabledReason={restrictionReason}
+                    />
                 </div>
             ),
         },
@@ -614,18 +620,14 @@ export function LLMProviderKeysSettings(): JSX.Element {
                 ) : (
                     <>
                         <div className="flex justify-between items-start">
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlus />}
+                                onClick={() => setNewKeyModalOpen(true)}
+                                disabledReason={restrictionReason}
                             >
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    onClick={() => setNewKeyModalOpen(true)}
-                                >
-                                    Add API key
-                                </LemonButton>
-                            </AccessControlAction>
+                                Add API key
+                            </LemonButton>
                         </div>
 
                         {evaluationConfig && !evaluationConfig.active_provider_key && (
@@ -641,18 +643,14 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                     <br />
                                     Used for evaluations and the playground.
                                 </p>
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                    minAccessLevel={AccessControlLevel.Editor}
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => setNewKeyModalOpen(true)}
+                                    disabledReason={restrictionReason}
                                 >
-                                    <LemonButton
-                                        type="primary"
-                                        icon={<IconPlus />}
-                                        onClick={() => setNewKeyModalOpen(true)}
-                                    >
-                                        Add API key
-                                    </LemonButton>
-                                </AccessControlAction>
+                                    Add API key
+                                </LemonButton>
                             </div>
                         ) : (
                             <LemonTable
@@ -665,13 +663,14 @@ export function LLMProviderKeysSettings(): JSX.Element {
                     </>
                 )}
             </div>
-            <AddKeyModal />
-            {editingKey && <EditKeyModal keyToEdit={editingKey} />}
+            <AddKeyModal restrictionReason={restrictionReason} />
+            {editingKey && <EditKeyModal keyToEdit={editingKey} restrictionReason={restrictionReason} />}
             {keyToDelete && (
                 <DeleteKeyModal
                     keyToDelete={keyToDelete}
                     dependentConfigs={dependentConfigs}
                     dependentConfigsLoading={dependentConfigsLoading}
+                    restrictionReason={restrictionReason}
                 />
             )}
         </>

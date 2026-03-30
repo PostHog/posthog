@@ -1,5 +1,5 @@
 #!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
+[ -f "$(dirname "$0")/_/husky.sh" ] && . "$(dirname "$0")/_/husky.sh"
 
 # Skip lint-staged during merges — staged files include the entire merge diff,
 # not just your changes, making it slow and pointless

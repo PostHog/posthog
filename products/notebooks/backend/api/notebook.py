@@ -80,6 +80,14 @@ def log_notebook_activity(
     )
 
 
+_NOTEBOOK_FIELD_HELP_TEXTS = {
+    "id": {"help_text": "UUID of the notebook."},
+    "short_id": {"help_text": "Short alphanumeric identifier used in URLs and API lookups."},
+    "title": {"help_text": "Title of the notebook."},
+    "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
+}
+
+
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
@@ -100,6 +108,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "_create_in_folder",
         ]
         read_only_fields = fields
+        extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
@@ -129,6 +138,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_by",
             "user_access_level",
         ]
+        extra_kwargs = {
+            **_NOTEBOOK_FIELD_HELP_TEXTS,
+            "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
+            "text_content": {"help_text": "Plain text representation of the notebook content for search."},
+            "version": {
+                "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
+            },
+        }
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]

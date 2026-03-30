@@ -22,7 +22,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
@@ -40,7 +39,7 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 from posthog.hogql_queries.experiments.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
-    get_experiment_query_sql,
+    get_experiment_query_debug,
     get_experiment_stats_method,
     get_frequentist_experiment_result,
     get_variant_results,
@@ -48,13 +47,13 @@ from posthog.hogql_queries.experiments.utils import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.experiments.backend.models.experiment import Experiment
 
 logger = structlog.get_logger(__name__)
 
@@ -217,7 +216,9 @@ class ExperimentQueryRunner(QueryRunner):
             force_precomputation=self.force_precomputation,
         )
 
-        if self.experiment.exposure_preaggregation_enabled:
+        # Skip precomputation for data warehouse metrics because the precomputed table
+        # doesn't include the join keys needed to link exposures to data warehouse tables
+        if self.experiment.exposure_preaggregation_enabled and not self.is_data_warehouse_query:
             try:
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
@@ -244,8 +245,9 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
         experiment_query_ast = self._get_experiment_query()
-        self.hogql = to_printed_hogql(experiment_query_ast, self.team)
-        self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
+        experiment_query_debug = get_experiment_query_debug(experiment_query_ast, self.team)
+        self.hogql = experiment_query_debug[0]
+        self.clickhouse_sql = experiment_query_debug[1]
 
         response = execute_hogql_query(
             query_type="ExperimentQuery",
@@ -255,7 +257,7 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
             settings=HogQLGlobalSettings(
                 max_execution_time=self.max_execution_time,
-                allow_experimental_analyzer=True,
+                enable_analyzer=True,
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
             ),
             workload=self.workload,
