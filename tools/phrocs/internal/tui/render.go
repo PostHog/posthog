@@ -176,6 +176,7 @@ func (m Model) renderOutput() string {
 }
 
 // Overlays a -line counter in the top-right corner of the viewport
+// and appends the typed input buffer after the last output line.
 func (m Model) viewportWithIndicator() string {
 	view := m.viewport.View()
 	if m.hedgehogMode {
@@ -184,29 +185,30 @@ func (m Model) viewportWithIndicator() string {
 	if m.infoMode {
 		return view
 	}
-	total := m.viewport.TotalLineCount()
-	if total <= m.viewport.Height() {
-		return view
-	}
-
-	scrollLines := total - m.viewport.YOffset() - m.viewport.Height()
-	if scrollLines <= 0 {
-		return view
-	}
-
-	indicator := scrollIndicatorStyle.Render(fmt.Sprintf("-%d", scrollLines))
-	indicatorW := lipgloss.Width(indicator)
 
 	lines := strings.Split(view, "\n")
-	if len(lines) == 0 {
-		return view
+
+	// Show a cursor after the last line when the process is waiting for input.
+	if p := m.activeProc(); p != nil {
+		showCursor := m.focusedPane == focusOutput && p.HasPrompt()
+		if showCursor {
+			lastLine := len(lines) - 1
+			lines[lastLine] = strings.TrimRight(lines[lastLine], " ") + " " + m.inputBuffer + "▌"
+		}
 	}
-	firstLine := lines[0]
-	firstLineW := lipgloss.Width(firstLine)
-	if firstLineW >= indicatorW {
-		// Truncate the first line to make room for the indicator
-		lines[0] = ansi.Truncate(firstLine, firstLineW-indicatorW, "") + indicator
+
+	total := m.viewport.TotalLineCount()
+	scrollLines := total - m.viewport.YOffset() - m.viewport.Height()
+	if scrollLines > 0 && len(lines) > 0 {
+		indicator := scrollIndicatorStyle.Render(fmt.Sprintf("-%d", scrollLines))
+		indicatorW := lipgloss.Width(indicator)
+		firstLine := lines[0]
+		firstLineW := lipgloss.Width(firstLine)
+		if firstLineW >= indicatorW {
+			lines[0] = ansi.Truncate(firstLine, firstLineW-indicatorW, "") + indicator
+		}
 	}
+
 	return strings.Join(lines, "\n")
 }
 
