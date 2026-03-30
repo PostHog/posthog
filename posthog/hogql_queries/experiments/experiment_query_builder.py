@@ -272,7 +272,7 @@ class ExperimentQueryBuilder:
 
         now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
         return parse_expr(
-            "max(timestamp) + toIntervalSecond({maturity_seconds}) <= toDateTime({now})",
+            "max(timestamp) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
             placeholders={
                 "maturity_seconds": ast.Constant(value=maturity_seconds),
                 "now": ast.Constant(value=now),
@@ -1330,7 +1330,7 @@ class ExperimentQueryBuilder:
             if maturity_seconds > 0:
                 now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
                 maturity_expr = parse_expr(
-                    "max(t.last_exposure_time) + toIntervalSecond({maturity_seconds}) <= toDateTime({now})",
+                    "max(t.last_exposure_time) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
                     placeholders={
                         "maturity_seconds": ast.Constant(value=maturity_seconds),
                         "now": ast.Constant(value=now),
