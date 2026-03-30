@@ -17,10 +17,10 @@ async def connect(
     host: str,
     port: int | str,
     namespace: str,
-    server_root_ca_cert: str | None = None,
     client_cert: str | None = None,
     client_key: str | None = None,
     runtime: Runtime | None = None,
+    server_root_ca_cert: str | None = None,
     settings: Any | None = django_settings,
     use_pydantic_converter: bool = False,
 ) -> Client:
