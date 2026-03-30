@@ -19,16 +19,16 @@ class TestDetectTestType:
 
     @parameterized.expand(
         [
-            ("posthog/api/test/test_user.py", "python", ["pytest", "posthog/api/test/test_user.py"]),
-            ("posthog/models/test/test_team.py", "python", ["pytest", "posthog/models/test/test_team.py"]),
-            ("ee/clickhouse/test/test_client.py", "python", ["pytest", "ee/clickhouse/test/test_client.py"]),
+            ("posthog/api/test/test_user.py", "python", ["pytest", "-s", "posthog/api/test/test_user.py"]),
+            ("posthog/models/test/test_team.py", "python", ["pytest", "-s", "posthog/models/test/test_team.py"]),
+            ("ee/clickhouse/test/test_client.py", "python", ["pytest", "-s", "ee/clickhouse/test/test_client.py"]),
             (
                 "products/alerts/backend/test/test_api.py",
                 "python",
-                ["pytest", "products/alerts/backend/test/test_api.py"],
+                ["pytest", "-s", "products/alerts/backend/test/test_api.py"],
             ),
-            ("common/hogli/tests/test_cli.py", "python", ["pytest", "common/hogli/tests/test_cli.py"]),
-            ("dags/tests/test_dag.py", "python", ["pytest", "dags/tests/test_dag.py"]),
+            ("common/hogli/tests/test_cli.py", "python", ["pytest", "-s", "common/hogli/tests/test_cli.py"]),
+            ("dags/tests/test_dag.py", "python", ["pytest", "-s", "dags/tests/test_dag.py"]),
         ]
     )
     def test_python_tests(self, file_path: str, expected_type: str, expected_command: list[str]) -> None:
@@ -40,12 +40,12 @@ class TestDetectTestType:
     def test_python_with_node_id(self) -> None:
         config = detect_test_type("posthog/api/test/test_user.py::TestUserAPI::test_retrieve")
         assert config.test_type == "python"
-        assert config.command == ["pytest", "posthog/api/test/test_user.py::TestUserAPI::test_retrieve"]
+        assert config.command == ["pytest", "-s", "posthog/api/test/test_user.py::TestUserAPI::test_retrieve"]
 
     def test_python_eval_uses_special_config(self) -> None:
         config = detect_test_type("ee/hogai/eval/eval_router.py")
         assert config.test_type == "python-eval"
-        assert config.command == ["pytest", "-c", "ee/hogai/eval/pytest.ini", "ee/hogai/eval/eval_router.py"]
+        assert config.command == ["pytest", "-c", "ee/hogai/eval/pytest.ini", "-s", "ee/hogai/eval/eval_router.py"]
         assert "REDIS_URL" in config.env
 
     # -- Jest tests: these hit real package.json files on disk --
@@ -59,12 +59,12 @@ class TestDetectTestType:
     def test_frontend_jest(self, file_path: str, expected_filter: str) -> None:
         config = detect_test_type(file_path)
         assert config.test_type == "jest"
-        assert config.command == ["pnpm", f"--filter={expected_filter}", "jest", file_path]
+        assert config.command == ["pnpm", f"--filter={expected_filter}", "exec", "jest", file_path]
 
     def test_nodejs_jest(self) -> None:
         config = detect_test_type("nodejs/tests/cdp/cdp-api.test.ts")
         assert config.test_type == "jest"
-        assert "--filter=@posthog/nodejs" in config.command
+        assert config.command[:4] == ["pnpm", "--filter=@posthog/nodejs", "exec", "jest"]
 
     @parameterized.expand(
         [
@@ -76,7 +76,7 @@ class TestDetectTestType:
     def test_common_jest_packages(self, file_path: str, expected_filter: str) -> None:
         config = detect_test_type(file_path)
         assert config.test_type == "jest"
-        assert f"--filter={expected_filter}" in config.command
+        assert config.command[:4] == ["pnpm", f"--filter={expected_filter}", "exec", "jest"]
 
     def test_playwright(self) -> None:
         config = detect_test_type("playwright/e2e/dashboards.spec.ts")
@@ -111,18 +111,18 @@ class TestDetectTestType:
 
     @parameterized.expand(
         [
-            ("livestream/main_test.go", ["go", "test", "./livestream/..."]),
-            ("livestream/main.go", ["go", "test", "./livestream/..."]),
-            ("livestream/handlers/handler.go", ["go", "test", "./livestream/..."]),
-            ("livestream/go.mod", ["go", "test", "./livestream/..."]),
-            ("tools/phrocs/internal/tui/app_test.go", ["go", "test", "./tools/phrocs/..."]),
-            ("bin/hobby-installer/installer_test.go", ["go", "test", "./bin/hobby-installer/..."]),
+            ("livestream/main_test.go", "livestream", "go test ./..."),
+            ("livestream/main.go", "livestream", "go test ./..."),
+            ("livestream/handlers/handler.go", "livestream", "go test ./handlers/..."),
+            ("livestream/go.mod", "livestream", "go test ./..."),
+            ("tools/phrocs/internal/tui/app_test.go", "tools/phrocs", "go test ./internal/tui/..."),
+            ("bin/hobby-installer/installer_test.go", "bin/hobby-installer", "go test ./..."),
         ]
     )
-    def test_go_tests(self, file_path: str, expected_command: list[str]) -> None:
+    def test_go_tests(self, file_path: str, expected_mod_root: str, expected_go_cmd: str) -> None:
         config = detect_test_type(file_path)
         assert config.test_type == "go"
-        assert config.command == expected_command
+        assert config.command == ["bash", "-c", f"cd {expected_mod_root} && {expected_go_cmd}"]
 
     def test_go_no_go_mod_raises(self) -> None:
         with pytest.raises(click.UsageError, match="No go.mod found"):
@@ -132,9 +132,9 @@ class TestDetectTestType:
 
     @parameterized.expand(
         [
-            ("posthog/api/test", "python", ["pytest", "posthog/api/test"]),
-            ("ee/hogai", "python", ["pytest", "ee/hogai"]),
-            ("common/hogli/tests", "python", ["pytest", "common/hogli/tests"]),
+            ("posthog/api/test", "python", ["pytest", "-s", "posthog/api/test"]),
+            ("ee/hogai", "python", ["pytest", "-s", "ee/hogai"]),
+            ("common/hogli/tests", "python", ["pytest", "-s", "common/hogli/tests"]),
         ]
     )
     def test_python_directory(self, dir_path: str, expected_type: str, expected_command: list[str]) -> None:
@@ -145,7 +145,12 @@ class TestDetectTestType:
     def test_go_directory(self) -> None:
         config = detect_test_type("livestream")
         assert config.test_type == "go"
-        assert config.command == ["go", "test", "./livestream/..."]
+        assert config.command == ["bash", "-c", "cd livestream && go test ./..."]
+
+    def test_go_subdirectory(self) -> None:
+        config = detect_test_type("livestream/events")
+        assert config.test_type == "go"
+        assert config.command == ["bash", "-c", "cd livestream && go test ./events/..."]
 
     def test_rust_directory(self) -> None:
         config = detect_test_type("rust/capture/tests")
@@ -155,7 +160,7 @@ class TestDetectTestType:
     def test_jest_directory(self) -> None:
         config = detect_test_type("frontend/src/scenes/dashboard")
         assert config.test_type == "jest"
-        assert "--filter=@posthog/frontend" in config.command
+        assert config.command[:4] == ["pnpm", "--filter=@posthog/frontend", "exec", "jest"]
 
     def test_playwright_directory(self) -> None:
         config = detect_test_type("playwright/e2e")

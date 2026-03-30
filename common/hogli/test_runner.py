@@ -150,18 +150,38 @@ def _detect_rust_test(file_only: str) -> TestRunConfig:
 def _detect_go_test(file_only: str) -> TestRunConfig:
     """Detect Go test configuration by finding the nearest go.mod.
 
-    Accepts any .go file or go.mod and runs tests from the module root.
+    Accepts any .go file, go.mod, or directory. Runs ``go test`` from the
+    module root directory (where go.mod lives) so Go can resolve packages.
     """
     go_mod = _find_nearest(file_only, "go.mod")
     if not go_mod:
         raise click.UsageError(f"No go.mod found for: {file_only}")
 
-    mod_root = str(go_mod.parent.relative_to(REPO_ROOT))
+    mod_root = go_mod.parent
+    mod_root_rel = str(mod_root.relative_to(REPO_ROOT))
+
+    # Compute the test target relative to the module root
+    abs_path = REPO_ROOT / file_only
+    if abs_path.is_dir():
+        try:
+            pkg_rel = str(abs_path.relative_to(mod_root))
+            target = f"./{pkg_rel}/..." if pkg_rel != "." else "./..."
+        except ValueError:
+            target = "./..."
+    elif PurePosixPath(file_only).name == "go.mod":
+        target = "./..."
+    else:
+        # Single file — run tests in its package directory
+        try:
+            pkg_rel = str(abs_path.parent.relative_to(mod_root))
+            target = f"./{pkg_rel}/..." if pkg_rel != "." else "./..."
+        except ValueError:
+            target = "./..."
 
     return TestRunConfig(
         test_type="go",
-        command=["go", "test", f"./{mod_root}/..."],
-        description=f"Go test (go test ./{mod_root}/...)",
+        command=["bash", "-c", f"cd {mod_root_rel} && go test {target}"],
+        description=f"Go test (in {mod_root_rel}, go test {target})",
     )
 
 
@@ -177,7 +197,7 @@ def _detect_jest_test(file_only: str, file_path: str) -> TestRunConfig:
 
     return TestRunConfig(
         test_type="jest",
-        command=["pnpm", f"--filter={pkg_name}", "jest", file_path],
+        command=["pnpm", f"--filter={pkg_name}", "exec", "jest", file_path],
         description=f"Jest test (via {pkg_name})",
     )
 
@@ -204,7 +224,7 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     if any(dir_path.startswith(root) or dir_path == root.rstrip("/") for root in _PYTHON_ROOTS):
         return TestRunConfig(
             test_type="python",
-            command=["pytest", dir_path],
+            command=["pytest", "-s", dir_path],
             description="Python tests (pytest)",
             env=_python_env(),
         )
@@ -247,7 +267,7 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     if file_only.startswith("ee/hogai/eval/") and ext == ".py":
         return TestRunConfig(
             test_type="python-eval",
-            command=["pytest", "-c", "ee/hogai/eval/pytest.ini", file_path],
+            command=["pytest", "-c", "ee/hogai/eval/pytest.ini", "-s", file_path],
             description="Python eval test (pytest with eval config)",
             env=_python_env(),
         )
@@ -256,7 +276,7 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     if ext == ".py" and any(file_only.startswith(root) for root in _PYTHON_ROOTS):
         return TestRunConfig(
             test_type="python",
-            command=["pytest", file_path],
+            command=["pytest", "-s", file_path],
             description="Python test (pytest)",
             env=_python_env(),
         )
