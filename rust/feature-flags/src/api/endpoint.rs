@@ -500,6 +500,7 @@ fn parse_request_start_ms(value: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use crate::api::types::Compression;
+    use rstest::rstest;
 
     use super::*;
     use axum::{
@@ -737,51 +738,24 @@ mod tests {
         assert_ne!(extracted_id_empty, extracted_id_empty2);
     }
 
-    #[test]
-    fn test_parse_request_start_ms() {
-        // Standard Contour format: t=<seconds>.<fractional>
-        assert_eq!(
-            parse_request_start_ms("t=1774859827.782"),
-            Some(1774859827782)
-        );
-
-        // Without t= prefix
-        assert_eq!(
-            parse_request_start_ms("1774859827.782"),
-            Some(1774859827782)
-        );
-
-        // Integer seconds (no fractional part)
-        assert_eq!(parse_request_start_ms("t=1774859827"), Some(1774859827000));
-
-        // Invalid values
-        assert_eq!(parse_request_start_ms("t="), None);
-        assert_eq!(parse_request_start_ms("t=abc"), None);
-        assert_eq!(parse_request_start_ms(""), None);
-        assert_eq!(parse_request_start_ms("not-a-number"), None);
-    }
-
-    #[test]
-    fn test_parse_request_start_ms_negative() {
-        assert_eq!(parse_request_start_ms("t=-1.0"), None);
-        assert_eq!(parse_request_start_ms("-100"), None);
-    }
-
-    #[test]
-    fn test_parse_request_start_ms_special_floats() {
-        assert_eq!(parse_request_start_ms("NaN"), None);
-        assert_eq!(parse_request_start_ms("inf"), None);
-        assert_eq!(parse_request_start_ms("t=Infinity"), None);
-        assert_eq!(parse_request_start_ms("t=-inf"), None);
-    }
-
-    #[test]
-    fn test_parse_request_start_ms_whitespace_and_trailing_garbage() {
-        assert_eq!(parse_request_start_ms(" t=1774859827.782"), None);
-        assert_eq!(parse_request_start_ms("t=1774859827.782 "), None);
-        assert_eq!(
-            parse_request_start_ms("t=1774859827.782, t=1774859828.000"),
-            None
-        );
+    #[rstest]
+    #[case("t=1774859827.782", Some(1774859827782))]
+    #[case("1774859827.782", Some(1774859827782))]
+    #[case("t=1774859827", Some(1774859827000))]
+    #[case("t=", None)]
+    #[case("t=abc", None)]
+    #[case("", None)]
+    #[case("not-a-number", None)]
+    #[case("t=-1.0", None)]
+    #[case("-100", None)]
+    #[case("NaN", None)]
+    #[case("inf", None)]
+    #[case("t=Infinity", None)]
+    #[case("t=-inf", None)]
+    #[case(" t=1774859827.782", None)]
+    #[case("t=1774859827.782 ", None)]
+    #[case("t=1774859827.782, t=1774859828.000", None)]
+    fn test_parse_request_start_ms(#[case] input: &str, #[case] expected: Option<i64>) {
+        assert_eq!(parse_request_start_ms(input), expected);
     }
 }
