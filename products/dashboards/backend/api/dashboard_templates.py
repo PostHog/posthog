@@ -19,6 +19,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.helpers.full_text_search import build_rank
+from posthog.utils import str_to_bool
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
@@ -117,6 +118,15 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                 ),
                 enum=["template_name", "-template_name"],
             ),
+            OpenApiParameter(
+                "is_featured",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Omit for all templates. When set, filter by featured flag; parsed with str_to_bool "
+                    "(same as other API query booleans)."
+                ),
+            ),
         ],
     ),
 )
@@ -151,6 +161,10 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             query_condition = Q(team_id=self.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL)
 
         qs = DashboardTemplate.objects.filter(query_condition)
+
+        is_featured_raw = self.request.query_params.get("is_featured")
+        if is_featured_raw is not None:
+            qs = qs.filter(is_featured=str_to_bool(is_featured_raw))
 
         # weighted full-text search
         if isinstance(search, str):

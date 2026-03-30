@@ -2372,6 +2372,8 @@ export interface DashboardTemplateListParams {
     search?: string
     /** When set, sort by template name (not searching). Omit for server default order. Ignored when `search` is set. */
     ordering?: 'template_name' | '-template_name'
+    /** When true, only curated featured templates. When false, only non-featured. */
+    is_featured?: boolean
 }
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
