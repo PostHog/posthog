@@ -128,6 +128,40 @@ class TestDetectTestType:
         with pytest.raises(click.UsageError, match="No go.mod found"):
             detect_test_type("random/foo_test.go")
 
+    # -- Directory tests: run all tests in a directory --
+
+    @parameterized.expand(
+        [
+            ("posthog/api/test", "python", ["pytest", "posthog/api/test"]),
+            ("ee/hogai", "python", ["pytest", "ee/hogai"]),
+            ("common/hogli/tests", "python", ["pytest", "common/hogli/tests"]),
+        ]
+    )
+    def test_python_directory(self, dir_path: str, expected_type: str, expected_command: list[str]) -> None:
+        config = detect_test_type(dir_path)
+        assert config.test_type == expected_type
+        assert config.command == expected_command
+
+    def test_go_directory(self) -> None:
+        config = detect_test_type("livestream")
+        assert config.test_type == "go"
+        assert config.command == ["go", "test", "./livestream/..."]
+
+    def test_rust_directory(self) -> None:
+        config = detect_test_type("rust/capture/tests")
+        assert config.test_type == "rust"
+        assert "--manifest-path=rust/Cargo.toml" in config.command
+
+    def test_jest_directory(self) -> None:
+        config = detect_test_type("frontend/src/scenes/dashboard")
+        assert config.test_type == "jest"
+        assert "--filter=@posthog/frontend" in config.command
+
+    def test_playwright_directory(self) -> None:
+        config = detect_test_type("playwright/e2e")
+        assert config.test_type == "playwright"
+        assert config.command == ["pnpm", "exec", "playwright", "test", "playwright/e2e"]
+
     # -- Edge cases --
 
     def test_unknown_file_raises(self) -> None:

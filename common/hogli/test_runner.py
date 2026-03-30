@@ -69,9 +69,12 @@ def _resolve_to_repo_relative(file_path: str) -> str:
 def _find_nearest(file_path: str, target_filename: str) -> Path | None:
     """Walk upward from file_path to find the nearest file with target_filename.
 
+    If file_path points to a directory, starts the search there.
+    If it points to a file, starts from its parent directory.
     Stops at REPO_ROOT to avoid escaping the repo.
     """
-    current = (REPO_ROOT / file_path).parent
+    abs_path = REPO_ROOT / file_path
+    current = abs_path if abs_path.is_dir() else abs_path.parent
     while True:
         candidate = current / target_filename
         if candidate.exists():
@@ -179,12 +182,56 @@ def _detect_jest_test(file_only: str, file_path: str) -> TestRunConfig:
     )
 
 
-def detect_test_type(file_path: str) -> TestRunConfig:
-    """Detect the test type from a file path and return run configuration.
+def _detect_directory(dir_path: str) -> TestRunConfig:
+    """Detect test type for a directory and run all tests in it."""
+    # Go: directory contains or is under a go.mod
+    if _find_nearest(dir_path, "go.mod"):
+        return _detect_go_test(dir_path)
 
+    # Rust: directory contains or is under a Cargo.toml
+    if _find_nearest(dir_path, "Cargo.toml"):
+        return _detect_rust_test(dir_path)
+
+    # Playwright: directory is under playwright/
+    if dir_path.startswith("playwright/") or dir_path == "playwright":
+        return TestRunConfig(
+            test_type="playwright",
+            command=["pnpm", "exec", "playwright", "test", dir_path],
+            description="Playwright E2E tests",
+        )
+
+    # Python: directory is under a known Python root
+    if any(dir_path.startswith(root) or dir_path == root.rstrip("/") for root in _PYTHON_ROOTS):
+        return TestRunConfig(
+            test_type="python",
+            command=["pytest", dir_path],
+            description="Python tests (pytest)",
+            env=_python_env(),
+        )
+
+    # Jest: directory has a package.json nearby
+    if _find_nearest(dir_path, "package.json"):
+        return _detect_jest_test(dir_path, dir_path)
+
+    raise click.UsageError(
+        f"Could not detect test type for directory: {dir_path}\n\n"
+        "Supported: Python, Jest, Playwright, Rust, Go directories"
+    )
+
+
+def detect_test_type(file_path: str) -> TestRunConfig:
+    """Detect the test type from a file or directory path and return run configuration.
+
+    Accepts files, directories, and pytest node IDs (path::Class::method).
     Rules are evaluated in priority order; first match wins.
     """
     file_only = file_path.split("::")[0] if "::" in file_path else file_path
+    abs_path = REPO_ROOT / file_only
+
+    # Directory: detect type from context
+    if abs_path.is_dir():
+        return _detect_directory(file_only)
+
     parts = PurePosixPath(file_only).parts
     ext = PurePosixPath(file_only).suffix
 
@@ -229,11 +276,9 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     raise click.UsageError(
         f"Could not detect test type for: {file_path}\n\n"
         "Supported patterns:\n"
-        "  Python:     **/*.py (under posthog/, ee/, products/, common/, dags/)\n"
-        "  Jest:       **/*.test.ts(x) (finds nearest package.json)\n"
-        "  Playwright: playwright/**/*.spec.ts\n"
-        "  Rust:       **/*.rs (finds nearest Cargo.toml)\n"
-        "  Go:         **/*_test.go (finds nearest go.mod)"
+        "  Files:       *.py, *.test.ts(x), *.spec.ts, *.rs, *.go, go.mod\n"
+        "  Directories: any directory under a supported test root\n"
+        "  Node IDs:    path/to/test.py::TestClass::test_method"
     )
 
 
@@ -241,18 +286,17 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     name="test",
     help=(
         "Auto-detect test type and run the correct test runner.\n\n"
-        "Detects Python (pytest), Jest, Playwright, Rust (cargo test), and\n"
-        "Go (go test) based on the file path. For Jest, Rust, and Go it finds\n"
-        "the nearest package.json, Cargo.toml, or go.mod automatically.\n\n"
+        "Accepts files, directories, and pytest node IDs. Detects Python\n"
+        "(pytest), Jest, Playwright, Rust (cargo test), and Go (go test)\n"
+        "based on file extension or directory context.\n\n"
         "Extra arguments are passed through to the underlying test runner.\n\n"
         "Examples:\n\n"
         "  hogli test posthog/api/test/test_user.py\n\n"
         "  hogli test posthog/api/test/test_user.py::TestUserAPI::test_retrieve_current_user\n\n"
+        "  hogli test posthog/api/test/\n\n"
         "  hogli test frontend/src/scenes/dashboard/Dashboard.test.tsx\n\n"
-        "  hogli test posthog/api/test/test_user.py -v -s\n\n"
-        "  hogli test playwright/e2e/dashboards.spec.ts\n\n"
-        "  hogli test rust/capture/tests/events.rs\n\n"
-        "  hogli test livestream/main_test.go"
+        "  hogli test rust/capture/tests/\n\n"
+        "  hogli test livestream/"
     ),
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
