@@ -34,18 +34,8 @@ pub async fn apply_quota_limits(
         .is_quota_limited_v1(token, &QuotaResource::Events)
         .await
     {
-        let mut marked: u64 = 0;
-        for ev in events.values_mut() {
-            if ev.result == EventResult::Ok {
-                ev.result = EventResult::Limited;
-                ev.destination = Destination::Drop;
-                ev.details = Some("billing_limit_exceeded");
-                marked += 1;
-            }
-        }
-        if marked > 0 {
-            counter!(CAPTURE_V1_EVENTS_QUOTA_LIMITED, "resource" => "events").increment(marked);
-        }
+        counter!(CAPTURE_V1_EVENTS_QUOTA_LIMITED, "resource" => "events")
+            .increment(events.len() as u64);
         return Err(Error::BillingLimitExceeded);
     }
 
@@ -340,7 +330,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn global_limit_marks_all_ok_events_limited() {
+    async fn global_limit_returns_error_without_marking_events() {
         let limiter = build_limiter("tok", true, &[]).await;
         let mut events = events_map(vec![
             make_event("$pageview", None),
@@ -352,16 +342,13 @@ mod tests {
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_err());
 
-        assert!(ok_event_names(&events).is_empty());
-        assert_eq!(limited_event_names(&events).len(), 4);
-        for ev in events.values() {
-            assert_eq!(ev.destination, Destination::Drop);
-            assert_eq!(ev.details, Some("billing_limit_exceeded"));
-        }
+        // Global limit short-circuits without mutating events
+        assert_eq!(ok_event_names(&events).len(), 4);
+        assert!(limited_event_names(&events).is_empty());
     }
 
     #[tokio::test]
-    async fn global_limit_skips_already_non_ok_events() {
+    async fn global_limit_preserves_all_event_states() {
         let limiter = build_limiter("tok", true, &[]).await;
         let bad = make_event("bad_event", None);
         let bad_uuid = bad.event.uuid.clone();
@@ -375,12 +362,12 @@ mod tests {
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_err());
 
-        // Pageview event should be marked Limited
+        // Global limit short-circuits — no events are mutated
         let pv = find_by_name(&events, "$pageview");
-        assert_eq!(pv.result, EventResult::Limited);
-        assert_eq!(pv.details, Some("billing_limit_exceeded"));
+        assert_eq!(pv.result, EventResult::Ok);
+        assert_eq!(pv.details, None);
 
-        // Bad event should retain its original Drop status, not overwritten
+        // Pre-existing Drop event also untouched
         let bad_ev = events.get(&bad_uuid).unwrap();
         assert_eq!(bad_ev.result, EventResult::Drop);
         assert_eq!(bad_ev.details, Some("invalid_event_name"));
@@ -606,10 +593,10 @@ mod tests {
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_err());
 
-        // Both should be marked "billing_limit_exceeded" by global, not "exceptions_over_quota"
+        // Global short-circuits without marking — scoped limiters never run
         for ev in events.values() {
-            assert_eq!(ev.result, EventResult::Limited);
-            assert_eq!(ev.details, Some("billing_limit_exceeded"));
+            assert_eq!(ev.result, EventResult::Ok);
+            assert_eq!(ev.details, None);
         }
     }
 
