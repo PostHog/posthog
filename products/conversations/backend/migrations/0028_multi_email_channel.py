@@ -81,15 +81,36 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
-        migrations.AddField(
-            model_name="ticket",
-            name="email_config",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="tickets",
-                to="conversations.emailchannel",
-            ),
+        # Add FK column without index — index is created concurrently in 0029.
+        # State gets db_index=True (default) so Django knows about the index;
+        # DB gets db_index=False so CREATE INDEX is skipped here.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="ticket",
+                    name="email_config",
+                    field=models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="tickets",
+                        to="conversations.emailchannel",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.AddField(
+                    model_name="ticket",
+                    name="email_config",
+                    field=models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="tickets",
+                        to="conversations.emailchannel",
+                        db_index=False,
+                    ),
+                ),
+            ],
         ),
     ]
