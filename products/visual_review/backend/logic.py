@@ -352,12 +352,12 @@ def create_run(
     Returns the run and list of upload targets for missing artifacts.
     Each upload target has: content_hash, url, fields
 
-    baseline_hashes is deprecated — the backend fetches baselines from GitHub.
-    Kept for backward compat with older CLI versions that still send them.
+    baseline_hashes, unchanged_count, removed_identifiers are deprecated —
+    the backend fetches baselines from GitHub and computes everything.
+    Params kept for backward compat with older CLI versions.
     """
     repo = get_repo(repo_id, team_id)
 
-    # baseline_hashes param is deprecated — ignored. Backend fetches from GitHub.
     verified_baselines = _resolve_baselines(repo, run_type, branch)
 
     # Supersede ALL old runs before inserting the new one. The unique
@@ -378,9 +378,6 @@ def create_run(
 
         Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=F("id"))
 
-    removed = removed_identifiers or []
-    total = len(snapshots) + unchanged_count
-
     run = Run.objects.create(
         repo=repo,
         team_id=repo.team_id,
@@ -389,7 +386,7 @@ def create_run(
         branch=branch,
         pr_number=pr_number,
         purpose=purpose,
-        total_snapshots=total,
+        total_snapshots=len(snapshots),
         metadata=metadata or {},
     )
 
@@ -397,7 +394,7 @@ def create_run(
     if superseded_ids:
         Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
 
-    _added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines, removed)
+    _added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
     _update_run_counts(run)
 
     transaction.on_commit(
@@ -412,12 +409,12 @@ def _register_snapshots(
     repo: Repo,
     snapshots: list[dict],
     verified_baselines: dict[str, str],
-    removed: list[str] | None = None,
 ) -> tuple[int, list[dict]]:
     """Register snapshots on a run and return upload targets.
 
-    Reused by create_run (full/delta manifest) and add_snapshots_to_run (shard flow).
-    Idempotent per (run, identifier) via unique constraint — safe for shard retries.
+    Reused by create_run and add_snapshots_to_run (shard flow).
+    Idempotent per (run, identifier) via unique constraint — safe for retries.
+    Removals are detected server-side at complete time, not here.
     """
     repo_id = repo.id
     all_hashes: set[str] = set()
@@ -455,24 +452,6 @@ def _register_snapshots(
                 "current_width": snap.get("width"),
                 "current_height": snap.get("height"),
                 "metadata": snap.get("metadata") or {},
-            },
-        )
-        if created:
-            added_count += 1
-
-    for identifier in removed or []:
-        baseline_hash = verified_baselines.get(identifier)
-        baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
-        _snapshot, created = RunSnapshot.objects.get_or_create(
-            run=run,
-            team_id=repo.team_id,
-            identifier=identifier,
-            defaults={
-                "current_hash": "",
-                "baseline_hash": baseline_hash or "",
-                "baseline_artifact": baseline_artifact,
-                "result": SnapshotResult.REMOVED,
-                "metadata": {},
             },
         )
         if created:
@@ -532,9 +511,7 @@ def add_snapshots_to_run(
     added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
 
     # Atomically increment total (safe for concurrent shards)
-    Run.objects.filter(id=run_id, team_id=team_id).update(
-        total_snapshots=F("total_snapshots") + added + unchanged_count
-    )
+    Run.objects.filter(id=run_id, team_id=team_id).update(total_snapshots=F("total_snapshots") + added)
     _update_run_counts(run)
 
     return added, uploads

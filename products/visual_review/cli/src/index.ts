@@ -277,7 +277,6 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
         branch,
         prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
         snapshots: [],
-        baselineHashes: {},
     })
 
     log(`Run created: ${result.run_id}`)
@@ -529,44 +528,10 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         snapshots.push(...results)
     }
 
-    // 3. Read baseline hashes (signed format — sent as-is, backend verifies)
-    const baselinePath = resolve(options.baseline)
-    const baselineHashes = readBaselineHashes(baselinePath)
-    log(`Loaded ${Object.keys(baselineHashes).length} baseline hashes from ${baselinePath}`)
-
-    // 4. Compute delta — only send changed/new snapshots to backend
-    const baselineIds = new Set(Object.keys(baselineHashes))
-    const changedOrNew: typeof snapshots = []
-    let unchangedCount = 0
-
-    for (const s of snapshots) {
-        const signed = baselineHashes[s.identifier]
-        if (!signed) {
-            changedOrNew.push(s) // new
-        } else if (s.hash !== extractContentHash(signed)) {
-            changedOrNew.push(s) // changed
-        } else {
-            unchangedCount++
-        }
-    }
-
-    const currentIds = new Set(snapshots.map((s) => s.identifier))
-    const removedIdentifiers = [...baselineIds].filter((id) => !currentIds.has(id))
-
-    log(`Delta: ${changedOrNew.length} changed/new, ${unchangedCount} unchanged, ${removedIdentifiers.length} removed`)
-
-    // 5. Create run with delta manifest
+    // 3. Create run with full manifest — backend fetches baseline and classifies
     const branch = options.branch ?? getCurrentBranch()
     const commit = options.commit ?? getCurrentCommit()
-    log(`Creating run: branch=${branch}, commit=${commit.slice(0, 10)}`)
-
-    // Only send baseline hashes for changed snapshots (backend needs them for diff)
-    const deltaBaselineHashes: Record<string, string> = {}
-    for (const s of changedOrNew) {
-        if (baselineHashes[s.identifier]) {
-            deltaBaselineHashes[s.identifier] = baselineHashes[s.identifier]
-        }
-    }
+    log(`Creating run: ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`)
 
     const result = await client.createRun({
         repoId: repo,
@@ -574,20 +539,17 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         commitSha: commit,
         branch,
         prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
-        snapshots: changedOrNew.map((s) => ({
+        snapshots: snapshots.map((s) => ({
             identifier: s.identifier,
             content_hash: s.hash,
             width: s.width,
             height: s.height,
         })),
-        baselineHashes: deltaBaselineHashes,
-        unchangedCount,
-        removedIdentifiers,
     })
 
     log(`Run created: ${result.run_id}`)
     log(
-        `Backend requested ${result.uploads.length} upload(s), ${changedOrNew.length - result.uploads.length} already exist`
+        `Backend requested ${result.uploads.length} upload(s), ${snapshots.length - result.uploads.length} already exist`
     )
 
     // 6. Upload missing artifacts (10 concurrent uploads)

@@ -82,9 +82,6 @@ export class VisualReviewClient {
         branch: string
         snapshots: SnapshotManifestItemApi[]
         prNumber?: number
-        baselineHashes?: Record<string, string>
-        unchangedCount?: number
-        removedIdentifiers?: string[]
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
             repo_id: input.repoId,
@@ -93,9 +90,6 @@ export class VisualReviewClient {
             branch: input.branch,
             snapshots: input.snapshots,
             pr_number: input.prNumber,
-            baseline_hashes: input.baselineHashes,
-            unchanged_count: input.unchangedCount ?? 0,
-            removed_identifiers: input.removedIdentifiers ?? [],
         }
 
         return this.request<CreateRunResultApi>('/visual_review/runs/', {
@@ -152,23 +146,9 @@ export class VisualReviewClient {
      * Signal that all artifacts are uploaded, trigger diff processing.
      * Optionally accepts reconciliation data for shard flow.
      */
-    async completeRun(
-        runId: string,
-        input?: {
-            removedIdentifiers?: string[]
-            unchangedCount?: number
-            baselineHashes?: Record<string, string>
-        }
-    ): Promise<RunApi> {
+    async completeRun(runId: string): Promise<RunApi> {
         return this.request<RunApi>(`/visual_review/runs/${runId}/complete/`, {
             method: 'POST',
-            body: input
-                ? JSON.stringify({
-                      removed_identifiers: input.removedIdentifiers ?? [],
-                      unchanged_count: input.unchangedCount ?? 0,
-                      baseline_hashes: input.baselineHashes ?? {},
-                  })
-                : undefined,
         })
     }
 
