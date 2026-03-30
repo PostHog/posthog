@@ -41,9 +41,9 @@ import {
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
-// 21 days in seconds - keys expire around April 20, after all ghost runs have completed.
-// Remove this deduplication code after April 2026.
-const DEDUP_TTL_SECONDS = 21 * 24 * 60 * 60
+// 1 day in seconds - ghost runs reach the same action step within minutes of each other,
+// so this TTL has large margin. Also covers potential Kafka at-least-once redelivery.
+const DEDUP_TTL_SECONDS = 24 * 60 * 60
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
