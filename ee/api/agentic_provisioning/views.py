@@ -686,13 +686,11 @@ def provisioning_resources_create(request: Request) -> Response:
 
     _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team_id)
 
-    personal_api_key = _create_provisioned_pat(user, team)
-
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key:
+    if personal_api_key := _create_provisioned_pat(user, team):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
