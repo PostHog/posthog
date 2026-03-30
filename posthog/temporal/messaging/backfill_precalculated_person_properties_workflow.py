@@ -229,6 +229,7 @@ async def backfill_precalculated_person_properties_activity(
         total_processed = 0
         total_events_produced = 0
         total_flushed = 0
+        kafka_batch_offset = 0  # Track kafka batch number, not person count
         # Configure Kafka flush batch size via environment variable
         try:
             FLUSH_BATCH_SIZE = int(os.environ.get("BACKFILL_KAFKA_FLUSH_BATCH_SIZE", "10000"))
@@ -388,12 +389,13 @@ async def backfill_precalculated_person_properties_activity(
                                     kafka_producer,
                                     pending_kafka_messages,
                                     inputs.team_id,
-                                    total_processed,  # Use total processed count
+                                    kafka_batch_offset,  # Use kafka batch offset
                                     heartbeater,
                                     logger,
                                     flush_duration_metric=flush_duration_metric,
                                 )
                                 total_flushed += flushed
+                                kafka_batch_offset += 1  # Increment kafka batch counter
                                 pending_kafka_messages.clear()
 
                         except Exception as e:
@@ -420,7 +422,7 @@ async def backfill_precalculated_person_properties_activity(
                 kafka_producer,
                 pending_kafka_messages,
                 inputs.team_id,
-                total_processed,  # Use total processed count instead of cursor for logging
+                kafka_batch_offset,  # Use kafka batch offset
                 heartbeater,
                 logger,
                 is_final=True,
