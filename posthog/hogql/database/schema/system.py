@@ -255,7 +255,7 @@ source_sync_jobs: PostgresTable = PostgresTable(
 )
 
 endpoint_versions: PostgresTable = PostgresTable(
-    name="endpoint_versions",
+    name="data_modeling_endpoint_versions",
     postgres_table_name="endpoints_endpointversion",
     access_scope="endpoint",
     fields={
@@ -276,7 +276,7 @@ endpoint_versions: PostgresTable = PostgresTable(
 )
 
 endpoints: PostgresTable = PostgresTable(
-    name="endpoints",
+    name="data_modeling_endpoints",
     postgres_table_name="endpoints_endpoint",
     predicates=[parse_expr("deleted != true")],
     access_scope="endpoint",
@@ -601,10 +601,10 @@ class SystemTables(TableNode):
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
+        "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),
+        "data_modeling_endpoints": TableNode(name="data_modeling_endpoints", table=endpoints),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
-        "endpoint_versions": TableNode(name="endpoint_versions", table=endpoint_versions),
-        "endpoints": TableNode(name="endpoints", table=endpoints),
         "error_tracking_issue_assignments": TableNode(
             name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
         ),

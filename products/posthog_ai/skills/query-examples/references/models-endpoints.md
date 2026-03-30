@@ -1,6 +1,6 @@
-# Endpoints
+# Data Modeling Endpoints
 
-## Endpoint (`system.endpoints`)
+## Endpoint (`system.data_modeling_endpoints`)
 
 API endpoints that expose saved HogQL or insight queries as callable API routes.
 
@@ -20,29 +20,29 @@ Column | Type | Nullable | Description
 
     -- List all active endpoints with their current version
     SELECT name, is_active, current_version
-    FROM system.endpoints
+    FROM system.data_modeling_endpoints
     WHERE is_active = 1
 
     -- Find endpoints that haven't been executed recently
     SELECT name, last_executed_at
-    FROM system.endpoints
+    FROM system.data_modeling_endpoints
     WHERE last_executed_at < now() - INTERVAL 30 DAY
 
     -- Join with versions to get current version description
     SELECT e.name, ev.description, ev.version
-    FROM system.endpoints e
-    LEFT JOIN system.endpoint_versions ev
+    FROM system.data_modeling_endpoints e
+    LEFT JOIN system.data_modeling_endpoint_versions ev
       ON ev.endpoint_id = e.id AND ev.version = e.current_version
 
 ### Important Notes
 
 - Endpoints are looked up by `name`, not `id`
-- Use `system.endpoint_versions` to access version-specific details
+- Use `system.data_modeling_endpoint_versions` to access version-specific details
 - Boolean fields (`is_active`) are exposed as integers (0/1) for HogQL compatibility
 
 ---
 
-## Endpoint Version (`system.endpoint_versions`)
+## Endpoint Version (`system.data_modeling_endpoint_versions`)
 
 Immutable query snapshots.
 A new version is created each time an endpoint's query changes.
@@ -64,7 +64,7 @@ Column | Type | Nullable | Description
 
     -- Get version history for an endpoint
     SELECT ev.version, ev.description, ev.created_at
-    FROM system.endpoint_versions ev
-    LEFT JOIN system.endpoints e ON e.id = ev.endpoint_id
+    FROM system.data_modeling_endpoint_versions ev
+    LEFT JOIN system.data_modeling_endpoints e ON e.id = ev.endpoint_id
     WHERE e.name = 'my-endpoint'
     ORDER BY ev.version DESC
