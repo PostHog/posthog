@@ -133,7 +133,7 @@ export function FeaturedTemplatesChooser({
                     ))
                 )}
             </div>
-            {showBlankDashboardAction ? (
+            {showBlankDashboardAction && !allTemplatesLoading ? (
                 <DashboardsListEmptyAiStarterPrompts
                     chipDisabledReason={chipDisabledReason}
                     onOpenAiWithPrompt={onOpenAiWithPrompt}

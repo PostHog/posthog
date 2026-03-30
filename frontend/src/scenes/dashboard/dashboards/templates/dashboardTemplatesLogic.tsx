@@ -29,13 +29,21 @@ export type DashboardTemplatesLogicProps = DashboardTemplateProps & {
     listQuery?: Partial<Pick<DashboardTemplateListParams, 'is_featured'>>
 }
 
+/** Kea key segment for listQuery.is_featured — false vs omitted only diverge for global-scoped lists (API treats them differently). */
+function listQueryFeaturedKeySegment(p: DashboardTemplatesLogicProps): 'featured' | 'not-featured' | 'all' {
+    if (p.listQuery?.is_featured === true) {
+        return 'featured'
+    }
+    if (p.scope === 'global' && p.listQuery?.is_featured === false) {
+        return 'not-featured'
+    }
+    return 'all'
+}
+
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
     props({} as DashboardTemplatesLogicProps),
-    key(
-        (p: DashboardTemplatesLogicProps) =>
-            `${p.scope ?? 'default'}-${p.listQuery?.is_featured === true ? 'featured' : 'all'}`
-    ),
+    key((p: DashboardTemplatesLogicProps) => `${p.scope ?? 'default'}-${listQueryFeaturedKeySegment(p)}`),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),

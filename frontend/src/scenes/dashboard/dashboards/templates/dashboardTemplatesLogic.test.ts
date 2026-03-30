@@ -24,60 +24,61 @@ describe('dashboardTemplatesLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('passes is_featured when listQuery requests featured templates', async () => {
+    it.each([
+        {
+            label: 'passes is_featured when listQuery requests featured templates',
+            listQuery: { is_featured: true } as const,
+            assert: (listMock: jest.Mock) => {
+                expect(
+                    listMock.mock.calls.some(([params]: [DashboardTemplateListParams]) => params.is_featured === true)
+                ).toBe(true)
+            },
+        },
+        {
+            label: 'does not set is_featured on the default list query',
+            listQuery: undefined,
+            assert: (listMock: jest.Mock) => {
+                expect(listMock).toHaveBeenCalled()
+                expect(
+                    listMock.mock.calls.every(
+                        ([params]: [DashboardTemplateListParams]) => params.is_featured === undefined
+                    )
+                ).toBe(true)
+            },
+        },
+    ])('$label', async ({ listQuery, assert }) => {
         const listMock = api.dashboardTemplates.list as jest.Mock
-        const mounted = dashboardTemplatesLogic({ scope: 'default', listQuery: { is_featured: true } })
+        const mounted = dashboardTemplatesLogic({ scope: 'default', ...(listQuery ? { listQuery } : {}) })
         logic = mounted
         mounted.mount()
 
         await expectLogic(mounted, () => mounted.actions.getAllTemplates()).toFinishAllListeners()
 
-        expect(listMock.mock.calls.some(([params]: [DashboardTemplateListParams]) => params.is_featured === true)).toBe(
-            true
-        )
+        assert(listMock)
     })
 
-    it('does not set is_featured on the default list query', async () => {
+    it.each([
+        {
+            label: 'featured: omits search even when filter is long',
+            listQuery: { is_featured: true } as const,
+            expectedParams: (params: DashboardTemplateListParams) =>
+                params.is_featured === true && params.search === undefined,
+        },
+        {
+            label: 'non-featured: passes search when filter is long',
+            listQuery: undefined,
+            expectedParams: (params: DashboardTemplateListParams) =>
+                params.is_featured === undefined && params.search === 'needle',
+        },
+    ])('$label', async ({ listQuery, expectedParams }) => {
         const listMock = api.dashboardTemplates.list as jest.Mock
-        const mounted = dashboardTemplatesLogic({ scope: 'default' })
-        logic = mounted
-        mounted.mount()
-
-        await expectLogic(mounted, () => mounted.actions.getAllTemplates()).toFinishAllListeners()
-
-        expect(listMock).toHaveBeenCalled()
-        expect(
-            listMock.mock.calls.every(([params]: [DashboardTemplateListParams]) => params.is_featured === undefined)
-        ).toBe(true)
-    })
-
-    it('omits search for featured list when templateFilter is long', async () => {
-        const listMock = api.dashboardTemplates.list as jest.Mock
-        const mounted = dashboardTemplatesLogic({ scope: 'default', listQuery: { is_featured: true } })
+        const mounted = dashboardTemplatesLogic({ scope: 'default', ...(listQuery ? { listQuery } : {}) })
         logic = mounted
         mounted.mount()
         mounted.actions.setTemplateFilter('needle')
 
         await expectLogic(mounted, () => mounted.actions.getAllTemplates()).toFinishAllListeners()
 
-        expect(
-            listMock.mock.calls.some(
-                ([params]: [DashboardTemplateListParams]) => params.is_featured === true && params.search === undefined
-            )
-        ).toBe(true)
-    })
-
-    it('passes search when not featured-only and templateFilter is long', async () => {
-        const listMock = api.dashboardTemplates.list as jest.Mock
-        const mounted = dashboardTemplatesLogic({ scope: 'default' })
-        logic = mounted
-        mounted.mount()
-        mounted.actions.setTemplateFilter('needle')
-
-        await expectLogic(mounted, () => mounted.actions.getAllTemplates()).toFinishAllListeners()
-
-        expect(listMock.mock.calls.some(([params]: [DashboardTemplateListParams]) => params.search === 'needle')).toBe(
-            true
-        )
+        expect(listMock.mock.calls.some(([params]: [DashboardTemplateListParams]) => expectedParams(params))).toBe(true)
     })
 })
