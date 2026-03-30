@@ -4605,6 +4605,51 @@ class TestPostgresPrinter(BaseTest):
         printed = self._select(f"SELECT {expr}")
         self.assertIn(expected, printed)
 
+    @parameterized.expand(
+        [
+            (
+                "is_distinct_from_alias_rhs",
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=""),
+                    right=ast.Alias(alias="x", expr=ast.Constant(value=True)),
+                ),
+            ),
+            (
+                "is_not_distinct_from_alias_lhs",
+                ast.IsDistinctFrom(
+                    left=ast.Alias(alias="x", expr=ast.Field(chain=["a"])),
+                    right=ast.Constant(value=1),
+                    negated=True,
+                ),
+            ),
+            (
+                "between_alias_expr",
+                ast.BetweenExpr(
+                    expr=ast.Alias(alias="x", expr=ast.Field(chain=["a"])),
+                    low=ast.Constant(value=1),
+                    high=ast.Constant(value=10),
+                ),
+            ),
+            (
+                "between_alias_bounds",
+                ast.BetweenExpr(
+                    expr=ast.Constant(value=5),
+                    low=ast.Alias(alias="lo", expr=ast.Constant(value=1)),
+                    high=ast.Alias(alias="hi", expr=ast.Constant(value=10)),
+                ),
+            ),
+        ]
+    )
+    def test_alias_in_infix_operator_roundtrips(self, _name: str, node: ast.Expr):
+        """Regression: aliases inside BETWEEN / IS DISTINCT FROM must be parenthesized
+        by the printer so the HogQL roundtrip is stable, and the parsed AST has the
+        same top-level node type as the original."""
+        printed = node.to_hogql()
+        parsed = parse_expr(printed)
+        self.assertEqual(type(parsed), type(node), f"AST type changed after roundtrip of: {printed!r}")
+        reprinted = parsed.to_hogql()
+        self.assertEqual(printed, reprinted)
+
     def test_limit_percent_with_subquery(self):
         printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")
         self.assertIn("LIMIT (SELECT avg(events.team_id) FROM events) %", printed)
