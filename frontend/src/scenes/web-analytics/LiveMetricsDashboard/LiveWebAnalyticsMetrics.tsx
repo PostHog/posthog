@@ -96,7 +96,13 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <LiveTopReferrersTable referrers={topReferrers} isLoading={isLoading} totalPageviews={totalPageviews} />
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_REFERRERS] && (
+                    <LiveTopReferrersTable
+                        referrers={topReferrers}
+                        isLoading={isLoading}
+                        totalPageviews={totalPageviews}
+                    />
+                )}
                 <BreakdownLiveCard<DeviceBreakdownItem>
                     title="Devices"
                     data={deviceBreakdown}
