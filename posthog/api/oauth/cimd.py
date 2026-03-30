@@ -22,6 +22,7 @@ import requests
 import structlog
 import posthoganalytics
 from oauth2_provider.models import AbstractApplication
+from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
@@ -68,10 +69,20 @@ class CIMDSustainedThrottle(IPThrottle):
     """Rate limit new CIMD application creation by IP - sustained limit."""
 
     scope = "cimd_sustained"
-    rate = "30/hour"
+    rate = "10/hour"
 
 
-CIMD_THROTTLES = [CIMDBurstThrottle(), CIMDSustainedThrottle()]
+class CIMDGlobalThrottle(SimpleRateThrottle):
+    """Rate limit total new CIMD application creation across all IPs."""
+
+    scope = "cimd_global"
+    rate = "100/hour"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": "global"}
+
+
+CIMD_THROTTLES = [CIMDBurstThrottle(), CIMDSustainedThrottle(), CIMDGlobalThrottle()]
 
 
 class CIMDMetadataDocument(TypedDict, total=False):

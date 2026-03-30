@@ -184,17 +184,6 @@ class OAuthValidator(OAuth2Validator):
 
         # For CIMD URLs with no existing application, fetch metadata and create
         if is_cimd_client_id(client_id):
-            # Rate-limit new CIMD application creation per IP, same as DCR
-            for throttle in CIMD_THROTTLES:
-                if not throttle.allow_request(request, view=None):
-                    logger.warning(
-                        "cimd_rate_limited",
-                        client_id=client_id,
-                        scope=throttle.scope,
-                        wait=throttle.wait(),
-                    )
-                    return False
-
             try:
                 app = get_or_create_cimd_application(client_id)
                 request.client = app
@@ -422,6 +411,22 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
+        # Rate-limit new CIMD application creation by IP.
+        # Must happen here (not in the OAuthValidator) because the validator
+        # only receives an oauthlib Request which lacks request.META for IP extraction.
+        client_id = request.query_params.get("client_id")
+        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+            for throttle in CIMD_THROTTLES:
+                if not throttle.allow_request(request, view=self):
+                    logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
+                    return Response(
+                        {
+                            "error": "invalid_client",
+                            "error_description": "Too many new client registrations. Try again later.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
         try:
             scopes, credentials = self.validate_authorization_request(request)
         except OAuthToolkitError as error:
