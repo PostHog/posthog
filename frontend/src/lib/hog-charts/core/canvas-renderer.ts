@@ -49,31 +49,41 @@ export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[
     const opacity = series.fillOpacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
 
-    const points: { x: number; y: number }[] = []
+    // Split into contiguous segments to handle data gaps consistently with drawLine
+    const segments: { x: number; y: number }[][] = []
+    let current: { x: number; y: number }[] = []
     for (let i = 0; i < data.length; i++) {
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x != null && isFinite(y)) {
-            points.push({ x, y })
+            current.push({ x, y })
+        } else if (current.length > 0) {
+            segments.push(current)
+            current = []
         }
     }
-
-    if (points.length < 2) {
-        return
+    if (current.length > 0) {
+        segments.push(current)
     }
-
-    ctx.beginPath()
-    ctx.moveTo(points[0].x, points[0].y)
-    for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y)
-    }
-    ctx.lineTo(points[points.length - 1].x, baseline)
-    ctx.lineTo(points[0].x, baseline)
-    ctx.closePath()
 
     ctx.globalAlpha = opacity
     ctx.fillStyle = series.color
-    ctx.fill()
+
+    for (const points of segments) {
+        if (points.length < 2) {
+            continue
+        }
+        ctx.beginPath()
+        ctx.moveTo(points[0].x, points[0].y)
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y)
+        }
+        ctx.lineTo(points[points.length - 1].x, baseline)
+        ctx.lineTo(points[0].x, baseline)
+        ctx.closePath()
+        ctx.fill()
+    }
+
     ctx.globalAlpha = 1
 }
 
