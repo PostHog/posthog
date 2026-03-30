@@ -138,7 +138,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
+        self.assertEqual(len(response_data["results"]), 6)  # 2 DB + 4 virtual event properties (bot detection)
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -490,7 +490,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(properties))
+        self.assertEqual(response.json()["count"], len(properties) + 4)  # +4 virtual event properties (bot detection)
 
         assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
             ("1_when_verified", False, None),
@@ -499,6 +499,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             ("4_when_verified", False, None),
             ("5_when_verified", False, None),
             ("6_when_verified", False, None),
+            ("$virt_is_bot", False, None),
+            ("$virt_traffic_type", False, None),
+            ("$virt_traffic_category", False, None),
+            ("$virt_bot_name", False, None),
         ]
 
         for property in properties:
@@ -517,6 +521,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             ("4_when_verified", False, None),
             ("5_when_verified", False, None),
             ("6_when_verified", False, None),
+            ("$virt_is_bot", False, None),
+            ("$virt_traffic_type", False, None),
+            ("$virt_traffic_category", False, None),
+            ("$virt_bot_name", False, None),
         ]
 
         # We should prefer properties that have been seen on an event if that is available
@@ -532,6 +540,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             ("2_when_verified", True, False),
             ("5_when_verified", False, False),
             ("6_when_verified", False, False),
+            ("$virt_is_bot", False, None),
+            ("$virt_traffic_type", False, None),
+            ("$virt_traffic_category", False, None),
+            ("$virt_bot_name", False, None),
         ]
 
     def test_exclude_hidden_properties(self):

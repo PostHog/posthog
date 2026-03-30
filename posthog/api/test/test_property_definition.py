@@ -23,6 +23,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         {"name": "purchase", "is_numerical": True},
         {"name": "purchase_value", "is_numerical": True},
         {"name": "first_visit", "is_numerical": False},
+        # Virtual event properties (bot detection)
+        {"name": "$virt_bot_name", "is_numerical": False},
+        {"name": "$virt_is_bot", "is_numerical": False},
+        {"name": "$virt_traffic_category", "is_numerical": False},
+        {"name": "$virt_traffic_type", "is_numerical": False},
     ]
 
     def setUp(self) -> None:
@@ -64,9 +69,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         assert response.json()["count"] == len(self.EXPECTED_PROPERTY_DEFINITIONS)
 
-        assert [{"name": r["name"], "is_numerical": r["is_numerical"]} for r in response.json()["results"]] == sorted(
-            self.EXPECTED_PROPERTY_DEFINITIONS, key=lambda x: str(x["name"])
-        )
+        assert sorted(
+            [{"name": r["name"], "is_numerical": r["is_numerical"]} for r in response.json()["results"]],
+            key=lambda x: str(x["name"]),
+        ) == sorted(self.EXPECTED_PROPERTY_DEFINITIONS, key=lambda x: str(x["name"]))
 
     def test_list_property_definitions_with_excluded_properties(self):
         response = self.client.get(
@@ -84,8 +90,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_core_properties=true")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["count"] == 6
-        assert len(response.json()["results"]) == 6
+        assert response.json()["count"] == 10
+        assert len(response.json()["results"]) == 10
 
     def test_list_numerical_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_numerical=true")
@@ -98,7 +104,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         PropertyDefinition.objects.bulk_create(
             [PropertyDefinition(team=self.team, name="z_property_{}".format(i)) for i in range(1, 301)]
         )
-        expected_property_count = 310
+        expected_property_count = 314
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
         assert response.status_code == status.HTTP_200_OK
@@ -119,7 +125,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
 
             assert response.json()["count"] == expected_property_count
-            assert len(response.json()["results"]) == (100 if i < 2 else 10)  # Each page has 100 except the last one
+            assert len(response.json()["results"]) == (
+                100 if i < 2 else 14
+            )  # Each page has 100 except the last one (10 DB + 4 virtual event properties)
             assert response.json()["results"][0]["name"] == f"z_property_{property_checkpoints[i]}"
 
     def test_cant_see_property_definitions_for_another_team(self):
@@ -154,6 +162,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "plan",
                 "purchase",
                 "purchase_value",
+                "$virt_bot_name",
+                "$virt_is_bot",
+                "$virt_traffic_category",
+                "$virt_traffic_type",
             ]
         )
 
@@ -210,6 +222,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("$lib", False),
             ("$current_url", False),
             ("$browser_version", False),
+            # Virtual event properties (bot detection) - appended at the end
+            ("$virt_is_bot", None),
+            ("$virt_traffic_type", None),
+            ("$virt_traffic_category", None),
+            ("$virt_bot_name", None),
         ]
 
     def test_is_event_property_filter(self):
@@ -236,6 +253,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("$browser_version", False),
             ("$current_url", False),
             ("$lib", False),
+            ("$virt_bot_name", None),
+            ("$virt_is_bot", None),
+            ("$virt_traffic_category", None),
+            ("$virt_traffic_type", None),
             ("app_rating", False),
             ("first_visit", True),
             ("is_first_movie", False),
@@ -305,6 +326,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     "$virt_initial_referring_domain_type",
                     "$virt_revenue",
                     "$virt_mrr",
+                    "$virt_is_bot",
+                    "$virt_traffic_type",
+                    "$virt_traffic_category",
+                    "$virt_bot_name",
                 ],
             ),
             ("Search person properties containing 'prop'", "type=person&search=prop", ["person property"]),
@@ -736,7 +761,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding hidden
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) == 4
+        assert len(virtual_props) == 8
 
     @parameterized.expand(
         [
@@ -802,9 +827,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
         assert response.status_code == status.HTTP_200_OK
-        # Should not include virtual properties when type=event
+        # Should include virtual event properties (bot detection)
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) == 0
+        assert len(virtual_props) > 0
+        virtual_names = {p["name"] for p in virtual_props}
+        assert "$virt_is_bot" in virtual_names
+        assert "$virt_traffic_type" in virtual_names
+        assert "$virt_traffic_category" in virtual_names
+        assert "$virt_bot_name" in virtual_names
 
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):
