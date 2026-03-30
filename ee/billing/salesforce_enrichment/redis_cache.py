@@ -13,10 +13,6 @@ def _compress_redis_data(input_data: str) -> bytes:
     return gzip.compress(input_data.encode("utf-8"))
 
 
-def _decompress_redis_data(raw_redis_data: bytes) -> str:
-    return gzip.decompress(raw_redis_data).decode("utf-8")
-
-
 def _decompress_and_parse_redis_data(raw_redis_data: bytes) -> list[dict[str, Any]]:
     """Decompress gzip data and parse JSON in a single call to minimize thread scheduling overhead."""
     return json.loads(gzip.decompress(raw_redis_data).decode("utf-8"))
@@ -115,6 +111,32 @@ async def store_org_mappings_in_redis(
     await pipe.execute()
 
 
+async def _lrange_json_or_none(key: str, start: int, end: int) -> list[dict[str, Any]] | None:
+    """Atomically check key existence and fetch a range from a Redis List.
+
+    Uses a pipeline so the EXISTS and LRANGE execute in a single round-trip,
+    avoiding a TOCTOU race where the key could expire between two separate calls.
+
+    Returns:
+        Parsed list of dicts, or None if the key does not exist or on error.
+    """
+    try:
+        redis_client = get_async_client()
+        pipe = await redis_client.pipeline()
+        pipe.exists(key)
+        pipe.lrange(key, start, end)
+        exists, raw_items = await pipe.execute()
+
+        if not exists:
+            return None
+
+        return [json.loads(item) for item in raw_items]
+
+    except Exception as e:
+        capture_exception(e)
+        return None
+
+
 async def get_org_mappings_page_from_redis(
     offset: int = 0,
     limit: int = 10000,
@@ -128,18 +150,7 @@ async def get_org_mappings_page_from_redis(
     Returns:
         List of mapping dictionaries, empty list if past end, or None if key missing
     """
-    try:
-        redis_client = get_async_client()
-
-        if not await redis_client.exists(SALESFORCE_ORG_MAPPINGS_CACHE_KEY):
-            return None
-
-        raw_items = await redis_client.lrange(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, offset, offset + limit - 1)
-        return [json.loads(item) for item in raw_items]
-
-    except Exception as e:
-        capture_exception(e)
-        return None
+    return await _lrange_json_or_none(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, offset, offset + limit - 1)
 
 
 async def get_org_mappings_from_redis() -> list[dict[str, Any]] | None:
@@ -148,18 +159,7 @@ async def get_org_mappings_from_redis() -> list[dict[str, Any]] | None:
     Returns:
         List of mapping dictionaries, or None if cache miss/error
     """
-    try:
-        redis_client = get_async_client()
-
-        if not await redis_client.exists(SALESFORCE_ORG_MAPPINGS_CACHE_KEY):
-            return None
-
-        raw_items = await redis_client.lrange(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, 0, -1)
-        return [json.loads(item) for item in raw_items]
-
-    except Exception as e:
-        capture_exception(e)
-        return None
+    return await _lrange_json_or_none(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, 0, -1)
 
 
 async def get_cached_org_mappings_count() -> int | None:
