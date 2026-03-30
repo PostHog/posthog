@@ -18,6 +18,38 @@ from .get_task_processing_context import TaskProcessingContext
 logger = get_logger(__name__)
 
 
+def _format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
+    preview = ", ".join(domains[:limit])
+    remaining = len(domains) - limit
+    if remaining > 0:
+        return f"{preview}, +{remaining} more"
+    return preview
+
+
+def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: Sandbox) -> None:
+    try:
+        result = sandbox.execute("tail -n 20 /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+    except Exception:
+        logger.exception("Failed to fetch agentsh log tail", task_id=ctx.task_id, run_id=ctx.run_id)
+        return
+
+    log_tail = result.stdout.strip()
+    if log_tail:
+        emit_agent_log(ctx.run_id, "debug", f"agentsh log tail:\n{log_tail}")
+
+
+def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: Sandbox) -> None:
+    try:
+        result = sandbox.execute("tail -n 40 /tmp/agent-server.log 2>/dev/null || true", timeout_seconds=5)
+    except Exception:
+        logger.exception("Failed to fetch agent-server log tail", task_id=ctx.task_id, run_id=ctx.run_id)
+        return
+
+    log_tail = result.stdout.strip()
+    if log_tail:
+        emit_agent_log(ctx.run_id, "debug", f"agent-server log tail:\n{log_tail}")
+
+
 @dataclass
 class StartAgentServerInput:
     context: TaskProcessingContext
@@ -75,15 +107,19 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             scopes=scopes,
         )
 
-        sandbox_env = ctx.get_sandbox_environment()
-        allowed_domains = sandbox_env.get_effective_domains() if sandbox_env else None
-
-        if allowed_domains:
+        if ctx.allowed_domains:
+            environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Network restrictions enabled — allowed domains: {', '.join(allowed_domains[:10])}"
-                + (f" (+{len(allowed_domains) - 10} more)" if len(allowed_domains) > 10 else ""),
+                f"Applying agentsh network policy for '{environment_name}' with allowlist: {_format_allowed_domains_for_log(ctx.allowed_domains)}",
+            )
+        elif ctx.sandbox_environment_id:
+            environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Sandbox environment '{environment_name}' grants full network access; starting without agentsh restrictions",
             )
 
         try:
@@ -95,21 +131,16 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 interaction_origin=ctx.interaction_origin,
                 branch=ctx.branch,
                 mcp_configs=mcp_configs or None,
-                allowed_domains=allowed_domains or None,
+                allowed_domains=ctx.allowed_domains,
             )
 
             # emit agentsh logs
-            if allowed_domains:
-                try:
-                    agentsh_result = sandbox.execute(
-                        "cat /var/log/agentsh/agentsh.log 2>/dev/null || true",
-                        timeout_seconds=5,
-                    )
-                    if agentsh_result.stdout.strip():
-                        emit_agent_log(ctx.run_id, "debug", f"agentsh logs:\n{agentsh_result.stdout.strip()[:2000]}")
-                except Exception:
-                    pass
+            if ctx.allowed_domains:
+                _emit_agentsh_log_tail(ctx, sandbox)
         except Exception as e:
+            if ctx.allowed_domains:
+                _emit_agentsh_log_tail(ctx, sandbox)
+            _emit_agent_server_log_tail(ctx, sandbox)
             raise SandboxExecutionError(
                 "Failed to start agent server in sandbox",
                 {
@@ -120,6 +151,11 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 },
                 cause=e,
             )
+
+        if ctx.allowed_domains:
+            emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
+            _emit_agentsh_log_tail(ctx, sandbox)
+        _emit_agent_server_log_tail(ctx, sandbox)
 
         emit_agent_log(ctx.run_id, "info", f"Agent server started at {sandbox_url}")
         activity.logger.info(f"Agent server started at {sandbox_url} for task {ctx.task_id}")

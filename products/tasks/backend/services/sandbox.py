@@ -161,8 +161,8 @@ def wait_for_health_check(
     execute: _ExecuteFn,
     sandbox_id: str,
     port: int,
-    max_attempts: int = 20,
-    poll_interval: float = 0.3,
+    max_attempts: int = 60,
+    poll_interval: float = 0.5,
 ) -> bool:
     """Poll health endpoint until server is ready (single remote call).
 

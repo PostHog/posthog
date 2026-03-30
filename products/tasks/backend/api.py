@@ -228,6 +228,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         branch = request.validated_data.get("branch")
         resume_from_run_id = request.validated_data.get("resume_from_run_id")
         pending_user_message = request.validated_data.get("pending_user_message")
+        sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
 
         sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
 
@@ -248,12 +249,23 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if snapshot_ext_id:
                 extra_state["snapshot_external_id"] = snapshot_ext_id
 
-        if sandbox_environment_id:
-            if not SandboxEnvironment.objects.filter(id=sandbox_environment_id, team_id=task.team_id).exists():
+        if sandbox_environment_id is not None:
+            sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
+            if not sandbox_environment:
                 return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
-            if extra_state is None:
-                extra_state = {}
-            extra_state["sandbox_environment_id"] = str(sandbox_environment_id)
+
+            extra_state = extra_state or {}
+            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+
+            logger.info(
+                "Applying sandbox environment to task run",
+                extra={
+                    "task_id": str(task.id),
+                    "sandbox_environment_id": str(sandbox_environment.id),
+                    "sandbox_environment_name": sandbox_environment.name,
+                    "network_access_level": sandbox_environment.network_access_level,
+                },
+            )
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 

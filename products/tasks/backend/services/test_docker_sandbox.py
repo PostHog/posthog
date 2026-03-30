@@ -5,7 +5,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.tasks.backend.services.docker_sandbox import DockerSandbox
-from products.tasks.backend.services.sandbox import SandboxConfig, SandboxStatus, SandboxTemplate, get_sandbox_class
+from products.tasks.backend.services.sandbox import (
+    ExecutionResult,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    get_sandbox_class,
+)
 
 
 def docker_available() -> bool:
@@ -211,6 +217,38 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(task_id) in command
                 assert shlex.quote(run_id) in command
                 assert shlex.quote(mode) in command
+
+    def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.side_effect = [
+                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+                ]
+                with patch.object(sandbox, "_setup_agentsh") as mock_setup_agentsh:
+                    sandbox.start_agent_server(
+                        "posthog/posthog",
+                        "task-123",
+                        "run-456",
+                        "background",
+                        allowed_domains=["apogliaghi.com"],
+                    )
+
+        mock_setup_agentsh.assert_called_once_with(
+            "/tmp/workspace/repos/posthog/posthog",
+            ["apogliaghi.com"],
+        )
+        command = mock_execute.call_args_list[0][0][0]
+        assert "agentsh exec --client-timeout 2h --timeout 2h" in command
+        assert "env -0 > /tmp/agent-env" in command
+        assert "/tmp/agentsh-env-wrapper.sh" in command
+        assert "/scripts/node_modules/.bin/agent-server" in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

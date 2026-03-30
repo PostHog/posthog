@@ -6,9 +6,20 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import SandboxEnvironment, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
+
+
+def _format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
+    if not domains:
+        return "none"
+
+    preview = ", ".join(domains[:limit])
+    remaining = len(domains) - limit
+    if remaining > 0:
+        return f"{preview}, +{remaining} more"
+    return preview
 
 
 @dataclass
@@ -35,6 +46,8 @@ class TaskProcessingContext:
     create_pr: bool = True
     state: dict | None = None
     _branch: str | None = None
+    sandbox_environment_name: str | None = None
+    allowed_domains: list[str] | None = None
 
     @property
     def mode(self) -> str:
@@ -76,6 +89,7 @@ class TaskProcessingContext:
             "repository": self.repository,
             "distinct_id": self.distinct_id,
             "mode": self.mode,
+            "sandbox_environment_id": self.sandbox_environment_id,
         }
 
 
@@ -105,6 +119,36 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     assert task.created_by is not None
 
     distinct_id = task.created_by.distinct_id or "process_task_workflow"
+    state = task_run.state or {}
+    sandbox_environment_id = state.get("sandbox_environment_id")
+    sandbox_environment_name: str | None = None
+    allowed_domains: list[str] | None = None
+
+    if sandbox_environment_id:
+        sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
+        if sandbox_environment is None:
+            emit_agent_log(
+                run_id,
+                "debug",
+                f"Sandbox environment {sandbox_environment_id} was not found; continuing without agentsh policy",
+            )
+        else:
+            sandbox_environment_name = sandbox_environment.name
+            effective_domains = sandbox_environment.get_effective_domains()
+            allowed_domains = effective_domains or None
+
+            if allowed_domains:
+                emit_agent_log(
+                    run_id,
+                    "debug",
+                    f"Resolved sandbox environment '{sandbox_environment.name}' with agentsh allowlist: {_format_allowed_domains_for_log(allowed_domains)}",
+                )
+            else:
+                emit_agent_log(
+                    run_id,
+                    "debug",
+                    f"Resolved sandbox environment '{sandbox_environment.name}' with full network access",
+                )
 
     log_with_activity_context(
         "Task processing context created",
@@ -113,6 +157,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_id=task.team_id,
         repository=task.repository,
         distinct_id=distinct_id,
+        sandbox_environment_id=sandbox_environment_id,
     )
 
     return TaskProcessingContext(
@@ -125,6 +170,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=task.repository,
         distinct_id=distinct_id,
         create_pr=input.create_pr,
-        state=task_run.state,
+        state=state,
         _branch=task_run.branch,
+        sandbox_environment_name=sandbox_environment_name,
+        allowed_domains=allowed_domains,
     )
