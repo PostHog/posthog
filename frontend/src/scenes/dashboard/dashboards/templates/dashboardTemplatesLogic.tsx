@@ -7,7 +7,12 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DashboardTemplateScope, DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
+import {
+    DashboardTemplateListParams,
+    DashboardTemplateScope,
+    DashboardTemplateType,
+    TemplateAvailabilityContext,
+} from '~/types'
 
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
 
@@ -29,6 +34,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     actions({
         setTemplates: (allTemplates: DashboardTemplateType[]) => ({ allTemplates }),
         setTemplateFilter: (search: string) => ({ search }),
+        setTemplateNameOrdering: (ordering: '' | 'template_name' | '-template_name') => ({ ordering }),
     }),
     reducers({
         templateFilter: [
@@ -39,16 +45,25 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 },
             },
         ],
+        templateNameOrdering: [
+            '' as '' | 'template_name' | '-template_name',
+            {
+                setTemplateNameOrdering: (_, { ordering }) => ordering,
+            },
+        ],
     }),
     lazyLoaders(({ props, values }) => ({
         allTemplates: [
             [] as DashboardTemplateType[],
             {
                 getAllTemplates: async () => {
-                    const params = {
+                    const params: DashboardTemplateListParams = {
                         // the backend doesn't know about a default scope
                         scope: props.scope !== 'default' ? props.scope : undefined,
                         search: values.templateFilter.length > 2 ? values.templateFilter : undefined,
+                        // Search results are relevance-ranked; omit ordering (see API `dangerously_get_queryset`).
+                        ordering:
+                            values.templateFilter.length > 2 ? undefined : values.templateNameOrdering || undefined,
                     }
                     const page = await api.dashboardTemplates.list(params)
                     return page.results
@@ -59,6 +74,9 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     listeners(({ actions }) => ({
         setTemplateFilter: async (_, breakpoint) => {
             await breakpoint(400)
+            actions.getAllTemplates()
+        },
+        setTemplateNameOrdering: () => {
             actions.getAllTemplates()
         },
     })),
