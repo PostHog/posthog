@@ -29490,6 +29490,26 @@ export namespace Schemas {
       users_affected: number;
       /** Total number of users in the project */
       total_users: number;
+      /**
+       * Number of groups matching the condition (only present for mixed person+group conditions)
+       * @nullable
+       */
+      groups_affected?: number | null;
+      /**
+       * Total number of groups of this type (only present for mixed person+group conditions)
+       * @nullable
+       */
+      total_groups?: number | null;
+      /**
+       * Error message if the users sub-query failed (partial failure in mixed conditions)
+       * @nullable
+       */
+      users_query_error?: string | null;
+      /**
+       * Error message if the groups sub-query failed (partial failure in mixed conditions)
+       * @nullable
+       */
+      groups_query_error?: string | null;
     }
 
     export interface ViewLinkValidation {
