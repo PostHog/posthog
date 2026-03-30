@@ -185,11 +185,7 @@ function humanizeValue(value: unknown): string | null {
 }
 
 const FIELD_LABELS: Record<string, string> = {
-    name: 'name',
-    model: 'model',
-    filters: 'filters',
     destination: 'destination config',
-    schema: 'schema',
     start_at: 'start time',
     end_at: 'end time',
 }
