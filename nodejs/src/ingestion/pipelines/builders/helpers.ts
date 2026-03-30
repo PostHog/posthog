@@ -19,7 +19,14 @@ export function newPipelineBuilder<T, C = Record<string, never>>(): StartPipelin
     return new StartPipelineBuilder<T, C>()
 }
 
-export function newBatchingPipeline<TInput, TOutput, CInput, CBatch = NonNullable<unknown>, COutput = CInput>(
+export function newBatchingPipeline<
+    TInput,
+    TOutput,
+    CInput,
+    CBatch = NonNullable<unknown>,
+    COutput = CInput,
+    R extends string = never,
+>(
     beforeBatch: (
         builder: StartPipelineBuilder<BeforeBatchInput<TInput, CInput>, Record<string, never>>
     ) => PipelineBuilder<
@@ -34,19 +41,19 @@ export function newBatchingPipeline<TInput, TOutput, CInput, CBatch = NonNullabl
             CInput & BatchingContext,
             CInput & BatchingContext
         >
-    ) => BatchPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext>,
+    ) => BatchPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext, R>,
     afterBatch: (
         builder: StartPipelineBuilder<
-            AfterBatchInput<TOutput, COutput & BatchingContext, CBatch>,
+            AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
             Record<string, never>
         >
     ) => PipelineBuilder<
-        AfterBatchInput<TOutput, COutput & BatchingContext, CBatch>,
-        AfterBatchOutput<TOutput, COutput & BatchingContext, CBatch>,
+        AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
+        AfterBatchOutput<TOutput, COutput & BatchingContext, CBatch, R>,
         Record<string, never>
     >,
     options?: Partial<BatchingPipelineOptions>
-): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext> {
+): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R> {
     const startBuilder = new BatchPipelineBuilder(
         new BufferingBatchPipeline<TInput & CBatch, CInput & BatchingContext>()
     )
@@ -57,7 +64,10 @@ export function newBatchingPipeline<TInput, TOutput, CInput, CBatch = NonNullabl
     ).build()
 
     const afterPipeline = afterBatch(
-        new StartPipelineBuilder<AfterBatchInput<TOutput, COutput & BatchingContext, CBatch>, Record<string, never>>()
+        new StartPipelineBuilder<
+            AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
+            Record<string, never>
+        >()
     ).build()
 
     return new BatchingPipeline(subPipeline, beforePipeline, afterPipeline, options)

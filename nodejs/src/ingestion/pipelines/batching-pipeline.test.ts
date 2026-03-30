@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { OkResultWithContext } from './batch-pipeline.interface'
 import { BatchingPipeline } from './batching-pipeline'
 import { newBatchingPipeline } from './builders/helpers'
 import { PipelineResultWithContext } from './pipeline.interface'
@@ -19,7 +19,7 @@ function makeMessage(offset: number): Message {
     }
 }
 
-function makeBatch(offsets: number[]): BatchPipelineResultWithContext<any, MsgCtx> {
+function makeBatch(offsets: number[]): OkResultWithContext<any, MsgCtx>[] {
     return offsets.map((offset) => ({
         result: ok({ value: `msg-${offset}` }),
         context: {
@@ -61,7 +61,7 @@ describe('BatchingPipeline', () => {
     }
 
     async function drainAll(
-        pipeline: BatchingPipeline<any, any, any, any, any>
+        pipeline: BatchingPipeline<any, any, any, any, any, never>
     ): Promise<{ allResults: PipelineResultWithContext<any, any>[]; allSideEffects: Promise<unknown>[] }> {
         const allResults: PipelineResultWithContext<any, any>[] = []
         const allSideEffects: Promise<unknown>[] = []

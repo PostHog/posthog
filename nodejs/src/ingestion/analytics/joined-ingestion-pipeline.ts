@@ -164,7 +164,7 @@ export function createJoinedIngestionPipeline<
         topHog: topHogWrapper,
     }
 
-    return newBatchingPipeline<TInput, void, TContext>(
+    return newBatchingPipeline<TInput, void, TContext, NonNullable<unknown>, TContext, OverflowOutput | AsyncOutput>(
         (beforeBatch) => beforeBatch.pipe(({ elements }) => Promise.resolve(ok({ elements, batchContext: {} }))),
         (batch) =>
             batch

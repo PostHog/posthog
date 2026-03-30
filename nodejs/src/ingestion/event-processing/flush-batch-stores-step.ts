@@ -35,9 +35,9 @@ export interface FlushBatchStoresStepConfig {
  *
  * @returns An afterBatch step that flushes both stores
  */
-export function createFlushBatchStoresStep<TOutput, COutput, CBatch>(
+export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends string = never>(
     config: FlushBatchStoresStepConfig
-): AfterBatchStep<TOutput, COutput, CBatch> {
+): AfterBatchStep<TOutput, COutput, CBatch, R> {
     const { personsStore, groupStore, kafkaProducer } = config
 
     return async function flushBatchStoresStep(input) {
