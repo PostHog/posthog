@@ -233,6 +233,19 @@ where
             >= ttl_secs
     }
 
+    /// Atomically checks if the allowlist is stale and marks it as refreshed if so.
+    /// Returns true if this caller should perform the refresh (won the race).
+    /// Prevents stampeding: only the first caller at the TTL boundary proceeds.
+    pub fn claim_allowlist_refresh(&self, ttl_secs: u64) -> bool {
+        let mut last_refreshed = self.allowlist_last_refreshed.write().unwrap();
+        if last_refreshed.elapsed().as_secs() >= ttl_secs {
+            *last_refreshed = Instant::now();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Mark the allowlist refresh timestamp without changing the allowlist contents.
     /// Used when the DB query fails — avoids retrying on every request.
     pub fn mark_allowlist_refreshed(&self) {
@@ -504,6 +517,15 @@ mod tests {
         limiter.mark_allowlist_refreshed();
         assert!(!limiter.is_allowlist_stale(60));
         assert_eq!(limiter.allowlist_count(), 0);
+    }
+
+    #[test]
+    fn test_claim_allowlist_refresh_only_first_caller_wins() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        // First claim should succeed (starts stale)
+        assert!(limiter.claim_allowlist_refresh(60));
+        // Second claim should fail (just marked as fresh)
+        assert!(!limiter.claim_allowlist_refresh(60));
     }
 
     #[test]
