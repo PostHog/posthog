@@ -25,14 +25,22 @@ class TestUserAgentExpr:
         assert isinstance(expr, ast.Call)
         assert expr.name == "coalesce"
         assert len(expr.args) == 2
-        assert expr.args[0] == ast.Field(chain=["properties", "$raw_user_agent"])
+        # First arg should be nullIf($raw_user_agent, '') to handle empty strings
+        null_if = expr.args[0]
+        assert isinstance(null_if, ast.Call)
+        assert null_if.name == "nullIf"
+        assert null_if.args[0] == ast.Field(chain=["properties", "$raw_user_agent"])
+        assert null_if.args[1] == ast.Constant(value="")
         assert expr.args[1] == ast.Field(chain=["properties", "$user_agent"])
 
     def test_custom_properties_path(self):
         expr = user_agent_expr(properties_path=["poe", "properties"])
         assert isinstance(expr, ast.Call)
         assert expr.name == "coalesce"
-        assert expr.args[0] == ast.Field(chain=["poe", "properties", "$raw_user_agent"])
+        null_if = expr.args[0]
+        assert isinstance(null_if, ast.Call)
+        assert null_if.name == "nullIf"
+        assert null_if.args[0] == ast.Field(chain=["poe", "properties", "$raw_user_agent"])
         assert expr.args[1] == ast.Field(chain=["poe", "properties", "$user_agent"])
 
 
@@ -93,6 +101,10 @@ class TestIsBotField:
         coalesce_call = safe_ua.args[0]
         assert isinstance(coalesce_call, ast.Call)
         assert coalesce_call.name == "coalesce"
+        # First coalesce arg should be nullIf for empty string handling
+        null_if = coalesce_call.args[0]
+        assert isinstance(null_if, ast.Call)
+        assert null_if.name == "nullIf"
 
 
 class TestTrafficTypeField:

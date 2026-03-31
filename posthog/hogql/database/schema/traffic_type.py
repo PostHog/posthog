@@ -11,20 +11,26 @@ def user_agent_expr(properties_path: Optional[list[str]] = None) -> ast.Expr:
     return ast.Call(
         name="coalesce",
         args=[
-            ast.Field(chain=[*properties_path, "$raw_user_agent"]),
+            ast.Call(
+                name="nullIf",
+                args=[
+                    ast.Field(chain=[*properties_path, "$raw_user_agent"]),
+                    ast.Constant(value=""),
+                ],
+            ),
             ast.Field(chain=[*properties_path, "$user_agent"]),
         ],
     )
 
 
-def _dummy_call() -> ast.Call:
-    return ast.Call(name="__placeholder", args=[])
+def _dummy_call(name: str = "__placeholder") -> ast.Call:
+    return ast.Call(name=name, args=[])
 
 
 def create_is_bot_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=is_bot(node=_dummy_call(), args=[user_agent_expr(properties_path)]),
+        expr=is_bot(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
         isolate_scope=True,
     )
 
@@ -32,7 +38,7 @@ def create_is_bot_field(name: str, properties_path: Optional[list[str]] = None) 
 def create_traffic_type_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=get_traffic_type(node=_dummy_call(), args=[user_agent_expr(properties_path)]),
+        expr=get_traffic_type(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
         isolate_scope=True,
     )
 
@@ -40,7 +46,7 @@ def create_traffic_type_field(name: str, properties_path: Optional[list[str]] = 
 def create_traffic_category_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=get_traffic_category(node=_dummy_call(), args=[user_agent_expr(properties_path)]),
+        expr=get_traffic_category(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
         isolate_scope=True,
     )
 
@@ -48,6 +54,6 @@ def create_traffic_category_field(name: str, properties_path: Optional[list[str]
 def create_bot_name_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=get_bot_name(node=_dummy_call(), args=[user_agent_expr(properties_path)]),
+        expr=get_bot_name(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
         isolate_scope=True,
     )
