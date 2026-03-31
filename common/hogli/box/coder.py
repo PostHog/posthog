@@ -25,7 +25,9 @@ BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli box:setup`."
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 
-_TERRAFORM_LOG_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+")
+_STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
+_LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+_WORKSPACE_PREFIX = "devbox"
 
 
 def _fail(message: str) -> None:
@@ -56,25 +58,53 @@ def _run(args: list[str], *, capture_output: bool = False) -> subprocess.Complet
     return subprocess.run(args, capture_output=capture_output, text=True)
 
 
-def _run_filtered(args: list[str]) -> subprocess.CompletedProcess[str]:
-    """Run a command, suppressing verbose Terraform log lines.
+def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
+    """Run a Coder build command with a spinner.
 
-    Shows Coder build step progress and other CLI output while hiding
-    timestamped Terraform internals. On failure the full output is
-    printed for debugging.
+    In normal mode, shows a single-line spinner that updates with each
+    build step. In verbose mode, streams all output including Terraform
+    internals. On failure the full captured output is always printed.
     """
+    import itertools
+    import threading
+
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     captured: list[str] = []
     assert proc.stdout is not None
 
-    for line in proc.stdout:
-        captured.append(line)
-        if not _TERRAFORM_LOG_RE.match(line):
+    if verbose:
+        for line in proc.stdout:
+            captured.append(line)
             click.echo(line, nl=False)
+    else:
+        is_tty = sys.stderr.isatty()
+        status = "Starting"
+        stop_event = threading.Event()
+        frames = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+
+        def _spin() -> None:
+            while not stop_event.is_set():
+                if is_tty:
+                    click.echo(f"\r  {next(frames)} {status}...", nl=False, err=True)
+                stop_event.wait(0.08)
+            if is_tty:
+                click.echo(f"\r  {status}   ", err=True)
+
+        spinner = threading.Thread(target=_spin, daemon=True)
+        spinner.start()
+
+        for line in proc.stdout:
+            captured.append(line)
+            m = _STEP_RE.match(line)
+            if m:
+                status = m.group(1).strip()
+
+        stop_event.set()
+        spinner.join()
 
     returncode = proc.wait()
 
-    if returncode != 0:
+    if returncode != 0 and not verbose:
         click.echo()
         click.echo(click.style("Build failed. Full output:", fg="red"))
         for line in captured:
@@ -84,9 +114,13 @@ def _run_filtered(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _run_with_rich_parameters(
-    args: list[str], parameters: dict[str, str], *, filtered: bool = False
+    args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
 ) -> subprocess.CompletedProcess[str]:
-    """Run a Coder command with sensitive parameters passed via a temp YAML file."""
+    """Run a Coder command with sensitive parameters passed via a temp YAML file.
+
+    When verbose is None, runs without build filtering. When True/False,
+    delegates to _run_build for spinner-based output.
+    """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as parameter_file:
         yaml.safe_dump(parameters, parameter_file)
         file_path = Path(parameter_file.name)
@@ -94,7 +128,9 @@ def _run_with_rich_parameters(
     try:
         file_path.chmod(0o600)
         full_args = [*args, "--rich-parameter-file", str(file_path)]
-        return _run_filtered(full_args) if filtered else _run(full_args)
+        if verbose is None:
+            return _run(full_args)
+        return _run_build(full_args, verbose=verbose)
     finally:
         file_path.unlink(missing_ok=True)
 
@@ -257,9 +293,51 @@ def get_username() -> str:
     return ""
 
 
-def get_workspace_name() -> str:
-    """Derive workspace name from Coder username."""
-    return f"devbox-{get_username()}"
+def get_workspace_name(label: str | None = None) -> str:
+    """Derive workspace name from Coder username and optional label.
+
+    Returns ``devbox-{username}`` for the default workspace, or
+    ``devbox-{username}-{label}`` for a named workspace.
+    """
+    base = f"{_WORKSPACE_PREFIX}-{get_username()}"
+    if label is None:
+        return base
+    if not _LABEL_RE.match(label):
+        _fail(f"Invalid workspace label '{label}'. Use lowercase alphanumeric and hyphens.")
+    return f"{base}-{label}"
+
+
+def get_default_workspace_prefix() -> str:
+    """Return the ``devbox-{username}`` prefix used to identify this user's workspaces."""
+    return f"{_WORKSPACE_PREFIX}-{get_username()}"
+
+
+def extract_workspace_label(workspace_name: str) -> str | None:
+    """Extract the label suffix from a full workspace name.
+
+    Returns ``None`` for the default workspace (no label).
+    """
+    prefix = get_default_workspace_prefix()
+    if workspace_name == prefix:
+        return None
+    if workspace_name.startswith(f"{prefix}-"):
+        return workspace_name[len(prefix) + 1 :]
+    return None
+
+
+def list_user_workspaces() -> list[dict[str, Any]]:
+    """Return all workspaces belonging to the current user with the devbox prefix."""
+    result = _run(["coder", "list", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return []
+
+    try:
+        workspaces = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+
+    prefix = get_default_workspace_prefix()
+    return [ws for ws in workspaces if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
 def get_workspace(name: str) -> dict[str, Any] | None:
@@ -285,11 +363,18 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
-def create_workspace(name: str, disk_size: int, branch: str, claude_oauth_token: str | None = None) -> None:
+def create_workspace(
+    name: str,
+    disk_size: int,
+    claude_oauth_token: str | None = None,
+    repo: str = "https://github.com/PostHog/posthog",
+    *,
+    verbose: bool = False,
+) -> None:
     """Create a new Coder workspace."""
     parameters = {
         "disk_size": str(disk_size),
-        "repo": branch,
+        "repo": repo,
         CLAUDE_OAUTH_PARAMETER: claude_oauth_token or "",
     }
 
@@ -301,28 +386,28 @@ def create_workspace(name: str, disk_size: int, branch: str, claude_oauth_token:
         TEMPLATE_NAME,
         "--yes",
     ]
-    result = _run_with_rich_parameters(args, parameters, filtered=True)
+    result = _run_with_rich_parameters(args, parameters, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
 
-def start_workspace(name: str) -> None:
+def start_workspace(name: str, *, verbose: bool = False) -> None:
     """Start a stopped workspace."""
-    result = _run_filtered(["coder", "start", name, "--yes"])
+    result = _run_build(["coder", "start", name, "--yes"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
 
-def stop_workspace(name: str) -> None:
+def stop_workspace(name: str, *, verbose: bool = False) -> None:
     """Stop a running workspace."""
-    result = _run_filtered(["coder", "stop", name, "--yes"])
+    result = _run_build(["coder", "stop", name, "--yes"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
 
-def delete_workspace(name: str) -> None:
+def delete_workspace(name: str, *, verbose: bool = False) -> None:
     """Delete a workspace."""
-    result = _run_filtered(["coder", "delete", name, "--yes"])
+    result = _run_build(["coder", "delete", name, "--yes"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

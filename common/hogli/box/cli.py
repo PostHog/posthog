@@ -18,9 +18,11 @@ from .coder import (
     ensure_coder_installed,
     ensure_runtime_ready,
     ensure_tailscale_connected,
+    extract_workspace_label,
     get_workspace,
     get_workspace_name,
     get_workspace_status,
+    list_user_workspaces,
     logs_replace,
     maybe_configure_ssh,
     open_in_browser,
@@ -37,18 +39,65 @@ from .coder import (
 )
 
 
+def resolve_workspace_name(label: str | None, *, for_create: bool = False) -> str:
+    """Resolve a workspace name from an optional label.
+
+    When *for_create* is True and no workspaces exist yet, returns the
+    default name so the create flow can proceed.
+    """
+    if label is not None:
+        return get_workspace_name(label)
+
+    workspaces = list_user_workspaces()
+
+    if len(workspaces) == 0:
+        return get_workspace_name()
+
+    if len(workspaces) == 1:
+        return workspaces[0]["name"]
+
+    # Multiple workspaces -- prefer default
+    default_name = get_workspace_name()
+    for ws in workspaces:
+        if ws.get("name") == default_name:
+            return default_name
+
+    # No default among multiple -- require explicit --name
+    labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
+    _fail("Multiple workspaces found. Use --name to pick one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
+    return ""  # unreachable
+
+
+def _fail(message: str) -> None:
+    """Print a short actionable error and exit."""
+    click.echo(click.style(message, fg="red"))
+    raise SystemExit(1)
+
+
+def workspace_name_option(fn):  # type: ignore[no-untyped-def]
+    """Shared Click decorator adding ``--name`` / ``-n`` for workspace selection."""
+    return click.option(
+        "--name",
+        "workspace_label",
+        default=None,
+        help="Workspace label (omit for default workspace)",
+    )(fn)
+
+
 def _print_connection_info(name: str) -> None:
     """Print connection commands after workspace is ready."""
+    label = extract_workspace_label(name)
+    suffix = f" --name {label}" if label else ""
     click.echo()
-    click.echo("  SSH:      hogli box:ssh")
-    click.echo("  Open:     hogli box:open")
-    click.echo("  VS Code:  hogli box:open --vscode")
-    click.echo("  Web IDE:  hogli box:open --web")
-    click.echo("  Claude:   hogli box:claude")
-    click.echo("  Forward:  hogli box:forward")
-    click.echo("  Logs:     hogli box:logs -f")
-    click.echo("  Status:   hogli box:status")
-    click.echo("  Stop:     hogli box:stop")
+    click.echo(f"  SSH:      hogli box:ssh{suffix}")
+    click.echo(f"  Open:     hogli box:open{suffix}")
+    click.echo(f"  VS Code:  hogli box:open --vscode{suffix}")
+    click.echo(f"  Web IDE:  hogli box:open --web{suffix}")
+    click.echo(f"  Claude:   hogli box:claude{suffix}")
+    click.echo(f"  Forward:  hogli box:forward{suffix}")
+    click.echo(f"  Logs:     hogli box:logs -f{suffix}")
+    click.echo(f"  Status:   hogli box:status{suffix}")
+    click.echo(f"  Stop:     hogli box:stop{suffix}")
 
 
 def _maybe_prompt_for_claude_oauth_token(configure_claude: bool | None) -> str | None:
@@ -85,6 +134,7 @@ def box_help() -> None:
     click.echo()
     click.echo("  hogli box:setup       install and configure local access")
     click.echo("  hogli box:start       create or start your workspace")
+    click.echo("  hogli box:list        list your workspaces")
     click.echo("  hogli box:ssh         open a shell in the workspace")
     click.echo("  hogli box:open        open the workspace in the browser")
     click.echo("  hogli box:claude      verify and launch Claude in the workspace")
@@ -112,14 +162,40 @@ def box_setup(configure_ssh: bool | None) -> None:
     print_setup_summary()
 
 
+@cli.command(name="box:list", help="List your devboxes")
+def box_list() -> None:
+    """List all workspaces belonging to the current user."""
+    ensure_runtime_ready()
+    workspaces = list_user_workspaces()
+
+    if not workspaces:
+        click.echo("No devboxes found. Run 'hogli box:start' to create one.")
+        return
+
+    click.echo(f"{'LABEL':<16} {'STATUS':<12} {'NAME'}")
+    for ws in workspaces:
+        ws_name = ws.get("name", "")
+        label = extract_workspace_label(ws_name) or "(default)"
+        status = get_workspace_status(ws)
+        color = {
+            "running": "green",
+            "stopped": "yellow",
+            "starting": "cyan",
+            "stopping": "yellow",
+            "failed": "red",
+            "deleting": "red",
+        }.get(status, "white")
+        click.echo(f"  {label:<14} {click.style(status, fg=color):<20} {ws_name}")
+
+
 @cli.command(name="box:start", help="Start or create your remote devbox")
+@workspace_name_option
 @click.option(
     "--disk",
     type=click.Choice(["30", "50", "100"]),
     default="50",
     help="Disk size in GiB (default: 50)",
 )
-@click.option("--branch", default="master", help="Git branch to check out on the devbox")
 @click.option(
     "--configure-claude/--skip-configure-claude",
     default=None,
@@ -130,10 +206,17 @@ def box_setup(configure_ssh: bool | None) -> None:
     envvar="HOGLI_BOX_CLAUDE_OAUTH_TOKEN",
     hidden=True,
 )
-def box_start(disk: str, branch: str, configure_claude: bool | None, claude_oauth_token: str | None) -> None:
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
+def box_start(
+    workspace_label: str | None,
+    disk: str,
+    configure_claude: bool | None,
+    claude_oauth_token: str | None,
+    verbose: bool,
+) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
-    name = get_workspace_name()
+    name = resolve_workspace_name(workspace_label, for_create=True)
     ws = get_workspace(name)
 
     if ws is not None:
@@ -145,7 +228,7 @@ def box_start(disk: str, branch: str, configure_claude: bool | None, claude_oaut
 
         if status == "stopped":
             click.echo(f"Starting devbox '{name}'...")
-            start_workspace(name)
+            start_workspace(name, verbose=verbose)
             click.echo("Started.")
             _print_connection_info(name)
             return
@@ -156,23 +239,30 @@ def box_start(disk: str, branch: str, configure_claude: bool | None, claude_oaut
             return
 
         click.echo("Attempting to start...")
-        start_workspace(name)
+        start_workspace(name, verbose=verbose)
         _print_connection_info(name)
         return
 
     token = claude_oauth_token or _maybe_prompt_for_claude_oauth_token(configure_claude)
 
-    click.echo(f"Creating devbox '{name}' (disk={disk}GiB, branch={branch})...")
-    create_workspace(name, int(disk), branch, claude_oauth_token=token)
+    click.echo(f"Creating devbox '{name}' (disk={disk}GiB)...")
+    create_workspace(name, int(disk), claude_oauth_token=token, verbose=verbose)
     click.echo("Created.")
-    _print_connection_info(name)
+    click.echo()
+    click.echo(
+        f"  SSH:   hogli box:ssh{' --name ' + extract_workspace_label(name) if extract_workspace_label(name) else ''}"
+    )
+    click.echo()
+    click.echo("  Run `hogli box --help` for more commands.")
 
 
 @cli.command(name="box:stop", help="Stop your devbox (preserves disk, stops billing)")
-def box_stop() -> None:
+@workspace_name_option
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
+def box_stop(workspace_label: str | None, verbose: bool) -> None:
     """Stop the devbox. State is preserved on the EBS volume."""
     ensure_runtime_ready()
-    name = get_workspace_name()
+    name = resolve_workspace_name(workspace_label)
 
     ws = get_workspace(name)
     if ws is None:
@@ -185,28 +275,30 @@ def box_stop() -> None:
         return
 
     click.echo(f"Stopping '{name}'...")
-    stop_workspace(name)
+    stop_workspace(name, verbose=verbose)
     click.echo("Stopped. Disk preserved. Run 'hogli box:start' to resume.")
 
 
 @cli.command(name="box:ssh", help="SSH into your devbox")
-def box_ssh() -> None:
+@workspace_name_option
+def box_ssh(workspace_label: str | None) -> None:
     """Open an SSH session to the devbox."""
     ensure_runtime_ready()
-    name = get_workspace_name()
+    name = resolve_workspace_name(workspace_label)
     ssh_replace(name)
 
 
 @cli.command(name="box:open", help="Open devbox in browser or VS Code")
+@workspace_name_option
 @click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
 @click.option("--web", is_flag=True, help="Open code-server (VS Code in browser)")
-def box_open(vscode: bool, web: bool) -> None:
+def box_open(workspace_label: str | None, vscode: bool, web: bool) -> None:
     """Open the devbox in a browser or editor."""
     if vscode and web:
         raise click.UsageError("Choose either `--vscode` or `--web`.")
 
     ensure_runtime_ready()
-    name = get_workspace_name()
+    name = resolve_workspace_name(workspace_label)
 
     if vscode:
         click.echo(f"Opening '{name}' in VS Code...")
@@ -220,15 +312,17 @@ def box_open(vscode: bool, web: bool) -> None:
 
 
 @cli.command(name="box:logs", help="Tail devbox build and agent logs")
+@workspace_name_option
 @click.option("-f", "--follow", is_flag=True, help="Follow log output")
-def box_logs(follow: bool) -> None:
+def box_logs(workspace_label: str | None, follow: bool) -> None:
     """Tail workspace build and agent logs."""
     ensure_runtime_ready()
-    name = get_workspace_name()
+    name = resolve_workspace_name(workspace_label)
     logs_replace(name, follow)
 
 
 @cli.command(name="box:claude", help="Verify and launch Claude Code in your devbox")
+@workspace_name_option
 @click.option("--check", is_flag=True, help="Check Claude readiness without launching it")
 @click.option("--set-token", is_flag=True, help="Prompt for a Claude OAuth token and sync it to the workspace")
 @click.option(
@@ -236,13 +330,13 @@ def box_logs(follow: bool) -> None:
     envvar="HOGLI_BOX_CLAUDE_OAUTH_TOKEN",
     hidden=True,
 )
-def box_claude(check: bool, set_token: bool, claude_oauth_token: str | None) -> None:
+def box_claude(workspace_label: str | None, check: bool, set_token: bool, claude_oauth_token: str | None) -> None:
     """Sync Claude auth into the workspace or launch Claude there."""
     if check and set_token:
         raise click.UsageError("Choose either `--check` or `--set-token`.")
 
     ensure_runtime_ready()
-    name = get_workspace_name()
+    name = resolve_workspace_name(workspace_label)
     workspace = get_workspace(name)
 
     if workspace is None:
@@ -289,10 +383,12 @@ def box_claude(check: bool, set_token: bool, claude_oauth_token: str | None) -> 
 
 
 @cli.command(name="box:destroy", help="Destroy your devbox and its data")
-def box_destroy() -> None:
+@workspace_name_option
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
+def box_destroy(workspace_label: str | None, verbose: bool) -> None:
     """Destroy the devbox completely."""
     ensure_runtime_ready()
-    name = get_workspace_name()
+    name = resolve_workspace_name(workspace_label)
 
     ws = get_workspace(name)
     if ws is None:
@@ -303,15 +399,16 @@ def box_destroy() -> None:
         click.echo("Cancelled.")
         return
 
-    delete_workspace(name)
+    delete_workspace(name, verbose=verbose)
     click.echo("Destroyed.")
 
 
 @cli.command(name="box:status", help="Show devbox status")
-def box_status() -> None:
+@workspace_name_option
+def box_status(workspace_label: str | None) -> None:
     """Show the current state of the devbox."""
     ensure_runtime_ready()
-    name = get_workspace_name()
+    name = resolve_workspace_name(workspace_label)
 
     ws = get_workspace(name)
     if ws is None:
@@ -347,11 +444,12 @@ def box_status() -> None:
 
 
 @cli.command(name="box:forward", help="Forward PostHog UI to localhost")
+@workspace_name_option
 @click.option("--port", default=8010, type=int, help="Local port to forward to")
-def box_forward(port: int) -> None:
+def box_forward(workspace_label: str | None, port: int) -> None:
     """Forward the PostHog UI port to localhost."""
     ensure_runtime_ready()
-    name = get_workspace_name()
+    name = resolve_workspace_name(workspace_label)
 
     click.echo(f"Forwarding {name}:8010 -> localhost:{port}")
     click.echo(f"PostHog UI at http://localhost:{port}")
