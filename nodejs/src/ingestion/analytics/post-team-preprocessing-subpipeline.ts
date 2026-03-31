@@ -10,8 +10,8 @@ import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcem
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
-import { AppMetricsOutput } from '../common/outputs'
-import { createApplyEventFiltersStep } from '../common/steps/apply-event-filters-step'
+import { EventFiltersBatchAppMetrics } from '../common/event-filters/batch-app-metrics'
+import { createApplyEventFiltersStep } from '../common/steps/event-filters-steps'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
@@ -24,7 +24,6 @@ import {
 } from '../event-preprocessing'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 
@@ -33,11 +32,11 @@ export interface PostTeamPreprocessingSubpipelineInput {
     headers: EventHeaders
     event: PluginEvent
     team: Team
+    eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
     eventFilterManager: EventFilterManager
-    outputs: IngestionOutputs<AppMetricsOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean
@@ -57,7 +56,6 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
 ) {
     const {
         eventFilterManager,
-        outputs,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
@@ -84,7 +82,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
                 return schemaChecked
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
                     .pipe(createDropOldEventsStep())
-                    .pipe(createApplyEventFiltersStep(eventFilterManager, outputs))
+                    .pipe(createApplyEventFiltersStep(eventFilterManager))
             })
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
