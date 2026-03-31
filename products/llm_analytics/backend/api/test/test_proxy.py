@@ -214,7 +214,7 @@ class TestTrialModelEnforcement(APIBaseTest):
         )
         assert response.status_code == 200
         # Consume the streaming response to trigger the generator
-        b"".join(response.streaming_content)
+        b"".join(response.streaming_content)  # type: ignore[attr-defined]
         mock_client_cls.return_value.stream.assert_called_once()
 
     @patch("products.llm_analytics.backend.api.proxy.Client")
@@ -236,7 +236,7 @@ class TestTrialModelEnforcement(APIBaseTest):
         )
         assert response.status_code == 200
         # Consume the streaming response to trigger the generator
-        b"".join(response.streaming_content)
+        b"".join(response.streaming_content)  # type: ignore[attr-defined]
         mock_client_cls.return_value.stream.assert_called_once()
 
     def test_models_endpoint_returns_only_trial_models(self) -> None:
