@@ -191,7 +191,7 @@ async def _anthropic_count_tokens_impl(
         raise
     except Exception as e:
         status_code = "502"
-        logger.exception(f"Error proxying count_tokens request: {e}")
+        logger.exception("Error proxying count_tokens request")
         raise HTTPException(
             status_code=502,
             detail={"error": {"message": "Failed to proxy request to Anthropic", "type": "proxy_error"}},

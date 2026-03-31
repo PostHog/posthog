@@ -164,6 +164,15 @@ def count_tokens_with_bedrock(
     # CountTokens API does not support regional model prefixes ("us.anthropic.", "eu.anthropic.")
     count_tokens_model = model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
 
+    # Rebuild a minimal body instead of using build_bedrock_invoke_model_body() —
+    # the Bedrock CountTokens API rejects unknown fields (e.g. thinking, tools)
+    # but still requires anthropic_version, max_tokens, and messages.
+    body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": request_data.get("max_tokens", 4096),
+        "messages": request_data.get("messages"),
+    }
+
     response = bedrock_runtime_client.count_tokens(
         modelId=count_tokens_model,
         input={"invokeModel": {"body": json.dumps(body).encode("utf-8")}},
