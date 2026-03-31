@@ -233,6 +233,9 @@ services:
             file: docker-compose.base.yml
             service: seaweedfs
         restart: on-failure
+        ports:
+            - '127.0.0.1:8333:8333' # S3 API
+            - '127.0.0.1:9333:9333' # Master server
         volumes:
             - seaweedfs:/data
         healthcheck:
