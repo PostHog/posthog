@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 import json
 import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
+
+if TYPE_CHECKING:
+    from temporalio.client import WorkflowHandle
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +124,7 @@ async def _poll_for_turn(
     printed_lines: int = 0,
     verbose: bool = False,
     output_fn: OutputFn = None,
-    workflow_handle=None,
+    workflow_handle: WorkflowHandle | None = None,
 ) -> tuple[str, str | None, int, int]:
     """Poll S3 logs until the agent finishes a turn."""
     from posthog.storage.object_storage import ObjectStorageError
