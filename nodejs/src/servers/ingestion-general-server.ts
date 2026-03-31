@@ -89,7 +89,6 @@ export class IngestionGeneralServer implements NodeServer {
 
     private postgres?: PostgresRouter
     private kafkaProducer?: KafkaProducerWrapper
-    private kafkaMetricsProducer?: KafkaProducerWrapper
     private ingestionProducerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
     private cookielessRedisPool?: RedisPool
@@ -123,7 +122,6 @@ export class IngestionGeneralServer implements NodeServer {
 
         logger.info('🤔', 'Connecting to Kafka...')
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        this.kafkaMetricsProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
@@ -218,7 +216,6 @@ export class IngestionGeneralServer implements NodeServer {
                 postgres: this.postgres,
                 redisPool: this.redisPool,
                 kafkaProducer: this.kafkaProducer,
-                kafkaMetricsProducer: this.kafkaMetricsProducer,
                 outputs: ingestionOutputs,
                 teamManager,
                 groupTypeManager,
@@ -272,7 +269,7 @@ export class IngestionGeneralServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,

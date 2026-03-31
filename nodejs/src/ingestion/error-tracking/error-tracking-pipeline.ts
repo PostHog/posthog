@@ -6,7 +6,14 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { DlqOutput, EVENTS_OUTPUT, EventOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import {
+    DlqOutput,
+    EVENTS_OUTPUT,
+    EventOutput,
+    IngestionWarningsOutput,
+    OverflowOutput,
+    TophogOutput,
+} from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -44,7 +51,9 @@ export interface ErrorTrackingPipelineInput {
  */
 export type ErrorTrackingPipelineOutput = void
 
-export type ErrorTrackingOutputs = IngestionOutputs<EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput>
+export type ErrorTrackingOutputs = IngestionOutputs<
+    EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput
+>
 
 export interface ErrorTrackingPipelineConfig {
     outputs: ErrorTrackingOutputs

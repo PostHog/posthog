@@ -5,7 +5,6 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { CommonConfig } from '../common/config'
-import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
@@ -43,7 +42,7 @@ import {
     PersonDistinctIdsOutput,
     PersonsOutput,
 } from './analytics/outputs'
-import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from './common/outputs'
+import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput, TophogOutput } from './common/outputs'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
@@ -64,7 +63,6 @@ export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
     kafkaProducer: KafkaProducerWrapper
-    kafkaMetricsProducer: KafkaProducerWrapper
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
@@ -76,6 +74,7 @@ export interface IngestionConsumerDeps {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | TophogOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
@@ -210,8 +209,7 @@ export class IngestionConsumer {
         this.kafkaProducer = this.deps.kafkaProducer
 
         this.topHog = new TopHog({
-            kafkaProducer: this.deps.kafkaMetricsProducer,
-            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            outputs: this.deps.outputs,
             pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
             lane: this.config.INGESTION_LANE ?? 'unknown',
         })
