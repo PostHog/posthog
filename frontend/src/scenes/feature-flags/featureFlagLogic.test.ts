@@ -99,7 +99,7 @@ describe('payload conversion helpers', () => {
                         false: '{"enabled":false}',
                     },
                 },
-            } as FeatureFlagType)
+            } as unknown as FeatureFlagType)
         ).toEqual({
             filters: {
                 groups: [{ properties: [], rollout_percentage: 100, variant: null }],
