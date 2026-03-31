@@ -443,8 +443,7 @@ function FiltersPopover(): JSX.Element {
     const { rawWebAnalyticsFilters, conversionGoal, preAggregatedEnabled, productTab, shouldFilterTestAccounts } =
         useValues(webAnalyticsLogic)
 
-    const { setWebAnalyticsFilters, setConversionGoal, setShouldFilterTestAccounts } =
-        useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setConversionGoal, setShouldFilterTestAccounts } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Toggle filters shortcut
