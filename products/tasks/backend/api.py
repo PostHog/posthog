@@ -27,6 +27,7 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.event_usage import groups
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.storage import object_storage
@@ -991,11 +992,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return method
 
 
-def _activate_code_for_user(user) -> None:
+def _activate_code_for_user(user, organization=None) -> None:
     """Capture an analytics event when a user redeems a Code invite."""
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="code_invite_redeemed",
+        groups=groups(organization=organization),
     )
 
 
@@ -1060,7 +1062,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
 
             CodeInvite.objects.filter(id=invite_code.id).update(redemption_count=F("redemption_count") + 1)
 
-            _activate_code_for_user(request.user)
+            _activate_code_for_user(request.user, organization=organization)
 
         return Response({"success": True})
 

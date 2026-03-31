@@ -31,6 +31,9 @@ from .entity import Entity
 from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .event.event import Event
 from .event_buffer import EventBuffer
+
+# TODO: remove noqa once the event filters API imports from posthog.models
+from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .exported_asset import ExportedAsset

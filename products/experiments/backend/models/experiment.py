@@ -186,6 +186,28 @@ def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> di
     }
 
 
+LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
+
+
+def experiment_has_legacy_metrics(experiment: "Experiment") -> bool:
+    """Check if experiment uses legacy metric formats."""
+    # Check inline metrics
+    all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+    if any(m.get("kind") in LEGACY_METRIC_KINDS for m in all_metrics):
+        return True
+
+    # Check saved metrics
+    if experiment.experimenttosavedmetric_set.filter(saved_metric__query__kind__in=LEGACY_METRIC_KINDS).exists():
+        return True
+
+    return False
+
+
+def saved_metric_has_legacy_query(saved_metric: "ExperimentSavedMetric") -> bool:
+    """Check if saved metric uses legacy query format."""
+    return saved_metric.query.get("kind") in LEGACY_METRIC_KINDS if saved_metric.query else False
+
+
 class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)

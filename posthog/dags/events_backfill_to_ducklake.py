@@ -8,9 +8,6 @@ The job is partitioned by date to allow incremental backfilling of historical da
 Within each date partition, events are further chunked by team_id to keep file sizes manageable.
 
 S3 path structure: s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/
-
-Uses plain directory segments (not Hive-style key=value) to avoid DuckLake
-interpreting them as partition columns during ducklake_add_data_files.
 """
 
 import base64
@@ -299,8 +296,13 @@ def get_s3_path_for_partition(
 
     Path structure: s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/{chunk_id}.parquet
 
-    Uses plain directory segments (not Hive-style key=value) to avoid DuckLake
-    interpreting them as partition columns during ducklake_add_data_files.
+    TODO: These paths use plain segments, not Hive-style key=value. This means
+    ducklake_add_data_files will fail on partitioned tables (0 Hive keys vs N
+    partition fields). Fixing this requires restructuring the chunking strategy:
+    the table partitions by team_id (IDENTITY) but each file contains data from
+    multiple team_ids (team_id % total_chunks = chunk), so a single file can't
+    map to one team_id partition. Either remove team_id from the partition
+    expression or export one file per team_id instead of modular chunks.
     """
     year = date.strftime("%Y")
     month = date.strftime("%m")

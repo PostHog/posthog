@@ -156,7 +156,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             <LemonTable
                 id="dashboard-templates"
                 data-attr="dashboards-template-table"
-                pagination={{ pageSize: 10 }}
+                pagination={{ pageSize: 25 }}
                 dataSource={Object.values(allTemplates)}
                 columns={columns}
                 loading={allTemplatesLoading}
