@@ -1,4 +1,6 @@
 metadata:
+    box:
+        coder_url: https://coder.hedgehog-kitefin.ts.net
     categories:
         - key: box
           title: Remote development environment (devbox)
@@ -94,9 +96,12 @@ metadata:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
 box:
+    box:setup: null
     box:start: null
     box:stop: null
     box:ssh: null
+    box:open: null
+    box:logs: null
     box:destroy: null
     box:status: null
     box:forward: null

@@ -11,15 +11,20 @@ from hogli.core.cli import cli
 from .coder import (
     create_workspace,
     delete_workspace,
-    ensure_coder,
+    ensure_coder_authenticated,
+    ensure_coder_installed,
+    ensure_runtime_ready,
+    ensure_tailscale_connected,
     get_workspace,
     get_workspace_name,
     get_workspace_status,
     logs_replace,
+    maybe_configure_ssh,
     open_in_browser,
     open_vscode,
     open_web_ide,
     port_forward_replace,
+    print_setup_summary,
     ssh_replace,
     start_workspace,
     stop_workspace,
@@ -32,10 +37,26 @@ def _print_connection_info(name: str) -> None:
     click.echo("  SSH:      hogli box:ssh")
     click.echo("  Open:     hogli box:open")
     click.echo("  VS Code:  hogli box:open --vscode")
+    click.echo("  Web IDE:  hogli box:open --web")
     click.echo("  Forward:  hogli box:forward")
     click.echo("  Logs:     hogli box:logs -f")
     click.echo("  Status:   hogli box:status")
     click.echo("  Stop:     hogli box:stop")
+
+
+@cli.command(name="box:setup", help="Install and configure local access to Coder devboxes")
+@click.option(
+    "--configure-ssh/--skip-configure-ssh",
+    default=None,
+    help="Configure local SSH host entries for Coder workspaces during setup",
+)
+def box_setup(configure_ssh: bool | None) -> None:
+    """Prepare this machine for Coder workspaces."""
+    ensure_tailscale_connected("rerun `hogli box:setup`.")
+    ensure_coder_installed()
+    ensure_coder_authenticated()
+    maybe_configure_ssh(configure_ssh=configure_ssh)
+    print_setup_summary()
 
 
 @cli.command(name="box:start", help="Start or create your remote devbox")
@@ -48,7 +69,7 @@ def _print_connection_info(name: str) -> None:
 @click.option("--branch", default="master", help="Git branch to check out on the devbox")
 def box_start(disk: str, branch: str) -> None:
     """Start or create the remote devbox."""
-    ensure_coder()
+    ensure_runtime_ready()
     name = get_workspace_name()
     ws = get_workspace(name)
 
@@ -85,7 +106,7 @@ def box_start(disk: str, branch: str) -> None:
 @cli.command(name="box:stop", help="Stop your devbox (preserves disk, stops billing)")
 def box_stop() -> None:
     """Stop the devbox. State is preserved on the EBS volume."""
-    ensure_coder()
+    ensure_runtime_ready()
     name = get_workspace_name()
 
     ws = get_workspace(name)
@@ -106,7 +127,7 @@ def box_stop() -> None:
 @cli.command(name="box:ssh", help="SSH into your devbox")
 def box_ssh() -> None:
     """Open an SSH session to the devbox."""
-    ensure_coder()
+    ensure_runtime_ready()
     name = get_workspace_name()
     ssh_replace(name)
 
@@ -116,7 +137,10 @@ def box_ssh() -> None:
 @click.option("--web", is_flag=True, help="Open code-server (VS Code in browser)")
 def box_open(vscode: bool, web: bool) -> None:
     """Open the devbox in a browser or editor."""
-    ensure_coder()
+    if vscode and web:
+        raise click.UsageError("Choose either `--vscode` or `--web`.")
+
+    ensure_runtime_ready()
     name = get_workspace_name()
 
     if vscode:
@@ -134,7 +158,7 @@ def box_open(vscode: bool, web: bool) -> None:
 @click.option("-f", "--follow", is_flag=True, help="Follow log output")
 def box_logs(follow: bool) -> None:
     """Tail workspace build and agent logs."""
-    ensure_coder()
+    ensure_runtime_ready()
     name = get_workspace_name()
     logs_replace(name, follow)
 
@@ -142,7 +166,7 @@ def box_logs(follow: bool) -> None:
 @cli.command(name="box:destroy", help="Destroy your devbox and its data")
 def box_destroy() -> None:
     """Destroy the devbox completely."""
-    ensure_coder()
+    ensure_runtime_ready()
     name = get_workspace_name()
 
     ws = get_workspace(name)
@@ -161,7 +185,7 @@ def box_destroy() -> None:
 @cli.command(name="box:status", help="Show devbox status")
 def box_status() -> None:
     """Show the current state of the devbox."""
-    ensure_coder()
+    ensure_runtime_ready()
     name = get_workspace_name()
 
     ws = get_workspace(name)
@@ -184,7 +208,7 @@ def box_status() -> None:
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))
-        click.echo("           Run: hogli box:update")
+        click.echo("           Recreate the workspace when you want the latest template.")
 
     # Show agent status if available
     resources = ws.get("latest_build", {}).get("resources", [])
@@ -201,7 +225,7 @@ def box_status() -> None:
 @click.option("--port", default=8010, type=int, help="Local port to forward to")
 def box_forward(port: int) -> None:
     """Forward the PostHog UI port to localhost."""
-    ensure_coder()
+    ensure_runtime_ready()
     name = get_workspace_name()
 
     click.echo(f"Forwarding {name}:8010 -> localhost:{port}")
