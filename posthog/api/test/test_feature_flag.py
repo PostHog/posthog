@@ -8775,7 +8775,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 4, "total_users": 10}.items(), response_json.items())
+        self.assertLessEqual({"groups_affected": 4, "total_groups": 10}.items(), response_json.items())
 
     def test_user_blast_radius_with_groups_zero_selected(self):
         create_group_type_mapping_without_created_at(
@@ -8815,7 +8815,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 0, "total_users": 5}.items(), response_json.items())
+        self.assertLessEqual({"groups_affected": 0, "total_groups": 5}.items(), response_json.items())
 
     def test_user_blast_radius_with_groups_all_selected(self):
         create_group_type_mapping_without_created_at(
@@ -8853,7 +8853,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 5, "total_users": 5}.items(), response_json.items())
+        self.assertLessEqual({"groups_affected": 5, "total_groups": 5}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups_multiple_queries(self):
@@ -8907,7 +8907,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 3, "total_users": 10}.items(), response_json.items())
+        self.assertLessEqual({"groups_affected": 3, "total_groups": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_group_key_property(self):
@@ -8959,7 +8959,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match exactly 1 group out of 11 total
-        self.assertLessEqual({"users_affected": 1, "total_users": 11}.items(), response_json.items())
+        self.assertLessEqual({"groups_affected": 1, "total_groups": 11}.items(), response_json.items())
 
         # Test filtering by group key pattern
         response = self.client.post(
@@ -8984,7 +8984,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match 10 groups that have "org:" in their key
-        self.assertLessEqual({"users_affected": 10, "total_users": 11}.items(), response_json.items())
+        self.assertLessEqual({"groups_affected": 10, "total_groups": 11}.items(), response_json.items())
 
     def test_user_blast_radius_with_integer_property_values(self):
         """Test that integer property values are correctly normalized to strings for matching"""
@@ -9085,8 +9085,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], expected_affected)
-        self.assertEqual(response_json["total_users"], expected_total)
+        self.assertEqual(response_json["groups_affected"], expected_affected)
+        self.assertEqual(response_json["total_groups"], expected_total)
 
     def test_user_blast_radius_with_group_key_and_regular_properties(self):
         """Test combining $group_key with regular group properties"""
@@ -9145,8 +9145,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match only "org:premium" (has both org: prefix AND enterprise plan)
-        self.assertEqual(response_json["users_affected"], 1)
-        self.assertEqual(response_json["total_users"], 3)
+        self.assertEqual(response_json["groups_affected"], 1)
+        self.assertEqual(response_json["total_groups"], 3)
 
     def test_user_blast_radius_with_dynamic_cohort(self):
         """Test that dynamic cohorts are evaluated correctly"""
@@ -9344,8 +9344,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match org-alpha and org-beta (2 out of 3)
-        self.assertEqual(response_json["users_affected"], 2)
-        self.assertEqual(response_json["total_users"], 3)
+        self.assertEqual(response_json["groups_affected"], 2)
+        self.assertEqual(response_json["total_groups"], 3)
 
     def test_user_blast_radius_with_group_key_is_not_list_values(self):
         """Test that IS_NOT operator with list values uses NOT IN logic"""
@@ -9401,8 +9401,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should only match org-gamma (1 out of 3)
-        self.assertEqual(response_json["users_affected"], 1)
-        self.assertEqual(response_json["total_users"], 3)
+        self.assertEqual(response_json["groups_affected"], 1)
+        self.assertEqual(response_json["total_groups"], 3)
 
     def test_user_blast_radius_with_group_key_icontains_list_values_raises_error(self):
         """Test that ICONTAINS operator with list values raises validation error"""
@@ -9774,8 +9774,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 3)  # 2.0.0, 2.5.0, 3.0.0
-        self.assertEqual(response_json["total_users"], 5)
+        self.assertEqual(response_json["groups_affected"], 3)  # 2.0.0, 2.5.0, 3.0.0
+        self.assertEqual(response_json["total_groups"], 5)
 
     def test_user_blast_radius_with_mixed_person_and_group_properties(self):
         create_group_type_mapping_without_created_at(

@@ -149,8 +149,13 @@ def get_user_blast_radius(
         else:
             # Pure group properties, or no properties at all — delegate to the
             # group path which handles the "all groups" case for empty filters.
-            affected, total = _get_group_blast_radius(team, cleaned_filter, group_type_index)
-            return BlastRadiusResult(users_affected=affected, total_users=total)
+            groups_affected, total_groups = _get_group_blast_radius(team, cleaned_filter, group_type_index)
+            return BlastRadiusResult(
+                users_affected=team.persons_seen_so_far,
+                total_users=team.persons_seen_so_far,
+                groups_affected=groups_affected,
+                total_groups=total_groups,
+            )
     else:
         affected, total = _get_person_blast_radius(team, cleaned_filter)
         return BlastRadiusResult(users_affected=affected, total_users=total)
