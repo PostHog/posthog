@@ -1025,6 +1025,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ErrorTrackingIntegrations />,
                 keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
             },
+            {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                description: 'Configure alerts to get notified when new errors occur or error rates spike.',
+                component: <ErrorTrackingAlerting />,
+                keywords: ['notification', 'alert', 'threshold', 'spike'],
+            },
         ],
     },
     {
@@ -1060,13 +1067,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Define rules for how errors are grouped together into issues.',
                 component: <GroupingRules />,
                 keywords: ['group', 'merge', 'fingerprint', 'dedup'],
-            },
-            {
-                id: 'error-tracking-alerting',
-                title: 'Alerting',
-                description: 'Configure alerts to get notified when new errors occur or error rates spike.',
-                component: <ErrorTrackingAlerting />,
-                keywords: ['notification', 'alert', 'threshold', 'spike'],
             },
             {
                 id: 'error-tracking-symbol-sets',
