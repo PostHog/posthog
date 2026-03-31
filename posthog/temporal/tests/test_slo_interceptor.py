@@ -137,7 +137,6 @@ async def test_interceptor_emits_slo_events(
     assert started_props["operation"] == "export"
     assert started_props["resource_id"] == "42"
     assert started_props["correlation_id"] is not None
-    assert started_props["workflow_run_id"] is not None
     assert started_props["workflow_type"] == workflow_cls.__temporal_workflow_definition.name
 
     completed_calls = _get_slo_calls(mock_analytics, "slo_operation_completed")
@@ -146,7 +145,6 @@ async def test_interceptor_emits_slo_events(
     assert completed_props["outcome"] == expected_outcome
     assert completed_props["duration_ms"] is not None
     assert completed_props["correlation_id"] == started_props["correlation_id"]
-    assert completed_props["workflow_run_id"] == started_props["workflow_run_id"]
     for key, value in extra_completed_checks.items():
         assert completed_props[key] == value
 

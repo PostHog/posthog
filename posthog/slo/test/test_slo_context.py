@@ -75,9 +75,8 @@ def test_slo_operation_emits_success_with_completion_properties(
         resource_id="alert-123",
     )
     assert started_kwargs["capture"] is capture
-    assert "correlation_id" in started_kwargs["extra_properties"]
-    started_correlation_id = started_kwargs["extra_properties"].pop("correlation_id")
-    assert started_kwargs["extra_properties"] == {"calculation_interval": "hourly"}
+    correlation_id = started_kwargs["extra_properties"]["correlation_id"]
+    assert started_kwargs["extra_properties"] == {"calculation_interval": "hourly", "correlation_id": correlation_id}
 
     mock_emit_slo_completed.assert_called_once()
     completed_kwargs = mock_emit_slo_completed.call_args.kwargs
@@ -90,11 +89,10 @@ def test_slo_operation_emits_success_with_completion_properties(
         resource_id="alert-123",
         duration_ms=completed_kwargs["properties"].duration_ms,
     )
-    assert "correlation_id" in completed_kwargs["extra_properties"]
-    completed_correlation_id = completed_kwargs["extra_properties"].pop("correlation_id")
-    assert started_correlation_id == completed_correlation_id
+    assert completed_kwargs["extra_properties"]["correlation_id"] == correlation_id
     assert completed_kwargs["extra_properties"] == {
         "calculation_interval": "hourly",
+        "correlation_id": correlation_id,
         "alert_state": "healthy",
         "notifications_sent": 2,
     }
@@ -135,12 +133,10 @@ def test_slo_operation_emits_failure_with_automatic_error_properties(
     started_kwargs = mock_emit_slo_started.call_args.kwargs
     completed_kwargs = mock_emit_slo_completed.call_args.kwargs
     assert completed_kwargs["properties"].outcome == SloOutcome.FAILURE
-    assert (
-        started_kwargs["extra_properties"]["correlation_id"] == completed_kwargs["extra_properties"]["correlation_id"]
-    )
-    completed_kwargs["extra_properties"].pop("correlation_id")
+    correlation_id = started_kwargs["extra_properties"]["correlation_id"]
     assert completed_kwargs["extra_properties"] == {
         "calculation_interval": "daily",
+        "correlation_id": correlation_id,
         "error_type": "RuntimeError",
         "error_message": "boom",
         "error_origin": _expected_origin_for(_raise_runtime_error),
@@ -221,11 +217,8 @@ def test_slo_operation_allows_no_exception_outcome_override(
     started_kwargs = mock_emit_slo_started.call_args.kwargs
     completed_kwargs = mock_emit_slo_completed.call_args.kwargs
     assert completed_kwargs["properties"].outcome == expected_outcome
-    assert (
-        started_kwargs["extra_properties"]["correlation_id"] == completed_kwargs["extra_properties"]["correlation_id"]
-    )
-    completed_kwargs["extra_properties"].pop("correlation_id")
-    assert completed_kwargs["extra_properties"] == expected_extra_properties
+    correlation_id = started_kwargs["extra_properties"]["correlation_id"]
+    assert completed_kwargs["extra_properties"] == {**expected_extra_properties, "correlation_id": correlation_id}
 
 
 @patch("posthog.slo.context.emit_slo_completed")
@@ -272,6 +265,5 @@ async def test_slo_operation_contextvar_survives_await(
     mock_emit_slo_completed.assert_called_once()
     started_extra = mock_emit_slo_started.call_args.kwargs["extra_properties"]
     completed_extra = mock_emit_slo_completed.call_args.kwargs["extra_properties"]
-    assert started_extra["correlation_id"] == completed_extra["correlation_id"]
-    completed_extra.pop("correlation_id")
-    assert completed_extra == {"async_stage": "after_await"}
+    correlation_id = started_extra["correlation_id"]
+    assert completed_extra == {"async_stage": "after_await", "correlation_id": correlation_id}
