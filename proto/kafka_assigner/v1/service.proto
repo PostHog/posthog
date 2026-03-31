@@ -122,12 +122,14 @@ message DeregisterResponse {
 }
 
 enum DeregisterAction {
+  // Unspecified / default. Treated the same as SHUTDOWN_NOW.
+  DEREGISTER_ACTION_UNSPECIFIED = 0;
   // Exit immediately. Used when the coordinator expects the pod to
   // come back under the same name (e.g., StatefulSet rollout) or
   // when K8s awareness is unavailable.
-  SHUTDOWN_NOW = 0;
+  DEREGISTER_ACTION_SHUTDOWN_NOW = 1;
   // Keep the gRPC stream open and wait for all Release events to
   // complete before exiting. Used when partitions must be drained
   // to other consumers (e.g., Deployment rollout or downscale).
-  WAIT_FOR_DRAIN = 1;
+  DEREGISTER_ACTION_WAIT_FOR_DRAIN = 2;
 }

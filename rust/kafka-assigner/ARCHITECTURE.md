@@ -111,7 +111,7 @@ rust/
      │                                                    │
      │─── Deregister(consumer_name) ──────────────────────►│
      │                                                    │  set status = Draining
-     │◄── DeregisterResponse { action } ──────────────────│  (SHUTDOWN_NOW or WAIT_FOR_DRAIN)
+     │◄── DeregisterResponse { action } ──────────────────│  (DEREGISTER_ACTION_SHUTDOWN_NOW or DEREGISTER_ACTION_WAIT_FOR_DRAIN)
      │                                                    │
 ```
 
