@@ -85,7 +85,7 @@ export const sampledSessionsModalLogic = kea<sampledSessionsModalLogicType>([
             new Map<string, PersonType>() as Map<string, PersonType>,
             {
                 fetchPersonDetails: async ({ sessionData }) => {
-                    const personIds = [...new Set(sessionData.map((s) => s.person_id).filter(Boolean))]
+                    const personIds = [...new Set(sessionData.map(({ person_id }) => person_id).filter(Boolean))]
                     if (personIds.length === 0) {
                         return new Map()
                     }
