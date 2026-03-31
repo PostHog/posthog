@@ -173,11 +173,15 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
                 f"Started batch {batch_number}: processing person IDs {start_person_id} to {end_person_id}"
             )
 
-            # Respect concurrent workflow limit - wait for oldest to complete before starting more
+            # Respect concurrent workflow limit - wait for any workflow to complete before starting more
             if len(child_workflow_handles) >= inputs.concurrent_workflows:
-                # Wait for the oldest workflow to complete
-                oldest_handle = child_workflow_handles.pop(0)
-                await oldest_handle
+                # Wait for any workflow to complete
+                done, pending = await temporalio.workflow.wait(
+                    child_workflow_handles, return_when=temporalio.workflow.WaitCondition.FIRST_COMPLETED
+                )
+                # Remove completed workflows from our tracking list
+                for completed_handle in done:
+                    child_workflow_handles.remove(completed_handle)
                 workflow_logger.info(f"Workflow completed, {len(child_workflow_handles)} still running")
 
         # Step 3: Wait for all remaining workflows to complete
