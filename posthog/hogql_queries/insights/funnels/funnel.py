@@ -113,8 +113,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         funnelOrderType = self.context.funnelsFilter.funnelOrderType
         if funnelOrderType is not None and funnelOrderType != StepOrderValue.ORDERED:
             return False
-        if self.context.max_steps < 2:
-            return False
         if getattr(self.context.query.series[1], "optionalInFunnel", False):
             return False
         if self.context.breakdown:
