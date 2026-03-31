@@ -1249,6 +1249,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
               AND inserted_at > %(last_sync_timestamp)s
               AND inserted_at <= %(current_sync_timestamp)s
             WHERE JSONExtractString(properties, '$feature_flag') != ''
+              AND timestamp <= %(current_sync_timestamp)s
             GROUP BY team_id, flag_key
             ORDER BY last_called_at DESC
             LIMIT %(limit)s
