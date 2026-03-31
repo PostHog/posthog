@@ -310,7 +310,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 return_value=1000,
             ),
             patch(
-                "ee.hogai.core.agent_modes.executables.has_llm_gateway_bedrock_feature_flag",
+                "ee.hogai.core.agent_modes.executables.has_llm_gateway_feature_flag",
                 return_value=False,
             ),
         ):

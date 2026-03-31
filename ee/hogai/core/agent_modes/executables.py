@@ -227,6 +227,13 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
     def _get_bedrock_kwargs(self) -> dict[str, Any]:
         if not has_llm_gateway_feature_flag(self._team, self._user):
             return {}
+        if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+            logger.warning(
+                "llm_gateway settings are not configured",
+                product=self._get_llm_gateway_product(),
+                team_id=self._team.id,
+            )
+            return {}
         return {
             "anthropic_api_url": f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{self._get_llm_gateway_product()}",
             "anthropic_api_key": settings.LLM_GATEWAY_API_KEY,
