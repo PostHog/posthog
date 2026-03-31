@@ -225,6 +225,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                             )
                             for s in self.query.actionSteps
                         ]
+                        if not steps:
+                            raise Exception("No action steps provided")
                         where_exprs.append(steps_to_expr(steps, self.team))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
