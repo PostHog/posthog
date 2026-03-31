@@ -815,9 +815,9 @@ class FeatureFlagSerializer(
         This avoids a potentially expensive feature_enabled() call for flags that don't
         reference any cohort properties.
         """
-        if not hasattr(self, "__allow_realtime_backfilled"):
-            self.__allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
-        return self.__allow_realtime_backfilled
+        if not hasattr(self, "_allow_realtime_backfilled_cache"):
+            self._allow_realtime_backfilled_cache = _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
+        return self._allow_realtime_backfilled_cache
 
     def validate_filters(self, filters):
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd

@@ -2,10 +2,28 @@ from datetime import datetime
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.feature_flag.flag_validation import _exclude_realtime_backfilled_cohort_properties
 from posthog.models.property.property import Property
+
+BEHAVIORAL_FILTERS = {
+    "properties": {
+        "type": "OR",
+        "values": [
+            {
+                "type": "behavioral",
+                "key": "$pageview",
+                "value": "performed_event",
+                "event_type": "events",
+                "time_value": 30,
+                "time_interval": "day",
+            }
+        ],
+    }
+}
 
 
 class TestExcludeRealtimeBackfilledCohortProperties(APIBaseTest):
@@ -15,120 +33,53 @@ class TestExcludeRealtimeBackfilledCohortProperties(APIBaseTest):
     def _make_person_property(self) -> Property:
         return Property(type="person", key="email", value="test@posthog.com")
 
-    def test_returns_unchanged_when_disabled(self):
+    @parameterized.expand(
+        [
+            # (name, cohort_kwargs, allow_realtime_backfilled, expect_cohort_filtered)
+            (
+                "disabled_flag_keeps_all",
+                {"cohort_type": CohortType.REALTIME, "last_backfill_person_properties_at": datetime.now()},
+                False,
+                False,
+            ),
+            (
+                "enabled_realtime_backfilled_filtered",
+                {"cohort_type": CohortType.REALTIME, "last_backfill_person_properties_at": datetime.now()},
+                True,
+                True,
+            ),
+            (
+                "enabled_realtime_not_backfilled_kept",
+                {"cohort_type": CohortType.REALTIME, "last_backfill_person_properties_at": None},
+                True,
+                False,
+            ),
+            (
+                "enabled_non_realtime_kept",
+                {},
+                True,
+                False,
+            ),
+        ]
+    )
+    def test_cohort_filtering(self, _name, cohort_kwargs, allow_realtime_backfilled, expect_cohort_filtered):
         cohort = Cohort.objects.create(
             team=self.team,
-            name="realtime-backfilled",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "behavioral",
-                            "key": "$pageview",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "time_value": 30,
-                            "time_interval": "day",
-                        }
-                    ],
-                }
-            },
-            cohort_type=CohortType.REALTIME,
-            last_backfill_person_properties_at=datetime.now(),
-        )
-        props = [self._make_cohort_property(cohort.pk), self._make_person_property()]
-
-        result = _exclude_realtime_backfilled_cohort_properties(
-            props, self.team.project.id, allow_realtime_backfilled=False
-        )
-        assert result == props
-
-    def test_filters_out_flag_compatible_cohort(self):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="realtime-backfilled",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "behavioral",
-                            "key": "$pageview",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "time_value": 30,
-                            "time_interval": "day",
-                        }
-                    ],
-                }
-            },
-            cohort_type=CohortType.REALTIME,
-            last_backfill_person_properties_at=datetime.now(),
+            name="test-cohort",
+            filters=BEHAVIORAL_FILTERS,
+            **cohort_kwargs,
         )
         person_prop = self._make_person_property()
         props = [self._make_cohort_property(cohort.pk), person_prop]
 
         result = _exclude_realtime_backfilled_cohort_properties(
-            props, self.team.project.id, allow_realtime_backfilled=True
+            props, self.team.project.id, allow_realtime_backfilled=allow_realtime_backfilled
         )
-        assert result == [person_prop]
 
-    def test_keeps_non_backfilled_realtime_cohort(self):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="realtime-not-backfilled",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "behavioral",
-                            "key": "$pageview",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "time_value": 30,
-                            "time_interval": "day",
-                        }
-                    ],
-                }
-            },
-            cohort_type=CohortType.REALTIME,
-            last_backfill_person_properties_at=None,
-        )
-        props = [self._make_cohort_property(cohort.pk), self._make_person_property()]
-
-        result = _exclude_realtime_backfilled_cohort_properties(
-            props, self.team.project.id, allow_realtime_backfilled=True
-        )
-        assert result == props
-
-    def test_keeps_non_realtime_behavioral_cohort(self):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="dynamic-behavioral",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "behavioral",
-                            "key": "$pageview",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "time_value": 30,
-                            "time_interval": "day",
-                        }
-                    ],
-                }
-            },
-        )
-        props = [self._make_cohort_property(cohort.pk)]
-
-        result = _exclude_realtime_backfilled_cohort_properties(
-            props, self.team.project.id, allow_realtime_backfilled=True
-        )
-        assert result == props
+        if expect_cohort_filtered:
+            assert result == [person_prop]
+        else:
+            assert result == props
 
     def test_keeps_non_cohort_properties_untouched(self):
         person_prop = self._make_person_property()
@@ -148,21 +99,7 @@ class TestExcludeRealtimeBackfilledCohortProperties(APIBaseTest):
         cohort = Cohort.objects.create(
             team=self.team,
             name="deleted-cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "behavioral",
-                            "key": "$pageview",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "time_value": 30,
-                            "time_interval": "day",
-                        }
-                    ],
-                }
-            },
+            filters=BEHAVIORAL_FILTERS,
             cohort_type=CohortType.REALTIME,
             last_backfill_person_properties_at=datetime.now(),
             deleted=True,
