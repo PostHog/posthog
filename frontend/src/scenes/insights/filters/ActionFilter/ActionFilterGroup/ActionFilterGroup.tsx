@@ -123,18 +123,18 @@ export function ActionFilterGroup({
                 {/* Header: series indicator, math controls, action buttons */}
                 <div
                     className={clsx(
-                        'ActionFilterGroup--header flex flex-wrap items-center justify-between gap-2 px-4 border-b border-primary',
+                        'ActionFilterGroup--header flex items-start gap-x-2 gap-y-1 px-4 border-b border-primary',
                         insightType === InsightType.FUNNELS ? 'py-4' : 'py-3'
                     )}
                 >
-                    <div className="flex flex-wrap items-center gap-0 min-w-0 @max-[400px]/editor-panel:contents">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
                         {sortable && filterCount > 1 && (
                             <span className="ActionFilterRowDragHandle" {...listeners}>
                                 <SortableDragIcon />
                             </span>
                         )}
                         {showSeriesIndicator && (
-                            <div className="shrink-0 mr-2">
+                            <div className="shrink-0">
                                 {seriesIndicatorType === 'numeric' ? (
                                     <SeriesGlyph style={{ borderColor: 'var(--color-border-primary)' }}>
                                         {index + 1}
@@ -151,7 +151,7 @@ export function ActionFilterGroup({
 
                         {mathAvailability !== MathAvailability.None &&
                             mathAvailability !== MathAvailability.FunnelsOnly && (
-                                <div className="flex flex-wrap items-center gap-2 min-w-0 @max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1">
+                                <div className="flex flex-wrap items-center gap-2 min-w-0">
                                     <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
                                     <MathSelector
                                         size="small"
@@ -253,7 +253,7 @@ export function ActionFilterGroup({
                     </div>
 
                     {!readOnly && (
-                        <div className="flex shrink-0 gap-1">
+                        <div className="flex shrink-0 gap-1 ml-auto">
                             <Tooltip title="Rename group series">
                                 <LemonButton
                                     size="small"
