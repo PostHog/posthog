@@ -10,8 +10,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag as FeatureFlagModel
-from posthog.models.team import Team
-from posthog.models.user import User
 
 from products.experiments.backend.facade.api import create_experiment
 from products.experiments.backend.facade.contracts import (
@@ -24,49 +22,20 @@ from products.experiments.backend.models.experiment import Experiment as Experim
 
 
 class TestCreateExperiment(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.team: Team = self.team
-        self.user: User = self.user
-
-    @pytest.mark.parametrize(
-        "format_name,input_kwargs,expected_flag_name",
-        [
-            (
-                "new_format",
-                {
-                    "description": "Test description",
-                    "feature_flag_filters": CreateFeatureFlagInput(
-                        key="test-flag",
-                        name="Test Flag",
-                        variants=(
-                            FeatureFlagVariant(key="control", name="Control", rollout_percentage=50),
-                            FeatureFlagVariant(key="test", name="Test", rollout_percentage=50),
-                        ),
-                    ),
-                },
-                "Feature Flag for Experiment Test Experiment",
-            ),
-            (
-                "old_format",
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "name": "Control", "rollout_percentage": 50},
-                            {"key": "test", "name": "Test", "rollout_percentage": 50},
-                        ]
-                    }
-                },
-                "Feature Flag for Experiment Test Experiment",
-            ),
-        ],
-    )
-    def test_create_experiment_with_variants(self, format_name, input_kwargs, expected_flag_name):
-        """Test creating experiment using different variant formats."""
+    def test_create_experiment_with_new_format(self):
+        """Test creating experiment using new feature_flag_filters format."""
         input_dto = CreateExperimentInput(
             name="Test Experiment",
             feature_flag_key="test-flag",
-            **input_kwargs,
+            description="Test description",
+            feature_flag_filters=CreateFeatureFlagInput(
+                key="test-flag",
+                name="Test Flag",
+                variants=(
+                    FeatureFlagVariant(key="control", name="Control", rollout_percentage=50),
+                    FeatureFlagVariant(key="test", name="Test", rollout_percentage=50),
+                ),
+            ),
         )
 
         result = create_experiment(team=self.team, user=self.user, input_dto=input_dto)
@@ -86,7 +55,38 @@ class TestCreateExperiment(BaseTest):
         flag = FeatureFlagModel.objects.get(id=result.feature_flag_id)
         # Note: Currently the service generates its own flag name
         # Full feature_flag_filters support (including name) will come in a later phase
-        assert flag.name == expected_flag_name
+        assert flag.name == "Feature Flag for Experiment Test Experiment"
+        assert len(flag.filters["multivariate"]["variants"]) == 2
+
+    def test_create_experiment_with_old_format(self):
+        """Test creating experiment using old parameters format."""
+        input_dto = CreateExperimentInput(
+            name="Test Experiment",
+            feature_flag_key="test-flag",
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "name": "Control", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test", "rollout_percentage": 50},
+                ]
+            },
+        )
+
+        result = create_experiment(team=self.team, user=self.user, input_dto=input_dto)
+
+        # Verify output DTO structure
+        assert isinstance(result, Experiment)
+        assert result.name == "Test Experiment"
+        assert result.feature_flag_key == "test-flag"
+        assert result.is_draft is True
+
+        # Verify database objects were created
+        experiment = ExperimentModel.objects.get(id=result.id)
+        assert experiment.name == "Test Experiment"
+        assert experiment.feature_flag.key == "test-flag"
+
+        # Verify feature flag created
+        flag = FeatureFlagModel.objects.get(id=result.feature_flag_id)
+        assert flag.name == "Feature Flag for Experiment Test Experiment"
         assert len(flag.filters["multivariate"]["variants"]) == 2
 
     def test_create_experiment_with_existing_flag(self):
