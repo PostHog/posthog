@@ -234,59 +234,67 @@ describe('InsightPageHeader', () => {
     })
 
     describe('insight context for PostHog AI', () => {
-        it('provides context with insight name when viewing a saved insight', () => {
-            const insight = makeInsight({
-                name: 'My Test Insight',
-                user_access_level: AccessControlLevel.Editor,
-            })
-            renderHeader({
+        function findReadDataCall(): Record<string, unknown> | undefined {
+            const call = mockUseMaxTool.mock.calls.find(
+                (c: Record<string, unknown>[]) => c[0]?.identifier === 'read_data'
+            )
+            return call?.[0] as Record<string, unknown> | undefined
+        }
+
+        it.each([
+            {
+                scenario: 'saved insight with explicit name',
                 insightMode: ItemMode.View,
                 dashboardItemId: SAVED_INSIGHT_ID,
-                insight,
-            })
-
-            const readDataCall = mockUseMaxTool.mock.calls.find(
-                (call: Record<string, unknown>[]) => call[0]?.identifier === 'read_data'
-            )
-            expect(readDataCall).not.toBeUndefined()
-            expect(readDataCall![0].active).toBe(true)
-            expect(readDataCall![0].contextDescription).toMatchObject({
-                text: 'My Test Insight',
-            })
-        })
-
-        it('does not provide context for unsaved insights', () => {
-            renderHeader({
+                insight: { name: 'My Test Insight', user_access_level: AccessControlLevel.Editor },
+                expectedActive: true,
+                expectedText: 'My Test Insight',
+                expectedContext: { insight_id: 1, insight_short_id: SAVED_INSIGHT_ID },
+            },
+            {
+                scenario: 'saved insight with derived name',
+                insightMode: ItemMode.View,
+                dashboardItemId: SAVED_INSIGHT_ID,
+                insight: {
+                    name: undefined,
+                    derived_name: 'Pageview count',
+                    user_access_level: AccessControlLevel.Editor,
+                },
+                expectedActive: true,
+                expectedText: 'Pageview count',
+                expectedContext: { insight_id: 1, insight_short_id: SAVED_INSIGHT_ID },
+            },
+            {
+                scenario: 'unsaved insight',
                 insightMode: ItemMode.Edit,
-                dashboardItemId: 'new',
-            })
+                dashboardItemId: 'new' as const,
+                insight: undefined,
+                expectedActive: false,
+                expectedText: undefined,
+                expectedContext: undefined,
+            },
+        ])(
+            '$scenario: active=$expectedActive, text=$expectedText',
+            ({ insightMode, dashboardItemId, insight, expectedActive, expectedText, expectedContext }) => {
+                renderHeader({
+                    insightMode,
+                    dashboardItemId,
+                    insight: insight ? makeInsight(insight) : undefined,
+                })
 
-            const readDataCall = mockUseMaxTool.mock.calls.find(
-                (call: Record<string, unknown>[]) => call[0]?.identifier === 'read_data'
-            )
-            // For new insights, maxToolProps is undefined so useMaxTool is called with active: false
-            expect(readDataCall).not.toBeUndefined()
-            expect(readDataCall![0].active).toBe(false)
-        })
+                const readDataCall = findReadDataCall()
+                expect(readDataCall).not.toBeUndefined()
+                expect(readDataCall!.active).toBe(expectedActive)
 
-        it('uses derived name when insight has no explicit name', () => {
-            const insight = makeInsight({
-                name: undefined,
-                derived_name: 'Pageview count',
-                user_access_level: AccessControlLevel.Editor,
-            })
-            renderHeader({
-                insightMode: ItemMode.View,
-                dashboardItemId: SAVED_INSIGHT_ID,
-                insight,
-            })
-
-            const readDataCall = mockUseMaxTool.mock.calls.find(
-                (call: Record<string, unknown>[]) => call[0]?.identifier === 'read_data'
-            )
-            expect(readDataCall).not.toBeUndefined()
-            expect(readDataCall![0].contextDescription.text).toBe('Pageview count')
-        })
+                if (expectedActive) {
+                    expect(readDataCall!.contextDescription).toMatchObject({
+                        text: expectedText,
+                        icon: expect.anything(),
+                    })
+                    expect(readDataCall!.context).toMatchObject(expectedContext!)
+                }
+            }
+        )
     })
 
     describe('forceEdit', () => {

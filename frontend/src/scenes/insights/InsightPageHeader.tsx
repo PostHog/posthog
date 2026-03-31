@@ -51,6 +51,26 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
 
+    const insightDisplayName = insight?.name || insight?.derived_name
+
+    const readDataMaxToolProps = useMemo(
+        () =>
+            hasDashboardItemId && insight?.short_id
+                ? {
+                      identifier: 'read_data' as const,
+                      context: {
+                          insight_id: insight.id,
+                          insight_short_id: insight.short_id,
+                      },
+                      contextDescription: {
+                          text: insightDisplayName || 'Insight',
+                          icon: iconForType(getInsightIconTypeFromQuery(query)),
+                      },
+                  }
+                : undefined,
+        [hasDashboardItemId, insight?.short_id, insight?.id, insightDisplayName, query]
+    )
+
     useMaxTool({
         identifier: 'upsert_alert',
         active: canCreateAlertForInsight && hasDashboardItemId && !!insight.id,
@@ -96,17 +116,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 renameDebounceMs={0}
                 saveOnBlur
                 descriptionMaxLength={400}
-                maxToolProps={
-                    hasDashboardItemId && insight?.short_id
-                        ? {
-                              identifier: 'read_data',
-                              contextDescription: {
-                                  text: defaultInsightName || 'Insight',
-                                  icon: iconForType(getInsightIconTypeFromQuery(query)),
-                              },
-                          }
-                        : undefined
-                }
+                maxToolProps={readDataMaxToolProps}
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
