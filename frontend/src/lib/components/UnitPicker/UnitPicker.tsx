@@ -5,19 +5,15 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS } from 'scenes/insights/aggregationAxisFormat'
+import {
+    AggregationAxisFormat,
+    INSIGHT_UNIT_OPTIONS,
+    INSIGHT_UNIT_OPTIONS_SHORT,
+} from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { unitPickerModalLogic } from './unitPickerModalLogic'
-
-const aggregationDisplayMap = INSIGHT_UNIT_OPTIONS.reduce<Record<AggregationAxisFormat, React.ReactNode>>(
-    (acc, option) => {
-        acc[option.value] = option.label
-        return acc
-    },
-    {} as Record<AggregationAxisFormat, React.ReactNode>
-)
 
 export interface HandleUnitChange {
     format?: AggregationAxisFormat
@@ -71,7 +67,7 @@ export function UnitPicker(): JSX.Element {
     const displayValue = useMemo(() => {
         let displayValue: React.ReactNode = 'None'
         if (localAxisFormat) {
-            displayValue = aggregationDisplayMap[localAxisFormat]
+            displayValue = INSIGHT_UNIT_OPTIONS_SHORT[localAxisFormat]
         }
         if (trendsFilter?.aggregationAxisPrefix?.length) {
             displayValue = `Prefix: ${trendsFilter?.aggregationAxisPrefix}`
