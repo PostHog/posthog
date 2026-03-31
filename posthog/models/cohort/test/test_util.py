@@ -394,8 +394,7 @@ class TestCohortUtils(BaseTest):
         self.assertIn("transform_null_in=1", sql)
 
         self.assertIn("readonly=2", sql)
-        # Higher timeout because this runs as a background Celery task
-        self.assertIn("max_execution_time=600", sql)
+        self.assertIn("max_execution_time=60", sql)
         self.assertIn("allow_experimental_object_type=1", sql)
         self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
 
