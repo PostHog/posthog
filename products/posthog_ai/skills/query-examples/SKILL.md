@@ -57,3 +57,5 @@ Use the examples below to create optimized analytical queries.
 - [Sessions (listing sessions with duration, pageviews, and bounce rate)](./references/example-sessions.md)
 - [Session replay (listing recordings with activity filters)](./references/example-session-replay.md)
 - [Team taxonomy (top events by count, paginated)](./references/example-team-taxonomy.md)
+- [Event taxonomy (properties of an event, with sample values)](./references/example-event-taxonomy.md)
+- [Person property taxonomy (sample values for person properties)](./references/example-person-property-taxonomy.md)
