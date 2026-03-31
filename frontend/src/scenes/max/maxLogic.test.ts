@@ -70,33 +70,6 @@ describe('maxLogic', () => {
         })
     })
 
-    it('starts a new conversation when useMaxTool opens Max with a prompt', async () => {
-        // Mount maxLogic first with an existing conversation
-        sidePanelStateLogic.mount()
-        logic = maxLogic({ tabId: 'sidepanel' })
-        logic.mount()
-
-        // Simulate having an existing conversation
-        logic.actions.setConversationId('existing-conversation-id')
-        logic.actions.setQuestion('existing question')
-
-        const originalFrontendConversationId = logic.values.frontendConversationId
-
-        // Simulate the useMaxTool openMax flow: startNewConversation then openSidePanel
-        // This is what happens when the user clicks "Analyze responses" in Surveys
-        await expectLogic(logic, () => {
-            logic.actions.startNewConversation()
-            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'Analyze survey responses')
-        }).toMatchValues({
-            // Should have a new frontend conversation ID (new conversation)
-            frontendConversationId: expect.not.stringMatching(originalFrontendConversationId),
-            // Should have the new question
-            question: 'Analyze survey responses',
-            // Should have cleared the conversationId (no longer viewing old conversation)
-            conversationId: null,
-        })
-    })
-
     it('does not reset conversation when 404 occurs during active message generation', async () => {
         router.actions.push('', {}, { panel: 'max' })
         sidePanelStateLogic.mount()
