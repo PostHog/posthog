@@ -87,9 +87,13 @@ func main() {
 	// /dev/tty directly so Bubble Tea can query terminal size and render.
 	var opts []tea.ProgramOption
 	if !term.IsTerminal(os.Stdout.Fd()) {
-		_, ttyOut, err := tea.OpenTTY()
+		ttyIn, ttyOut, err := tea.OpenTTY()
 		if err == nil {
-			opts = append(opts, tea.WithOutput(ttyOut))
+			opts = append(opts, tea.WithInput(ttyIn), tea.WithOutput(ttyOut))
+			defer func() {
+				_ = ttyIn.Close()
+				_ = ttyOut.Close()
+			}()
 		}
 	}
 	p := tea.NewProgram(m, opts...)

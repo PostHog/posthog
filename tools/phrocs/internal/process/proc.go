@@ -525,16 +525,11 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 		// New data from the PTY (or EOF when the child exits)
 		case data, ok := <-chunkChannel:
 			if !ok {
-				// EOF — flush remaining partial + batch
+				// EOF — flush remaining partial + batch (non-blocking to avoid deadlock)
 				if len(partial) > 0 {
 					addLine(string(partial))
 				}
-				if becameReady {
-					outChannel <- StatusMsg{Name: p.Name, Status: StatusRunning}
-				}
-				if len(batch) > 0 {
-					outChannel <- OutputMsg{Name: p.Name, Added: batch, Evicted: evicted}
-				}
+				trySend()
 				return
 			}
 
