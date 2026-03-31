@@ -236,13 +236,17 @@ POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objec
 if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
   done_step "System hosts"
 else
-  warn_step "System hosts out of date"
-  echo -e "    ${C_DIM}PostHog services need hostnames in /etc/hosts to work. Run:${C_RESET}"
   echo ""
-  echo -e "    ${C_BOLD}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
+  echo -e "  ${C_YELLOW}▌${C_RESET} ${C_YELLOW}${C_BOLD}Action required${C_RESET}"
+  echo -e "  ${C_YELLOW}▌${C_RESET}"
+  echo -e "  ${C_YELLOW}▌${C_RESET} PostHog services need hostnames in /etc/hosts."
+  echo -e "  ${C_YELLOW}▌${C_RESET} Copy and run this to update them:"
+  echo -e "  ${C_YELLOW}▌${C_RESET}"
+  echo -e "  ${C_YELLOW}▌${C_RESET}   ${C_DIM}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
+  echo -e "  ${C_YELLOW}▌${C_RESET}"
   echo ""
   if [[ -t 0 ]]; then
-    read -n 1 -s -r -p "    Press any key to continue..."
+    read -n 1 -s -r -p "  Press any key to continue..."
     echo ""
   fi
 fi
