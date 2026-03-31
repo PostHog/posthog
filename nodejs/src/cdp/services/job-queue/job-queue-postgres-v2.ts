@@ -1,5 +1,4 @@
 import { chunk } from 'lodash'
-import { DateTime } from 'luxon'
 import { Gauge } from 'prom-client'
 
 import { parseJSON } from '~/utils/json-parse'
@@ -209,14 +208,7 @@ function computeDelayMs(scheduledAt: CyclotronJobInvocation['queueScheduledAt'])
     if (!scheduledAt) {
         return 0
     }
-    const nowMs = Date.now()
-    const targetMs = DateTime.isDateTime(scheduledAt)
-        ? scheduledAt.toMillis()
-        : new Date(scheduledAt as unknown as string).getTime()
-    if (isNaN(targetMs)) {
-        return 0
-    }
-    return Math.max(0, targetMs - nowMs)
+    return Math.max(0, scheduledAt.toMillis() - Date.now())
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {
