@@ -353,8 +353,10 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     hogql_context.limit_top_select = False
     create_default_modifiers_for_team(team, hogql_context.modifiers)
 
-    # Apply HogQL global settings to ensure consistency with regular queries
-    settings = HogQLGlobalSettings()
+    # The output of this function is embedded as a subquery inside an INSERT
+    # statement, so we must not include readonly=2 (which would block the write)
+    # and we use a higher timeout since this runs as a background Celery task.
+    settings = HogQLGlobalSettings(readonly=0, max_execution_time=600)
 
     # If we're using distinct_id, wrap the query to resolve to person_id
     if uses_distinct_id:
