@@ -9,9 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CopyDashboardTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardTemplateApi,
+    DashboardTemplatesListParams,
     DashboardsAnalyzeRefreshResultCreateParams,
+    DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
     DashboardsCreateUnlistedDashboardCreateParams,
@@ -27,6 +31,7 @@ import type {
     DataColorThemeApi,
     DataColorThemesListParams,
     PaginatedDashboardBasicListApi,
+    PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
@@ -97,6 +102,61 @@ export const dashboardsCollaboratorsDestroy = async (
     return apiMutator<void>(getDashboardsCollaboratorsDestroyUrl(projectId, dashboardId, userUuid), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDashboardTemplatesListUrl = (projectId: string, params?: DashboardTemplatesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboard_templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboard_templates/`
+}
+
+export const dashboardTemplatesList = async (
+    projectId: string,
+    params?: DashboardTemplatesListParams,
+    options?: RequestInit
+): Promise<PaginatedDashboardTemplateListApi> => {
+    return apiMutator<PaginatedDashboardTemplateListApi>(getDashboardTemplatesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardTemplatesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/`
+}
+
+export const dashboardTemplatesCreate = async (
+    projectId: string,
+    dashboardTemplateApi: NonReadonly<DashboardTemplateApi>,
+    options?: RequestInit
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardTemplateApi),
+    })
+}
+
+export const getDashboardTemplatesJsonSchemaRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/json_schema/`
+}
+
+export const dashboardTemplatesJsonSchemaRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getDashboardTemplatesJsonSchemaRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -440,6 +500,44 @@ export const dashboardsAnalyzeRefreshResultCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dashboardApi),
+    })
+}
+
+/**
+ * Copy an existing dashboard tile to another dashboard (insight or text card; new tile row).
+ */
+export const getDashboardsCopyTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsCopyTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/copy_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/copy_tile/`
+}
+
+export const dashboardsCopyTileCreate = async (
+    projectId: string,
+    id: number,
+    copyDashboardTileRequestApi: CopyDashboardTileRequestApi,
+    params?: DashboardsCopyTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsCopyTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyDashboardTileRequestApi),
     })
 }
 

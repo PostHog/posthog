@@ -13,7 +13,6 @@ from posthog.models import (
     Action,
     Annotation,
     Cohort,
-    Dashboard,
     ExportedAsset,
     FeatureFlag,
     Group,
@@ -21,7 +20,6 @@ from posthog.models import (
     Insight,
     InsightVariable,
     Organization,
-    Survey,
     Team,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -31,6 +29,7 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -41,6 +40,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
+from products.surveys.backend.models import Survey
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 

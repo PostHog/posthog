@@ -17,6 +17,7 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { OverflowOutput } from '../common/outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { TopHog } from '../tophog'
 import { MainLaneOverflowRedirect } from '../utils/overflow-redirect/main-lane-overflow-redirect'
@@ -25,6 +26,7 @@ import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-red
 import { RedisOverflowRepository } from '../utils/overflow-redirect/overflow-redis-repository'
 import { CymbalClient } from './cymbal'
 import {
+    ErrorTrackingOutputs,
     ErrorTrackingPipelineOutput,
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
@@ -42,6 +44,7 @@ export interface ErrorTrackingConsumerOptions {
     outputTopic: string
     cymbalBaseUrl: string
     cymbalTimeoutMs: number
+    cymbalMaxBodyBytes: number
     lane: IngestionLane
     overflowBucketCapacity: number
     overflowBucketReplenishRate: number
@@ -59,6 +62,7 @@ export interface ErrorTrackingHogTransformer {
     start(): Promise<void>
     stop(): Promise<void>
     transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult>
+    processInvocationResults(): Promise<void>
 }
 
 /**
@@ -66,7 +70,7 @@ export interface ErrorTrackingHogTransformer {
  * These are services and clients that are injected.
  */
 export interface ErrorTrackingConsumerDeps {
-    kafkaProducer: KafkaProducerWrapper
+    outputs: ErrorTrackingOutputs
     kafkaMetricsProducer: KafkaProducerWrapper
     teamManager: TeamManager
     hogTransformer: ErrorTrackingHogTransformer
@@ -93,7 +97,12 @@ const latestOffsetTimestampGauge = new Gauge({
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
     protected kafkaConsumer: KafkaConsumer
-    protected pipeline!: BatchPipelineUnwrapper<{ message: Message }, ErrorTrackingPipelineOutput, { message: Message }>
+    protected pipeline!: BatchPipelineUnwrapper<
+        { message: Message },
+        ErrorTrackingPipelineOutput,
+        { message: Message },
+        OverflowOutput
+    >
     protected cymbalClient: CymbalClient
     protected promiseScheduler: PromiseScheduler
     protected eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -113,6 +122,7 @@ export class ErrorTrackingConsumer {
         this.cymbalClient = new CymbalClient({
             baseUrl: config.cymbalBaseUrl,
             timeoutMs: config.cymbalTimeoutMs,
+            maxBodyBytes: config.cymbalMaxBodyBytes,
         })
 
         this.promiseScheduler = new PromiseScheduler()
@@ -193,9 +203,7 @@ export class ErrorTrackingConsumer {
         this.topHog.start()
 
         this.pipeline = createErrorTrackingPipeline({
-            kafkaProducer: this.deps.kafkaProducer,
-            dlqTopic: this.config.dlqTopic,
-            outputTopic: this.config.outputTopic,
+            outputs: this.deps.outputs,
             groupId: this.config.groupId,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
@@ -205,8 +213,6 @@ export class ErrorTrackingConsumer {
             groupTypeManager: this.deps.groupTypeManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: this.overflowEnabled(),
-            overflowTopic: this.config.overflowTopic,
-            ingestionWarningProducer: this.deps.kafkaProducer,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             topHog: this.topHog,
@@ -268,6 +274,9 @@ export class ErrorTrackingConsumer {
                 size: messages.length,
             })
             throw error
+        } finally {
+            // Flush scheduled work and invocation results to prevent memory accumulation
+            await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
         }
     }
 }

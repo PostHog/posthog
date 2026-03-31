@@ -1,11 +1,44 @@
 package tui
 
 import (
+	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
+
+// procViewerCmd returns an exec.Cmd for the best available process viewer,
+// filtered to the given root PID where possible. Falls back to unfiltered
+// viewers when PID filtering isn't supported. Returns nil if none found.
+//
+// Priority: htop (PID-filtered) > btop (unfiltered) > top (PID-filtered).
+func procViewerCmd(pid int) *exec.Cmd {
+	pidStr := fmt.Sprintf("%d", pid)
+
+	// htop: tree view + PID filter on all platforms
+	if path, err := exec.LookPath("htop"); err == nil {
+		return exec.Command(path, "-t", "-p", pidStr)
+	}
+
+	// btop: no PID filter support
+	if path, err := exec.LookPath("btop"); err == nil {
+		return exec.Command(path)
+	}
+
+	// top: PID-filtered, syntax differs by OS
+	if path, err := exec.LookPath("top"); err == nil {
+		if runtime.GOOS == "darwin" {
+			return exec.Command(path, "-pid", pidStr)
+		}
+		// Linux top uses -p
+		return exec.Command(path, "-p", pidStr)
+	}
+
+	return nil
+}
 
 // Resets all search state and clears viewport highlighting.
 func (m *Model) clearSearch() {
@@ -142,7 +175,13 @@ func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 	case key.Matches(msg, m.keys.Info), msg.Code == tea.KeyEscape:
 		m.infoMode = false
 		if !m.isDockerMode() {
-			m.viewport.SetContent(m.buildContent())
+			m.activeContent = m.buildContent()
+			if m.activeContent == "" {
+				m.activeLineCount = 0
+			} else {
+				m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
+			}
+			m.viewport.SetContent(m.activeContent)
 			m.viewport.GotoBottom()
 			m.viewportAtBottom = true
 		}
@@ -175,6 +214,50 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 }
 
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// When the active process is waiting for input, buffer keystrokes and send them on Enter.
+	p := m.activeProc()
+	procHasPrompt := p != nil && m.focusedPane == focusOutput && p.HasPrompt()
+	// Control keys are excluded so navigation still works.
+	isControlKey := key.Matches(msg, m.keys.NextProc) ||
+		key.Matches(msg, m.keys.PrevProc) ||
+		key.Matches(msg, m.keys.NextPane) ||
+		key.Matches(msg, m.keys.PrevPane) ||
+		key.Matches(msg, m.keys.GotoTop) ||
+		key.Matches(msg, m.keys.GotoBottom) ||
+		key.Matches(msg, m.keys.ScrollDown) ||
+		key.Matches(msg, m.keys.ScrollUp)
+
+	if procHasPrompt && !isControlKey {
+		var input []byte
+
+		switch msg.Code {
+		case tea.KeyEnter:
+			input = []byte(m.inputBuffer + "\r")
+			m.inputBuffer = ""
+		case tea.KeyBackspace:
+			if len(m.inputBuffer) > 0 {
+				runes := []rune(m.inputBuffer)
+				m.inputBuffer = string(runes[:len(runes)-1])
+			}
+		case tea.KeySpace:
+			m.inputBuffer += " "
+		default:
+			s := msg.String()
+			if runes := []rune(s); len(runes) == 1 && runes[0] >= 32 {
+				m.inputBuffer += s
+			}
+		}
+
+		if input != nil {
+			if err := p.WriteInput(input); err != nil {
+				m.dbg("pty write error: %v", err)
+			} else {
+				m.dbg("pty send: %q", input)
+			}
+		}
+		return m, tea.Batch(cmds...)
+	}
+
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		m.mgr.StopAll()
@@ -235,13 +318,20 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 
+	case msg.Code == tea.KeyEscape:
+		if !m.viewportAtBottom {
+			m.dbg("viewport: escape → goto bottom")
+			m.viewport.GotoBottom()
+			m.viewportAtBottom = true
+		}
+
 	case key.Matches(msg, m.keys.GotoTop):
-		m.dbg("viewport: goto top")
+		m.dbg("viewport: home → goto top")
 		m.viewport.GotoTop()
 		m.viewportAtBottom = false
 
 	case key.Matches(msg, m.keys.GotoBottom):
-		m.dbg("viewport: goto bottom")
+		m.dbg("viewport: end → goto bottom")
 		m.viewport.GotoBottom()
 		m.viewportAtBottom = true
 
@@ -271,6 +361,11 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.applyCopyStyle()
 		m.dbg("copy mode: enter at line %d", m.copyCursor)
 
+	case key.Matches(msg, m.keys.Sort):
+		m.sortMode = (m.sortMode + 1) % SortMode(sortModeCount)
+		m.sortServices()
+		m.dbg("sort: %s", m.sortMode)
+
 	case key.Matches(msg, m.keys.Info):
 		m.infoMode = true
 		m.refreshInfoContent()
@@ -285,6 +380,28 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.hedgehogDir = 1
 			m.hedgehogFrame = 0
 			cmds = append(cmds, hedgehogTick())
+		}
+
+	case key.Matches(msg, m.keys.ProcViewer):
+		if p := m.activeProc(); p != nil {
+			if pid := p.PID(); pid > 0 {
+				cmd := procViewerCmd(pid)
+				if cmd != nil {
+					m.dbg("proc viewer: %s %v", cmd.Path, cmd.Args)
+					return m, tea.ExecProcess(cmd, nil)
+				}
+			}
+		}
+
+	case key.Matches(msg, m.keys.LazyDocker):
+		if path, err := exec.LookPath("lazydocker"); err == nil {
+			args := []string{}
+			for _, f := range m.composeArgs.Files {
+				args = append(args, "-f", f)
+			}
+			m.dbg("lazydocker: %v", args)
+			c := exec.Command(path, args...)
+			return m, tea.ExecProcess(c, nil)
 		}
 
 	default:

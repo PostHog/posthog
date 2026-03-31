@@ -482,6 +482,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     query: string
     /** Optional direct external data source id for running against a specific source */
     connectionId?: string
+    /** Run the selected connection query directly without translating it through HogQL first */
+    sendRawQuery?: boolean
     filters?: HogQLFilters
     /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
@@ -1077,6 +1079,8 @@ export interface HeatmapSettings {
     valueColumn?: string
     xAxisLabel?: string
     yAxisLabel?: string
+    nullLabel?: string
+    nullValue?: string
     gradient?: HeatmapGradientStop[]
     gradientPreset?: string
     gradientScaleMode?: 'absolute' | 'relative'
@@ -1124,6 +1128,7 @@ export interface TableSettings {
     columns?: ChartAxis[]
     conditionalFormatting?: ConditionalFormattingRule[]
     pinnedColumns?: string[]
+    transpose?: boolean
 }
 
 export interface SharingConfigurationSettings {
@@ -1712,16 +1717,18 @@ export const StickinessComputationModes = {
 
 export type StickinessComputationMode = (typeof StickinessComputationModes)[keyof typeof StickinessComputationModes]
 
+export interface StickinessCriteria {
+    operator: StickinessOperator
+    value: integer
+}
+
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
-    stickinessCriteria?: {
-        operator: StickinessOperator
-        value: integer
-    }
+    stickinessCriteria?: StickinessCriteria
     computedAs?: StickinessComputationMode
     /**
      * Whether result datasets are associated by their values or by their order.
@@ -3237,6 +3244,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
+    only_count_matured_users?: boolean
     goal?: ExperimentMetricGoal
     isSharedMetric?: boolean
     sharedMetricId?: number
@@ -3845,7 +3853,15 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort' | 'revenue_analytics'
+    | 'person'
+    | 'event'
+    | 'event_metadata'
+    | 'group'
+    | 'session'
+    | 'hogql'
+    | 'cohort'
+    | 'revenue_analytics'
+    | 'data_warehouse_person_property'
 >
 
 export interface Breakdown {
@@ -5086,6 +5102,7 @@ export interface SourceFieldOauthConfig {
     label: string
     required: boolean
     kind: string
+    requiredScopes?: string
 }
 
 export type SourceFieldInputConfigType =
@@ -5325,6 +5342,7 @@ export const externalDataSources = [
     'Postmark',
     'Granola',
     'BuildBetter',
+    'Convex',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

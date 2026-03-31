@@ -156,6 +156,8 @@ export interface TaxonomicFilterGroup {
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
+    /** Name of a boolean selector on `logic` that indicates items are still loading. */
+    valueLoading?: string
     searchAlias?: string
     valuesEndpoint?: (propertyKey: string) => string | undefined
     getGroup?: (instance: any) => TaxonomicFilterGroup

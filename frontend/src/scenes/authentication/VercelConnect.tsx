@@ -13,10 +13,17 @@ export const scene: SceneExport = {
     component: VercelConnect,
 }
 
+interface Team {
+    id: number
+    name: string
+    already_linked: boolean
+}
+
 interface Organization {
     id: string
     name: string
     already_linked: boolean
+    teams: Team[]
 }
 
 interface SessionInfo {
@@ -34,6 +41,7 @@ export function VercelConnect(): JSX.Element {
     const [success, setSuccess] = useState(false)
     const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
     const [selectedOrg, setSelectedOrg] = useState<string | null>(null)
+    const [selectedTeam, setSelectedTeam] = useState<number | null>(null)
     const [linkedOrgName, setLinkedOrgName] = useState<string>('')
 
     useEffect(() => {
@@ -64,6 +72,18 @@ export function VercelConnect(): JSX.Element {
             })
     }, [sessionKey])
 
+    useEffect(() => {
+        if (selectedOrg && sessionInfo) {
+            const org = sessionInfo.organizations.find((o) => o.id === selectedOrg)
+            const availableTeams = org?.teams.filter((t) => !t.already_linked) || []
+            if (availableTeams.length === 1) {
+                setSelectedTeam(availableTeams[0].id)
+            } else {
+                setSelectedTeam(null)
+            }
+        }
+    }, [selectedOrg, sessionInfo])
+
     const handleLink = (): void => {
         if (!selectedOrg || !sessionKey) {
             return
@@ -81,6 +101,7 @@ export function VercelConnect(): JSX.Element {
             body: JSON.stringify({
                 session: sessionKey,
                 organization_id: selectedOrg,
+                team_id: selectedTeam,
             }),
         })
             .then((res) => {
@@ -161,6 +182,8 @@ export function VercelConnect(): JSX.Element {
 
     const availableOrgs = sessionInfo?.organizations.filter((o) => !o.already_linked) || []
     const linkedOrgs = sessionInfo?.organizations.filter((o) => o.already_linked) || []
+    const selectedOrgData = sessionInfo?.organizations.find((o) => o.id === selectedOrg)
+    const availableTeams = selectedOrgData?.teams.filter((t) => !t.already_linked) || []
 
     return (
         <BridgePage view="vercel-connect">
@@ -192,11 +215,26 @@ export function VercelConnect(): JSX.Element {
                         />
                     </div>
 
+                    {selectedOrg && availableTeams.length > 0 && (
+                        <div className="mb-6">
+                            <LemonSelect
+                                fullWidth
+                                placeholder="Select a project"
+                                value={selectedTeam}
+                                onChange={(value) => setSelectedTeam(value)}
+                                options={availableTeams.map((t) => ({
+                                    value: t.id,
+                                    label: t.name,
+                                }))}
+                            />
+                        </div>
+                    )}
+
                     <LemonButton
                         fullWidth
                         type="primary"
                         center
-                        disabled={!selectedOrg || linking}
+                        disabled={!selectedOrg || !selectedTeam || linking}
                         loading={linking}
                         onClick={handleLink}
                     >

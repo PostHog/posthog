@@ -24,6 +24,7 @@ const AssistantEventMultipleBreakdownFilterType = z.enum([
     'event_metadata',
     'session',
     'hogql',
+    'data_warehouse_person_property',
     'revenue_analytics',
 ])
 
@@ -189,7 +190,145 @@ const AssistantGroupPropertyFilter = z.union([
     }),
 ])
 
-const AssistantPropertyFilter = z.union([AssistantGenericPropertyFilter, AssistantGroupPropertyFilter])
+const AssistantCohortPropertyFilter = z.object({
+    key: z.literal('id').default('id'),
+    operator: z.literal('in').default('in'),
+    type: z
+        .literal('cohort')
+        .describe(
+            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`'
+        )
+        .default('cohort'),
+    value: integer.describe('The cohort ID to filter by.'),
+})
+
+const AssistantElementPropertyFilter = z.union([
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantStringOrBooleanValuePropertyFilterOperator.describe(
+            '`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.'
+        ),
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z
+            .string()
+            .describe(
+                'Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.'
+            ),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantNumericValuePropertyFilterOperator,
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z.coerce.number(),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantArrayPropertyFilterOperator.describe(
+            '`exact` - exact match of any of the values. `is_not` - does not match any of the values.'
+        ),
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z
+            .array(z.string())
+            .describe(
+                'Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false".'
+            ),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantDateTimePropertyFilterOperator,
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z.string().describe('Value must be a date in ISO 8601 format.'),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantSetPropertyFilterOperator.describe(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+        ),
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+    }),
+])
+
+const AssistantHogQLPropertyFilter = z.object({
+    key: z
+        .string()
+        .describe(
+            "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`"
+        ),
+    type: z
+        .literal('hogql')
+        .describe(
+            "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters."
+        )
+        .default('hogql'),
+})
+
+const AssistantFlagPropertyFilter = z.object({
+    key: z.string().describe('The feature flag key.'),
+    operator: z.literal('flag_evaluates_to').default('flag_evaluates_to'),
+    type: z
+        .literal('flag')
+        .describe(
+            'Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }`\n- Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }`'
+        )
+        .default('flag'),
+    value: z
+        .union([z.coerce.boolean(), z.string()])
+        .describe('`true`/`false` for boolean flags, or a variant name string for multivariate flags.'),
+})
+
+const AssistantPropertyFilter = z.union([
+    AssistantGenericPropertyFilter,
+    AssistantGroupPropertyFilter,
+    AssistantCohortPropertyFilter,
+    AssistantElementPropertyFilter,
+    AssistantHogQLPropertyFilter,
+    AssistantFlagPropertyFilter,
+])
 
 const BaseMathType = z.enum([
     'total',
@@ -251,6 +390,12 @@ const AssistantTrendsEventsNode = z.object({
     kind: z.literal('EventsNode').default('EventsNode'),
     math: MathType.optional(),
     math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
@@ -266,6 +411,12 @@ const AssistantTrendsActionsNode = z.object({
     kind: z.literal('ActionsNode').default('ActionsNode'),
     math: MathType.optional(),
     math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
@@ -284,6 +435,11 @@ const AggregationAxisFormat = z.enum([
     'currency',
     'short',
 ])
+
+const TrendsFormulaNode = z.object({
+    custom_name: z.string().describe('Optional user-defined name for the formula').optional(),
+    formula: z.string(),
+})
 
 const AssistantTrendsFilter = z.object({
     aggregationAxisFormat: AggregationAxisFormat.describe(
@@ -331,15 +487,26 @@ const AssistantTrendsFilter = z.object({
         )
         .default('ActionsLineGraph')
         .optional(),
-    formulas: z
-        .array(z.string())
+    formulaNodes: z
+        .array(TrendsFormulaNode)
         .describe(
-            'If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).'
+            'Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).'
         )
         .optional(),
+    showAlertThresholdLines: z.coerce
+        .boolean()
+        .describe('Whether to show alert threshold lines on the chart.')
+        .default(false)
+        .optional(),
+    showLabelsOnSeries: z.coerce.boolean().describe('Whether to show labels on each series.').default(false).optional(),
     showLegend: z.coerce
         .boolean()
         .describe('Whether to show the legend describing series and breakdowns.')
+        .default(false)
+        .optional(),
+    showMultipleYAxes: z.coerce
+        .boolean()
+        .describe('Whether to show multiple y-axes for different series.')
         .default(false)
         .optional(),
     showPercentStackView: z.coerce
@@ -352,10 +519,12 @@ const AssistantTrendsFilter = z.object({
         .describe('Whether to show a value on each data point.')
         .default(false)
         .optional(),
+    smoothingIntervals: integer.describe('Smoothing intervals for the trend line.').default(1).optional(),
     yAxisScaleType: z.enum(['log10', 'linear']).describe('Whether to scale the y-axis.').default('linear').optional(),
 })
 
 const AssistantTrendsQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
     breakdownFilter: AssistantTrendsBreakdownFilter.describe(
         'Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user’s question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question. When using breakdowns, you must:\n- **Identify the property group** and name for each breakdown.\n- **Provide the property name** for each breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using breakdowns:\n- page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown.'
     ).optional(),
@@ -393,6 +562,8 @@ const AssistantFunnelsBreakdownFilter = z.object({
     ).default('event'),
 })
 
+const BreakdownAttributionType = z.enum(['first_touch', 'last_touch', 'all_events', 'step'])
+
 const AssistantFunnelsExclusionEventsNode = z.object({
     event: z.string(),
     funnelFromStep: integer,
@@ -416,6 +587,18 @@ const AssistantFunnelsFilter = z.object({
         .int()
         .describe(
             'Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram.'
+        )
+        .optional(),
+    breakdownAttributionType: BreakdownAttributionType.describe(
+        'Controls how the breakdown value is attributed to a specific step. `first_touch` - the breakdown value is the first property value found in the entire funnel. `last_touch` - the breakdown value is the last property value found in the entire funnel. `all_events` - the breakdown value must be present in all steps of the funnel. `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`.'
+    )
+        .default('first_touch')
+        .optional(),
+    breakdownAttributionValue: z.coerce
+        .number()
+        .int()
+        .describe(
+            'When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to.'
         )
         .optional(),
     exclusions: z
@@ -534,6 +717,20 @@ const AssistantRetentionActionsNode = z.object({
 const AssistantRetentionEntity = z.union([AssistantRetentionEventsNode, AssistantRetentionActionsNode])
 
 const AssistantRetentionFilter = z.object({
+    aggregationProperty: z
+        .string()
+        .describe('The event or person property to aggregate when aggregationType is sum or avg.')
+        .optional(),
+    aggregationPropertyType: z
+        .enum(['event', 'person'])
+        .describe('The type of property to aggregate on (event or person). Defaults to event.')
+        .default('event')
+        .optional(),
+    aggregationType: z
+        .enum(['count', 'sum', 'avg'])
+        .describe('The aggregation type to use for retention.')
+        .default('count')
+        .optional(),
     cumulative: z.coerce
         .boolean()
         .describe(
@@ -546,7 +743,14 @@ const AssistantRetentionFilter = z.object({
             'Whether an additional series should be shown, showing the mean conversion for each period across cohorts.'
         )
         .optional(),
+    minimumOccurrences: integer
+        .describe('Minimum number of times an event must occur to count towards retention.')
+        .optional(),
     period: RetentionPeriod.describe('Retention period, the interval to track cohorts by.').default('Day').optional(),
+    retentionCustomBrackets: z
+        .array(z.coerce.number())
+        .describe('Custom brackets for retention calculations.')
+        .optional(),
     retentionReference: z
         .enum(['total', 'previous'])
         .describe('Whether retention is with regard to initial cohort size, or that of the previous period.')
@@ -558,15 +762,20 @@ const AssistantRetentionFilter = z.object({
     targetEntity: AssistantRetentionEntity.describe(
         'Activation event (event putting the actor into the initial cohort).'
     ),
+    timeWindowMode: z
+        .enum(['strict_calendar_dates', '24_hour_windows'])
+        .describe('The time window mode to use for retention calculations.')
+        .optional(),
     totalIntervals: integer
         .describe(
-            'How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort).'
+            'How many intervals to show in the chart. The default value is 8 (meaning 7 periods after initial cohort).'
         )
-        .default(11)
+        .default(8)
         .optional(),
 })
 
 const AssistantRetentionQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
     filterTestAccounts: z.coerce
         .boolean()
@@ -576,6 +785,271 @@ const AssistantRetentionQuery = z.object({
     kind: z.literal('RetentionQuery').default('RetentionQuery'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
     retentionFilter: AssistantRetentionFilter.describe('Properties specific to the retention insight'),
+})
+
+const AssistantStickinessEventsNode = z.object({
+    custom_name: z.string().optional(),
+    event: z.string().nullable().describe('The event or `null` for all events.').optional(),
+    kind: z.literal('EventsNode').default('EventsNode'),
+    math: MathType.optional(),
+    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
+    math_multiplier: z.coerce.number().optional(),
+    math_property: z.string().optional(),
+    math_property_type: z.string().optional(),
+    name: z.string().optional(),
+    properties: z.array(AssistantPropertyFilter).optional(),
+})
+
+const AssistantStickinessActionsNode = z.object({
+    custom_name: z.string().optional(),
+    id: integer,
+    kind: z.literal('ActionsNode').default('ActionsNode'),
+    math: MathType.optional(),
+    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
+    math_multiplier: z.coerce.number().optional(),
+    math_property: z.string().optional(),
+    math_property_type: z.string().optional(),
+    name: z.string().describe('Action name from the plan.'),
+    properties: z.array(AssistantPropertyFilter).optional(),
+})
+
+const AssistantStickinessNode = z.union([AssistantStickinessEventsNode, AssistantStickinessActionsNode])
+
+const StickinessComputationMode = z.enum(['non_cumulative', 'cumulative'])
+
+const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar', 'ActionsAreaGraph'])
+
+const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
+
+const StickinessCriteria = z.object({
+    operator: StickinessOperator,
+    value: integer,
+})
+
+const AssistantStickinessFilter = z.object({
+    computedAs: StickinessComputationMode.describe(
+        'Computation mode. `non_cumulative` (default) shows users active on exactly N intervals. `cumulative` shows users active on N or more intervals.'
+    )
+        .default('non_cumulative')
+        .optional(),
+    display: AssistantStickinessDisplayType.describe(
+        'Visualization type for the stickiness chart. `ActionsLineGraph` - line chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area chart.'
+    )
+        .default('ActionsLineGraph')
+        .optional(),
+    showLegend: z.coerce.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
+    showValuesOnSeries: z.coerce
+        .boolean()
+        .describe('Whether to show a value on each data point.')
+        .default(false)
+        .optional(),
+    stickinessCriteria: StickinessCriteria.describe(
+        'Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times.'
+    ).optional(),
+})
+
+const AssistantStickinessQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    compareFilter: CompareFilter.describe(
+        'Compare to date range. When enabled, shows the current and previous period side by side.'
+    ).optional(),
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe('Exclude internal and test users by applying the respective filters')
+        .default(false)
+        .optional(),
+    interval: IntervalType.describe(
+        'Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one "interval" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days.'
+    )
+        .default('day')
+        .optional(),
+    intervalCount: integer
+        .describe(
+            'How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.'
+        )
+        .optional(),
+    kind: z.literal('StickinessQuery').default('StickinessQuery'),
+    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    series: z
+        .array(AssistantStickinessNode)
+        .describe(
+            'Events or actions to include. Each series measures how many intervals (e.g. days) within the date range a user performed the event. Prioritize the more popular and fresh events and actions. When the `math` field is omitted on a series, it defaults to counting unique persons.'
+        ),
+    stickinessFilter: AssistantStickinessFilter.describe('Properties specific to the stickiness insight').optional(),
+})
+
+const PathType = z.enum(['$pageview', '$screen', 'custom_event', 'hogql'])
+
+const AssistantPathCleaningFilter = z.object({
+    alias: z
+        .string()
+        .describe(
+            'A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\\\1` for capture group back-references.'
+        ),
+    regex: z
+        .string()
+        .describe(
+            'A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile` to match any user profile URL.'
+        ),
+})
+
+const AssistantPathsFilter = z.object({
+    edgeLimit: integer
+        .describe(
+            'Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read.'
+        )
+        .default(50)
+        .optional(),
+    endPoint: z
+        .string()
+        .describe('Filter to only show paths that end at this specific step. Same format as `startPoint`.')
+        .optional(),
+    excludeEvents: z
+        .array(z.string())
+        .describe(
+            'Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events.'
+        )
+        .default([])
+        .optional(),
+    includeEventTypes: z
+        .array(PathType)
+        .describe(
+            'Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.'
+        )
+        .optional(),
+    localPathCleaningFilters: z
+        .array(AssistantPathCleaningFilter)
+        .describe(
+            'ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs.'
+        )
+        .default([])
+        .optional(),
+    maxEdgeWeight: integer
+        .describe(
+            'Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys.'
+        )
+        .optional(),
+    minEdgeWeight: integer
+        .describe(
+            'Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise.'
+        )
+        .optional(),
+    pathGroupings: z
+        .array(z.string())
+        .describe(
+            'Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.'
+        )
+        .default([])
+        .optional(),
+    pathsHogQLExpression: z
+        .string()
+        .describe(
+            'A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.'
+        )
+        .optional(),
+    startPoint: z
+        .string()
+        .describe(
+            'Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names.'
+        )
+        .optional(),
+    stepLimit: integer
+        .describe(
+            'Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start.'
+        )
+        .default(5)
+        .optional(),
+})
+
+const AssistantPathsQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe('Exclude internal and test users by applying the respective filters')
+        .default(false)
+        .optional(),
+    kind: z.literal('PathsQuery').default('PathsQuery'),
+    pathsFilter: AssistantPathsFilter.describe(
+        'Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points.'
+    ),
+    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+})
+
+const LifecycleToggle = z.enum(['new', 'resurrecting', 'returning', 'dormant'])
+
+const AssistantLifecycleFilter = z.object({
+    showLegend: z.coerce.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
+    showValuesOnSeries: z.coerce
+        .boolean()
+        .describe('Whether to show a value on each data point.')
+        .default(false)
+        .optional(),
+    stacked: z.coerce.boolean().describe('Whether the lifecycle bars should be stacked.').default(true).optional(),
+    toggledLifecycles: z
+        .array(LifecycleToggle)
+        .describe(
+            'Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.'
+        )
+        .optional(),
+})
+
+const AssistantLifecycleEventsNode = z.object({
+    custom_name: z.string().optional(),
+    event: z.string().nullable().describe('The event or `null` for all events.').optional(),
+    kind: z
+        .literal('EventsNode')
+        .describe('Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.')
+        .default('EventsNode'),
+    name: z.string().optional(),
+    properties: z.array(AssistantPropertyFilter).optional(),
+})
+
+const AssistantLifecycleActionsNode = z.object({
+    custom_name: z.string().optional(),
+    id: integer,
+    kind: z
+        .literal('ActionsNode')
+        .describe(
+            'Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.'
+        )
+        .default('ActionsNode'),
+    name: z.string().describe('Action name from the plan.'),
+    properties: z.array(AssistantPropertyFilter).optional(),
+})
+
+const AssistantLifecycleSeriesNode = z.union([AssistantLifecycleEventsNode, AssistantLifecycleActionsNode])
+
+const AssistantLifecycleQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe('Exclude internal and test users by applying the respective filters')
+        .default(false)
+        .optional(),
+    interval: IntervalType.describe('Granularity of the response. Can be one of `hour`, `day`, `week` or `month`')
+        .default('day')
+        .optional(),
+    kind: z.literal('LifecycleQuery').default('LifecycleQuery'),
+    lifecycleFilter: AssistantLifecycleFilter.describe('Properties specific to the lifecycle insight').optional(),
+    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    series: z
+        .array(AssistantLifecycleSeriesNode)
+        .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
 })
 
 const DateRange = z.object({
@@ -840,6 +1314,24 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-retention',
         schema: AssistantRetentionQuery,
         kind: 'RetentionQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+    }),
+    'query-stickiness': createQueryWrapper({
+        name: 'query-stickiness',
+        schema: AssistantStickinessQuery,
+        kind: 'StickinessQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+    }),
+    'query-paths': createQueryWrapper({
+        name: 'query-paths',
+        schema: AssistantPathsQuery,
+        kind: 'PathsQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+    }),
+    'query-lifecycle': createQueryWrapper({
+        name: 'query-lifecycle',
+        schema: AssistantLifecycleQuery,
+        kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
     }),
     'query-traces-list': createQueryWrapper({ name: 'query-traces-list', schema: TracesQuery, kind: 'TracesQuery' }),

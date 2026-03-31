@@ -11,11 +11,18 @@ from typing import Any
 
 import structlog
 from celery import Task, shared_task
+from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.storage.team_access_cache import token_auth_cache
 
 logger = structlog.get_logger(__name__)
+
+AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER = Counter(
+    "posthog_auth_token_invalidation_failures_total",
+    "Auth token cache invalidation failures after all retries exhausted",
+    labelnames=["invalidation_type"],
+)
 
 
 # --- Sync-with-async-fallback helper ---
@@ -43,6 +50,7 @@ def _sync_with_async_fallback(
             fallback_task.apply_async(args=fallback_args, countdown=5)
         except Exception as retry_exc:
             capture_exception(retry_exc)
+            AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER.labels(invalidation_type="schedule_fallback").inc()
             logger.exception("Failed to schedule async retry", **result_context)
         return {"status": "failure", **result_context}
 
@@ -61,7 +69,20 @@ def invalidate_token_cache_task(self: Task, token_hash: str) -> dict:
         return {"status": "success", "token_prefix": token_hash[:12]}
     except Exception as e:
         logger.exception("Failed to invalidate token cache", token_prefix=token_hash[:12])
-        raise self.retry(exc=e)
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER.labels(invalidation_type="token").inc()
+            capture_exception(e)
+            # Use the explicit exc_info tuple so stdlib logging attaches the original
+            # Redis/invalidation traceback, not the current MaxRetriesExceededError context.
+            logger.exception(
+                "Auth token cache invalidation exhausted all retries",
+                token_prefix=token_hash[:12],
+                max_retries=self.max_retries,
+                exc_info=(type(e), e, e.__traceback__),
+            )
+            raise
 
 
 @shared_task(bind=True, max_retries=3, ignore_result=True)
@@ -75,7 +96,20 @@ def invalidate_user_tokens_task(self: Task, user_id: int) -> dict:
         return {"status": "success", "user_id": user_id}
     except Exception as e:
         logger.exception("Failed to invalidate user tokens", user_id=user_id)
-        raise self.retry(exc=e)
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER.labels(invalidation_type="user_tokens").inc()
+            capture_exception(e)
+            # Use the explicit exc_info tuple so stdlib logging attaches the original
+            # Redis/invalidation traceback, not the current MaxRetriesExceededError context.
+            logger.exception(
+                "Auth token cache invalidation for user exhausted all retries",
+                user_id=user_id,
+                max_retries=self.max_retries,
+                exc_info=(type(e), e, e.__traceback__),
+            )
+            raise
 
 
 # --- Synchronous invalidation (called by signal handlers) ---

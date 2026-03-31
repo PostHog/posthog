@@ -13,8 +13,9 @@ import structlog
 from posthog.models.comment import Comment
 
 from products.conversations.backend.mailgun import validate_webhook_signature
-from products.conversations.backend.models import Channel, EmailMessageMapping, Status, TeamConversationsEmailConfig
+from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
 from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 
 logger = structlog.get_logger(__name__)
 
@@ -85,8 +86,11 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Invalid recipient", status=400)
 
     try:
-        config = TeamConversationsEmailConfig.objects.select_related("team").get(inbound_token=inbound_token)
-    except TeamConversationsEmailConfig.DoesNotExist:
+        config = EmailChannel.objects.select_related("team").get(inbound_token=inbound_token)
+    except EmailChannel.DoesNotExist:
+        if is_primary_region(request):
+            success = proxy_to_secondary_region(request, log_prefix="email_inbound", timeout=10)
+            return HttpResponse(status=200 if success else 502)
         logger.warning("email_inbound_unknown_token", inbound_token=inbound_token)
         return HttpResponse("Unknown recipient", status=404)
 
@@ -138,6 +142,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 ticket = Ticket.objects.create_with_number(
                     team=team,
                     channel_source=Channel.EMAIL,
+                    email_config=config,
                     widget_session_id="",
                     distinct_id=sender_email,
                     status=Status.NEW,

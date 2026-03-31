@@ -232,10 +232,13 @@ fi
 run_step "Node packages" pnpm install
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
-if grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
+if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
   done_step "System hosts"
 else
-  echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1>/dev/null
+  # Remove any old posthog hosts entry, then add the current one
+  sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts 2>/dev/null || true
+  echo "$POSTHOG_HOSTS" | sudo tee -a /etc/hosts 1>/dev/null
   done_step "System hosts (updated)"
 fi
 
@@ -269,6 +272,9 @@ elif [[ -n "$_flox_rustc_ver" ]]; then
   done_step "Rust toolchain (rustc ${_flox_rustc_ver})"
 fi
 
+# Share a single Cargo target dir so worktrees skip redundant linking
+export CARGO_TARGET_DIR="$HOME/.cargo/target"
+
 # ── Summary ─────────────────────────────────────────────────────────
 _activation_end=$(date +%s)
 _activation_time=$(( _activation_end - _activation_start ))
@@ -301,7 +307,7 @@ ${C_GREEN}${C_BOLD}hogli start${C_RESET}
 ${C_DIM}Interactive wizard to configure which services to run:${C_RESET}
 ${C_GREEN}hogli dev:setup${C_RESET}
 
-${C_ITALIC}Useful processes available in hogli start (mprocs)${C_RESET}
+${C_ITALIC}Useful processes available in hogli start (phrocs)${C_RESET}
 ${C_DIM}  press ${C_BOLD}r${C_RESET}${C_DIM} to start manually:${C_RESET}
 ${C_DIM}  generate-demo-data${C_RESET}          Create a user with demo data
 ${C_DIM}  storybook${C_RESET}                   Run storybook locally
@@ -314,7 +320,7 @@ ${C_DIM}  hogli --help${C_RESET}                Browse all available commands
 ${C_DIM}  hogli migrations:run${C_RESET}        Run pending migrations
 ${C_DIM}  hogli dev:reset${C_RESET}             Wipe volumes, migrate, load demo data
 ${C_DIM}  hogli doctor:disk${C_RESET}           Free up disk space from dev bloat
-${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in mprocs${C_RESET}             Quit / restart a process
+${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in phrocs${C_RESET}             Quit / restart a process
 "
 fi
 

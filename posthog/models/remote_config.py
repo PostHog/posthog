@@ -1,6 +1,7 @@
-import os
+import copy
 import json
-from typing import Any, Optional
+import hashlib
+from typing import Any, NamedTuple, Optional
 
 from django.conf import settings
 from django.db import models, transaction
@@ -18,14 +19,22 @@ from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.js_snippet_versioning import (
+    DEFAULT_SNIPPET_VERSION,
+    get_disk_js_hash,
+    get_js_content,
+    resolve_version,
+)
 from posthog.models.plugin import PluginConfig
-from posthog.models.surveys.survey import Survey
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 tracer = trace.get_tracer(__name__)
 
@@ -51,21 +60,6 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
-# Load the JS content from the frontend build
-_array_js_content: Optional[str] = None
-
-
-@tracer.start_as_current_span("RemoteConfig.get_array_js_content")
-def get_array_js_content():
-    global _array_js_content
-
-    if _array_js_content is None:
-        with open(os.path.join(settings.BASE_DIR, "frontend/dist/array.js")) as f:
-            _array_js_content = f.read()
-
-    return _array_js_content
-
-
 @tracer.start_as_current_span("RemoteConfig.indent_js")
 def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
@@ -89,7 +83,15 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
 
     # Remove site apps JS
     config.pop("siteAppsJS", None)
+
     return config
+
+
+class ArrayJSMetadata(NamedTuple):
+    etag: str  # ETag derived from resolved version + config hash
+    requested_version: str  # The snippet version pin (e.g. "1", "1.358") for Cache-Tag
+    resolved_version: Optional[str]  # Exact version the request resolved to (e.g. "1.360.1")
+    config: dict  # Pre-loaded config — pass to build_array_js_content to avoid a second cache read
 
 
 class RemoteConfig(UUIDTModel):
@@ -120,14 +122,101 @@ class RemoteConfig(UUIDTModel):
             load_fn=load_config,
         )
 
+    def _build_session_recording_config(self, team: Team) -> dict:
+        """
+        Build session recording configuration with V1/V2 support.
+
+        V2: If team.session_recording_trigger_groups is set, use new trigger groups format
+        V1: Otherwise, use legacy trigger fields for backward compatibility
+        """
+        # Build base config (common to both V1 and V2)
+        capture_console_logs = True if team.capture_console_log_opt_in else False
+        minimum_duration = team.session_recording_minimum_duration_milliseconds or None
+
+        rrweb_script_config = None
+        recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+        if not recorder_script and settings.DEBUG:
+            recorder_script = "posthog-recorder"
+        if recorder_script:
+            rrweb_script_config = {"script": recorder_script}
+
+        record_canvas = False
+        canvas_fps = None
+        canvas_quality = None
+        if isinstance(team.session_replay_config, dict):
+            record_canvas = team.session_replay_config.get("record_canvas", False)
+            if record_canvas:
+                canvas_fps = 3
+                canvas_quality = "0.4"
+
+        base_config = {
+            "endpoint": "/s/",
+            "consoleLogRecordingEnabled": capture_console_logs,
+            "recorderVersion": "v2",
+            "minimumDurationMilliseconds": minimum_duration,
+            "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+            "masking": team.session_recording_masking_config or None,
+            "urlBlocklist": team.session_recording_url_blocklist_config,
+            "scriptConfig": rrweb_script_config,
+            "domains": team.recording_domains or [],
+            "recordCanvas": record_canvas,
+            "canvasFps": canvas_fps,
+            "canvasQuality": canvas_quality,
+        }
+
+        # Build V1 fields (for backward compatibility with old SDKs)
+        sample_rate = (
+            str(team.session_recording_sample_rate.normalize())
+            if team.session_recording_sample_rate is not None
+            else None
+        )
+        if sample_rate == "1":
+            sample_rate = None
+
+        linked_flag = None
+        linked_flag_config = team.session_recording_linked_flag or None
+        if isinstance(linked_flag_config, dict):
+            linked_flag_key = linked_flag_config.get("key", None)
+            linked_flag_variant = linked_flag_config.get("variant", None)
+            if linked_flag_variant is not None:
+                linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
+            else:
+                linked_flag = linked_flag_key
+
+        v1_fields = {
+            "sampleRate": sample_rate,
+            "linkedFlag": linked_flag,
+            "urlTriggers": team.session_recording_url_trigger_config,
+            "eventTriggers": team.session_recording_event_trigger_config,
+            "triggerMatchType": team.session_recording_trigger_match_type_config,
+        }
+
+        # V2: If trigger groups configured, send V2 + V1 fallback fields
+        if team.session_recording_trigger_groups:
+            trigger_groups_config = team.session_recording_trigger_groups
+            return {
+                **base_config,
+                "version": 2,
+                "triggerGroups": trigger_groups_config.get("groups", []),
+                # Include V1 fields for backward compatibility with old SDKs
+                **v1_fields,
+            }
+
+        # V1 only: Use legacy trigger fields
+        return {
+            **base_config,
+            "version": 1,
+            **v1_fields,
+        }
+
     @tracer.start_as_current_span("RemoteConfig.build_config")
     def build_config(self):
-        from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.remote_config import build_error_tracking_config
+        from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -174,64 +263,7 @@ class RemoteConfig(UUIDTModel):
 
         # TODO: Support the domain based check for recordings (maybe do it client side)?
         if team.session_recording_opt_in:
-            capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = (
-                str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
-            )
-
-            if sample_rate == "1.00":
-                sample_rate = None
-
-            minimum_duration = team.session_recording_minimum_duration_milliseconds or None
-
-            linked_flag = None
-            linked_flag_config = team.session_recording_linked_flag or None
-            if isinstance(linked_flag_config, dict):
-                linked_flag_key = linked_flag_config.get("key", None)
-                linked_flag_variant = linked_flag_config.get("variant", None)
-                if linked_flag_variant is not None:
-                    linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
-                else:
-                    linked_flag = linked_flag_key
-
-            rrweb_script_config = None
-
-            recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
-            if not recorder_script and settings.DEBUG:
-                recorder_script = "posthog-recorder"
-            if recorder_script:
-                rrweb_script_config = {
-                    "script": recorder_script,
-                }
-
-            session_recording_config_response = {
-                "endpoint": "/s/",
-                "consoleLogRecordingEnabled": capture_console_logs,
-                "recorderVersion": "v2",
-                "sampleRate": sample_rate,
-                "minimumDurationMilliseconds": minimum_duration,
-                "linkedFlag": linked_flag,
-                "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
-                "masking": team.session_recording_masking_config or None,
-                "urlTriggers": team.session_recording_url_trigger_config,
-                "urlBlocklist": team.session_recording_url_blocklist_config,
-                "eventTriggers": team.session_recording_event_trigger_config,
-                "triggerMatchType": team.session_recording_trigger_match_type_config,
-                "scriptConfig": rrweb_script_config,
-                # NOTE: This is cached but stripped out at the api level depending on the caller
-                "domains": team.recording_domains or [],
-            }
-
-            if isinstance(team.session_replay_config, dict):
-                record_canvas = team.session_replay_config.get("record_canvas", False)
-                session_recording_config_response.update(
-                    {
-                        "recordCanvas": record_canvas,
-                        # hard coded during beta while we decide on sensible values
-                        "canvasFps": 3 if record_canvas else None,
-                        "canvasQuality": "0.4" if record_canvas else None,
-                    }
-                )
+            session_recording_config_response = self._build_session_recording_config(team)
 
         config["sessionRecording"] = session_recording_config_response
 
@@ -314,6 +346,11 @@ class RemoteConfig(UUIDTModel):
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 
+        # MARK: Snippet versioning — store requested version, resolved at request time
+        if settings.POSTHOG_JS_S3_BUCKET:
+            snippet_config = get_or_create_team_extension(team, TeamJsSnippetConfig)
+            config["sdkVersion"] = {"requested": snippet_config.js_snippet_version or DEFAULT_SNIPPET_VERSION}
+
         return config
 
     @tracer.start_as_current_span("RemoteConfig._build_site_apps_js")
@@ -335,7 +372,12 @@ class RemoteConfig(UUIDTModel):
             )
         site_functions = (
             HogFunction.objects.select_related("team")
-            .filter(team=self.team, enabled=True, deleted=False, type__in=("site_destination", "site_app"))
+            .filter(
+                team=self.team,
+                enabled=True,
+                deleted=False,
+                type__in=("site_destination", "site_app"),
+            )
             .all()
         )
 
@@ -378,42 +420,108 @@ class RemoteConfig(UUIDTModel):
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
         return data
 
+    @staticmethod
+    def _resolve_version_info(config: dict, resolved_version: Optional[str] = None) -> dict:
+        """Resolve version info at request time so it reflects the live manifest.
+
+        If resolved_version is provided, it is used directly instead of calling
+        resolve_version() again (avoids redundant manifest lookups when the
+        caller has already resolved the version).
+        """
+        sdk_version = config.get("sdkVersion")
+        if not sdk_version:
+            return config
+
+        resolved = resolved_version or resolve_version(sdk_version["requested"])
+        if not resolved:
+            return config
+
+        enriched = {**sdk_version, "resolved": resolved}
+        if settings.POSTHOG_JS_SCRIPTS_BASE_URL:
+            enriched["scriptBaseUrl"] = f"{settings.POSTHOG_JS_SCRIPTS_BASE_URL.rstrip('/')}/{resolved}"
+        return {**config, "sdkVersion": enriched}
+
     @classmethod
     @tracer.start_as_current_span("RemoteConfig.get_config_via_token")
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
         config = cls._get_config_via_cache(token)
+        config = cls._resolve_version_info(config)
         config = sanitize_config_for_public_cdn(config, request=request)
 
         return config
 
     @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
-    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        config = cls._get_config_via_cache(token)
+    def _build_config_js(
+        cls,
+        config: dict,
+        token: str,
+        request: Optional[HttpRequest] = None,
+        resolved_version: Optional[str] = None,
+    ) -> str:
+        """Build the config JS wrapper from an already-loaded config dict."""
+        # Deep copy: sanitize_config_for_public_cdn mutates nested dicts (e.g. sessionRecording.domains)
+        config = copy.deepcopy(config)
+        config = cls._resolve_version_info(config, resolved_version=resolved_version)
         # Get the site apps JS so we can render it in the JS
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
         config.pop("siteApps", None)
         config = sanitize_config_for_public_cdn(config, request=request)
 
-        js_content = f"""(function() {{
+        return f"""(function() {{
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
   window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
-    config: {json.dumps(config)},
+    config: {json.dumps(config, sort_keys=True)},
     siteApps: [{",".join(site_apps_js)}]
   }}
 }})();
         """.strip()
 
-        return js_content
+    @classmethod
+    @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
+    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
+        config = cls._get_config_via_cache(token)
+        return cls._build_config_js(config, token, request=request)
 
     @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_array_js_via_token")
-    def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
-        js_content = cls.get_config_js_via_token(token, request=request)
+    @tracer.start_as_current_span("RemoteConfig.compute_array_js_metadata")
+    def compute_array_js_metadata(cls, token: str) -> ArrayJSMetadata:
+        """Compute an ETag for the array.js response without building it.
 
-        return f"""{get_array_js_content()}\n\n{js_content}"""
+        Returns metadata including the pre-loaded config. Pass this to
+        build_array_js_content to build the response without a second cache read.
+        """
+        config = cls._get_config_via_cache(token)
+        sdk_version = config.get("sdkVersion", {})
+        requested = sdk_version.get("requested", DEFAULT_SNIPPET_VERSION)
+
+        # ETag derived from inputs (resolved version + config hash) rather than
+        # hashing the full ~200KB response body.
+        resolved = resolve_version(requested)
+        etag_version = resolved or get_disk_js_hash()
+        config_hash = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
+        etag = f'"{etag_version}:{config_hash}"'
+
+        return ArrayJSMetadata(etag=etag, requested_version=requested, resolved_version=resolved, config=config)
+
+    @classmethod
+    @tracer.start_as_current_span("RemoteConfig.build_array_js_content")
+    def build_array_js_content(
+        cls,
+        token: str,
+        config: dict,
+        resolved_version: Optional[str] = None,
+        request: Optional[HttpRequest] = None,
+    ) -> str:
+        """Build the full array.js + config JS response body.
+
+        Takes a pre-loaded config dict (from compute_array_js_metadata) to avoid
+        a redundant cache read. resolved_version is the exact version string
+        (e.g. "1.360.1") from ArrayJSMetadata.
+        """
+        array_js = get_js_content(resolved_version)
+        config_js = cls._build_config_js(config, token, request=request, resolved_version=resolved_version)
+        return f"""{config_js}\n\n{array_js}"""
 
     def sync(self, force: bool = False):
         """
@@ -485,6 +593,28 @@ class RemoteConfig(UUIDTModel):
         else:
             REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
 
+    @staticmethod
+    def purge_cdn_by_tag(tag: str):
+        """Purge all CDN entries matching a Cache-Tag."""
+        if not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN:
+            return
+
+        data = {"tags": [tag]}
+
+        try:
+            res = requests.post(
+                settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+                headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+                json=data,
+            )
+            if res.status_code != 200:
+                raise Exception(f"Failed to purge CDN by tag {tag}: {res.status_code} {res.text}")
+        except Exception:
+            logger.exception(f"Failed to purge CDN by tag {tag}")
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
+        else:
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
+
     def __str__(self):
         return f"RemoteConfig {self.team_id}"
 
@@ -515,8 +645,9 @@ def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
 
 
 @receiver(post_save, sender=HogFunction)
-def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
-    if instance.enabled and instance.type in ("site_destination", "site_app"):
+@receiver(post_delete, sender=HogFunction)
+def site_function_changed(sender, instance: "HogFunction", **kwargs):
+    if instance.type in ("site_destination", "site_app"):
         transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
@@ -565,4 +696,9 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.TeamJsSnippetConfig")
+def js_snippet_config_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
