@@ -1010,13 +1010,16 @@ class TestSSOLoginSessionHandling(APILicensedTest):
 
     def test_sso_login_flushes_session_when_reauth_but_not_authenticated(self):
         self.client.force_login(self.user)
-        old_session_key = self.client.session.session_key
         self.client.logout()
+
+        # Establish an anonymous session and capture its key
+        self.client.get("/")
+        anonymous_session_key = self.client.session.session_key
 
         response = self.client.get("/login/google-oauth2/?reauth=true")
 
         self.assertEqual(response.status_code, 302)
-        self.assertNotEqual(self.client.session.session_key, old_session_key)
+        self.assertNotEqual(self.client.session.session_key, anonymous_session_key)
 
 
 class TestSSOEnforcement(APILicensedTest):
