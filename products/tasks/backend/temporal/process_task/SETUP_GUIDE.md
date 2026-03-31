@@ -42,7 +42,7 @@ For **local development**, run:
 python manage.py setup_tasks_oauth
 ```
 
-> **Note:** This command requires `OIDC_RSA_PRIVATE_KEY` and `SANDBOX_JWT_PRIVATE_KEY` to be set in your `.env` (see step 3 below) before OAuth tokens will work at runtime.
+> **Note:** Running this command requires `OIDC_RSA_PRIVATE_KEY` and `SANDBOX_JWT_PRIVATE_KEY` to be set in your `.env` (see step 3 below).
 
 Alternatively, this is also created when you run `generate_demo_data`.
 
