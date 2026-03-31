@@ -17,6 +17,7 @@ from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.filter_storage import get_filters_and_properties
@@ -95,7 +96,7 @@ async def evaluate_person_against_all_filters(person_id, parsed_properties, filt
             )
             matches = False
         else:
-            matches = bool(result.result) if result else False
+            matches = bool(result.result) if hasattr(result, "result") and result else False
 
         # Create event for this filter result
         event = {
@@ -198,6 +199,31 @@ async def flush_kafka_batch_async(
             batch_size=batch_size,
             error=str(e),
         )
+        raise
+
+
+@temporalio.activity.defn
+async def start_next_workflow_activity(inputs, workflow_id: str) -> None:
+    """Activity to start the next workflow in the pipeline."""
+    from django.conf import settings
+
+    import structlog
+
+    logger = structlog.get_logger(__name__)
+
+    try:
+        logger.info(f"Starting next workflow in pipeline: {workflow_id}")
+        client = await async_connect()
+        handle = await client.start_workflow(
+            BackfillPrecalculatedPersonPropertiesWorkflow.run,
+            inputs,
+            id=workflow_id,
+            task_queue=settings.MESSAGING_TASK_QUEUE,
+            execution_timeout=dt.timedelta(hours=24),
+        )
+        logger.info(f"Successfully started workflow: {handle.id}")
+    except Exception as e:
+        logger.exception(f"Failed to start workflow {workflow_id}: {e}")
         raise
 
 
@@ -500,7 +526,7 @@ async def backfill_precalculated_person_properties_activity(
             for i, result in enumerate(flush_results):
                 if isinstance(result, Exception):
                     logger.exception(f"Background flush task {i} failed: {result}", team_id=inputs.team_id)
-                else:
+                elif isinstance(result, int):
                     total_flushed += result
                     logger.info(f"Background flush task {i} completed: {result} messages", team_id=inputs.team_id)
 
@@ -577,7 +603,6 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
         )
 
         # Start next workflow if current batch was full (indicating more data)
-        next_workflow_handle = None
         if result.persons_processed >= inputs.batch_size and result.last_person_id:
             try:
                 # Create next batch inputs with incremented sequence
@@ -594,15 +619,13 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
                     base_id = base_id.rsplit("-batch-", 1)[0]
                 workflow_id = f"{base_id}-batch-{next_sequence}"
 
-                next_workflow_handle = await temporalio.workflow.start_workflow(
-                    BackfillPrecalculatedPersonPropertiesWorkflow.run,
-                    next_inputs,
-                    id=workflow_id,
-                    task_queue="messaging-task-queue",
-                    execution_timeout=dt.timedelta(hours=24),
+                await temporalio.workflow.execute_activity(
+                    start_next_workflow_activity,
+                    args=[next_inputs, workflow_id],
+                    start_to_close_timeout=dt.timedelta(minutes=5),
                 )
 
-                workflow_logger.info(f"Next workflow started with ID: {next_workflow_handle.id}")
+                workflow_logger.info(f"Next workflow started with ID: {workflow_id}")
 
             except Exception as e:
                 workflow_logger.exception(
