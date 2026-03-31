@@ -1,0 +1,226 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: LLM analytics
+feature: llm_analytics
+url_prefix: /llm-analytics
+ui_apps:
+    llm-costs:
+        type: detail
+        view_prop: data
+        data_type: LLMCostsData
+        view_component: LLMCostsView
+tools:
+    evaluation-runs-create:
+        operation: evaluation_runs_create
+        enabled: false
+    evaluations-list:
+        operation: evaluations_list
+        enabled: false
+    evaluations-create:
+        operation: evaluations_create
+        enabled: false
+    evaluations-test-hog-create:
+        operation: evaluations_test_hog_create
+        enabled: false
+    llm-analytics-clustering-config-retrieve:
+        operation: llm_analytics_clustering_config_retrieve
+        enabled: false
+    llm-analytics-clustering-config-set-event-filters-create:
+        operation: llm_analytics_clustering_config_set_event_filters_create
+        enabled: false
+    llm-analytics-clustering-jobs-list:
+        operation: llm_analytics_clustering_jobs_list
+        enabled: false
+    llm-analytics-clustering-jobs-create:
+        operation: llm_analytics_clustering_jobs_create
+        enabled: false
+    llm-analytics-clustering-runs-create:
+        operation: llm_analytics_clustering_runs_create
+        enabled: false
+    llm-analytics-evaluation-config-retrieve:
+        operation: llm_analytics_evaluation_config_retrieve
+        enabled: false
+    llm-analytics-evaluation-config-set-active-key-create:
+        operation: llm_analytics_evaluation_config_set_active_key_create
+        enabled: false
+    llm-analytics-evaluation-summary-create:
+        operation: llm_analytics_evaluation_summary_create
+        enabled: false
+    llm-analytics-models-retrieve:
+        operation: llm_analytics_models_retrieve
+        enabled: false
+    llm-analytics-provider-key-validations-create:
+        operation: llm_analytics_provider_key_validations_create
+        enabled: false
+    llm-analytics-provider-keys-list:
+        operation: llm_analytics_provider_keys_list
+        enabled: false
+    llm-analytics-provider-keys-create:
+        operation: llm_analytics_provider_keys_create
+        enabled: false
+    llm-analytics-score-definitions-list:
+        operation: llm_analytics_score_definitions_list
+        enabled: false
+    llm-analytics-score-definitions-create:
+        operation: llm_analytics_score_definitions_create
+        enabled: false
+    llm-analytics-score-definitions-retrieve:
+        operation: llm_analytics_score_definitions_retrieve
+        enabled: false
+    llm-analytics-score-definitions-partial-update:
+        operation: llm_analytics_score_definitions_partial_update
+        enabled: false
+    llm-analytics-score-definitions-new-version-create:
+        operation: llm_analytics_score_definitions_new_version_create
+        enabled: false
+    llm-analytics-sentiment-create:
+        operation: llm_analytics_sentiment_create
+        enabled: false
+    llm-analytics-summarization-create:
+        operation: llm_analytics_summarization_create
+        enabled: false
+    llm-analytics-summarization-batch-check-create:
+        operation: llm_analytics_summarization_batch_check_create
+        enabled: false
+    llm-analytics-text-repr-create:
+        operation: llm_analytics_text_repr_create
+        enabled: false
+    llm-analytics-translate-create:
+        operation: llm_analytics_translate_create
+        enabled: false
+    llm-prompts-list:
+        operation: llm_prompts_list
+        enabled: false
+    llm-prompts-create:
+        operation: llm_prompts_create
+        enabled: false
+    llm-prompts-name-retrieve:
+        operation: llm_prompts_name_retrieve
+        enabled: false
+    llm-prompts-name-partial-update:
+        operation: llm_prompts_name_partial_update
+        enabled: false
+    llm-prompts-name-archive-create:
+        operation: llm_prompts_name_archive_create
+        enabled: false
+    llm-prompts-resolve-name-retrieve:
+        operation: llm_prompts_resolve_name_retrieve
+        enabled: false
+    dataset-items-list:
+        operation: dataset_items_list
+        enabled: false
+    dataset-items-create:
+        operation: dataset_items_create
+        enabled: false
+    dataset-items-retrieve:
+        operation: dataset_items_retrieve
+        enabled: false
+    dataset-items-update:
+        operation: dataset_items_update
+        enabled: false
+    dataset-items-partial-update:
+        operation: dataset_items_partial_update
+        enabled: false
+    dataset-items-destroy:
+        operation: dataset_items_destroy
+        enabled: false
+    datasets-list:
+        operation: datasets_list
+        enabled: false
+    datasets-create:
+        operation: datasets_create
+        enabled: false
+    datasets-retrieve:
+        operation: datasets_retrieve
+        enabled: false
+    datasets-update:
+        operation: datasets_update
+        enabled: false
+    datasets-partial-update:
+        operation: datasets_partial_update
+        enabled: false
+    datasets-destroy:
+        operation: datasets_destroy
+        enabled: false
+    llm-analytics-clustering-jobs-retrieve:
+        operation: llm_analytics_clustering_jobs_retrieve
+        enabled: false
+    llm-analytics-clustering-jobs-update:
+        operation: llm_analytics_clustering_jobs_update
+        enabled: false
+    llm-analytics-clustering-jobs-partial-update:
+        operation: llm_analytics_clustering_jobs_partial_update
+        enabled: false
+    llm-analytics-clustering-jobs-destroy:
+        operation: llm_analytics_clustering_jobs_destroy
+        enabled: false
+    llm-analytics-provider-keys-retrieve:
+        operation: llm_analytics_provider_keys_retrieve
+        enabled: false
+    llm-analytics-provider-keys-update:
+        operation: llm_analytics_provider_keys_update
+        enabled: false
+    llm-analytics-provider-keys-partial-update:
+        operation: llm_analytics_provider_keys_partial_update
+        enabled: false
+    llm-analytics-provider-keys-destroy:
+        operation: llm_analytics_provider_keys_destroy
+        enabled: false
+    llm-analytics-provider-keys-dependent-configs-retrieve:
+        operation: llm_analytics_provider_keys_dependent_configs_retrieve
+        enabled: false
+    llm-analytics-provider-keys-validate-create:
+        operation: llm_analytics_provider_keys_validate_create
+        enabled: false
+    llm-analytics-review-queue-items-list:
+        operation: llm_analytics_review_queue_items_list
+        enabled: false
+    llm-analytics-review-queue-items-create:
+        operation: llm_analytics_review_queue_items_create
+        enabled: false
+    llm-analytics-review-queue-items-retrieve:
+        operation: llm_analytics_review_queue_items_retrieve
+        enabled: false
+    llm-analytics-review-queue-items-partial-update:
+        operation: llm_analytics_review_queue_items_partial_update
+        enabled: false
+    llm-analytics-review-queue-items-destroy:
+        operation: llm_analytics_review_queue_items_destroy
+        enabled: false
+    llm-analytics-review-queues-list:
+        operation: llm_analytics_review_queues_list
+        enabled: false
+    llm-analytics-review-queues-create:
+        operation: llm_analytics_review_queues_create
+        enabled: false
+    llm-analytics-review-queues-retrieve:
+        operation: llm_analytics_review_queues_retrieve
+        enabled: false
+    llm-analytics-review-queues-partial-update:
+        operation: llm_analytics_review_queues_partial_update
+        enabled: false
+    llm-analytics-review-queues-destroy:
+        operation: llm_analytics_review_queues_destroy
+        enabled: false
+    llm-analytics-trace-reviews-list:
+        operation: llm_analytics_trace_reviews_list
+        enabled: false
+    llm-analytics-trace-reviews-create:
+        operation: llm_analytics_trace_reviews_create
+        enabled: false
+    llm-analytics-trace-reviews-retrieve:
+        operation: llm_analytics_trace_reviews_retrieve
+        enabled: false
+    llm-analytics-trace-reviews-partial-update:
+        operation: llm_analytics_trace_reviews_partial_update
+        enabled: false
+    llm-analytics-trace-reviews-destroy:
+        operation: llm_analytics_trace_reviews_destroy
+        enabled: false
+    llm-prompts-name-duplicate-create:
+        operation: llm_prompts_name_duplicate_create
+        enabled: false

@@ -97,7 +97,7 @@ export const variableModalLogic = kea<variableModalLogicType>([
         values: [teamLogic, ['currentTeamId']],
         actions: [
             variableDataLogic,
-            ['getVariables'],
+            ['loadVariables'],
             variablesLogic,
             ['addVariable', 'updateInternalSelectedVariable'],
         ],
@@ -204,7 +204,7 @@ export const variableModalLogic = kea<variableModalLogicType>([
                         })
                     }
                 }
-                actions.getVariables()
+                actions.loadVariables()
                 actions.closeModal()
             } catch (e: any) {
                 const error = e as ApiError

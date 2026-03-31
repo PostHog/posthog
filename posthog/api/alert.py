@@ -32,6 +32,7 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.utils import validate_alert_config
 from posthog.utils import relative_date_parse
 
@@ -100,6 +101,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "triggered_points",
             "triggered_dates",
             "interval",
+            "triggered_metadata",
         ]
         read_only_fields = fields
 
@@ -498,6 +500,29 @@ class AlertSimulateSerializer(serializers.Serializer):
         return validated.model_dump() if hasattr(validated, "model_dump") else value
 
 
+class BreakdownSimulationResultSerializer(serializers.Serializer):
+    label = serializers.CharField(help_text="Breakdown value label.")  # type: ignore[assignment]
+    data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
+    dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
+    scores = serializers.ListField(
+        child=serializers.FloatField(allow_null=True),
+        help_text="Anomaly score for each point.",
+    )
+    triggered_indices = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Indices of points flagged as anomalies."
+    )
+    triggered_dates = serializers.ListField(
+        child=serializers.CharField(), help_text="Dates of points flagged as anomalies."
+    )
+    total_points = serializers.IntegerField(help_text="Total number of data points analyzed.")
+    anomaly_count = serializers.IntegerField(help_text="Number of anomalies detected.")
+    sub_detector_scores = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Per-sub-detector scores for ensemble detectors.",
+    )
+
+
 class AlertSimulateResponseSerializer(serializers.Serializer):
     data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
@@ -520,6 +545,11 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields.",
+    )
+    breakdown_results = BreakdownSimulationResultSerializer(
+        many=True,
+        required=False,
+        help_text=f"Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to {MAX_DETECTOR_BREAKDOWN_VALUES} values).",
     )
 
 
@@ -634,7 +664,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
     def simulate(self, request, *args, **kwargs):
-        from posthog.tasks.alerts.trends import simulate_detector_on_insight
+        from posthog.tasks.alerts.detector import simulate_detector_on_insight
 
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)

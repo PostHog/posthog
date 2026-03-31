@@ -130,7 +130,7 @@ async def validate_schema_and_update_table(
     logger = LOGGER.bind(team_id=team_id)
 
     if row_count == 0:
-        await logger.awarn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
+        logger.warning("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
         return
 
     @database_sync_to_async_pool
