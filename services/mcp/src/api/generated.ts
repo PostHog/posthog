@@ -1943,9 +1943,16 @@ export namespace Schemas {
     }
 
     export interface DateRange {
-      /** @nullable */
+      /**
+       * Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
+    -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).
+       * @nullable
+       */
       date_from?: string | null;
-      /** @nullable */
+      /**
+       * End of the date range. Same format as date_from. Omit or null for "now".
+       * @nullable
+       */
       date_to?: string | null;
       /**
        * Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.
@@ -10873,15 +10880,22 @@ export namespace Schemas {
 
     export interface ErrorTrackingQuery {
       assignee?: ErrorTrackingIssueAssignee | null;
+      /** Date range to filter results. */
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
-      /** @nullable */
+      /**
+       * Whether to filter out test accounts.
+       * @nullable
+       */
       filterTestAccounts?: boolean | null;
       /** @nullable */
       groupKey?: string | null;
       /** @nullable */
       groupTypeIndex?: number | null;
-      /** @nullable */
+      /**
+       * Filter to a specific error tracking issue by ID.
+       * @nullable
+       */
       issueId?: string | null;
       kind?: ErrorTrackingQueryKind;
       /** @nullable */
@@ -10890,13 +10904,19 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
       offset?: number | null;
+      /** Field to sort results by. */
       orderBy: OrderBy1;
+      /** Sort direction. */
       orderDirection?: OrderDirection1 | null;
       /** @nullable */
       personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;
-      /** @nullable */
+      /**
+       * Free-text search across exception type, message, and stack frames.
+       * @nullable
+       */
       searchQuery?: string | null;
+      /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
       /**
