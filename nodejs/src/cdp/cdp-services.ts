@@ -2,6 +2,8 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
+import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '../ingestion/common/outputs'
+import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PostgresRouter } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
@@ -170,11 +172,18 @@ export function createCdpCoreServices(
     const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService, redis)
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        deps.kafkaProducer,
+        new IngestionOutputs({
+            [APP_METRICS_OUTPUT]: {
+                producer: deps.kafkaProducer,
+                topic: config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+            },
+            [LOG_ENTRIES_OUTPUT]: {
+                producer: deps.kafkaProducer,
+                topic: config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
+            },
+        }),
         deps.internalCaptureService,
-        deps.teamManager,
-        config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-        config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
+        deps.teamManager
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)

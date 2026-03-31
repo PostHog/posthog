@@ -79,8 +79,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.364.2
-      version: 1.364.2
+      specifier: ^1.364.3
+      version: 1.364.3
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -1056,7 +1056,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.364.2
+        version: 1.364.3
       protomaps-themes-base:
         specifier: 2.0.0-alpha.1
         version: 2.0.0-alpha.1
@@ -1404,9 +1404,18 @@ importers:
       '@babel/standalone':
         specifier: ^7.23.2
         version: 7.26.7
+      '@bufbuild/protobuf':
+        specifier: ^2.11.0
+        version: 2.11.0
       '@clickhouse/client':
         specifier: ^1.12.0
         version: 1.12.0
+      '@connectrpc/connect':
+        specifier: ^2.1.1
+        version: 2.1.1(@bufbuild/protobuf@2.11.0)
+      '@connectrpc/connect-node':
+        specifier: ^2.1.1
+        version: 2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
       '@google-cloud/pubsub':
         specifier: 4.11.0
         version: 4.11.0(encoding@0.1.13)
@@ -1618,6 +1627,9 @@ importers:
       '@babel/types':
         specifier: ^7.20.2
         version: 7.26.3
+      '@bufbuild/protoc-gen-es':
+        specifier: ^2.11.0
+        version: 2.11.0(@bufbuild/protobuf@2.11.0)
       '@segment/actions-core':
         specifier: ^3.151.0
         version: 3.153.0(encoding@0.1.13)
@@ -1908,7 +1920,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.364.2
+        version: 1.364.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -1952,7 +1964,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.364.2
+        version: 1.364.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2120,7 +2132,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.364.2
+        version: 1.364.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2195,7 +2207,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.364.2
+        version: 1.364.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2385,7 +2397,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.364.2
+        version: 1.364.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2470,7 +2482,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.364.2
+        version: 1.364.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2879,7 +2891,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.364.2
+        version: 1.364.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2972,7 +2984,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.364.2
+        version: 1.364.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4502,8 +4514,21 @@ packages:
   '@bufbuild/protobuf@1.7.2':
     resolution: {integrity: sha512-i5GE2Dk5ekdlK1TR7SugY4LWRrKSfb5T1Qn4unpIMbfxoeGKERKQ59HG3iYewacGD10SR7UzevfPnh6my4tNmQ==}
 
-  '@bufbuild/protobuf@2.3.0':
-    resolution: {integrity: sha512-WK6zH4MtBp/uesX8KGCnwDDRVnEVHUvwjsigKXcSR57Oo8Oyv1vRS9qyUlSP+6KWRl5z8tNAU5qpf3QodeVYxA==}
+  '@bufbuild/protobuf@2.11.0':
+    resolution: {integrity: sha512-sBXGT13cpmPR5BMgHE6UEEfEaShh5Ror6rfN3yEK5si7QVrtZg8LEPQb0VVhiLRUslD2yLnXtnRzG035J/mZXQ==}
+
+  '@bufbuild/protoc-gen-es@2.11.0':
+    resolution: {integrity: sha512-VzQuwEQDXipbZ1soWUuAWm1Z0C3B/IDWGeysnbX6ogJ6As91C2mdvAND/ekQ4YIWgen4d5nqLfIBOWLqCCjYUA==}
+    engines: {node: '>=20'}
+    hasBin: true
+    peerDependencies:
+      '@bufbuild/protobuf': 2.11.0
+    peerDependenciesMeta:
+      '@bufbuild/protobuf':
+        optional: true
+
+  '@bufbuild/protoplugin@2.11.0':
+    resolution: {integrity: sha512-lyZVNFUHArIOt4W0+dwYBe5GBwbKzbOy8ObaloEqsw9Mmiwv2O48TwddDoHN4itylC+BaEGqFdI1W8WQt2vWJQ==}
 
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
@@ -4584,6 +4609,18 @@ packages:
     resolution: {integrity: sha512-hIn0ncNaJRLkZrxBIp5AsW/eXEHNKYQBh0aPdoUqNgD+Io3NIykQqpKFyKcuasZhicGaEZJX/JBSIkZ4e5x8Dg==}
     peerDependencies:
       commander: ~14.0.0
+
+  '@connectrpc/connect-node@2.1.1':
+    resolution: {integrity: sha512-s3TfsI1XF+n+1z6MBS9rTnFsxxR4Rw5wmdEnkQINli81ESGxcsfaEet8duzq8LVuuCupmhUsgpRo0Nv9pZkufg==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
+      '@connectrpc/connect': 2.1.1
+
+  '@connectrpc/connect@2.1.1':
+    resolution: {integrity: sha512-JzhkaTvM73m2K1URT6tv53k2RwngSmCXLZJgK580qNQOXRzZRR/BCMfZw3h+90JpnG6XksP5bYT+cz0rpUzUWQ==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -8172,8 +8209,8 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.364.2':
-    resolution: {integrity: sha512-SMTdaYanvRmatgheXtu2XkewhuhdXe8C3JCi7m/Hd2n+sa2DaJphcwg3nAkPtfV69JHMxJLe/gyOt7yFtbQSjQ==}
+  '@posthog/types@1.364.3':
+    resolution: {integrity: sha512-jAfgHd09BYosErG+JNsMpxN4f216oNXh0yM8CP9gG/uuGJURL6abzxCzaew/ahPoyMTKJkRCTaLHtrrPtikvEg==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -11466,6 +11503,11 @@ packages:
   '@typescript-eslint/visitor-keys@7.1.1':
     resolution: {integrity: sha512-yTdHDQxY7cSoCcAtiBzVzxleJhkGB9NncSIyMYe2+OGON1ZsP9zOPws/Pqgopa65jvknOjlk/w7ulPlZ78PiLQ==}
     engines: {node: ^16.0.0 || >=18.0.0}
+
+  '@typescript/vfs@1.6.4':
+    resolution: {integrity: sha512-PJFXFS4ZJKiJ9Qiuix6Dz/OwEIqHD7Dme1UwZhTK11vR+5dqW2ACbdndWQexBzCx+CPuMe5WBYQWCsFyGlQLlQ==}
+    peerDependencies:
+      typescript: 5.6.3
 
   '@ungap/structured-clone@1.3.0':
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
@@ -18755,8 +18797,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.364.2:
-    resolution: {integrity: sha512-ryeCFcaORLouVI5wsKxnraIDvKFM6RAxbbKlKuqo+A8VFZ9JvvRpwzfiMQR2trGsJUYcn6B3R4Rn0Xht9NrhAQ==}
+  posthog-js@1.364.3:
+    resolution: {integrity: sha512-8hdJ5zseQRPVuSlZRWysnrp3AF6UfSH5QQ4rf3r51MOFyqB4SOHNW0gnt9k99x4tVExSHeL6NivmQV4sSbeHyw==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -25560,7 +25602,23 @@ snapshots:
 
   '@bufbuild/protobuf@1.7.2': {}
 
-  '@bufbuild/protobuf@2.3.0': {}
+  '@bufbuild/protobuf@2.11.0': {}
+
+  '@bufbuild/protoc-gen-es@2.11.0(@bufbuild/protobuf@2.11.0)':
+    dependencies:
+      '@bufbuild/protoplugin': 2.11.0
+    optionalDependencies:
+      '@bufbuild/protobuf': 2.11.0
+    transitivePeerDependencies:
+      - supports-color
+
+  '@bufbuild/protoplugin@2.11.0':
+    dependencies:
+      '@bufbuild/protobuf': 2.11.0
+      '@typescript/vfs': 1.6.4(typescript@5.6.3)
+      typescript: 5.6.3
+    transitivePeerDependencies:
+      - supports-color
 
   '@cfworker/json-schema@4.1.1': {}
 
@@ -25617,6 +25675,15 @@ snapshots:
   '@commander-js/extra-typings@14.0.0(commander@14.0.2)':
     dependencies:
       commander: 14.0.2
+
+  '@connectrpc/connect-node@2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))':
+    dependencies:
+      '@bufbuild/protobuf': 2.11.0
+      '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.11.0)
+
+  '@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0)':
+    dependencies:
+      '@bufbuild/protobuf': 2.11.0
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
@@ -29522,7 +29589,7 @@ snapshots:
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.364.2': {}
+  '@posthog/types@1.364.3': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -30549,7 +30616,7 @@ snapshots:
       '@amplitude/ua-parser-js': 0.7.33
       '@aws-sdk/client-eventbridge': 3.806.0
       '@aws-sdk/client-s3': 3.975.0
-      '@bufbuild/protobuf': 2.3.0
+      '@bufbuild/protobuf': 2.11.0
       '@segment/a1-notation': 2.1.4
       '@segment/actions-core': 3.153.0(encoding@0.1.13)
       '@segment/actions-shared': 1.134.0(encoding@0.1.13)
@@ -33718,6 +33785,13 @@ snapshots:
     dependencies:
       '@typescript-eslint/types': 7.1.1
       eslint-visitor-keys: 3.4.3
+
+  '@typescript/vfs@1.6.4(typescript@5.6.3)':
+    dependencies:
+      debug: 4.4.3
+      typescript: 5.6.3
+    transitivePeerDependencies:
+      - supports-color
 
   '@ungap/structured-clone@1.3.0': {}
 
@@ -43345,7 +43419,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.364.2:
+  posthog-js@1.364.3:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
@@ -43353,7 +43427,7 @@ snapshots:
       '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
       '@posthog/core': 1.24.4
-      '@posthog/types': 1.364.2
+      '@posthog/types': 1.364.3
       core-js: 3.40.0
       dompurify: 3.3.2
       fflate: 0.4.8

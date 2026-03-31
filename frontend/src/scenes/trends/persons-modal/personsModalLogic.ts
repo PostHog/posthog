@@ -479,9 +479,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 const source = actorsQuery.source
 
-                // For FunnelsActorsQuery with session IDs, use ONLY session IDs for efficient lookup
+                // If we have session IDs from matched_recordings, use them directly for efficient lookup
                 // No need for additional event/property filters since we already have the exact list of sessions
-                if (source.kind === 'FunnelsActorsQuery' && sessionIds.length > 0) {
+                if (sessionIds.length > 0) {
                     return {
                         session_ids: sessionIds,
                         // Use minimal valid structure required by conversion functions
@@ -496,10 +496,31 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 // For non-funnel queries or funnels without session IDs, use filter-based approach
                 const filters: UniversalFilterValue[] = []
 
-                // For FunnelsActorsQuery, the actual query is nested at source.source
+                // The actual insight query (with series, properties, etc.) is nested at source.source
                 let insightQuery = source
-                if (source.kind === 'FunnelsActorsQuery' && 'source' in source && source.source) {
+                if ('source' in source && source.source) {
                     insightQuery = source.source as any
+                }
+
+                // Extract events from the insight query series
+                if ('series' in insightQuery && Array.isArray(insightQuery.series)) {
+                    insightQuery.series.forEach((series) => {
+                        if ('event' in series && series.event) {
+                            const eventFilter: any = {
+                                id: series.event,
+                                name: series.event,
+                                type: 'events',
+                            }
+                            if (
+                                'properties' in series &&
+                                Array.isArray(series.properties) &&
+                                series.properties.length > 0
+                            ) {
+                                eventFilter.properties = series.properties
+                            }
+                            filters.push(eventFilter)
+                        }
+                    })
                 }
 
                 // Add breakdown filters if present

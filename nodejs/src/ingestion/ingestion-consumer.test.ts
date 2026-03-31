@@ -14,7 +14,7 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { createTestIngestionOutputs } from '../../tests/helpers/ingestion-outputs'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
@@ -111,7 +111,10 @@ describe('IngestionConsumer', () => {
                 kafkaMetricsProducer: hub.kafkaProducer,
                 outputs,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
-                hogTransformer: createHogTransformerService(hub, hub),
+                hogTransformer: createHogTransformerService(hub, {
+                    ...hub,
+                    monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+                }),
             },
             overrides
         )

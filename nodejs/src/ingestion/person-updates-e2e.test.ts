@@ -19,7 +19,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
-import { createTestIngestionOutputs } from '../../tests/helpers/ingestion-outputs'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../tests/helpers/sql'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
@@ -229,7 +229,10 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         ingester = new IngestionConsumer(hub, {
             ...hub,
             kafkaMetricsProducer: hub.kafkaProducer,
-            hogTransformer: createHogTransformerService(hub, hub),
+            hogTransformer: createHogTransformerService(hub, {
+                ...hub,
+                monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+            }),
             outputs,
             clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
         })

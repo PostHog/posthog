@@ -257,6 +257,41 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(latest_run["status"], "queued")
         self.assertEqual(latest_run["environment"], "cloud")
 
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_sandbox_environment_id(self, mock_workflow):
+        task = self.create_task()
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Restricted env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=["example.com"],
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": str(sandbox_environment.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run_id = response.json()["latest_run"]["id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
+        mock_workflow.assert_called_once()
+
+    def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": "550e8400-e29b-41d4-a716-446655440000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid sandbox_environment_id")
+
     @parameterized.expand(
         [
             # (filter_param, filter_value, task_repos, expected_task_indices)
