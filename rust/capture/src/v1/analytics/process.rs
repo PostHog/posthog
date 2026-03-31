@@ -218,7 +218,7 @@ fn normalize_timestamp(
     event: &Event,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    if event.options.ignore_attempt_timestamp.unwrap_or(false) {
+    if event.options.disable_skew_adjustment.unwrap_or(false) {
         return raw_event_ts;
     }
 
@@ -396,7 +396,7 @@ mod tests {
     fn default_options() -> Options {
         Options {
             cookieless_mode: None,
-            ignore_attempt_timestamp: None,
+            disable_skew_adjustment: None,
             product_tour_id: None,
             process_person_profile: None,
         }
@@ -780,7 +780,7 @@ mod tests {
         }
     }
 
-    fn event_with_ignore_attempt_timestamp(ignore: bool) -> Event {
+    fn event_with_disable_skew_adjustment(disable: bool) -> Event {
         Event {
             event: "$pageview".to_string(),
             uuid: Uuid::new_v4().to_string(),
@@ -790,7 +790,7 @@ mod tests {
             window_id: None,
             options: Options {
                 cookieless_mode: None,
-                ignore_attempt_timestamp: Some(ignore),
+                disable_skew_adjustment: Some(disable),
                 product_tour_id: None,
                 process_person_profile: None,
             },
@@ -849,20 +849,20 @@ mod tests {
     }
 
     #[test]
-    fn normalize_ignore_attempt_timestamp_skips_adjustment() {
+    fn normalize_disable_skew_adjustment_skips_adjustment() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_ignore_attempt_timestamp(true);
+        let event = event_with_disable_skew_adjustment(true);
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, event_ts);
     }
 
     #[test]
-    fn normalize_ignore_attempt_timestamp_false_still_adjusts() {
+    fn normalize_disable_skew_adjustment_false_still_adjusts() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_ignore_attempt_timestamp(false);
+        let event = event_with_disable_skew_adjustment(false);
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, dt("2026-03-19T10:59:50Z"));

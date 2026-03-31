@@ -36,7 +36,7 @@ pub struct Options {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore_attempt_timestamp: Option<bool>,
+    pub disable_skew_adjustment: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product_tour_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -112,7 +112,7 @@ impl HasEventName for WrappedEvent {
 // fields for legacy consumer compatibility:
 //   Event: session_id -> $session_id, window_id -> $window_id
 //   Options: cookieless_mode -> $cookieless_mode,
-//            ignore_attempt_timestamp -> $ignore_attempt_timestamp,
+//            disable_skew_adjustment -> $disable_skew_adjustment,
 //            product_tour_id -> $product_tour_id,
 //            process_person_profile -> $process_person_profile
 #[derive(Debug, Serialize)]
@@ -374,7 +374,7 @@ mod tests {
                 "window_id": "win-xyz",
                 "options": {
                     "cookieless_mode": true,
-                    "ignore_attempt_timestamp": true,
+                    "disable_skew_adjustment": true,
                     "product_tour_id": "tour-123",
                     "process_person_profile": false
                 }
@@ -385,7 +385,7 @@ mod tests {
         assert_eq!(event.session_id.as_deref(), Some("sess-abc"));
         assert_eq!(event.window_id.as_deref(), Some("win-xyz"));
         assert_eq!(event.options.cookieless_mode, Some(true));
-        assert_eq!(event.options.ignore_attempt_timestamp, Some(true));
+        assert_eq!(event.options.disable_skew_adjustment, Some(true));
         assert_eq!(event.options.product_tour_id.as_deref(), Some("tour-123"));
         assert_eq!(event.options.process_person_profile, Some(false));
     }
@@ -421,7 +421,7 @@ mod tests {
         assert_eq!(event.session_id, None);
         assert_eq!(event.window_id, None);
         assert_eq!(event.options.cookieless_mode, None);
-        assert_eq!(event.options.ignore_attempt_timestamp, None);
+        assert_eq!(event.options.disable_skew_adjustment, None);
         assert_eq!(event.options.product_tour_id, None);
         assert_eq!(event.options.process_person_profile, None);
     }

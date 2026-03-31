@@ -127,12 +127,12 @@ impl Context {
                 ))
             })?;
 
-        let client_ts_raw = header_str(headers, POSTHOG_ATTEMPT_TIMESTAMP)?;
+        let client_ts_raw = header_str(headers, POSTHOG_REQUEST_TIMESTAMP)?;
         let client_timestamp: DateTime<Utc> = DateTime::parse_from_rfc3339(client_ts_raw)
             .map(|dt| dt.with_timezone(&Utc))
             .map_err(|_| {
                 Error::InvalidHeaderValue(format!(
-                    "{POSTHOG_ATTEMPT_TIMESTAMP} is not valid RFC 3339: {client_ts_raw}"
+                    "{POSTHOG_REQUEST_TIMESTAMP} is not valid RFC 3339: {client_ts_raw}"
                 ))
             })?;
 
@@ -204,7 +204,7 @@ mod tests {
             HeaderValue::from_str(&Uuid::new_v4().to_string()).unwrap(),
         );
         h.insert(
-            POSTHOG_ATTEMPT_TIMESTAMP,
+            POSTHOG_REQUEST_TIMESTAMP,
             HeaderValue::from_static("2025-01-15T10:30:00Z"),
         );
         h.insert("content-type", HeaderValue::from_static("application/json"));
@@ -374,7 +374,7 @@ mod tests {
     fn invalid_rfc3339_timestamp() {
         let mut headers = valid_headers();
         headers.insert(
-            POSTHOG_ATTEMPT_TIMESTAMP,
+            POSTHOG_REQUEST_TIMESTAMP,
             HeaderValue::from_static("not-a-timestamp"),
         );
         let err = test_context(&headers).unwrap_err();

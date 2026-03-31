@@ -256,7 +256,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    ignore_attempt_timestamp: None,
+                    disable_skew_adjustment: None,
                     product_tour_id: product_tour_id.map(String::from),
                     process_person_profile: None,
                 },

@@ -13,8 +13,8 @@ pub const POSTHOG_ATTEMPT: &str = "PostHog-Attempt";
 /// Header carrying the SDK-generated unique request ID for deduplication.
 pub const POSTHOG_REQUEST_ID: &str = "PostHog-Request-Id";
 
-/// Header carrying the SDK-side timestamp of the attempt.
-pub const POSTHOG_ATTEMPT_TIMESTAMP: &str = "PostHog-Attempt-Timestamp";
+/// Header carrying the SDK-side timestamp of the request.
+pub const POSTHOG_REQUEST_TIMESTAMP: &str = "PostHog-Request-Timestamp";
 
 // ---------------------------------------------------------------------------
 // Required request headers
@@ -29,7 +29,7 @@ pub(super) const REQUIRED_HEADERS: &[&str] = &[
     POSTHOG_SDK_INFO,
     POSTHOG_ATTEMPT,
     POSTHOG_REQUEST_ID,
-    POSTHOG_ATTEMPT_TIMESTAMP,
+    POSTHOG_REQUEST_TIMESTAMP,
     "content-type",
     "user-agent",
 ];
