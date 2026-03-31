@@ -8,9 +8,6 @@ The job is partitioned by date to allow incremental backfilling of historical da
 Within each date partition, events are further chunked by team_id to keep file sizes manageable.
 
 S3 path structure: s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/
-
-Uses plain directory segments (not Hive-style key=value) to avoid DuckLake
-interpreting them as partition columns during ducklake_add_data_files.
 """
 
 import base64
@@ -298,9 +295,6 @@ def get_s3_path_for_partition(
     """Build S3 path for a partition file.
 
     Path structure: s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/{chunk_id}.parquet
-
-    Uses plain directory segments (not Hive-style key=value) to avoid DuckLake
-    interpreting them as partition columns during ducklake_add_data_files.
     """
     year = date.strftime("%Y")
     month = date.strftime("%m")
@@ -533,7 +527,7 @@ def register_files_with_ducklake(
                 # Use escape() to prevent SQL injection
                 conn.execute(
                     f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}',"
-                    f" schema => 'posthog', hive_partitioning => false)"
+                    f" schema => 'posthog')"
                 )
                 registered_count += 1
                 context.log.info(f"Successfully registered: {s3_path}")
