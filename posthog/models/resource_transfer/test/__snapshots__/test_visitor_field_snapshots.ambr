@@ -197,6 +197,7 @@
     'metrics',
     'metrics_secondary',
     'name',
+    'only_count_matured_users',
     'parameters',
     'primary_metrics_ordered_uuids',
     'scheduling_config',

@@ -256,6 +256,7 @@ SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_
 # For sensitive actions we have an additional permission (default 2 hour)
 SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
 
+SESSION_COOKIE_NAME = get_from_env("SESSION_COOKIE_NAME", "sessionid")
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
 

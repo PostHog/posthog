@@ -205,7 +205,7 @@ class TestQueryCoalescer(TestCase):
     def test_new_leader_preserves_done_key_from_previous_round(self):
         """A new leader acquiring the lock must not delete the
         done_key stored by the previous leader, otherwise followers of the
-        previous round will see not data."""
+        previous round will see no data."""
         leader_a = QueryCoalescer(self.key)
         leader_a.try_acquire()
         leader_a.store_success_response(200, b'{"ok": true}', "application/json")

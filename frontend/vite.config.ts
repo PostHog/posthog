@@ -100,11 +100,11 @@ export default defineConfig(({ mode }) => {
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
-            // this is just used in dev
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
-            cors: true, // This disables CORS in dev, key for using ngrok (e.g. for testing Slack integration)
-            // Configure origin for proper asset URL generation
-            origin: 'http://localhost:8234',
+            cors: true,
+            // JS_URL overrides for sandbox environments where Vite is exposed on a different port.
+            origin: process.env.JS_URL || 'http://localhost:8234',
+            hmr: process.env.JS_URL ? { clientPort: parseInt(process.env.JS_URL.split(':').pop()!) } : undefined,
             proxy: {
                 '/static': {
                     target: 'http://localhost:8000',

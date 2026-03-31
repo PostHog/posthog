@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet } from 'lib/utils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -33,11 +32,8 @@ export function TrendsSeries(): JSX.Element | null {
         insightVizDataLogic(insightProps)
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-
-    const supportsDwhLifecycle = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_LIFECYCLE_SUPPORT]
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
@@ -119,7 +115,7 @@ export function TrendsSeries(): JSX.Element | null {
                     ...((isTrends &&
                         display !== ChartDisplayType.CalendarHeatmap &&
                         display !== ChartDisplayType.BoxPlot) ||
-                    (supportsDwhLifecycle && isLifecycle)
+                    isLifecycle
                         ? [TaxonomicFilterGroupType.DataWarehouse]
                         : []),
                 ]}

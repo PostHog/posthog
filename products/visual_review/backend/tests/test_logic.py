@@ -458,6 +458,40 @@ class TestRunOperations:
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
 
+    def test_update_run_counts_reads_and_writes_through_requested_db(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            baseline_hashes={},
+        )
+
+        snapshot_queryset = mocker.Mock()
+        snapshot_queryset.values.return_value.annotate.return_value = [
+            {"result": SnapshotResult.CHANGED, "n": 2},
+            {"result": SnapshotResult.NEW, "n": 1},
+        ]
+        snapshot_manager = mocker.Mock()
+        snapshot_manager.filter.return_value = snapshot_queryset
+
+        run_snapshot_using = mocker.patch.object(logic.RunSnapshot.objects, "using", return_value=snapshot_manager)
+        run_save = mocker.patch.object(run, "save")
+
+        logic._update_run_counts(run, using=logic.WRITER_DB)
+
+        run_snapshot_using.assert_called_once_with(logic.WRITER_DB)
+        snapshot_manager.filter.assert_called_once_with(run_id=run.id)
+        run_save.assert_called_once_with(
+            using=logic.WRITER_DB, update_fields=["changed_count", "new_count", "removed_count"]
+        )
+        assert run.changed_count == 2
+        assert run.new_count == 1
+        assert run.removed_count == 0
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveRun:
@@ -578,7 +612,10 @@ class TestCommitStatusChecks:
         assert statuses[-1]["state"] == "success"
         assert "No visual changes" in statuses[-1]["description"]
 
-    def test_complete_run_posts_failure_when_changes_detected(self, github_repo, mock_github_api):
+    def test_complete_run_posts_comment_when_changes_detected(self, github_repo, mock_github_api):
+        github_repo.enable_pr_comments = True
+        github_repo.save(update_fields=["enable_pr_comments"])
+
         run, _ = logic.create_run(
             repo_id=github_repo.id,
             team_id=github_repo.team_id,
@@ -600,6 +637,101 @@ class TestCommitStatusChecks:
         assert statuses[-1]["state"] == "success"
         assert "1 changed" in statuses[-1]["description"]
         assert "1 new" in statuses[-1]["description"]
+        assert len(mock_github_api.issue_comments) == 1
+        assert mock_github_api.issue_comments[0]["action"] == "created"
+        comment = mock_github_api.issue_comments[0]["body"]
+        assert "Review and approve in PostHog Visual Review" in comment
+        assert f"/visual_review/runs/{run.id}" in comment
+        # Verify comment ID stored for future updates
+        run.refresh_from_db()
+        assert run.metadata["github_comment_id"] is not None
+
+    def test_subsequent_run_updates_existing_comment(self, github_repo, mock_github_api):
+        github_repo.enable_pr_comments = True
+        github_repo.save(update_fields=["enable_pr_comments"])
+
+        run1, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc111",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
+            baseline_hashes={"changed": "old_h"},
+        )
+        logic.mark_run_completed(run1.id)
+
+        run2, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc222",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "changed", "content_hash": "newer_h"}],
+            baseline_hashes={"changed": "old_h"},
+        )
+        logic.mark_run_completed(run2.id)
+
+        created = [c for c in mock_github_api.issue_comments if c["action"] == "created"]
+        updated = [c for c in mock_github_api.issue_comments if c["action"] == "updated"]
+        assert len(created) == 1
+        assert len(updated) == 1
+        assert f"/visual_review/runs/{run2.id}" in updated[0]["body"]
+
+    def test_complete_run_does_not_comment_twice_on_retry(self, github_repo, mock_github_api):
+        github_repo.enable_pr_comments = True
+        github_repo.save(update_fields=["enable_pr_comments"])
+
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
+            baseline_hashes={"changed": "old_h"},
+        )
+
+        logic.mark_run_completed(run.id)
+        logic.mark_run_completed(run.id)
+
+        assert len(mock_github_api.issue_comments) == 1
+
+    @pytest.mark.parametrize(
+        "enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose",
+        [
+            (False, 1, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "review"),
+            (True, None, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "review"),
+            (True, 1, [{"identifier": "snap", "content_hash": "same"}], {"snap": "same"}, "review"),
+            (True, 1, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "observe"),
+        ],
+        ids=["toggle_off", "no_pr", "no_changes", "observe_purpose"],
+    )
+    def test_complete_run_does_not_comment(
+        self, enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose, github_repo, mock_github_api
+    ):
+        if enable_pr_comments:
+            github_repo.enable_pr_comments = True
+            github_repo.save(update_fields=["enable_pr_comments"])
+
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=pr_number,
+            snapshots=snapshots,
+            baseline_hashes=baseline_hashes,
+            purpose=purpose,
+        )
+
+        logic.mark_run_completed(run.id)
+
+        assert len(mock_github_api.issue_comments) == 0
 
     def test_complete_run_posts_error_on_failure(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
@@ -618,6 +750,7 @@ class TestCommitStatusChecks:
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "error"
         assert "failed" in statuses[-1]["description"].lower()
+        assert len(mock_github_api.issue_comments) == 0
 
     def test_approve_run_posts_success(self, github_repo, mock_github_api, user):
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
