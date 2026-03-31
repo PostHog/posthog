@@ -91,7 +91,7 @@ export function ManageSubscriptions({
     const { subscriptions, subscriptionsLoading } = useValues(logic)
     const { deleteSubscription } = useActions(logic)
 
-    const subscriptionResourceNoun = insightShortId ? 'insight' : dashboardId ? 'dashboard' : 'insight'
+    const subscriptionResourceNoun = !insightShortId && dashboardId ? 'dashboard' : 'insight'
 
     return (
         <>
