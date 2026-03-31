@@ -393,8 +393,7 @@ class TestCohortUtils(BaseTest):
         self.assertIn("SETTINGS", sql)
         self.assertIn("transform_null_in=1", sql)
 
-        # readonly=0 because this query is embedded inside an INSERT statement
-        self.assertIn("readonly=0", sql)
+        self.assertIn("readonly=2", sql)
         # Higher timeout because this runs as a background Celery task
         self.assertIn("max_execution_time=600", sql)
         self.assertIn("allow_experimental_object_type=1", sql)
