@@ -31,6 +31,13 @@ Events or properties starting from "$" are system properties automatically captu
 Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.
 When reading events, you can paginate using `limit` (1-500, default 500) and `offset` (default 0) on the ReadEvents query. If the response indicates more events are available, increment the offset to fetch subsequent pages.
 
+IMPORTANT: Some person properties follow dynamic naming patterns and will NOT appear in results. If a user's question involves surveys, feature flags, early access features, or product tours, construct the property name using these patterns:
+- $survey_dismissed/{survey_id}, $survey_responded/{survey_id} — Boolean, survey dismiss/response tracking
+- $feature_enrollment/{flag_key} — Boolean, early access feature enrollment
+- $feature/{flag_key} — feature flag value (event property, not person property)
+- $feature_interaction/{feature_key} — Boolean, feature interaction tracking
+- $product_tour_dismissed/{tour_id}, $product_tour_shown/{tour_id}, $product_tour_completed/{tour_id} — Boolean, product tour lifecycle
+
 # Examples of when to use the read_taxonomy tool
 
 <example>
