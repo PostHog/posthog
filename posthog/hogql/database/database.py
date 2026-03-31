@@ -67,6 +67,11 @@ from posthog.hogql.database.schema.document_embeddings import (
     RawDocumentEmbeddingsTable,
 )
 from posthog.hogql.database.schema.duckdb_table_functions import GenerateSeriesTable, RangeTable
+from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
+    ErrorTrackingFingerprintIssueStateTable,
+    RawErrorTrackingFingerprintIssueStateTable,
+    join_with_error_tracking_fingerprint_issue_state_table,
+)
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
@@ -227,6 +232,10 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "raw_error_tracking_issue_fingerprint_overrides": TableNode(
         name="raw_error_tracking_issue_fingerprint_overrides",
         table=RawErrorTrackingIssueFingerprintOverridesTable(),
+    ),
+    "raw_error_tracking_fingerprint_issue_state": TableNode(
+        name="raw_error_tracking_fingerprint_issue_state",
+        table=RawErrorTrackingFingerprintIssueStateTable(),
     ),
     "raw_sessions": TableNode(name="raw_sessions", table=RawSessionsTableV1()),
     "raw_sessions_v3": TableNode(name="raw_sessions_v3", table=RawSessionsTableV3()),
@@ -1417,6 +1426,41 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
             "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
             start=None,
         ),
+    )
+
+    # Denormalized issue metadata from the fingerprint denormalized table
+    table.fields["exception_issue_denormalized"] = LazyJoin(
+        from_field=["fingerprint"],
+        join_table=ErrorTrackingFingerprintIssueStateTable(),
+        join_function=join_with_error_tracking_fingerprint_issue_state_table,
+    )
+    table.fields["issue_id_denormalized"] = ExpressionField(
+        name="issue_id_denormalized",
+        expr=parse_expr("exception_issue_denormalized.issue_id"),
+    )
+    table.fields["issue_name"] = ExpressionField(
+        name="issue_name",
+        expr=parse_expr("exception_issue_denormalized.issue_name"),
+    )
+    table.fields["issue_description"] = ExpressionField(
+        name="issue_description",
+        expr=parse_expr("exception_issue_denormalized.issue_description"),
+    )
+    table.fields["issue_status"] = ExpressionField(
+        name="issue_status",
+        expr=parse_expr("exception_issue_denormalized.issue_status"),
+    )
+    table.fields["assigned_user_id"] = ExpressionField(
+        name="assigned_user_id",
+        expr=parse_expr("exception_issue_denormalized.assigned_user_id", start=None),
+    )
+    table.fields["assigned_role_id"] = ExpressionField(
+        name="assigned_role_id",
+        expr=parse_expr("exception_issue_denormalized.assigned_role_id", start=None),
+    )
+    table.fields["issue_first_seen"] = ExpressionField(
+        name="issue_first_seen",
+        expr=parse_expr("exception_issue_denormalized.first_seen"),
     )
 
 
