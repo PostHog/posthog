@@ -15,13 +15,15 @@ import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
     AnyPropertyFilter,
+    BaseMathType,
     DashboardTile,
     DashboardType,
+    FilterLogicalOperator,
     FilterType,
     InsightLogicProps,
     InsightShortId,
@@ -369,18 +371,18 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                const insight: Partial<QueryBasedInsightModel> = {
+                const insight: Partial<QueryBasedInsightModel<InsightVizNode>> = {
                     short_id: Insight42,
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
-                            series: [{ kind: NodeKind.EventsNode, event: 3, throw: true, math: 'total' }],
+                            series: [{ kind: NodeKind.EventsNode, event: '3', math: BaseMathType.TotalCount }],
                             properties: {
-                                type: 'AND',
+                                type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: 'AND',
+                                        type: FilterLogicalOperator.And,
                                         values: [
                                             {
                                                 value: 'a',
@@ -419,7 +421,7 @@ describe('insightLogic', () => {
                                             },
                                         ],
                                     },
-                                    series: [partial({ event: 3 })],
+                                    series: [partial({ event: '3' })],
                                 },
                             },
                         },
