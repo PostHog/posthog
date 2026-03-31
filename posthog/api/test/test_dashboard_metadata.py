@@ -37,7 +37,7 @@ class TestGenerateDashboardMetadata(APIBaseTest):
         ]
     )
     @patch(MOCK_PATH)
-    def test_returns_400_when_no_insight_or_text_tiles(self, mock_openai, _case_name):
+    def test_returns_400_when_no_insight_or_text_tiles(self, _case_name, mock_openai):
         if _case_name == "no_tiles":
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Empty"})
         else:
