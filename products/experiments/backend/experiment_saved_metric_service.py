@@ -20,13 +20,15 @@ from posthog.schema import (
 
 from posthog.models.team.team import Team
 
-from products.experiments.backend.models.experiment import ExperimentSavedMetric, saved_metric_has_legacy_query
+from products.experiments.backend.models.experiment import (
+    LEGACY_METRIC_KINDS,
+    ExperimentSavedMetric,
+    saved_metric_has_legacy_query,
+)
 
 
 class ExperimentSavedMetricService:
     """Single source of truth for experiment saved metric business logic."""
-
-    LEGACY_QUERY_KINDS = {"ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
 
     def __init__(self, team: Team, user: Any):
         self.team = team
@@ -39,7 +41,7 @@ class ExperimentSavedMetricService:
             raise ValidationError("Query is required to create a saved metric")
 
         kind = query.get("kind")
-        if kind in cls.LEGACY_QUERY_KINDS:
+        if kind in LEGACY_METRIC_KINDS:
             raise ValidationError(
                 f"Legacy metric kind '{kind}' is no longer supported for new saved metrics. "
                 "Use 'ExperimentMetric' instead."
