@@ -16,7 +16,6 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.session_replay.session_summary.types.video import (
     ConsolidatedVideoAnalysis,
-    SentimentOutcomeType,
     SessionSentiment,
     VideoSegmentOutput,
     VideoSummarySingleSessionInputs,
@@ -175,7 +174,7 @@ def _validate_and_clamp_sentiment(analysis: ConsolidatedVideoAnalysis) -> Consol
         signal_floor = min((n_confused + n_blocked * 2) / len(analysis.segments), 1.0)
         score = max(score, signal_floor * 0.5)
 
-    OUTCOME_SCORE_FLOORS: dict[SentimentOutcomeType, float] = {
+    OUTCOME_SCORE_FLOORS: dict[str, float] = {
         "successful": 0.0,
         "friction": 0.2,
         "frustrated": 0.5,
