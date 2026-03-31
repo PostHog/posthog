@@ -10,8 +10,8 @@ use crate::{
     assignment_rules::{try_assignment_rules, Assignment},
     error::UnhandledError,
     issue_resolution::{
-        send_issue_created_alert, send_issue_reopened_alert, send_new_fingerprint_event, Issue,
-        IssueFingerprintOverride,
+        send_issue_created_alert, send_issue_fingerprint_issue_state, send_issue_reopened_alert,
+        send_new_fingerprint_event, Issue, IssueFingerprintOverride,
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     posthog_utils::capture_issue_created,
@@ -110,6 +110,14 @@ async fn resolve_issue(
             let assignment =
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
+            send_issue_fingerprint_issue_state(
+                context,
+                &issue,
+                &fingerprint,
+                assignment.as_ref(),
+                event_timestamp,
+            )
+            .await?;
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
             context
                 .signal_client
@@ -162,6 +170,14 @@ async fn resolve_issue(
             let assignment =
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
+            send_issue_fingerprint_issue_state(
+                context,
+                &issue,
+                &fingerprint,
+                assignment.as_ref(),
+                event_timestamp,
+            )
+            .await?;
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
             context
                 .signal_client
@@ -176,6 +192,14 @@ async fn resolve_issue(
 
         let output_props = event_properties.clone().to_output(issue.id)?;
         send_new_fingerprint_event(context, &issue, &output_props).await?;
+        send_issue_fingerprint_issue_state(
+            context,
+            &issue,
+            &fingerprint,
+            assignment.as_ref(),
+            event_timestamp,
+        )
+        .await?;
         context
             .signal_client
             .emit_issue_created(&issue, &output_props);
