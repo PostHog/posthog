@@ -1646,6 +1646,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # 10. TEMPORAL ATTRIBUTION CORE TESTS - Ad timing vs conversion timing
     # ================================================================
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_basic_forward_order(self):
         """
         Test Case: Basic temporal attribution - Ad BEFORE conversion (SHOULD attribute)
@@ -1706,6 +1707,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name == "spring_sale", f"Expected spring_sale campaign, got {campaign_name}"
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     def test_temporal_attribution_forward_order_validation_example(self):
         """
@@ -1906,6 +1908,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "meta", f"Last-touch attribution should choose Meta source over Email, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_direct_utm_attribution_priority_over_temporal(self):
         """
         Note: Direct UTM params on conversion event should override temporal attribution
@@ -1996,7 +1999,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # 1. Direct UTM params on conversion event (HIGHEST PRIORITY)
         # 2. Last valid touchpoint before conversion (FALLBACK)
         # 3. Unknown Campaign/Source (DEFAULT)
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_basic_backward_order(self):
         """
         Test basic temporal attribution when ad comes after conversion.
@@ -2056,7 +2061,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name == "organic", f"Expected organic attribution, got {campaign_name}"
         assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_multiple_touchpoints_last_touch(self):
         """
         Test Case: Multiple touchpoints before conversion - Last touch attribution
@@ -2125,6 +2132,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "early_bird", f"Should not attribute to first touch early_bird"
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_multiple_touchpoints_first_touch(self):
@@ -2201,6 +2209,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name != "spring_sale", f"Should not attribute to last touch spring_sale"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_touchpoints_before_and_after_conversion(self):
         """
         Test Case: Touchpoints both before AND after conversion
@@ -2295,7 +2304,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "summer_sale", f"Should ignore ads after conversion"
         assert campaign_name != "july_promo", f"Should ignore ads after conversion"
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_long_attribution_window(self):
         """
         Test Case: Long attribution window - months apart
@@ -2356,6 +2367,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name == "new_year", f"Expected new_year campaign, got {campaign_name}"
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     def test_temporal_attribution_multiple_conversions_separate_attribution(self):
         """
@@ -3174,6 +3186,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_cross_channel_attribution_full_funnel(self):
         """
         Test Case: Cross-channel attribution across the full marketing funnel
@@ -3264,6 +3277,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "brand_awareness", f"Should not attribute to first touch"
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     def test_multi_session_attribution_across_devices(self):
         """
