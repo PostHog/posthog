@@ -9,6 +9,7 @@ export type ScrollableShadowsProps = {
     direction: 'horizontal' | 'vertical'
     className?: string
     innerClassName?: string
+    contentClassName?: string
     scrollRef?: MutableRefObject<HTMLDivElement | null>
     tabIndex?: number
     role?: string
@@ -39,6 +40,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
         direction,
         className,
         innerClassName,
+        contentClassName,
         scrollRef,
         styledScrollbars = false,
         disableScroll = false,
@@ -86,7 +88,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
                           : undefined
                 }
             >
-                <ScrollArea.Content className="min-w-0">{children}</ScrollArea.Content>
+                <ScrollArea.Content className={clsx('min-w-0', contentClassName)}>{children}</ScrollArea.Content>
             </ScrollArea.Viewport>
         </ScrollArea.Root>
     )
