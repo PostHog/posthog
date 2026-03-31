@@ -144,6 +144,10 @@ export function describeCron(expr: string | null): string | null {
         return 'Invalid cron expression'
     }
     try {
+        // Validate with cron-parser first — cronstrue is lenient and can
+        // produce garbled output (e.g. "Monday through undefined") for
+        // syntactically incomplete expressions like "0 9 * * 1-".
+        CronExpressionParser.parse(expr)
         return cronstrue.toString(expr)
     } catch {
         return 'Invalid cron expression'

@@ -409,6 +409,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
     } = useActions(featureFlagLogic)
     const {
         isEditOpen,
+        editingSchedule,
         editScheduledAt,
         editCronExpression,
         editEndDate,
@@ -983,15 +984,15 @@ function FeatureFlagScheduleV2(): JSX.Element {
                 }
             >
                 <div className="flex flex-col gap-4">
-                    {editOperationType && (
-                        <div>
-                            <LemonTag>
-                                {editOperationType === ScheduledChangeOperationType.UpdateStatus
-                                    ? 'Change status'
-                                    : editOperationType === ScheduledChangeOperationType.AddReleaseCondition
-                                      ? 'Add release condition'
-                                      : 'Update variants'}
-                            </LemonTag>
+                    {editOperationType === ScheduledChangeOperationType.UpdateStatus && (
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-muted">Status</label>
+                            <LemonSwitch
+                                checked={editPayloadValue}
+                                onChange={(checked) => setEditPayloadValue(checked)}
+                                label={editPayloadValue ? 'Flag will be enabled' : 'Flag will be disabled'}
+                                bordered
+                            />
                         </div>
                     )}
 
@@ -1039,9 +1040,10 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                 onChange={(value) => setEditCronExpression(value)}
                                 placeholder="0 9 * * 1-5"
                             />
-                            {editCronPreview && <span className="text-xs text-muted">{editCronPreview}</span>}
-                            {editValidationErrors.cronExpression && (
+                            {editValidationErrors.cronExpression ? (
                                 <span className="text-xs text-danger">{editValidationErrors.cronExpression}</span>
+                            ) : (
+                                editCronPreview && <span className="text-xs text-muted">{editCronPreview}</span>
                             )}
                         </div>
                     )}
@@ -1063,23 +1065,18 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         </div>
                     )}
 
-                    {editOperationType === ScheduledChangeOperationType.UpdateStatus && (
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-muted">Status</label>
-                            <LemonSwitch
-                                checked={editPayloadValue}
-                                onChange={(checked) => setEditPayloadValue(checked)}
-                                label={editPayloadValue ? 'Flag will be enabled' : 'Flag will be disabled'}
-                                bordered
-                            />
-                        </div>
-                    )}
-
-                    {editOperationType === ScheduledChangeOperationType.AddReleaseCondition && (
-                        <LemonBanner type="info">
-                            To change the release condition, delete this schedule and create a new one.
-                        </LemonBanner>
-                    )}
+                    {editOperationType === ScheduledChangeOperationType.AddReleaseCondition &&
+                        editingSchedule && (
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium text-muted">Release condition</label>
+                                <div className="rounded border p-2 bg-bg-light text-sm">
+                                    {groupFilters(editingSchedule.payload.value, undefined, aggregationLabel)}
+                                </div>
+                                <span className="text-xs text-muted">
+                                    To change the release condition, delete this schedule and create a new one.
+                                </span>
+                            </div>
+                        )}
                 </div>
             </LemonModal>
         </div>
