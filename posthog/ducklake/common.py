@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import logging
 from typing import TYPE_CHECKING, TypedDict
 
 import duckdb
@@ -25,6 +26,8 @@ from psycopg import sql
 
 if TYPE_CHECKING:
     from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
+
+logger = logging.getLogger(__name__)
 
 DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_HOST": "localhost",
@@ -248,11 +251,8 @@ class PsycopgConnectionConfig(TypedDict):
     autocommit: bool
 
 
-def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
-    """Ensure the DuckLake Postgres catalog database exists."""
-    if config is None:
-        config = get_config()
-
+def _get_maintenance_conn_kwargs(config: dict[str, str]) -> tuple[PsycopgConnectionConfig, str]:
+    """Build psycopg connection kwargs targeting the maintenance DB and return the target DB name."""
     catalog_dsn = get_ducklake_connection_string(config)
     params = parse_postgres_dsn(catalog_dsn)
     target_db = params.get("dbname")
@@ -267,6 +267,15 @@ def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
         "password": params.get("password") or "posthog",
         "autocommit": True,
     }
+    return conn_kwargs, target_db
+
+
+def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
+    """Ensure the DuckLake Postgres catalog database exists."""
+    if config is None:
+        config = get_config()
+
+    conn_kwargs, target_db = _get_maintenance_conn_kwargs(config)
 
     try:
         with psycopg.connect(**conn_kwargs) as conn:
@@ -276,7 +285,7 @@ def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
                     return
 
                 cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db)))
-                owner = params.get("user")
+                owner = conn_kwargs.get("user")
                 if owner:
                     cur.execute(
                         sql.SQL("GRANT ALL PRIVILEGES ON DATABASE {} TO {}").format(
@@ -288,8 +297,50 @@ def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
         raise RuntimeError("Unable to ensure DuckLake catalog exists. Is Postgres running and accessible?") from exc
 
 
+_VERSION_MISMATCH_PATTERNS = (
+    "catalog version",
+    "ducklake version",
+    "only ducklake versions",
+)
+
+
+def is_version_mismatch(exc: Exception) -> bool:
+    """Check if an exception is a DuckLake catalog version mismatch."""
+    msg = str(exc).lower()
+    return any(pattern in msg for pattern in _VERSION_MISMATCH_PATTERNS)
+
+
+def reset_ducklake_catalog(config: dict[str, str] | None = None) -> None:
+    """Drop and recreate the DuckLake catalog database. Dev mode only."""
+    if config is None:
+        config = get_config()
+
+    conn_kwargs, target_db = _get_maintenance_conn_kwargs(config)
+
+    with psycopg.connect(**conn_kwargs) as conn:
+        with conn.cursor() as cur:
+            # Terminate existing connections so DROP succeeds
+            cur.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
+                (target_db,),
+            )
+            cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(target_db)))
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db)))
+            owner = conn_kwargs.get("user")
+            if owner:
+                cur.execute(
+                    sql.SQL("GRANT ALL PRIVILEGES ON DATABASE {} TO {}").format(
+                        sql.Identifier(target_db),
+                        sql.Identifier(owner),
+                    )
+                )
+
+
 def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "ducklake") -> bool:
-    """Initialize DuckLake: ensure catalog exists, configure connection, and attach catalog."""
+    """Initialize DuckLake: ensure catalog exists, configure connection, and attach catalog.
+
+    In dev mode, automatically resets the catalog database on version mismatch.
+    """
     if config is None:
         config = get_config()
 
@@ -304,6 +355,15 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
                 attached = False
             else:
                 raise
+        except (duckdb.NotImplementedException, duckdb.InvalidInputException) as exc:
+            if not (is_dev_mode() and is_version_mismatch(exc)):
+                raise
+            logger.warning("DuckLake version mismatch detected, resetting catalog: %s", exc)
+            conn.close()
+            reset_ducklake_catalog(config)
+            conn = duckdb.connect()
+            attach_catalog(conn, config, alias=alias)
+            attached = True
         run_smoke_check(conn, alias=alias)
         return attached
     finally:
@@ -340,8 +400,10 @@ __all__ = [
     "get_ducklake_data_path",
     "ensure_ducklake_catalog",
     "initialize_ducklake",
+    "is_version_mismatch",
     "parse_postgres_dsn",
     "is_dev_mode",
+    "reset_ducklake_catalog",
     "run_smoke_check",
     "sanitize_ducklake_identifier",
 ]
