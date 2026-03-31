@@ -240,6 +240,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
                     date_to="2020-01-14",
                 ),
                 funnelsFilter=FunnelsFilter(
+                    funnelOrderType=funnel_order_type,
                     funnelWindowInterval=5,
                     funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MINUTE,
                 ),
