@@ -41,7 +41,7 @@ hogli box
 
 Then use `hogli <command> --help` for command-specific options.
 If your template includes the Claude module, `hogli box:start` can prompt for a Claude OAuth token when the workspace is created.
-For an existing workspace, use `hogli box:claude --set-token` to sync the token, `hogli box:claude --check` to verify auth, or `hogli box:claude` to launch Claude in the workspace.
+After connecting with `hogli box:ssh`, run `claude` directly in the workspace terminal.
 
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli box:setup`, rerun setup on your laptop first.

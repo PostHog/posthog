@@ -14,7 +14,6 @@ import click
 from hogli.core.cli import cli
 
 from .coder import (
-    CLAUDE_OAUTH_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     create_workspace,
@@ -36,8 +35,6 @@ from .coder import (
     open_web_ide,
     port_forward_replace,
     print_setup_summary,
-    replace_with_workspace_command,
-    run_in_workspace,
     ssh_replace,
     start_workspace,
     stop_workspace,
@@ -117,7 +114,6 @@ def _print_connection_info(name: str) -> None:
         ("Open", "box:open"),
         ("VS Code", "box:open --vscode"),
         ("Web IDE", "box:open --web"),
-        ("Claude", "box:claude"),
         ("Forward", "box:forward"),
         ("Logs", "box:logs -f"),
         ("Status", "box:status"),
@@ -271,7 +267,6 @@ def box_help() -> None:
     click.echo("  hogli box:list        list your workspaces")
     click.echo("  hogli box:ssh         open a shell in the workspace")
     click.echo("  hogli box:open        open the workspace in the browser")
-    click.echo("  hogli box:claude      verify and launch Claude in the workspace")
     click.echo("  hogli box:forward     forward the PostHog UI to localhost")
     click.echo("  hogli box:logs        stream workspace logs")
     click.echo("  hogli box:status      show current workspace status")
@@ -430,63 +425,6 @@ def box_logs(workspace_label: str | None, follow: bool) -> None:
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
     logs_replace(name, follow)
-
-
-@cli.command(name="box:claude", help="Verify and launch Claude Code in your devbox")
-@workspace_name_option
-@click.option("--check", is_flag=True, help="Check Claude readiness without launching it")
-@click.option("--set-token", is_flag=True, help="Prompt for a Claude OAuth token and sync it to the workspace")
-@click.option(
-    "--claude-oauth-token",
-    envvar="HOGLI_BOX_CLAUDE_OAUTH_TOKEN",
-    hidden=True,
-)
-def box_claude(workspace_label: str | None, check: bool, set_token: bool, claude_oauth_token: str | None) -> None:
-    """Sync Claude auth into the workspace or launch Claude there."""
-    if check and set_token:
-        raise click.UsageError("Choose either `--check` or `--set-token`.")
-
-    ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label)
-    workspace = _get_workspace_or_fail(name)
-
-    status = get_workspace_status(workspace)
-    if status != "running":
-        click.echo(f"Devbox '{name}' is not running. Run 'hogli box:start' first.")
-        raise SystemExit(1)
-
-    if set_token:
-        token = claude_oauth_token or _maybe_prompt_for_claude_oauth_token(True)
-        if not token:
-            click.echo("No Claude OAuth token provided.")
-            raise SystemExit(1)
-
-        click.echo("Syncing Claude OAuth token to the workspace...")
-        click.echo("Coder may reprovision the workspace if the template requires it.")
-        update_workspace_parameters(name, {CLAUDE_OAUTH_PARAMETER: token})
-        click.echo("Claude OAuth token synced.")
-        return
-
-    check_result = run_in_workspace(
-        name,
-        [
-            "sh",
-            "-lc",
-            "command -v claude >/dev/null && claude auth status >/dev/null 2>&1",
-        ],
-        capture_output=True,
-    )
-    if check_result.returncode != 0:
-        click.echo("Claude Code is not ready in the workspace.")
-        click.echo("Run `hogli box:claude --set-token` to sync your Claude OAuth token.")
-        raise SystemExit(1)
-
-    if check:
-        click.echo("Claude Code is ready in the workspace.")
-        return
-
-    click.echo(f"Launching Claude Code in '{name}'...")
-    replace_with_workspace_command(name, ["claude"])
 
 
 @cli.command(name="box:destroy", help="Destroy your devbox and its data")

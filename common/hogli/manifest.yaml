@@ -102,7 +102,6 @@ box:
     box:stop: null
     box:ssh: null
     box:open: null
-    box:claude: null
     box:logs: null
     box:destroy: null
     box:status: null
