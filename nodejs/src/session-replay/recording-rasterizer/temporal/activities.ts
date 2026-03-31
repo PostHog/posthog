@@ -57,7 +57,7 @@ async function rasterizeRecordingActivity(
         const periods = computeVideoTimestamps(result.inactivity_periods)
 
         const uploadStart = process.hrtime()
-        const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, id)
+        const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, id, onProgress)
         timings.upload_s = elapsed(uploadStart)
         RasterizationMetrics.observeUpload('success', timings.upload_s)
 

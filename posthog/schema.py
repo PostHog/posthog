@@ -5975,6 +5975,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     isSharedMetric: bool | None = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
@@ -17630,6 +17631,7 @@ class ExperimentRatioMetric(BaseModel):
     metric_type: Literal["ratio"] = "ratio"
     name: str | None = None
     numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
@@ -17659,6 +17661,7 @@ class ExperimentRetentionMetric(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["retention"] = "retention"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     retention_window_end: int
     retention_window_start: int
@@ -18681,6 +18684,7 @@ class ExperimentFunnelMetric(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     series: list[EventsNode | ActionsNode]
     sharedMetricId: float | None = None
@@ -18703,6 +18707,7 @@ class ExperimentMeanMetric(BaseModel):
     lower_bound_percentile: float | None = None
     metric_type: Literal["mean"] = "mean"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
@@ -21207,7 +21212,6 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageTrendsQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
-    result: Any | None = None
     type: Literal["insight"] = "insight"
     variablesOverride: dict[str, HogQLVariable] | None = None
 

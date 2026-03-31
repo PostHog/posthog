@@ -93,11 +93,16 @@ impl EvaluationMetadata {
 }
 
 /// Wrapper struct for deserializing hypercache format:
-/// `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...]}`
+/// `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...] | null}`.
 ///
 /// `evaluation_metadata` is always present in cache entries (written by Django).
 /// The PG fallback path constructs this struct with `EvaluationMetadata::single_stage()`,
 /// which places all flags in one evaluation stage with empty transitive deps.
+///
+/// HYPERCACHE CONTRACT: These fields must match the top-level keys returned by
+/// `_get_feature_flags_for_service()` in posthog/models/feature_flag/flags_cache.py.
+/// Field changes must follow the expand-and-contract pattern — see contract tests in
+/// posthog/models/feature_flag/test/test_flags_cache.py.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
@@ -203,6 +208,14 @@ pub enum BucketingIdentifier {
 // TODO: see if you can combine these two structs, like we do with cohort models
 // this will require not deserializing on read and instead doing it lazily, on-demand
 // (which, tbh, is probably a better idea)
+///
+/// HYPERCACHE CONTRACT: These fields are deserialized from JSON written by Python's
+/// MinimalFeatureFlagSerializer (posthog/api/feature_flag.py). Field changes must
+/// follow the expand-and-contract pattern. Golden fixture contract test:
+///   cargo test -p feature-flags test_hypercache_contract
+///
+/// Note: Python also emits `has_encrypted_payloads`, which Rust intentionally
+/// ignores (serde drops unknown fields).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FeatureFlag {
     pub id: FeatureFlagId,

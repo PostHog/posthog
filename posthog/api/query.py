@@ -1,16 +1,13 @@
 import re
 from time import perf_counter
-from typing import Optional
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 
 import orjson
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
-from redis.exceptions import RedisError
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
 from rest_framework.request import Request
@@ -35,7 +32,7 @@ from posthog import settings
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
-from posthog.api.query_coalescer import CoalesceSignal, QueryCoalescer, compute_coalescing_key
+from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
@@ -100,17 +97,13 @@ def _process_query_request(
     return query, query_id, execution_mode
 
 
-class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._coalescer: Optional[QueryCoalescer] = None
 
     def get_throttles(self):
         if self.action == "draft_sql":
@@ -139,109 +132,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return new_val
         return False
 
-    def _try_coalesce(
-        self, query: BaseModel, execution_mode: ExecutionMode, client_query_id: str
-    ) -> tuple[Optional[Response], ExecutionMode]:
-        """Attempt query coalescing.
-
-        Returns a (response, execution_mode) tuple.  The response is non-None only
-        when a follower must short-circuit (e.g. replay an error or report a timeout).
-        The returned execution_mode may differ from the input: force_blocking followers
-        are downgraded to blocking so they hit the cache populated by the leader.
-        """
-        # Coalescing applies to both regular blocking queries and force_blocking queries.
-        # force_blocking followers are downgraded to RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        # on DONE so they read from the cache the leader just populated, rather than recalculating.
-        if execution_mode not in (
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-        ):
-            return None, execution_mode
-
-        enabled = posthoganalytics.feature_enabled(
-            "http-query-coalescing",
-            str(self.team.pk),
-        )
-
-        query_json = query.model_dump_json()
-        key = compute_coalescing_key(self.team.pk, query_json)
-        coalescer = QueryCoalescer(key, dry_run=not enabled)
-
-        log = logger.bind(coalescing_key=key, query_id=client_query_id)
-
-        # Dry run: all requests still compete for the lock so we can measure how many
-        # concurrent duplicates exist (follower_dry_run metric). Leaders proceed normally
-        # (the Redis overhead is minimal). Followers return immediately without waiting.
-        try:
-            is_leader = coalescer.try_acquire()
-        except RedisError:
-            log.warning("query_coalescing_redis_error", msg="redis unavailable, skipping coalescing")
-            return None, execution_mode
-
-        if is_leader:
-            log.info("query_coalescing_leader_start")
-            self._coalescer = coalescer
-            return None, execution_mode
-
-        if not enabled:
-            return None, execution_mode
-
-        # Follower path
-        log.info("query_coalescing_follower_waiting")
-
-        signal = coalescer.wait_for_signal(max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS)
-
-        if signal == CoalesceSignal.DONE:
-            log.info("query_coalescing_follower_done")
-            # Followers fall through to cache-aware mode so they read the result
-            # the leader just wrote, instead of recalculating.
-            return None, ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-
-        if signal == CoalesceSignal.ERROR:
-            error_data = coalescer.get_error_response()
-            if error_data:
-                log.info("query_coalescing_follower_replaying_error", status=error_data["status"])
-                try:
-                    body = orjson.loads(error_data["body"])
-                except Exception:
-                    log.warning("query_coalescing_follower_body_parse_failed")
-                    return None, execution_mode
-                return Response(
-                    data=body,
-                    status=error_data["status"],
-                ), execution_mode
-            # Couldn't read error, fall through
-            log.warning("query_coalescing_follower_error_read_failed")
-            return None, execution_mode
-
-        if signal == CoalesceSignal.TIMEOUT:
-            log.warning("query_coalescing_follower_timeout")
-            return Response(
-                data={"type": "server_error", "detail": "Query is still running, please try again shortly."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            ), execution_mode
-
-        log.info("query_coalescing_follower_fallthrough", signal=signal)
-        return None, execution_mode
-
-    def finalize_response(self, request, response, *args, **kwargs):
-        try:
-            response = super().finalize_response(request, response, *args, **kwargs)
-        finally:
-            if self._coalescer and self._coalescer.is_leader:
-                try:
-                    if response.status_code >= 400:
-                        response.render()
-                        self._coalescer.store_error_response(response.status_code, response.content)
-                    else:
-                        self._coalescer.mark_done()
-                except Exception:
-                    logger.warning("query_coalescing_finalize_error", exc_info=True)
-                finally:
-                    self._coalescer.cleanup()
-
-        return response
-
     @extend_schema(
         request=QueryRequest,
         responses={
@@ -258,10 +148,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
-
-            error, execution_mode = self._try_coalesce(query, execution_mode, client_query_id)
-            if error is not None:
-                return error
 
             self._tag_client_query_id(client_query_id)
             analytics_props = get_request_analytics_properties(request)

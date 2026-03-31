@@ -910,7 +910,11 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                                     )}
                                 >
                                     {step.description}
-                                    {isInProgress && <span className="text-muted ml-1">(in progress)</span>}
+                                    {isInProgress && (
+                                        <ShimmeringContent>
+                                            <span className="text-muted ml-1">(in progress)</span>
+                                        </ShimmeringContent>
+                                    )}
                                 </span>
                             </div>
                         )

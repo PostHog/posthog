@@ -70,3 +70,19 @@ export function discoverDefinitions({ definitionsDir, productsDir }) {
 
     return sources.sort((a, b) => a.moduleName.localeCompare(b.moduleName))
 }
+
+/**
+ * Returns true if the parsed YAML has the shape of a query wrapper config
+ * (has `wrappers` key instead of `tools`).
+ */
+export function isQueryWrappersConfig(parsed) {
+    return typeof parsed === 'object' && parsed !== null && 'wrappers' in parsed && !('tools' in parsed)
+}
+
+/**
+ * Returns true if the parsed YAML has the shape of a category config
+ * (has `tools` key instead of `wrappers`).
+ */
+export function isToolsConfig(parsed) {
+    return typeof parsed === 'object' && parsed !== null && 'tools' in parsed && !('wrappers' in parsed)
+}

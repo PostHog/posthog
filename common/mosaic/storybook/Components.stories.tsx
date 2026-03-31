@@ -57,7 +57,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // ===========================
 
 export const BadgeStory: Story = {
-    storyName: 'Badge',
+    name: 'Badge',
     render: () => (
         <Stack gap="md">
             <Section title="Variants">
@@ -84,7 +84,7 @@ export const BadgeStory: Story = {
 }
 
 export const CardStory: Story = {
-    storyName: 'Card',
+    name: 'Card',
     render: () => (
         <Stack gap="md">
             {(['sm', 'md', 'lg'] as const).map((padding) => (
@@ -99,7 +99,7 @@ export const CardStory: Story = {
 }
 
 export const StackStory: Story = {
-    storyName: 'Stack',
+    name: 'Stack',
     render: () => {
         const box: React.CSSProperties = {
             padding: '0.5rem 0.75rem',
@@ -137,7 +137,7 @@ export const StackStory: Story = {
 }
 
 export const LinkStory: Story = {
-    storyName: 'Link',
+    name: 'Link',
     render: () => (
         <Stack gap="sm">
             <Link href="https://posthog.com" external>
@@ -152,7 +152,7 @@ export const LinkStory: Story = {
 }
 
 export const TooltipStory: Story = {
-    storyName: 'Tooltip',
+    name: 'Tooltip',
     render: () => (
         <Stack gap="md">
             <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', padding: '1.5rem 0' }}>
@@ -187,7 +187,7 @@ export const TooltipStory: Story = {
 }
 
 export const SelectStory: Story = {
-    storyName: 'Select',
+    name: 'Select',
     render: () => {
         const [value, setValue] = useState('table')
         return (
@@ -220,7 +220,7 @@ export const SelectStory: Story = {
 }
 
 export const TabsStory: Story = {
-    storyName: 'Tabs',
+    name: 'Tabs',
     render: () => (
         <Card padding="none">
             <Tabs defaultValue="overview">
@@ -281,7 +281,7 @@ const sampleColumns: DataTableColumn<SampleRow>[] = [
 ]
 
 export const DataTableStory: Story = {
-    storyName: 'DataTable',
+    name: 'DataTable',
     render: () => (
         <DataTable
             columns={sampleColumns}
@@ -295,7 +295,7 @@ export const DataTableStory: Story = {
 // -- DescriptionList --
 
 export const DescriptionListStory: Story = {
-    storyName: 'DescriptionList',
+    name: 'DescriptionList',
     render: () => (
         <Stack gap="md">
             <Section title="Single column">
@@ -330,7 +330,7 @@ export const DescriptionListStory: Story = {
 // -- ProgressBar --
 
 export const ProgressBarStory: Story = {
-    storyName: 'ProgressBar',
+    name: 'ProgressBar',
     render: () => (
         <Stack gap="md">
             <Section title="Variants">
@@ -354,7 +354,7 @@ export const ProgressBarStory: Story = {
 // -- EmptyState --
 
 export const EmptyStateStory: Story = {
-    storyName: 'EmptyState',
+    name: 'EmptyState',
     render: () => (
         <Stack gap="md">
             <Section title="Text only">
@@ -387,7 +387,7 @@ export const EmptyStateStory: Story = {
 // -- Accordion --
 
 export const AccordionStory: Story = {
-    storyName: 'Accordion',
+    name: 'Accordion',
     render: () => (
         <Stack gap="md">
             <Section title="Single expand (default)">

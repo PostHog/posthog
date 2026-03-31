@@ -442,3 +442,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 error=str(e),
             )
+            # Mark the run as failed so _poll_for_turn sees a terminal status
+            # immediately instead of waiting for the inactivity timeout.
+            self._completion_status = "failed"
+            self._completion_error = f"Follow-up delivery failed: {e}"
+            self._task_completed = True
