@@ -164,7 +164,12 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
 
         is_featured_raw = self.request.query_params.get("is_featured")
         if is_featured_raw is not None:
-            qs = qs.filter(is_featured=str_to_bool(is_featured_raw))
+            is_featured = str_to_bool(is_featured_raw)
+            qs = qs.filter(is_featured=is_featured)
+            # Feature-flag templates are tied to team_id but belong in `?scope=feature_flag` lists only;
+            # featured carousels use `?is_featured=true` without that scope and must not surface them.
+            if is_featured and scope != DashboardTemplate.Scope.FEATURE_FLAG:
+                qs = qs.exclude(scope=DashboardTemplate.Scope.FEATURE_FLAG)
 
         # weighted full-text search
         if isinstance(search, str):
