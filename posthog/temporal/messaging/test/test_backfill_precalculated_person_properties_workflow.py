@@ -1,5 +1,3 @@
-import asyncio
-
 import pytest
 from unittest.mock import Mock, patch
 
@@ -19,12 +17,12 @@ class TestFlushKafkaBatchAsync:
 
     @pytest.mark.asyncio
     async def test_empty_futures_returns_zero(self):
-        """When kafka_futures is empty, should return 0 without flushing."""
+        """When kafka_results is empty, should return 0 without flushing."""
         kafka_producer = Mock()
         logger = Mock()
 
         result = await flush_kafka_batch_async(
-            kafka_futures=[],
+            kafka_results=[],
             kafka_producer=kafka_producer,
             team_id=1,
             logger=logger,
@@ -35,18 +33,14 @@ class TestFlushKafkaBatchAsync:
 
     @pytest.mark.asyncio
     async def test_successful_batch_flush_async(self):
-        """Should handle successful futures correctly."""
+        """Should handle successful ProduceResult objects correctly."""
         kafka_producer = Mock()
         logger = Mock()
 
-        # Create successful futures
-        success_future_1: asyncio.Future[int] = asyncio.Future()
-        success_future_1.set_result(1)
-
-        success_future_2: asyncio.Future[int] = asyncio.Future()
-        success_future_2.set_result(1)
-
-        kafka_futures = [success_future_1, success_future_2]
+        # Create mock ProduceResult objects
+        produce_result_1 = Mock()
+        produce_result_2 = Mock()
+        kafka_results = [produce_result_1, produce_result_2]
 
         with patch(
             "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"
@@ -54,7 +48,7 @@ class TestFlushKafkaBatchAsync:
             mock_thread.return_value = None
 
             result = await flush_kafka_batch_async(
-                kafka_futures=kafka_futures,
+                kafka_results=kafka_results,
                 kafka_producer=kafka_producer,
                 team_id=1,
                 logger=logger,
@@ -64,22 +58,16 @@ class TestFlushKafkaBatchAsync:
         mock_thread.assert_called_once_with(kafka_producer.flush)
 
     @pytest.mark.asyncio
-    async def test_batch_flush_with_mixed_results(self):
-        """Should handle mixed success and failure results correctly."""
+    async def test_batch_flush_with_multiple_results(self):
+        """Should handle multiple ProduceResult objects correctly."""
         kafka_producer = Mock()
         logger = Mock()
 
-        # Mock 3 results: 2 successful, 1 failed
-        successful_future_1: asyncio.Future[int] = asyncio.Future()
-        successful_future_1.set_result(1)
-
-        successful_future_2: asyncio.Future[int] = asyncio.Future()
-        successful_future_2.set_result(1)
-
-        failed_future: asyncio.Future[None] = asyncio.Future()
-        failed_future.set_exception(Exception("Kafka send failed"))
-
-        mock_results = [successful_future_1, successful_future_2, failed_future]
+        # Create mock ProduceResult objects - all are successful since failures are handled earlier
+        produce_result_1 = Mock()
+        produce_result_2 = Mock()
+        produce_result_3 = Mock()
+        kafka_results = [produce_result_1, produce_result_2, produce_result_3]
 
         with patch(
             "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"
@@ -87,33 +75,24 @@ class TestFlushKafkaBatchAsync:
             mock_thread.return_value = None
 
             result = await flush_kafka_batch_async(
-                kafka_futures=mock_results,
+                kafka_results=kafka_results,
                 kafka_producer=kafka_producer,
                 team_id=1,
                 logger=logger,
             )
 
-        # Should return count of successful messages (2)
-        assert result == 2
+        # Should return count of all ProduceResult objects (3)
+        assert result == 3
         mock_thread.assert_called_once_with(kafka_producer.flush)
 
     @pytest.mark.asyncio
-    async def test_batch_flush_handles_all_result_types(self):
-        """Should handle all possible result types from Kafka futures."""
+    async def test_batch_flush_calls_kafka_flush(self):
+        """Should call Kafka flush operation asynchronously."""
         kafka_producer = Mock()
         logger = Mock()
 
-        # Mock different result types
-        success_future_int: asyncio.Future[int] = asyncio.Future()
-        success_future_int.set_result(1)
-
-        success_future_none: asyncio.Future[None] = asyncio.Future()
-        success_future_none.set_result(None)
-
-        failed_future: asyncio.Future[None] = asyncio.Future()
-        failed_future.set_exception(Exception("Send failed"))
-
-        mock_results = [success_future_int, success_future_none, failed_future]
+        # Create mock ProduceResult objects
+        produce_results = [Mock(), Mock()]
 
         with patch(
             "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"
@@ -121,14 +100,14 @@ class TestFlushKafkaBatchAsync:
             mock_thread.return_value = None
 
             result = await flush_kafka_batch_async(
-                kafka_futures=mock_results,
+                kafka_results=produce_results,
                 kafka_producer=kafka_producer,
                 team_id=1,
                 logger=logger,
             )
 
-        # Should count only the integer result (1 + 0 for None + 0 for exception = 1)
-        assert result == 1
+        # Should return count of ProduceResult objects and call flush
+        assert result == 2
         mock_thread.assert_called_once_with(kafka_producer.flush)
 
 
@@ -143,8 +122,8 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             filter_storage_key="nonexistent_key",
             cohort_ids=[10],
             batch_size=10,
-            cursor="00000000-0000-0000-0000-000000000000",
-            batch_sequence=1,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
         )
 
         with pytest.raises(temporalio.exceptions.ApplicationError) as exc_info:
@@ -163,8 +142,8 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             filter_storage_key=storage_key,
             cohort_ids=[10],
             batch_size=10,
-            cursor="00000000-0000-0000-0000-000000000000",
-            batch_sequence=1,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
         )
 
         result = await backfill_precalculated_person_properties_activity(inputs)
@@ -196,8 +175,8 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             filter_storage_key=storage_key,
             cohort_ids=[10],
             batch_size=10,
-            cursor="00000000-0000-0000-0000-000000000000",
-            batch_sequence=1,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
         )
 
         # Basic verification that the filter was stored correctly
