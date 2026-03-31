@@ -66,7 +66,7 @@ def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, An
 
 
 async def flush_kafka_batch_async(
-    kafka_futures: list,
+    kafka_results: list,
     kafka_producer: "_KafkaProducer",
     team_id: int,
     logger,
@@ -75,28 +75,20 @@ async def flush_kafka_batch_async(
     """Flush Kafka messages asynchronously and return count of successful messages.
 
     Args:
-        kafka_futures: List of asyncio futures representing Kafka send operations
+        kafka_results: List of ProduceResult objects from Kafka send operations
         kafka_producer: Kafka producer instance
         team_id: Team ID for logging
         logger: Logger instance
         flush_duration_metric: Optional metric to record flush duration
 
     Returns:
-        Number of successfully processed futures
+        Number of successfully processed messages
     """
-    if not kafka_futures:
+    if not kafka_results:
         return 0
 
-    # Wait for all futures to complete and count successes
-    results = await asyncio.gather(*kafka_futures, return_exceptions=True)
-    successful_count = 0
-
-    for result in results:
-        if isinstance(result, Exception):
-            # Log exception but don't fail the entire batch for performance
-            logger.debug(f"Kafka future failed: {result}")
-        elif isinstance(result, int):
-            successful_count += result
+    # Count the successful produce results
+    successful_count = len(kafka_results)  # All results in the list are successful ones
 
     # Time the Kafka flush operation for performance monitoring
     flush_start_time = time.monotonic()
@@ -108,10 +100,10 @@ async def flush_kafka_batch_async(
         flush_duration_metric.record(flush_duration, {"team_id": str(team_id)})
 
     logger.info(
-        f"Async flushed batch in {flush_duration:.3f}s: {successful_count} successful futures",
+        f"Async flushed batch in {flush_duration:.3f}s: {successful_count} successful messages",
         team_id=team_id,
-        successful_futures=successful_count,
-        total_futures=len(kafka_futures),
+        successful_messages=successful_count,
+        total_messages=len(kafka_results),
         flush_duration_seconds=flush_duration,
     )
 
