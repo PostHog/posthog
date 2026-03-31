@@ -13579,6 +13579,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       exposure_preaggregation_enabled?: boolean;
+      only_count_matured_users?: boolean;
       readonly status: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
@@ -13938,8 +13939,6 @@ export namespace Schemas {
       /** @nullable */
       name?: string | null;
       /** @nullable */
-      only_count_matured_users?: boolean | null;
-      /** @nullable */
       response?: ExperimentFunnelMetricResponse;
       series: (EventsNode | ActionsNode)[];
       /** @nullable */
@@ -13990,8 +13989,6 @@ export namespace Schemas {
       metric_type?: ExperimentMeanMetricMetricType;
       /** @nullable */
       name?: string | null;
-      /** @nullable */
-      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentMeanMetricResponse;
       /** @nullable */
@@ -14051,8 +14048,6 @@ export namespace Schemas {
       name?: string | null;
       numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
       /** @nullable */
-      only_count_matured_users?: boolean | null;
-      /** @nullable */
       response?: ExperimentRatioMetricResponse;
       /** @nullable */
       sharedMetricId?: number | null;
@@ -14107,8 +14102,6 @@ export namespace Schemas {
       metric_type?: ExperimentRetentionMetricMetricType;
       /** @nullable */
       name?: string | null;
-      /** @nullable */
-      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentRetentionMetricResponse;
       retention_window_end: number;
@@ -22398,6 +22391,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       exposure_preaggregation_enabled?: boolean;
+      only_count_matured_users?: boolean;
       readonly status?: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
@@ -24647,6 +24641,8 @@ export namespace Schemas {
       github_integration?: number | null;
       /** JSON schema for the task. This is used to validate the output of the task. */
       json_schema?: unknown | null;
+      /** If true, this task is for internal use and should not be exposed to end users. */
+      internal?: boolean;
       /**
        * Latest run details for this task
        * @nullable
@@ -29358,11 +29354,8 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Follow-up user message to include in the resumed run's prompt. */
       pending_user_message?: string;
-      /**
-       * ID of a SandboxEnvironment to use for network governance
-       * @nullable
-       */
-      sandbox_environment_id?: string | null;
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -32347,6 +32340,10 @@ export namespace Schemas {
 
     export type DashboardTemplatesListParams = {
     /**
+     * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
+     */
+    is_featured?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -34296,6 +34293,10 @@ export namespace Schemas {
      * Filter by creator user ID
      */
     created_by?: number;
+    /**
+     * Filter by internal flag. Defaults to excluding internal tasks when not specified.
+     */
+    internal?: boolean;
     /**
      * Number of results to return per page.
      */

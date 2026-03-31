@@ -2252,7 +2252,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
             // These tabs don't support any filters, so we can just return the base path to keep the url clean
             if (productTab === ProductTab.HEALTH) {
-                return '/web/health'
+                return urls.webAnalyticsHealth()
             } else if (productTab === ProductTab.LIVE) {
                 return '/web/live'
             }
