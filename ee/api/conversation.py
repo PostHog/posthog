@@ -123,6 +123,8 @@ class MessageSerializer(MessageMinimalSerializer):
         if billing_context:
             try:
                 billing_context = MaxBillingContext.model_validate(billing_context)
+                if billing_context.spend_history and len(billing_context.spend_history) > 20:
+                    billing_context.spend_history = None
                 data["billing_context"] = billing_context
             except pydantic.ValidationError as e:
                 capture_exception(e)
@@ -159,6 +161,8 @@ class QueueMessageSerializer(serializers.Serializer):
         if billing_context:
             try:
                 parsed_context = MaxBillingContext.model_validate(billing_context)
+                if parsed_context.spend_history and len(parsed_context.spend_history) > 20:
+                    parsed_context.spend_history = None
                 data["billing_context"] = parsed_context.model_dump()
             except pydantic.ValidationError as e:
                 capture_exception(e)
