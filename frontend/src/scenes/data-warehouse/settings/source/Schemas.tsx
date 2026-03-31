@@ -31,7 +31,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeHogQLQualifiedIdentifier } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -228,7 +228,7 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
     }, [isLoading, initialLoad])
 
     const getPreviewQuery = useCallback(
-        (tableName: string): string => `SELECT * FROM ${escapePropertyAsHogQLIdentifier(tableName)} LIMIT 100`,
+        (tableName: string): string => `SELECT * FROM ${escapeHogQLQualifiedIdentifier(tableName)} LIMIT 100`,
         []
     )
 

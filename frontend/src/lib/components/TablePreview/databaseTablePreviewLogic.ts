@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { hogqlQuery } from '~/queries/query'
-import { hogql } from '~/queries/utils'
+import { escapeHogQLQualifiedIdentifier, hogql } from '~/queries/utils'
 
 import type { databaseTablePreviewLogicType } from './databaseTablePreviewLogicType'
 import type { TablePreviewExpressionColumn } from './types'
@@ -45,8 +45,8 @@ export const databaseTablePreviewLogic = kea<databaseTablePreviewLogicType>([
                     try {
                         const response = await hogqlQuery(
                             trimmedWhereClause
-                                ? hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(props.tableName)} WHERE ${hogql.raw(trimmedWhereClause)} LIMIT ${previewLimit}`
-                                : hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(props.tableName)} LIMIT ${previewLimit}`
+                                ? hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.raw(escapeHogQLQualifiedIdentifier(props.tableName))} WHERE ${hogql.raw(trimmedWhereClause)} LIMIT ${previewLimit}`
+                                : hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.raw(escapeHogQLQualifiedIdentifier(props.tableName))} LIMIT ${previewLimit}`
                         )
                         return (response.results || []).map((row: any[]) =>
                             Object.fromEntries(

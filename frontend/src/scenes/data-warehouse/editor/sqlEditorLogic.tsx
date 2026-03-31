@@ -142,6 +142,16 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
 
 type LegacyDataVisualizationNode = DataVisualizationNode & { connectionId?: string }
 
+export const VIEW_NAME_SEGMENT_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+
+export function isValidViewName(name?: string | null): boolean {
+    if (!name) {
+        return false
+    }
+
+    return name.split('.').every((segment) => VIEW_NAME_SEGMENT_REGEX.test(segment))
+}
+
 function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     return {
         ...source,
@@ -845,7 +855,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             LemonDialog.openForm({
                 title: 'Save as view',
                 initialValues: { viewName: values.activeTab?.name || '', isTest: false },
-                description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
+                description: `View names can only contain letters, numbers, '_', '$', or '.'. Spaces are not allowed.`,
                 content: (isLoading) =>
                     isLoading ? (
                         <div className="h-[37px] flex items-center">
@@ -884,8 +894,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     viewName: (name) =>
                         !name
                             ? 'You must enter a name'
-                            : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                              ? 'Name must be valid'
+                            : !isValidViewName(name)
+                              ? 'Each dot-separated segment must be a valid name'
                               : undefined,
                 },
                 onSubmit: async ({ viewName, isTest }) => {
@@ -1302,9 +1312,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         changesToSave: [
-            (s) => [s.editingView, s.queryInput],
-            (editingView, queryInput) => {
-                return editingView?.query?.query !== queryInput
+            (s) => [s.editingView, s.queryInput, s.activeTab],
+            (editingView, queryInput, activeTab) => {
+                return editingView?.query?.query !== queryInput || editingView?.name !== activeTab?.name
             },
         ],
         exportContext: [
@@ -1427,8 +1437,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         titleSectionProps: [
-            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editorSource, s.dashboardId],
-            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId) => {
+            (s) => [
+                s.editingInsight,
+                s.insightLoading,
+                s.editingView,
+                s.viewLoading,
+                s.editorSource,
+                s.dashboardId,
+                s.activeTab,
+            ],
+            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId, activeTab) => {
                 if (editingInsight) {
                     const forceBackTo: Breadcrumb = dashboardId
                         ? {
@@ -1460,8 +1478,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 if (editingView) {
                     return {
-                        name: editingView.name,
+                        name: activeTab?.name ?? editingView.name,
                         resourceType: { type: editingView.is_materialized ? 'matview' : 'view' },
+                        canEdit: true,
+                        onNameChange: (name: string) => {
+                            if (activeTab) {
+                                actions.updateTab({ ...activeTab, name })
+                            }
+                        },
                     }
                 }
 

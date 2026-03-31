@@ -15,7 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { OutputTab } from './outputPaneLogic'
-import { getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import { getDisplayTypeToSaveInsight, isValidViewName, sqlEditorLogic } from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -220,6 +220,19 @@ describe('sqlEditorLogic', () => {
             expect(getDisplayTypeToSaveInsight(outputTab, sourceQueryDisplay, effectiveVisualizationType)).toEqual(
                 expected
             )
+        })
+    })
+
+    describe('isValidViewName', () => {
+        it.each([
+            ['simple_name', true],
+            ['folder.view_name', true],
+            ['folder.subfolder.view_name', true],
+            ['folder..view_name', false],
+            ['folder.bad-name', false],
+            ['1folder.view_name', false],
+        ])('validates %s', (name, expected) => {
+            expect(isValidViewName(name)).toBe(expected)
         })
     })
 

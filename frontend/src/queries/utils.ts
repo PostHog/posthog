@@ -660,6 +660,11 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
 }
 
+// Formats qualified identifiers like schema.table or dotted view names by escaping each segment separately.
+export function escapeHogQLQualifiedIdentifier(identifier: string): string {
+    return identifier.split('.').map(escapePropertyAsHogQLIdentifier).join('.')
+}
+
 export function taxonomicEventFilterToHogQL(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue

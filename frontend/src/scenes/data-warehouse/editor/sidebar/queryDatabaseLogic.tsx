@@ -1021,6 +1021,81 @@ const createTopLevelFolderNode = (
     }
 }
 
+type DotPathTreeNode = {
+    item?: TreeDataItem
+    children: Map<string, DotPathTreeNode>
+}
+
+const cloneTreeItemWithName = (item: TreeDataItem, name: string, idSuffix = ''): TreeDataItem => ({
+    ...item,
+    id: idSuffix ? `${item.id}-${idSuffix}` : item.id,
+    name,
+})
+
+const createDotPathIndexNode = (item: TreeDataItem): TreeDataItem => cloneTreeItemWithName(item, 'index', 'index')
+
+const insertDotPathTreeNode = (root: DotPathTreeNode, item: TreeDataItem): void => {
+    const segments = item.name.split('.')
+    let currentNode = root
+
+    segments.forEach((segment) => {
+        if (!currentNode.children.has(segment)) {
+            currentNode.children.set(segment, { children: new Map() })
+        }
+        currentNode = currentNode.children.get(segment)!
+    })
+
+    currentNode.item = item
+}
+
+const materializeDotPathTreeNode = (
+    segment: string,
+    node: DotPathTreeNode,
+    parentPath: string[] = [],
+    isSearch = false
+): TreeDataItem | null => {
+    const fullPath = [...parentPath, segment].join('.')
+    const children = Array.from(node.children.entries())
+        .map(([childSegment, childNode]) =>
+            materializeDotPathTreeNode(childSegment, childNode, [...parentPath, segment], isSearch)
+        )
+        .filter((child): child is TreeDataItem => child !== null)
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+    if (children.length === 0) {
+        return node.item ? cloneTreeItemWithName(node.item, segment) : null
+    }
+
+    return {
+        id: `${isSearch ? 'search-' : ''}view-folder-${fullPath}/`,
+        name: segment,
+        type: 'node',
+        record: {
+            type: 'view-folder',
+            path: fullPath,
+        },
+        children: [...(node.item ? [createDotPathIndexNode(node.item)] : []), ...children],
+    }
+}
+
+export const createDottedViewTree = (items: TreeDataItem[], isSearch = false): TreeDataItem[] => {
+    const root: DotPathTreeNode = { children: new Map() }
+
+    items.forEach((item) => insertDotPathTreeNode(root, item))
+
+    return Array.from(root.children.entries())
+        .map(([segment, node]) => materializeDotPathTreeNode(segment, node, [], isSearch))
+        .filter((item): item is TreeDataItem => item !== null)
+        .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+const collectTreeFolderIds = (items: TreeDataItem[]): string[] => {
+    return items.flatMap((item) => {
+        const nestedFolderIds = item.children?.length ? collectTreeFolderIds(item.children) : []
+        return item.record?.type === 'view-folder' ? [item.id, ...nestedFolderIds] : nestedFolderIds
+    })
+}
+
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),
     actions({
@@ -1419,7 +1494,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 if (viewsChildren.length > 0) {
                     expandedIds.push('search-views')
-                    searchResults.push(createTopLevelFolderNode('views', viewsChildren, true))
+                    const groupedViewsChildren = createDottedViewTree(viewsChildren, true)
+                    expandedIds.push(...collectTreeFolderIds(groupedViewsChildren))
+                    searchResults.push(createTopLevelFolderNode('views', groupedViewsChildren, true))
                 }
 
                 if (managedViewsChildren.length > 0 && !featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]) {
@@ -1595,7 +1672,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     })
                 }
 
-                viewsChildren.sort((a, b) => a.name.localeCompare(b.name))
+                const groupedViewsChildren = createDottedViewTree(viewsChildren)
                 managedViewsChildren.sort((a, b) => a.name.localeCompare(b.name))
 
                 const states = queryTabState?.state?.editorModelsStateKey
@@ -1676,7 +1753,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                               } as TreeDataItem,
                           ]
                         : []),
-                    createTopLevelFolderNode('views', viewsChildren),
+                    createTopLevelFolderNode('views', groupedViewsChildren),
                     ...(featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
                         ? []
                         : [createTopLevelFolderNode('managed-views', managedViewsChildren)]),

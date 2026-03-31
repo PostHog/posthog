@@ -209,6 +209,7 @@ export function SQLEditor({
 function SQLEditorSceneTitle(): JSX.Element | null {
     const {
         queryInput,
+        activeTab,
         editingView,
         editingInsight,
         insightLoading,
@@ -350,6 +351,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     onClick={() =>
                                         updateView({
                                             id: editingView.id,
+                                            name: activeTab?.name ?? editingView.name,
                                             query: {
                                                 ...sourceQuery.source,
                                                 query: queryInput ?? '',

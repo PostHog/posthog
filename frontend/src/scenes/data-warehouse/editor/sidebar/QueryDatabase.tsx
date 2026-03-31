@@ -31,7 +31,7 @@ import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeHogQLQualifiedIdentifier } from '~/queries/utils'
 
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
@@ -426,7 +426,7 @@ export const QueryDatabase = (): JSX.Element => {
                             ? getEndpointUrl(item)
                             : urls.sqlEditor({ view_id: item.record?.view.id })
                     const table = item.record?.tableName || item.name
-                    const selectAllQuery = `SELECT * FROM ${escapePropertyAsHogQLIdentifier(table)} LIMIT 100`
+                    const selectAllQuery = `SELECT * FROM ${escapeHogQLQualifiedIdentifier(table)} LIMIT 100`
                     const nextConnectionId =
                         connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
 
