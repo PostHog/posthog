@@ -1965,6 +1965,7 @@ async fn test_flag_definitions_with_legacy_secret_token_fallback() {
 /// 4. Env var allowlist preserved when DB row is missing
 /// 5. null DB value treated as empty allowlist
 /// 6. Invalid team IDs skipped, valid ones kept
+/// 7. Django-format JSON-encoded string (json.dumps wrapping)
 #[tokio::test]
 async fn test_db_rate_limit_allowlist() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
@@ -2318,6 +2319,62 @@ async fn test_db_rate_limit_allowlist() {
             resp.status(),
             200,
             "Valid team IDs should be kept even when invalid ones are present"
+        );
+    }
+
+    // --- Scenario 7: Django-format JSON-encoded string ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        // Django's set_instance_setting calls json.dumps(value), so "23047"
+        // is stored as "\"23047\"" in raw_value
+        context
+            .set_instance_setting(
+                "RATE_LIMITING_ALLOW_LIST_TEAMS",
+                &format!("\"{}\"", team1.id),
+            )
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // team1 should bypass via JSON-encoded allowlist
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "Django-format JSON-encoded allowlist should work"
         );
     }
 
