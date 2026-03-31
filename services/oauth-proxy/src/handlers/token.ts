@@ -49,8 +49,26 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
                 redirectUriRewrite = { from: storedRedirectUri, to: proxyCallbackUrl }
             }
 
+            console.info(
+                JSON.stringify({
+                    handler: 'token',
+                    grant_type: grantType,
+                    client_id_prefix: clientIdPrefix,
+                    region_source: 'kv',
+                    region,
+                })
+            )
             const response = await proxyWithMapping(rebuild(), kv, clientId, region, redirectUriRewrite)
-
+            console.info(
+                JSON.stringify({
+                    handler: 'token',
+                    grant_type: grantType,
+                    client_id_prefix: clientIdPrefix,
+                    region_source: 'kv',
+                    region,
+                    status: response.status,
+                })
+            )
             return response
         }
     }
@@ -59,6 +77,15 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
     // For authorization_code grants without a stored region, return an error
     // rather than leaking the auth code to the wrong server.
     if (grantType === 'authorization_code') {
+        console.info(
+            JSON.stringify({
+                handler: 'token',
+                grant_type: grantType,
+                client_id_prefix: clientIdPrefix,
+                region_source: 'none',
+                error: 'no_region_for_auth_code',
+            })
+        )
         return new Response(
             JSON.stringify({
                 error: 'invalid_request',
@@ -68,8 +95,25 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
         )
     }
 
+    console.info(
+        JSON.stringify({
+            handler: 'token',
+            grant_type: grantType,
+            client_id_prefix: clientIdPrefix,
+            region_source: 'try_both',
+        })
+    )
     const { response, region } = await tryBothRegions(rebuild(), '/oauth/token/')
-
+    console.info(
+        JSON.stringify({
+            handler: 'token',
+            grant_type: grantType,
+            client_id_prefix: clientIdPrefix,
+            region_source: 'try_both',
+            resolved_region: region,
+            status: response.status,
+        })
+    )
     return response
 }
 
