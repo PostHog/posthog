@@ -19783,6 +19783,7 @@ export namespace Schemas {
       repo_external_id: number;
       repo_full_name: string;
       baseline_file_paths: RepoBaselineFilePaths;
+      enable_pr_comments: boolean;
       created_at: string;
     }
 
@@ -19969,6 +19970,11 @@ export namespace Schemas {
     * `monthly` - monthly
     * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at: string | null;
       /**
@@ -23712,6 +23718,11 @@ export namespace Schemas {
     * `monthly` - monthly
     * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at?: string | null;
       /**
@@ -25020,6 +25031,8 @@ export namespace Schemas {
     export interface PatchedUpdateRepoRequestInput {
       /** @nullable */
       baseline_file_paths?: PatchedUpdateRepoRequestInputBaselineFilePaths;
+      /** @nullable */
+      enable_pr_comments?: boolean | null;
     }
 
     export type PatchedUserNotificationSettings = {[key: string]: unknown};
@@ -28712,6 +28725,23 @@ export namespace Schemas {
       metadata?: unknown;
     }
 
+    /**
+     * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+     */
+    export type SurveyGlobalStatsResponseStats = {[key: string]: unknown};
+
+    /**
+     * Calculated response and dismissal rates.
+     */
+    export type SurveyGlobalStatsResponseRates = {[key: string]: unknown};
+
+    export interface SurveyGlobalStatsResponse {
+      /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+      stats: SurveyGlobalStatsResponseStats;
+      /** Calculated response and dismissal rates. */
+      rates: SurveyGlobalStatsResponseRates;
+    }
+
     export interface SurveySerializerCreateUpdateOnly {
       readonly id: string;
       /** @maxLength 400 */
@@ -29137,6 +29167,35 @@ export namespace Schemas {
       translations?: unknown | null;
       _create_in_folder?: string;
       form_content?: unknown | null;
+    }
+
+    /**
+     * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+     */
+    export type SurveyStatsResponseStats = {[key: string]: unknown};
+
+    /**
+     * Calculated response and dismissal rates.
+     */
+    export type SurveyStatsResponseRates = {[key: string]: unknown};
+
+    export interface SurveyStatsResponse {
+      /** The survey ID these stats belong to. */
+      survey_id: string;
+      /**
+       * When the survey started collecting responses.
+       * @nullable
+       */
+      start_date: string | null;
+      /**
+       * When the survey stopped collecting responses.
+       * @nullable
+       */
+      end_date: string | null;
+      /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+      stats: SurveyStatsResponseStats;
+      /** Calculated response and dismissal rates. */
+      rates: SurveyStatsResponseRates;
     }
 
     export type TaskRunAppendLogRequestEntriesItem = {[key: string]: unknown};

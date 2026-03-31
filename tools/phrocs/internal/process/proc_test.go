@@ -337,6 +337,119 @@ func TestReadLoop_batchesOutput(t *testing.T) {
 	}
 }
 
+func TestHasPrompt_partialLine(t *testing.T) {
+	// printf writes a partial line (no trailing \n), which readLoop should
+	// detect and set HasPrompt = true.
+	p := NewProcess("prompt-test", config.ProcConfig{
+		Shell: `printf "Enter name: "`,
+	}, 100)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for HasPrompt")
+		default:
+		}
+		if p.HasPrompt() {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	lines := p.Lines()
+	if len(lines) == 0 {
+		t.Fatal("expected at least one buffered line")
+	}
+	if !strings.Contains(lines[len(lines)-1], "Enter name:") {
+		t.Errorf("expected partial line containing 'Enter name:', got %q", lines[len(lines)-1])
+	}
+}
+
+func TestHasPrompt_completeLine(t *testing.T) {
+	// echo writes a complete line (with trailing \n), so HasPrompt should
+	// be false once the process finishes.
+	p := NewProcess("no-prompt", config.ProcConfig{
+		Shell: `echo "hello"`,
+	}, 100)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for process to finish")
+		default:
+		}
+		st := p.Status()
+		if st == StatusDone || st == StatusCrashed {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if p.HasPrompt() {
+		t.Error("HasPrompt should be false after a complete line")
+	}
+}
+
+func TestWriteInput_pipeMode(t *testing.T) {
+	// head -1 reads exactly one line from stdin and echoes it to stdout.
+	// We use startWithPipe indirectly — on CI PTY may or may not be
+	// available, so we use a shell command that works either way and
+	// verify the \r→\n translation by sending "hello\r".
+	p := NewProcess("pipe-input", config.ProcConfig{
+		Shell: `head -1`,
+	}, 100)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	}
+
+	// Give the process a moment to start reading
+	time.Sleep(100 * time.Millisecond)
+
+	if err := p.WriteInput([]byte("hello\r")); err != nil {
+		t.Fatalf("WriteInput failed: %v", err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for process to finish")
+		default:
+		}
+		st := p.Status()
+		if st == StatusDone || st == StatusCrashed {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	lines := p.Lines()
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "hello") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'hello' in output, got lines: %v", lines)
+	}
+}
+
 func TestSnapshot_noReadyAt(t *testing.T) {
 	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "ready"}, 1000)
 	// readyAt is left as zero value; startedAt is also zero

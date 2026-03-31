@@ -11,6 +11,7 @@ import {
     createPosthogRedisConnectionConfig,
 } from '../../config/redis-pools'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
+import { buildGroupRepository } from '../../ingestion/personhog'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -85,13 +86,20 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const pubSub = new PubSub(redisPool)
     await pubSub.start()
 
-    const groupRepository = new PostgresGroupRepository(postgres)
-    const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+    const postgresGroupRepository = new PostgresGroupRepository(postgres)
 
     const personRepositoryOptions = {
         calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
     }
     const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
+
+    const groupRepository = buildGroupRepository(
+        serverConfig,
+        postgresGroupRepository,
+        serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
+    )
+
+    const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)

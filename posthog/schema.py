@@ -21212,7 +21212,6 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageTrendsQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
-    result: Any | None = None
     type: Literal["insight"] = "insight"
     variablesOverride: dict[str, HogQLVariable] | None = None
 
