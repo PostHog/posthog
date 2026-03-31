@@ -37,9 +37,9 @@ export function EditorFilterGroupTile({ insightProps, editorFilterGroup }: Edito
                     sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
                     title={isRowExpanded ? 'Show less' : 'Show more'}
                     data-attr={'editor-filter-group-collapse-' + slugify(title)}
-                    className={clsx('rounded-b-none', isRowExpanded && 'border-b')}
+                    className={clsx('rounded-b-none px-1 py-1', isRowExpanded && 'border-b')}
                 >
-                    <div className="flex items-center gap-2 font-semibold text-sm">
+                    <div className="flex items-baseline gap-2 font-semibold">
                         <span>{title}</span>
                         {!isRowExpanded && collapsedSummary && (
                             <span className="text-xs font-normal text-secondary">{collapsedSummary}</span>
@@ -48,14 +48,14 @@ export function EditorFilterGroupTile({ insightProps, editorFilterGroup }: Edito
                 </LemonButton>
             ) : (
                 <div className="px-3 py-2">
-                    <span className="text-sm font-semibold text-secondary">{title}</span>
+                    <span className="font-semibold text-secondary">{title}</span>
                 </div>
             )}
             <div
-                className="grid transition-all duration-200 ease-in-out"
+                className="grid transition-all duration-200 ease-in-out min-w-0"
                 style={{ gridTemplateRows: isRowExpanded ? '1fr' : '0fr' }}
             >
-                <div className="overflow-hidden">
+                <div className="overflow-hidden min-w-0">
                     <div className="px-3 pb-3 pt-2 flex flex-col gap-2 min-w-0">
                         <EditorFilterItems editorFilters={editorFilters} insightProps={insightProps} />
                     </div>
