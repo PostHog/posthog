@@ -168,7 +168,7 @@ describe('PersonHogPersonRepository', () => {
                 const repo = createRepo(rolloutPercentage)
                 const result = await repo.fetchPerson(TEAM_ID, 'user-123', { useReadReplica: true })
 
-                expect(result).toEqual(TEST_PERSON)
+                expect(result).toEqual(expectGrpc ? TEST_PERSON_WITH_DISTINCT_ID : TEST_PERSON)
                 if (expectGrpc) {
                     expect(handlers.getPersonsByDistinctIds).toHaveBeenCalled()
                     expect(mockPostgres.fetchPerson).not.toHaveBeenCalled()
