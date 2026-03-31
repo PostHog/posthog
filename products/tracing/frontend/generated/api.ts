@@ -10,7 +10,7 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
 export const getTracingSpansAttributesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/attributes/`
+    return `/api/environments/${projectId}/tracing/spans/attributes/`
 }
 
 export const tracingSpansAttributesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -21,7 +21,7 @@ export const tracingSpansAttributesRetrieve = async (projectId: string, options?
 }
 
 export const getTracingSpansQueryCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/query/`
+    return `/api/environments/${projectId}/tracing/spans/query/`
 }
 
 export const tracingSpansQueryCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -32,7 +32,7 @@ export const tracingSpansQueryCreate = async (projectId: string, options?: Reque
 }
 
 export const getTracingSpansServiceNamesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/service-names/`
+    return `/api/environments/${projectId}/tracing/spans/service-names/`
 }
 
 export const tracingSpansServiceNamesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -43,7 +43,7 @@ export const tracingSpansServiceNamesRetrieve = async (projectId: string, option
 }
 
 export const getTracingSpansSparklineCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/sparkline/`
+    return `/api/environments/${projectId}/tracing/spans/sparkline/`
 }
 
 export const tracingSpansSparklineCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -54,7 +54,7 @@ export const tracingSpansSparklineCreate = async (projectId: string, options?: R
 }
 
 export const getTracingSpansTraceCreateUrl = (projectId: string, traceId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/trace/${traceId}/`
+    return `/api/environments/${projectId}/tracing/spans/trace/${traceId}/`
 }
 
 export const tracingSpansTraceCreate = async (
@@ -69,7 +69,7 @@ export const tracingSpansTraceCreate = async (
 }
 
 export const getTracingSpansValuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/values/`
+    return `/api/environments/${projectId}/tracing/spans/values/`
 }
 
 export const tracingSpansValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
