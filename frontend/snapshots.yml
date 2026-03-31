@@ -4317,9 +4317,9 @@ snapshots:
     scenes-app-insights-lifecycle--lifecycle--light:
         hash: v1.k794b7964.ceb8988eef06aca3b4dc77d78ddf8de73b7d8f8322e91155c74341d89e458602.1gxEiKZBf8yWXLvMvWxksZq0HBw_Cb6DOHrNtaVOdSA
     scenes-app-insights-lifecycle--lifecycle-edit--dark:
-        hash: v1.k794b7964.78e5b249c4a8f22ab5d7c2228a931a2a144465a92adf09dede4bbce71a22231f.JD1ssNWU7rp_h_nbMX1WKcXUDrug174E56FIJ0Wir3Q
+        hash: v1.k794b7964.651cb0660b2a302b2bb0d317ec54fc58f77a5d5dff0ab1203910c382836b7038.YafP4_tkLwyvNggCh8zZeufY6ncWwpHjegUckudUsvE
     scenes-app-insights-lifecycle--lifecycle-edit--light:
-        hash: v1.k794b7964.ac70a6336f71fe95197e6dd25d2a645e044ea7da0982932aa211fc59cb02dc63.lyHIX9GZ6fwfSsJWUCMDFsM2aW65XioNmtP1UzTZGXc
+        hash: v1.k794b7964.0c4e4e25b9208a769b99360c9a788988e12d2c85e54b79cf4e76075d5e13d397.f5XEaIFDiSlsC6FPK5KtQMO1vfjntWXw7dZaVCyPens
     scenes-app-insights-lifecycle--lifecycle-edit-viewports--dark:
         hash: v1.k794b7964.12eead60cdc516d7300b8fdaea2aeeb5591ac97f4e54cdd44d3160cb94121c23.dGnmGAXHzcm8EQdJ-wsQyuqRisenTEh5OELn76srWfI
     scenes-app-insights-lifecycle--lifecycle-edit-viewports--light:
@@ -4333,9 +4333,9 @@ snapshots:
     scenes-app-insights-lifecycle--lifecycle-edit-viewports--superwide--light:
         hash: v1.k794b7964.82b7fc950a51d66e6b92bfdaff07108018c80e4f7d148f263a81f5fc05d74c62.HAIl52SYo0DcrW6GGp_PoUmBVdBiOAqK2REZPHtKboE
     scenes-app-insights-lifecycle--lifecycle-edit-viewports--wide--dark:
-        hash: v1.k794b7964.78e5b249c4a8f22ab5d7c2228a931a2a144465a92adf09dede4bbce71a22231f.Q01GiD1lYJAoy16hfTrDO0OgUpsHjzeVVc9WUIe8t3w
+        hash: v1.k794b7964.651cb0660b2a302b2bb0d317ec54fc58f77a5d5dff0ab1203910c382836b7038.DElRyE5Koyt8inEh677wMcz7uVAfEuOG8sEvk6KUEW8
     scenes-app-insights-lifecycle--lifecycle-edit-viewports--wide--light:
-        hash: v1.k794b7964.ac70a6336f71fe95197e6dd25d2a645e044ea7da0982932aa211fc59cb02dc63.t9MiV_HoXDobwi1_AdfkV2IyuuiFi6gJF0MhT4O-dfY
+        hash: v1.k794b7964.0c4e4e25b9208a769b99360c9a788988e12d2c85e54b79cf4e76075d5e13d397.9EINW4x3AsRg_azvfc1CIAKS66axF0WsB9Wg_G3i7EU
     scenes-app-insights-loading-messages--loading-messages--dark:
         hash: v1.k794b7964.888262d9bc4df7edf32d1ddcc752b5c192bb7e4399a0a3fcd756d0cce26b5859.hX0jt0PYISGcfjdL7CoR9d2LvTokrySIDuXFrXe4Q3g
     scenes-app-insights-loading-messages--loading-messages--light:
