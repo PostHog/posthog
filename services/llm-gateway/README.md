@@ -166,6 +166,7 @@ Instead of dedicated routes, set the `provider` field in the request body:
 ```
 
 Anthropic model names (e.g. `claude-sonnet-4-6`) are automatically mapped to Bedrock model IDs.
+The gateway chooses the US or EU Bedrock profile based on `LLM_GATEWAY_BEDROCK_REGION_NAME` or the ambient AWS region.
 You can also pass a Bedrock model ID directly (e.g. `us.anthropic.claude-sonnet-4-6`).
 
 ### Bedrock fallback

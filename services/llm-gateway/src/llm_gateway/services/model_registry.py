@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
+from llm_gateway.bedrock import BEDROCK_ANTHROPIC_MODEL_PREFIXES, is_bedrock_configured
 from llm_gateway.config import get_settings
 from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
@@ -28,24 +29,6 @@ _PROVIDER_TO_API_KEY: Final[dict[str, tuple[str, str]]] = {
     "gemini": ("gemini_api_key", "GEMINI_API_KEY"),
 }
 
-_BEDROCK_ANTHROPIC_MODEL_PREFIXES: Final[tuple[str, ...]] = (
-    "anthropic.",
-    "us.anthropic.",
-    "eu.anthropic.",
-)
-
-
-def _has_config_value(value: object) -> bool:
-    return isinstance(value, str) and value != ""
-
-
-def _is_bedrock_configured(settings: object) -> bool:
-    return (
-        _has_config_value(getattr(settings, "bedrock_region_name", None))
-        or _has_config_value(os.environ.get("AWS_REGION"))
-        or _has_config_value(os.environ.get("AWS_DEFAULT_REGION"))
-    )
-
 
 def _model_matches_allowlist(model_id: str, allowed_models: frozenset[str]) -> bool:
     """Check if model matches allowlist using exact matching for /models endpoint listing."""
@@ -59,7 +42,7 @@ def _get_configured_providers() -> frozenset[str]:
     for provider, (settings_attr, env_var) in _PROVIDER_TO_API_KEY.items():
         if getattr(settings, settings_attr, None) or os.environ.get(env_var):
             configured.add(provider)
-    if _is_bedrock_configured(settings):
+    if is_bedrock_configured(settings):
         configured.add("bedrock")
         # Use bedrock_converse for model lookups in LiteLLM until they support bedrock provider lookups
         configured.add("bedrock_converse")
@@ -87,7 +70,7 @@ def _supports_bedrock_messages_endpoint(model_id: str, provider: str) -> bool:
     normalized_provider = _normalize_provider(provider)
     if normalized_provider != "bedrock":
         return True
-    return model_id.startswith(_BEDROCK_ANTHROPIC_MODEL_PREFIXES)
+    return model_id.startswith(BEDROCK_ANTHROPIC_MODEL_PREFIXES)
 
 
 class ModelRegistryService:

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 BEDROCK_SETTINGS_PATCH = patch(
     "llm_gateway.api.anthropic.get_settings",
-    return_value=MagicMock(bedrock_region_name="us-east-1"),
+    return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
 )
 
 
@@ -72,6 +72,31 @@ class TestBedrockViaProvider:
             headers={"Authorization": "Bearer phx_test_key"},
         )
         assert response.status_code == 200
+
+    @patch.dict("os.environ", {"AWS_REGION": "us-east-1"}, clear=False)
+    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
+    @patch("llm_gateway.api.anthropic.get_settings", return_value=MagicMock(bedrock_region_name=None))
+    def test_uses_aws_region_when_gateway_region_setting_missing(
+        self,
+        mock_get_settings: MagicMock,
+        mock_handle: AsyncMock,
+        authenticated_client: TestClient,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_handle.return_value = mock_anthropic_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "provider": "bedrock",
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert mock_handle.call_args.kwargs["model"] == "us.anthropic.claude-sonnet-4-6"
 
     @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
     @BEDROCK_SETTINGS_PATCH
@@ -399,6 +424,7 @@ class TestBedrockCountTokensViaProvider:
     ) -> None:
         mock_settings = MagicMock()
         mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 300.0
         mock_get_settings.return_value = mock_settings
 
         mock_count_tokens.return_value = 42
@@ -431,6 +457,7 @@ class TestBedrockCountTokensViaProvider:
     ) -> None:
         mock_settings = MagicMock()
         mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 300.0
         mock_get_settings.return_value = mock_settings
 
         mock_count_tokens.return_value = 10
@@ -475,6 +502,7 @@ class TestBedrockCountTokensViaProvider:
     ) -> None:
         mock_settings = MagicMock()
         mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 300.0
         mock_get_settings.return_value = mock_settings
 
         mock_count_tokens.side_effect = Exception("AWS error")
@@ -499,6 +527,7 @@ class TestBedrockCountTokensViaProvider:
     ) -> None:
         mock_settings = MagicMock()
         mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 300.0
         mock_get_settings.return_value = mock_settings
 
         mock_count_tokens.return_value = 42
@@ -512,13 +541,89 @@ class TestBedrockCountTokensViaProvider:
         assert response.status_code == 200
         assert response.json()["input_tokens"] == 42
 
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
+    def test_forwards_full_request_payload_to_bedrock_count_tokens(
+        self,
+        mock_count_tokens: MagicMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 123.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_count_tokens.return_value = 42
+        body = {
+            "model": "claude-sonnet-4-6",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "provider": "bedrock",
+            "max_tokens": 2048,
+            "system": "Be brief.",
+            "tools": [
+                {
+                    "name": "get_weather",
+                    "description": "Get weather by city",
+                    "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}},
+                }
+            ],
+            "tool_choice": {"type": "tool", "name": "get_weather"},
+        }
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        request_data = mock_count_tokens.call_args.args[0]
+        assert request_data["model"] == "claude-sonnet-4-6"
+        assert request_data["messages"] == body["messages"]
+        assert request_data["system"] == body["system"]
+        assert request_data["tools"] == body["tools"]
+        assert request_data["tool_choice"] == body["tool_choice"]
+        assert request_data["max_tokens"] == 2048
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.asyncio.to_thread", new_callable=AsyncMock)
+    def test_count_tokens_runs_in_worker_thread(
+        self,
+        mock_to_thread: AsyncMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        from llm_gateway.api.anthropic import count_tokens_with_bedrock
+
+        mock_settings = MagicMock()
+        mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 123.0
+        mock_get_settings.return_value = mock_settings
+        mock_to_thread.return_value = 42
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_args = mock_to_thread.call_args.args
+        assert call_args[0] is count_tokens_with_bedrock
+        assert call_args[1]["model"] == valid_request_body["model"]
+        assert call_args[2] == "us.anthropic.claude-sonnet-4-6"
+        assert call_args[3] == "us-east-1"
+        assert call_args[4] == 123.0
+
 
 class TestModelMapping:
     @pytest.mark.parametrize(
         "anthropic_model,expected_bedrock_model",
         [
             pytest.param("claude-opus-4-5", "us.anthropic.claude-opus-4-5-20251101-v1:0", id="opus_4_5"),
-            pytest.param("claude-opus-4-6", "us.anthropic.claude-opus-4-6", id="opus_4_6"),
+            pytest.param("claude-opus-4-6", "us.anthropic.claude-opus-4-6-v1", id="opus_4_6"),
             pytest.param("claude-sonnet-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", id="sonnet_4_5"),
             pytest.param("claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-6", id="sonnet_4_6"),
             pytest.param("claude-haiku-4-5", "us.anthropic.claude-haiku-4-5-20251001-v1:0", id="haiku_4_5"),
@@ -533,6 +638,33 @@ class TestModelMapping:
         from llm_gateway.api.anthropic import map_to_bedrock_model
 
         assert map_to_bedrock_model("us.anthropic.claude-sonnet-4-6") == "us.anthropic.claude-sonnet-4-6"
+
+    def test_maps_to_eu_profile_for_eu_regions(self) -> None:
+        from llm_gateway.api.anthropic import map_to_bedrock_model
+
+        assert map_to_bedrock_model("claude-opus-4-6", region_name="eu-west-1") == "eu.anthropic.claude-opus-4-6-v1"
+
+    def test_build_bedrock_invoke_model_body_preserves_request_fields(self) -> None:
+        from llm_gateway.bedrock import BEDROCK_ANTHROPIC_VERSION, build_bedrock_invoke_model_body
+
+        body = build_bedrock_invoke_model_body(
+            {
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "system": "Be brief.",
+                "tools": [{"name": "get_weather"}],
+                "tool_choice": {"type": "tool", "name": "get_weather"},
+                "max_tokens": 2048,
+            }
+        )
+
+        assert "model" not in body
+        assert body["messages"] == [{"role": "user", "content": "Hello"}]
+        assert body["system"] == "Be brief."
+        assert body["tools"] == [{"name": "get_weather"}]
+        assert body["tool_choice"] == {"type": "tool", "name": "get_weather"}
+        assert body["max_tokens"] == 2048
+        assert body["anthropic_version"] == BEDROCK_ANTHROPIC_VERSION
 
     def test_raises_for_unknown_model(self) -> None:
         from llm_gateway.api.anthropic import map_to_bedrock_model

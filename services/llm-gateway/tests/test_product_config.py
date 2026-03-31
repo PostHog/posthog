@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi import HTTPException
 
@@ -210,6 +212,20 @@ class TestCheckProductAccess:
         assert allowed is False
         assert error is not None
         assert "not allowed" in error
+
+    @patch(
+        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
+    )
+    def test_background_agents_allows_claude_sonnet_4_6_via_bedrock_provider(self, mock_get_settings: MagicMock):
+        allowed, error = check_product_access(
+            "background_agents",
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            "claude-sonnet-4-6",
+            provider="bedrock",
+        )
+        assert allowed is True
+        assert error is None
 
     @pytest.mark.parametrize("model", sorted(BEDROCK_MODELS))
     def test_background_agents_allows_bedrock_models(self, model: str):

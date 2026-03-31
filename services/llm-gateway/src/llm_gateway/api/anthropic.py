@@ -1,9 +1,7 @@
-import functools
-import json
+import asyncio
 import time
 from typing import Any
 
-import boto3
 import httpx
 import litellm
 import structlog
@@ -11,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, BEDROCK_CONFIG, handle_llm_request
+from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.metrics.prometheus import (
@@ -33,71 +32,6 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 COUNT_TOKENS_ENDPOINT_NAME = "anthropic_count_tokens"
 BEDROCK_COUNT_TOKENS_ENDPOINT_NAME = "bedrock_count_tokens"
 
-# Mapping from Anthropic model names to Bedrock model IDs.
-# Keys can be either the short name or the dated variant.
-ANTHROPIC_TO_BEDROCK_MODEL_MAP: dict[str, str] = {
-    "claude-opus-4-5": "us.anthropic.claude-opus-4-5-20251101-v1:0",
-    "claude-opus-4-5-20251101": "us.anthropic.claude-opus-4-5-20251101-v1:0",
-    "claude-opus-4-6": "us.anthropic.claude-opus-4-6",
-    "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-    "claude-sonnet-4-5-20250929": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-    "claude-sonnet-4-6": "us.anthropic.claude-sonnet-4-6",
-    "claude-haiku-4-5": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "claude-haiku-4-5-20251001": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-}
-
-
-def map_to_bedrock_model(model: str) -> str:
-    """Map an Anthropic model name to a Bedrock model ID.
-
-    If the model is already a Bedrock model ID (contains 'anthropic.'), returns it as-is.
-    """
-    if "anthropic." in model:
-        return model
-    mapped = ANTHROPIC_TO_BEDROCK_MODEL_MAP.get(model)
-    if mapped is None:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": {"message": f"No Bedrock mapping for model '{model}'", "type": "invalid_request_error"}},
-        )
-    return mapped
-
-
-def ensure_bedrock_configured(settings: Any) -> None:
-    if settings.bedrock_region_name:
-        return
-    logger.warning("Bedrock region not configured")
-    raise HTTPException(
-        status_code=503,
-        detail={"error": {"message": "Bedrock region not configured", "type": "configuration_error"}},
-    )
-
-
-@functools.lru_cache
-def _get_bedrock_runtime_client(region_name: str):
-    return boto3.client("bedrock-runtime", region_name=region_name)
-
-
-# The Bedrock CountTokens API requires a max_tokens field, but it's ignored in the calculation—tokens are counted from the input only.
-def count_tokens_with_bedrock(
-    messages: list[dict[str, Any]], model: str, aws_region_name: str, max_tokens: int = 4096
-) -> int:
-    bedrock_runtime_client = _get_bedrock_runtime_client(aws_region_name)
-
-    body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": max_tokens,
-        "messages": messages,
-    }
-    # CountTokens API does not support regional model prefixes ("us.anthropic.", "eu.anthropic.")
-    model = model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
-
-    response = bedrock_runtime_client.count_tokens(
-        modelId=model,
-        input={"invokeModel": {"body": json.dumps(body).encode("utf-8")}},
-    )
-    return int(response["inputTokens"])
-
 
 async def _send_bedrock_messages(
     request_data: dict[str, Any],
@@ -107,10 +41,10 @@ async def _send_bedrock_messages(
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     settings = get_settings()
-    ensure_bedrock_configured(settings)
+    bedrock_region_name = ensure_bedrock_configured(settings)
 
     data = dict(request_data)
-    data["model"] = map_to_bedrock_model(data["model"])
+    data["model"] = map_to_bedrock_model(data["model"], region_name=bedrock_region_name)
 
     anthropic_beta = request.headers.get("anthropic-beta")
     if anthropic_beta:
@@ -286,15 +220,19 @@ async def _bedrock_count_tokens_impl(
     product: str,
 ) -> dict[str, Any]:
     settings = get_settings()
-    ensure_bedrock_configured(settings)
+    bedrock_region_name = ensure_bedrock_configured(settings)
 
-    bedrock_model = map_to_bedrock_model(model)
+    bedrock_model = map_to_bedrock_model(model, region_name=bedrock_region_name)
     start_time = time.monotonic()
     status_code = "200"
 
     try:
-        input_tokens = count_tokens_with_bedrock(
-            data["messages"], bedrock_model, settings.bedrock_region_name, max_tokens=data.get("max_tokens", 4096)
+        input_tokens = await asyncio.to_thread(
+            count_tokens_with_bedrock,
+            data,
+            bedrock_model,
+            bedrock_region_name,
+            settings.request_timeout,
         )
         return {"input_tokens": input_tokens}
     except HTTPException as e:

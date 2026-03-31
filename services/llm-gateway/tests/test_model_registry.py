@@ -99,7 +99,7 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "us.anthropic.claude-opus-4-6": {
+    "us.anthropic.claude-opus-4-6-v1": {
         "litellm_provider": "bedrock",
         "max_input_tokens": 200000,
         "supports_vision": True,

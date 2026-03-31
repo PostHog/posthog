@@ -5,6 +5,7 @@ from typing import Final
 
 from fastapi import HTTPException
 
+from llm_gateway.bedrock import BEDROCK_MODEL_IDS, get_bedrock_model_access_candidates, get_bedrock_region_name
 from llm_gateway.config import get_settings
 
 
@@ -15,21 +16,7 @@ class ProductConfig:
     allow_api_keys: bool = True
 
 
-BEDROCK_MODELS = frozenset(
-    {
-        # US variations
-        "us.anthropic.claude-opus-4-5-20251101-v1:0",
-        "us.anthropic.claude-opus-4-6",
-        "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "us.anthropic.claude-sonnet-4-6",
-        "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-        # EU variations
-        "eu.anthropic.claude-opus-4-6",
-        "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "eu.anthropic.claude-sonnet-4-6",
-        "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-    }
-)
+BEDROCK_MODELS = BEDROCK_MODEL_IDS
 
 # OAuth application IDs per region
 POSTHOG_CODE_US_APP_ID = "019a3066-4aa2-0000-ca70-48ecdcc519cf"
@@ -142,11 +129,32 @@ def validate_product(product: str) -> str:
     return resolved
 
 
+def _model_matches_product_allowlist(
+    model: str,
+    allowed_models: frozenset[str],
+    provider: str | None = None,
+    settings: object | None = None,
+) -> bool:
+    model_candidates = {model.lower()}
+    if provider == "bedrock":
+        model_candidates = set(
+            get_bedrock_model_access_candidates(model, region_name=get_bedrock_region_name(settings=settings))
+        )
+
+    allowed_prefixes = tuple(allowed_model.lower() for allowed_model in allowed_models)
+    return any(
+        model_candidate.startswith(allowed_prefix)
+        for model_candidate in model_candidates
+        for allowed_prefix in allowed_prefixes
+    )
+
+
 def check_product_access(
     product: str,
     auth_method: str,
     application_id: str | None,
     model: str | None,
+    provider: str | None = None,
 ) -> tuple[bool, str | None]:
     """
     Check if request is authorized for product.
@@ -156,6 +164,7 @@ def check_product_access(
     if config is None:
         return False, f"Unknown product: {product}"
 
+    settings = get_settings()
     is_api_key = auth_method == "personal_api_key"
     if is_api_key and not config.allow_api_keys:
         return False, f"Product '{product}' requires OAuth authentication"
@@ -163,12 +172,11 @@ def check_product_access(
     is_oauth = auth_method == "oauth_access_token"
     if is_oauth and config.allowed_application_ids is not None:
         # Skip application ID checks in debug mode
-        if not get_settings().debug and application_id not in config.allowed_application_ids:
+        if not settings.debug and application_id not in config.allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
 
     if model and config.allowed_models is not None:
-        model_lower = model.lower()
-        if not any(model_lower.startswith(allowed) for allowed in config.allowed_models):
+        if not _model_matches_product_allowlist(model, config.allowed_models, provider=provider, settings=settings):
             return False, f"Model '{model}' not allowed for product '{product}'"
 
     return True, None

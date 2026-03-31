@@ -1762,6 +1762,7 @@ jobs:
               run: uv sync --frozen --dev
 
             - name: Require Bedrock IAM role
+              if: github.repository == 'PostHog/posthog' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
               run: |
                   if [ -z "$LLM_GATEWAY_BEDROCK_IAM_ROLE" ]; then
                       echo "LLM_GATEWAY_BEDROCK_IAM_ROLE must be configured for LLM gateway tests."
@@ -1769,6 +1770,7 @@ jobs:
                   fi
 
             - name: Configure AWS credentials for Bedrock
+              if: github.repository == 'PostHog/posthog' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
               uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
               with:
                   role-to-assume: ${{ env.LLM_GATEWAY_BEDROCK_IAM_ROLE }}
