@@ -1950,6 +1950,111 @@
             "readOnlyHint": false
         }
     },
+    "session-recordings-list": {
+        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, start URL, and person information. Supports pagination.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "List session recordings",
+        "title": "List session recordings",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-get": {
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Get session recording",
+        "title": "Get session recording",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-delete": {
+        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Delete session recording",
+        "title": "Delete session recording",
+        "required_scopes": ["session_recording:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "session-recording-playlists-list": {
+        "description": "List session recording playlists in the project. Returns both user-created and synthetic (system-generated) playlists with their metadata and recording counts.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "List session recording playlists",
+        "title": "List session recording playlists",
+        "required_scopes": ["session_recording_playlist:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-playlist-get": {
+        "description": "Get a specific session recording playlist by short_id. Returns full playlist metadata including name, description, filters, type, and recording counts.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Get session recording playlist",
+        "title": "Get session recording playlist",
+        "required_scopes": ["session_recording_playlist:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-playlist-create": {
+        "description": "Create a new session recording playlist. Set type to 'collection' for a manually curated list or 'filters' for a saved filter view. Collections cannot have filters, and filter playlists must include at least one filter criterion.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Create session recording playlist",
+        "title": "Create session recording playlist",
+        "required_scopes": ["session_recording_playlist:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "session-recording-playlist-update": {
+        "description": "Update an existing session recording playlist by short_id. Can update name, description, pinned status, and filters. Set deleted to true to soft-delete. The type field cannot be changed after creation. When updating a filters-type playlist, you must include the existing filters alongside other field changes, otherwise the update will fail.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Update session recording playlist",
+        "title": "Update session recording playlist",
+        "required_scopes": ["session_recording_playlist:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "surveys-get-all": {
         "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
         "category": "Surveys",
