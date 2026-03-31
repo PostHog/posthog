@@ -7,6 +7,16 @@
 category: Feature flags
 feature: flags
 url_prefix: /feature_flags
+ui_apps:
+    feature-flag:
+        type: detail
+        view_prop: flag
+    feature-flag-list:
+        type: list
+        detail_tool: feature-flag-get-definition
+        detail_args: '{ flagId: item.id }'
+        item_name_field: key
+        click_prop: onFlagClick
 tools:
     feature-flag-get-all:
         operation: feature_flags_list
@@ -28,7 +38,6 @@ tools:
                 description:
                     Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
                     tools.
-
     feature-flag-get-definition:
         operation: feature_flags_retrieve_2
         enabled: true
@@ -42,7 +51,6 @@ tools:
         title: Get feature flag definition
         description: |
             Get a feature flag by ID.
-
     create-feature-flag:
         operation: feature_flags_create
         enabled: true
@@ -215,18 +223,18 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List scheduled changes for feature flags
         description: >
             List scheduled changes in the current project. Filter by model_name=FeatureFlag and record_id to see
             schedules for a specific flag. Returns pending, executed, and failed schedules with their payloads and
             timing. Use this to check what changes are queued for a feature flag before modifying it.
-        list: true
         param_overrides:
             model_name:
-                description: >
+                description: |
                     Filter by model type. Use "FeatureFlag" to see feature flag schedules.
             record_id:
-                description: >
+                description: |
                     Filter by the ID of a specific feature flag.
     scheduled-changes-get:
         operation: scheduled_changes_retrieve
@@ -285,5 +293,5 @@ tools:
             destructive: true
             idempotent: true
         title: Delete a scheduled change
-        description: >
+        description: |
             Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.

@@ -3,7 +3,6 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { CommonConfig } from '../common/config'
 import { buildIntegerMatcher } from '../config/config'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { OverflowOutput } from '../ingestion/common/outputs'
@@ -27,7 +26,6 @@ import { TeamService } from '../session-replay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
 import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
@@ -45,26 +43,10 @@ import { SessionTracker } from './sessions/session-tracker'
 
 /**
  * Configuration for SessionRecordingIngester.
- * All service instances (postgres, kafka producers) are passed as explicit constructor params.
- * This type covers SessionRecordingConfig plus infra config needed for Redis pools and encryption.
+ * All service instances (postgres, kafka producers, redis pools) are passed as explicit constructor params.
  */
 export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     SessionRecordingApiConfig &
-    Pick<
-        CommonConfig,
-        // For KafkaProducerWrapper.create
-        | 'KAFKA_CLIENT_RACK'
-        // For createRedisPool (common Redis config not in SessionRecordingConfig)
-        | 'REDIS_URL'
-        | 'REDIS_POOL_MIN_SIZE'
-        | 'REDIS_POOL_MAX_SIZE'
-        // For restriction manager redis pool (must match the ingestion redis that Django writes to)
-        | 'INGESTION_REDIS_HOST'
-        | 'INGESTION_REDIS_PORT'
-        | 'POSTHOG_REDIS_HOST'
-        | 'POSTHOG_REDIS_PORT'
-        | 'POSTHOG_REDIS_PASSWORD'
-    > &
     Pick<
         IngestionConsumerConfig,
         // For TopHog metrics
@@ -101,10 +83,11 @@ export class SessionRecordingIngester {
 
     constructor(
         private config: SessionRecordingIngesterConfig,
-        private consumeOverflow: boolean,
         postgres: PostgresRouter,
         kafkaMetadataProducer: KafkaProducerWrapper,
-        kafkaMessageProducer: KafkaProducerWrapper
+        kafkaMessageProducer: KafkaProducerWrapper,
+        redisPool: RedisPool,
+        restrictionRedisPool: RedisPool
     ) {
         this.topic = config.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
         this.overflowTopic = config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC
@@ -123,6 +106,8 @@ export class SessionRecordingIngester {
 
         this.kafkaMetadataProducer = kafkaMetadataProducer
         this.kafkaMessageProducer = kafkaMessageProducer
+        this.redisPool = redisPool
+        this.restrictionRedisPool = restrictionRedisPool
 
         let s3Client: S3Client | null = null
         if (
@@ -152,39 +137,6 @@ export class SessionRecordingIngester {
             topic: KAFKA_CLICKHOUSE_TOPHOG,
             pipeline: config.INGESTION_PIPELINE ?? 'unknown',
             lane: config.INGESTION_LANE ?? 'unknown',
-        })
-
-        // Session recording uses its own Redis instance with fallback to default
-        this.redisPool = createRedisPoolFromConfig({
-            connection: config.POSTHOG_SESSION_RECORDING_REDIS_HOST
-                ? {
-                      url: config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-                      options: { port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
-                      name: 'session-recording-redis',
-                  }
-                : { url: config.REDIS_URL, name: 'session-recording-redis-fallback' },
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-        })
-
-        // Restriction manager needs to read from the same Redis as Django writes to
-        // This must match the ingestion redis fallback chain from hub.ts
-        this.restrictionRedisPool = createRedisPoolFromConfig({
-            connection: config.INGESTION_REDIS_HOST
-                ? {
-                      url: config.INGESTION_REDIS_HOST,
-                      options: { port: config.INGESTION_REDIS_PORT },
-                      name: 'ingestion-redis',
-                  }
-                : config.POSTHOG_REDIS_HOST
-                  ? {
-                        url: config.POSTHOG_REDIS_HOST,
-                        options: { port: config.POSTHOG_REDIS_PORT, password: config.POSTHOG_REDIS_PASSWORD },
-                        name: 'ingestion-redis',
-                    }
-                  : { url: config.REDIS_URL, name: 'ingestion-redis' },
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
 
         this.teamService = new TeamService(postgres)
@@ -253,7 +205,7 @@ export class SessionRecordingIngester {
         this.sessionReplayPipeline = createSessionReplayPipeline({
             kafkaProducer: this.kafkaMessageProducer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: !this.consumeOverflow,
+            overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic,
             dlqTopic: this.config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
             promiseScheduler: this.promiseScheduler,
@@ -381,16 +333,9 @@ export class SessionRecordingIngester {
 
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
-        // Clean up resources owned by this ingester
         this.keyStore.stop()
-        // Note: kafkaMetadataProducer may be shared (e.g., config.kafkaProducer in production),
-        // so callers are responsible for disconnecting it. We only disconnect kafkaMessageProducer
-        // which we always own.
-        await this.kafkaMessageProducer.disconnect()
-        await this.redisPool.drain()
-        await this.redisPool.clear()
-        await this.restrictionRedisPool.drain()
-        await this.restrictionRedisPool.clear()
+        // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
+        // not by the ingester. The server handles their lifecycle in getCleanupResources().
 
         logger.info('👍', 'blob_ingester_consumer_v2 - stopped!')
 
@@ -431,5 +376,12 @@ export class SessionRecordingIngester {
             this.kafkaConsumer.offsetsStore(offsets)
             return Promise.resolve()
         })
+    }
+
+    private overflowEnabled(): boolean {
+        return (
+            !!this.config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC &&
+            this.config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC !== this.topic
+        )
     }
 }

@@ -7,6 +7,13 @@
 category: Workflows
 feature: workflows
 url_prefix: /pipeline/destinations
+ui_apps:
+    workflow:
+        type: detail
+        view_prop: workflow
+    workflow-list:
+        type: list
+        detail_tool: workflows-get
 tools:
     hog-flow-templates-list:
         operation: hog_flow_templates_list
@@ -43,7 +50,7 @@ tools:
         description: >
             List all workflows in the project. Returns workflows with their name, description, status
             (draft/active/archived), version, trigger configuration, and timestamps.
-        ui_resource_uri: ui://posthog/workflow-list.html
+        ui_app: workflow-list
     hog-flows-create:
         operation: hog_flows_create
         enabled: false
@@ -61,7 +68,7 @@ tools:
         description: >
             Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
             condition, and variables.
-        ui_resource_uri: ui://posthog/workflow.html
+        ui_app: workflow
     hog-flows-update:
         operation: hog_flows_update
         enabled: false

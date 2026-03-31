@@ -17,12 +17,16 @@ python manage.py run_autoreload_celery --type=beat &
 
 if [[ "$PLUGIN_SERVER_IDLE" != "1" && "$PLUGIN_SERVER_IDLE" != "true" ]]; then
   # Runs separate node processes for each server class:
-  # - default: CDP, recordings, logs (PluginServer)
+  # - default: CDP, logs, evaluation scheduler (PluginServer)
   # - ingestion-v2-combined: event ingestion (IngestionGeneralServer)
+  # - recordings-blob-ingestion-v2: session replay ingestion (IngestionSessionReplayServer)
+  # - recording-api: session replay API (RecordingApiServer)
   # - ingestion-errortracking: error tracking ingestion (ErrorTrackingServer)
   ./bin/posthog-node &
   PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node &
-  PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6740 ./bin/posthog-node &
+  PLUGIN_SERVER_MODE=recordings-blob-ingestion-v2 HTTP_SERVER_PORT=6740 ./bin/posthog-node &
+  PLUGIN_SERVER_MODE=recording-api HTTP_SERVER_PORT=6741 ./bin/posthog-node &
+  PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node &
 fi
 
 wait

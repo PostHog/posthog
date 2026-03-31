@@ -19,7 +19,9 @@
 }
 
 .SessionRecordingPlaylistHeightWrapper {
-    // NOTE: Replay scene height is very tightly controlled to make sure controls are always on-screen
+    // NOTE: Uses flex to fill remaining space so controls stay on-screen even when banners appear above.
+    // height is kept as a fallback for non-flex contexts (e.g. storybook).
+    flex: 1;
     height: calc(100vh - 12rem);
     min-height: 25rem;
 }

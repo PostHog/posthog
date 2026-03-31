@@ -40,7 +40,7 @@ locals {
 
   # Row budgets for queries (with 2x margin for safety).
   slo_burn_rate_limit    = 168 * 4 * 2 # 7 days * 24h * 4 metrics * margin
-  slo_duration_limit     = 28 * 3 * 2  # 28 days * 3 percentiles * margin
+  slo_duration_limit     = 7 * 3 * 2   # 7 days * 3 percentiles * margin
   slo_success_rate_limit = length(local.slo_operations) * 28 * 2
 
   # Explicit operation list for the success rate query (avoids DISTINCT drift).
@@ -51,17 +51,62 @@ locals {
   # Placeholders: {{OPERATION}}, {{REGION}}, {{ERROR_BUDGET}}
   # ---------------------------------------------------------------------------
   slo_burn_rate_query = <<-SQL
-    WITH hourly AS (
+    -- Two paths: correlated (pairs started/completed by correlation_id, exact)
+    -- and uncorrelated (bucket-based with clamp, for SLOs without correlation_id).
+    WITH correlated AS (
         SELECT
-            toStartOfHour(timestamp) AS hour,
-            countIf(event = 'slo_operation_started') AS total,
-            countIf(event = 'slo_operation_started')
-              - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS failures
+            properties.correlation_id AS cid,
+            minIf(timestamp, event = 'slo_operation_started') AS started_at,
+            max(if(event = 'slo_operation_completed' AND properties.outcome = 'success', 1, 0)) AS succeeded
         FROM events
         WHERE event IN ('slo_operation_started', 'slo_operation_completed')
           AND properties.operation = '{{OPERATION}}'
           AND properties.region = '{{REGION}}'
+          AND properties.correlation_id IS NOT NULL
           AND timestamp >= now() - INTERVAL 35 DAY
+        GROUP BY cid
+    ),
+    correlated_hourly AS (
+        SELECT
+            toStartOfHour(started_at) AS hour,
+            count() AS total,
+            countIf(succeeded = 0) AS failures
+        FROM correlated
+        WHERE started_at IS NOT NULL
+        GROUP BY hour
+    ),
+    -- Clamped to 0: without correlation_id, started/completed events for the
+    -- same operation can land in different hourly buckets, producing negative
+    -- failure counts that are measurement artifacts, not real data.
+    uncorrelated_hourly AS (
+        SELECT
+            toStartOfHour(timestamp) AS hour,
+            countIf(event = 'slo_operation_started') AS total,
+            greatest(
+                countIf(event = 'slo_operation_started')
+                  - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success'),
+                0
+            ) AS failures
+        FROM events
+        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+          AND properties.operation = '{{OPERATION}}'
+          AND properties.region = '{{REGION}}'
+          -- HogQL returns NULL for missing properties on materialized columns,
+          -- but empty string on non-materialized ones; handle both.
+          AND (properties.correlation_id IS NULL OR properties.correlation_id = '')
+          AND timestamp >= now() - INTERVAL 35 DAY
+        GROUP BY hour
+    ),
+    hourly AS (
+        SELECT
+            hour,
+            sum(total) AS total,
+            sum(failures) AS failures
+        FROM (
+            SELECT * FROM correlated_hourly
+            UNION ALL
+            SELECT * FROM uncorrelated_hourly
+        )
         GROUP BY hour
     ),
     hour_range AS (
@@ -96,12 +141,16 @@ locals {
     FROM (
         SELECT
             hour,
+            if(t1h  > 0, round((f1h  / t1h)  / {{ERROR_BUDGET}}, 2), NULL) AS raw_1h,
+            if(t24h > 0, round((f24h / t24h) / {{ERROR_BUDGET}}, 2), NULL) AS raw_24h,
+            if(t7d  > 0, round((f7d  / t7d)  / {{ERROR_BUDGET}}, 2), NULL) AS raw_7d,
+            if(t28d > 0, round((f28d / t28d) / {{ERROR_BUDGET}}, 2), NULL) AS raw_28d,
             ['Burn rate 1h', 'Burn rate 24h', 'Burn rate 7d', 'Burn rate 28d'] AS metrics,
             [
-                if(t1h  > 0, round((f1h  / t1h)  / {{ERROR_BUDGET}}, 2), NULL),
-                if(t24h > 0, round((f24h / t24h) / {{ERROR_BUDGET}}, 2), NULL),
-                if(t7d  > 0, round((f7d  / t7d)  / {{ERROR_BUDGET}}, 2), NULL),
-                if(t28d > 0, round((f28d / t28d) / {{ERROR_BUDGET}}, 2), NULL)
+                sign(raw_1h)  * log10(1 + abs(raw_1h)),
+                sign(raw_24h) * log10(1 + abs(raw_24h)),
+                sign(raw_7d)  * log10(1 + abs(raw_7d)),
+                sign(raw_28d) * log10(1 + abs(raw_28d))
             ] AS vals
         FROM rolling
         WHERE hour >= now() - INTERVAL 7 DAY
@@ -127,11 +176,11 @@ locals {
           AND properties.operation = '{{OPERATION}}'
           AND properties.region = '{{REGION}}'
           AND properties.duration_ms IS NOT NULL
-          AND timestamp >= now() - INTERVAL 28 DAY
+          AND timestamp >= now() - INTERVAL 7 DAY
         GROUP BY date
     ),
     date_range AS (
-        SELECT toDate(now()) - number AS date FROM numbers(28)
+        SELECT toDate(now()) - number AS date FROM numbers(7)
     ),
     base AS (
         SELECT
@@ -192,7 +241,8 @@ resource "posthog_insight" "slo_burn_rate" {
       seriesBreakdownColumn = "metric"
       showLegend            = true
       goalLines = [
-        { label = "Budget rate", value = 1.0, position = "start" }
+        { label = "Budget rate", value = 0.30, position = "start" },
+        { label = "100x burn",   value = 2.00, position = "start" }
       ]
     }
     tableSettings = {
@@ -260,17 +310,54 @@ resource "posthog_insight" "slo_success_rate" {
     source = {
       kind  = "HogQLQuery"
       query = <<-SQL
-        WITH daily AS (
+        -- Two paths: see burn rate query comment for rationale.
+        WITH correlated_ops AS (
+            SELECT
+                properties.correlation_id AS cid,
+                properties.operation AS operation,
+                minIf(timestamp, event = 'slo_operation_started') AS started_at,
+                max(if(event = 'slo_operation_completed' AND properties.outcome = 'success', 1, 0)) AS succeeded
+            FROM events
+            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+              AND properties.operation IN (${local.slo_operation_list})
+              AND properties.correlation_id IS NOT NULL
+              AND timestamp >= now() - INTERVAL 56 DAY
+            GROUP BY cid, operation
+        ),
+        correlated_daily AS (
+            SELECT
+                toDate(started_at) AS date,
+                operation,
+                count() AS total,
+                countIf(succeeded = 0) AS failures
+            FROM correlated_ops
+            WHERE started_at IS NOT NULL
+            GROUP BY date, operation
+        ),
+        uncorrelated_daily AS (
             SELECT
                 toDate(timestamp) AS date,
                 properties.operation AS operation,
                 countIf(event = 'slo_operation_started') AS total,
-                countIf(event = 'slo_operation_started')
-                  - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS failures
+                greatest(
+                    countIf(event = 'slo_operation_started')
+                      - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success'),
+                    0
+                ) AS failures
             FROM events
             WHERE event IN ('slo_operation_started', 'slo_operation_completed')
               AND properties.operation IN (${local.slo_operation_list})
+              AND (properties.correlation_id IS NULL OR properties.correlation_id = '')
               AND timestamp >= now() - INTERVAL 56 DAY
+            GROUP BY date, operation
+        ),
+        daily AS (
+            SELECT date, operation, sum(total) AS total, sum(failures) AS failures
+            FROM (
+                SELECT * FROM correlated_daily
+                UNION ALL
+                SELECT * FROM uncorrelated_daily
+            )
             GROUP BY date, operation
         ),
         date_range AS (
@@ -342,28 +429,76 @@ resource "posthog_insight" "slo_volume" {
     source = {
       kind  = "HogQLQuery"
       query = <<-SQL
+        -- Two paths: see burn rate query comment for rationale.
+        WITH correlated_ops AS (
+            SELECT
+                properties.correlation_id AS cid,
+                properties.operation AS operation,
+                properties.region AS region,
+                countIf(event = 'slo_operation_started') AS starts,
+                max(if(event = 'slo_operation_completed' AND properties.outcome = 'success', 1, 0)) AS succeeded,
+                max(if(event = 'slo_operation_completed' AND properties.outcome = 'failure', 1, 0)) AS failed,
+                countIf(event = 'slo_operation_completed') AS completions
+            FROM events
+            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+              AND properties.correlation_id IS NOT NULL
+              AND timestamp >= now() - INTERVAL 28 DAY
+            GROUP BY cid, operation, region
+        ),
+        correlated_summary AS (
+            SELECT
+                operation,
+                region,
+                countIf(starts > 0) AS started,
+                countIf(succeeded = 1) AS successes,
+                countIf(failed = 1) AS failures,
+                countIf(starts > 0 AND completions = 0) AS never_completed
+            FROM correlated_ops
+            GROUP BY operation, region
+        ),
+        uncorrelated_summary AS (
+            SELECT
+                properties.operation AS operation,
+                properties.region AS region,
+                countIf(event = 'slo_operation_started') AS started,
+                countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
+                countIf(event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures,
+                greatest(
+                    countIf(event = 'slo_operation_started')
+                      - countIf(event = 'slo_operation_completed'),
+                    0
+                ) AS never_completed
+            FROM events
+            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+              AND (properties.correlation_id IS NULL OR properties.correlation_id = '')
+              AND timestamp >= now() - INTERVAL 28 DAY
+            GROUP BY operation, region
+        ),
+        combined AS (
+            SELECT operation, region, started, successes, failures, never_completed
+            FROM correlated_summary
+            UNION ALL
+            SELECT operation, region, started, successes, failures, never_completed
+            FROM uncorrelated_summary
+        )
         SELECT
-            properties.operation AS operation,
+            operation,
             if(
-                count(properties.region) OVER (PARTITION BY properties.operation) = 1,
+                count(region) OVER (PARTITION BY operation) = 1,
                 'all*',
-                properties.region
+                region
             ) AS region,
-            countIf(event = 'slo_operation_started') AS started,
-            countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
-            countIf(event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures,
-            countIf(event = 'slo_operation_started')
-              - countIf(event = 'slo_operation_completed') AS never_completed,
+            sum(started) AS started,
+            sum(successes) AS successes,
+            sum(failures) AS failures,
+            sum(never_completed) AS never_completed,
             if(
-                countIf(event = 'slo_operation_started') > 0,
-                round(countIf(event = 'slo_operation_completed' AND properties.outcome = 'success')
-                  / countIf(event = 'slo_operation_started') * 100, 2),
+                sum(started) > 0,
+                round(sum(successes) / sum(started) * 100, 2),
                 NULL
             ) AS success_rate
-        FROM events
-        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
-          AND timestamp >= now() - INTERVAL 28 DAY
-        GROUP BY operation, properties.region
+        FROM combined
+        GROUP BY operation, region
         ORDER BY operation, region
       SQL
     }

@@ -352,6 +352,124 @@ class TestScheduledChange(APIBaseTest):
         scheduled_change.refresh_from_db()
         assert str(scheduled_change.record_id) == str(feature_flag.id)
 
+    def test_can_create_recurring_schedule_with_cron_expression(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="cron-flag", name="Cron Flag"
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(feature_flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": True},
+                "scheduled_at": "2024-01-15T09:00:00Z",
+                "is_recurring": True,
+                "cron_expression": "0 9 * * 1-5",
+            },
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["is_recurring"] is True
+        assert response_data["cron_expression"] == "0 9 * * 1-5"
+        assert response_data["recurrence_interval"] is None
+
+    def test_rejects_both_cron_and_interval(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="both-flag", name="Both Flag"
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(feature_flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": True},
+                "scheduled_at": "2024-01-15T09:00:00Z",
+                "is_recurring": True,
+                "cron_expression": "0 9 * * 1-5",
+                "recurrence_interval": "daily",
+            },
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "Cannot set both" in str(response_data)
+
+    @parameterized.expand(
+        [
+            ("wrong_field_count", "not a cron", "5-field"),
+            ("six_fields_rejected", "* * * * * *", "5-field"),
+            ("invalid_syntax", "99 99 99 99 99", "Invalid cron expression"),
+        ]
+    )
+    def test_rejects_invalid_cron_expression(self, _name, expr, expected_fragment):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="invalid-cron-flag", name="Invalid Cron Flag"
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(feature_flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": True},
+                "scheduled_at": "2024-01-15T09:00:00Z",
+                "is_recurring": True,
+                "cron_expression": expr,
+            },
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert expected_fragment in str(response_data)
+
+    def test_non_recurring_rejects_cron_on_create(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="cron-non-recurring-flag", name="Cron Non-recurring Flag"
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(feature_flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": True},
+                "scheduled_at": "2024-01-15T09:00:00Z",
+                "is_recurring": False,
+                "cron_expression": "0 9 * * 1-5",
+            },
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "cron_expression" in str(response_data)
+
+    def test_cron_recurring_blocks_add_release_condition(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="cron-arc-flag", name="Cron ARC Flag"
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(feature_flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {
+                    "operation": "add_release_condition",
+                    "value": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                },
+                "scheduled_at": "2024-01-15T09:00:00Z",
+                "is_recurring": True,
+                "cron_expression": "0 9 * * 1-5",
+            },
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "not supported for add_release_condition" in str(response_data)
+
     def test_can_update_other_fields_without_changing_record_id(self):
         """Non-target fields like payload and scheduled_at can still be updated."""
         feature_flag = FeatureFlag.objects.create(

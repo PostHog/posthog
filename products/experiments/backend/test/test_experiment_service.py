@@ -2386,3 +2386,175 @@ class TestExperimentService(APIBaseTest):
         assert result["launched_previous_30d"] == 3
         expected_change = round(((1 - 3) / 3) * 100, 1)
         assert result["percent_change"] == expected_change
+
+    # ------------------------------------------------------------------
+    # Legacy metrics update restrictions
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("name", {"name": "Updated Name"}),
+            ("description", {"description": "New hypothesis"}),
+            ("end_date", {"end_date": timezone.now() + timedelta(days=7)}),
+        ]
+    )
+    def test_update_experiment_with_legacy_metrics_allows_specific_fields(self, field_name: str, update_data: dict):
+        """Test that experiments with legacy metrics can update name, description, and end_date."""
+        service = self._service()
+        flag = self._create_flag(key=f"legacy-flag-{field_name}")
+
+        # Create experiment with legacy inline metrics directly in database
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Legacy Experiment",
+            metrics=[{"kind": "ExperimentTrendsQuery", "query": {}}],
+            start_date=timezone.now(),
+        )
+
+        # Should allow update
+        updated = service.update_experiment(experiment, update_data)
+        if field_name == "name":
+            assert updated.name == "Updated Name"
+        elif field_name == "description":
+            assert updated.description == "New hypothesis"
+        elif field_name == "end_date":
+            assert updated.end_date is not None
+
+    @parameterized.expand(
+        [
+            ("metrics", {"metrics": []}, "metrics"),
+            ("metrics_secondary", {"metrics_secondary": []}, "metrics_secondary"),
+            ("parameters", {"parameters": {"foo": "bar"}}, "parameters"),
+            ("filters", {"filters": {"foo": "bar"}}, "filters"),
+            ("exposure_criteria", {"exposure_criteria": {"foo": "bar"}}, "exposure_criteria"),
+            ("stats_config", {"stats_config": {"foo": "bar"}}, "stats_config"),
+            ("scheduling_config", {"scheduling_config": {"foo": "bar"}}, "scheduling_config"),
+            ("start_date", {"start_date": timezone.now()}, "start_date"),
+            ("archived", {"archived": True}, "archived"),
+            ("conclusion", {"conclusion": "won"}, "conclusion"),
+        ]
+    )
+    def test_update_experiment_with_legacy_metrics_blocks_disallowed_fields(
+        self, field_name: str, update_data: dict, expected_field_in_error: str
+    ):
+        """Test that experiments with legacy metrics cannot update disallowed fields."""
+        service = self._service()
+        flag = self._create_flag(key=f"legacy-block-{field_name}")
+
+        # Create experiment with legacy inline metrics
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Legacy Experiment",
+            metrics=[{"kind": "ExperimentTrendsQuery", "query": {}}],
+            start_date=timezone.now(),
+        )
+
+        # Should block update
+        with self.assertRaises(ValidationError) as cm:
+            service.update_experiment(experiment, update_data)
+        self.assertIn("legacy metric formats", str(cm.exception))
+        self.assertIn(f"Cannot update: {expected_field_in_error}", str(cm.exception))
+
+    @parameterized.expand(
+        [
+            ("inline_trends", {"kind": "ExperimentTrendsQuery", "query": {}}, None),
+            ("inline_funnels", {"kind": "ExperimentFunnelsQuery", "funnels_query": {}}, None),
+            (
+                "saved_trends",
+                None,
+                {"kind": "ExperimentTrendsQuery", "query": {}},
+            ),
+            (
+                "saved_funnels",
+                None,
+                {"kind": "ExperimentFunnelsQuery", "funnels_query": {}},
+            ),
+        ]
+    )
+    def test_update_experiment_detects_various_legacy_metric_types(
+        self, test_name: str, inline_metric: dict | None, saved_metric_query: dict | None
+    ):
+        """Test that legacy detection works for both inline and saved metrics, Trends and Funnels."""
+        from products.experiments.backend.models.experiment import ExperimentToSavedMetric
+
+        service = self._service()
+        flag = self._create_flag(key=f"legacy-detect-{test_name}")
+
+        if inline_metric:
+            # Create with inline legacy metric
+            experiment = Experiment.objects.create(
+                team=self.team,
+                created_by=self.user,
+                feature_flag=flag,
+                name="Legacy Experiment",
+                metrics=[inline_metric],
+                start_date=timezone.now(),
+            )
+        else:
+            # Create with saved legacy metric
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name="Legacy Saved Metric",
+                query=saved_metric_query,
+            )
+
+            experiment = Experiment.objects.create(
+                team=self.team,
+                created_by=self.user,
+                feature_flag=flag,
+                name="Legacy Saved Experiment",
+                start_date=timezone.now(),
+            )
+
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment,
+                saved_metric=saved_metric,
+                metadata={"type": "primary"},
+            )
+
+        # All should be detected as legacy and block disallowed updates
+        with self.assertRaises(ValidationError) as cm:
+            service.update_experiment(experiment, {"metrics": []})
+        self.assertIn("legacy metric formats", str(cm.exception))
+
+    def test_update_experiment_without_legacy_metrics_allows_all_updates(self):
+        """Test that experiments without legacy metrics can be updated normally."""
+        service = self._service()
+        self._create_flag(key="normal-flag")
+
+        # Create experiment with new ExperimentMetric format
+        experiment = service.create_experiment(
+            name="Normal Experiment",
+            feature_flag_key="normal-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "test_event"},
+                }
+            ],
+            start_date=timezone.now(),
+        )
+
+        # Should allow updating metrics
+        new_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "another_event"},
+            }
+        ]
+        updated = service.update_experiment(experiment, {"metrics": new_metrics})
+        assert updated.metrics
+        assert updated.metrics[0]["source"]["event"] == "another_event"
+
+        # Should allow updating parameters (when draft)
+        experiment.start_date = None
+        experiment.save()
+        updated = service.update_experiment(experiment, {"parameters": {"minimum_detectable_effect": 0.05}})
+        assert updated.parameters == {"minimum_detectable_effect": 0.05}
