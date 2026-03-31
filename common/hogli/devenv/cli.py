@@ -12,6 +12,7 @@ from .generator import (
     DevenvConfig,
     MprocsGenerator,
     build_docker_compose_command,
+    get_effective_docker_profiles,
     get_generated_mprocs_path,
     load_devenv_config,
 )
@@ -92,6 +93,16 @@ def dev_generate(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     generator.generate_and_save(resolved, output_path, saved_config)
+
+    # Stash devenv-specific properties so _fire_telemetry includes them
+    # in the command_completed event for dev:generate.
+    ctx = click.get_current_context()
+    ctx.meta["hogli.devenv"] = {
+        "intents": sorted(resolved.intents),
+        "intent_count": len(resolved.intents),
+        "unit_count": len(resolved.units),
+        "docker_profiles": sorted(resolved.docker_profiles),
+    }
 
     click.echo("Generated mprocs config from saved config")
     click.echo(f"  Products: {', '.join(sorted(resolved.intents))}")
@@ -203,7 +214,7 @@ def _get_docker_profiles_from_config() -> list[str]:
             include_units=saved_config.include_units,
             exclude_units=saved_config.exclude_units,
         )
-        return sorted(resolved.docker_profiles)
+        return get_effective_docker_profiles(sorted(resolved.docker_profiles), resolved.units)
     except ValueError:
         return []
 

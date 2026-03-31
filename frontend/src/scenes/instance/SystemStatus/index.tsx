@@ -6,7 +6,6 @@ import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
@@ -56,14 +55,7 @@ export function SystemStatus(): JSX.Element {
             },
             {
                 key: 'settings',
-                label: (
-                    <>
-                        Settings{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
+                label: 'Settings',
                 content: <InstanceConfigTab />,
             },
             {

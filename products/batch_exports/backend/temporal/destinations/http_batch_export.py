@@ -11,14 +11,13 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
 from posthog.models import BatchExportRun
-from posthog.security.outbound_proxy import external_aiohttp_session
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 
+from products.batch_exports.backend.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
@@ -295,7 +294,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
                 activity.heartbeat(last_uploaded_timestamp)
 
-            async with external_aiohttp_session() as session:
+            async with aiohttp.ClientSession(trust_env=True) as session:
                 for record_batch in record_iterator:
                     for row in record_batch.select(columns).to_pylist():
                         # Format result row as PostHog event, write JSON to the batch file.
@@ -355,7 +354,9 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to an HTTP Endpoint."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

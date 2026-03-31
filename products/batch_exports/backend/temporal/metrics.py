@@ -2,6 +2,9 @@ import time
 import typing
 import asyncio
 import datetime as dt
+from contextlib import contextmanager
+
+from django.conf import settings
 
 import structlog
 from temporalio import activity, workflow
@@ -78,6 +81,8 @@ Attributes = dict[str, str | int | float | bool]
 
 class BatchExportsMetricsInterceptor(Interceptor):
     """Interceptor to emit Prometheus metrics for batch exports."""
+
+    task_queue = (settings.BATCH_EXPORTS_TASK_QUEUE, settings.SYNC_BATCH_EXPORTS_TASK_QUEUE)
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _BatchExportsMetricsActivityInboundInterceptor(super().intercept_activity(next))
@@ -336,6 +341,28 @@ def log_execution_time(
             "Failed to log execution time with attributes '%s' and configuration '%s'",
             arguments,
             structlog.get_config(),
+        )
+
+
+@contextmanager
+def log_query_duration(
+    logger: structlog.stdlib.BoundLogger,
+    query_id: str,
+    query_type: str,
+) -> typing.Iterator[None]:
+    """Context manager to log query duration."""
+    logger.info(f"Executing query: {query_type}", query_id=query_id, query_type=query_type)
+    start_time = time.monotonic()
+
+    try:
+        yield
+    finally:
+        execution_time = time.monotonic() - start_time
+        logger.info(
+            f"Query completed: {query_type}",
+            query_id=query_id,
+            query_duration_seconds=execution_time,
+            query_type=query_type,
         )
 
 

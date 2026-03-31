@@ -1,13 +1,15 @@
 import type { z } from 'zod'
 
+import { withUiApp } from '@/resources/ui-apps'
 import type { Experiment } from '@/schema/experiments'
 import { ExperimentGetSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ExperimentGetSchema
 
 type Params = z.infer<typeof schema>
-type Result = Experiment
+type Result = WithPostHogUrl<Experiment>
 
 export const getHandler: ToolBase<typeof schema, Result>['handler'] = async (
     context: Context,
@@ -23,13 +25,12 @@ export const getHandler: ToolBase<typeof schema, Result>['handler'] = async (
         throw new Error(`Failed to get experiment: ${result.error.message}`)
     }
 
-    return result.data
+    return withPostHogUrl(context, result.data, `/experiments/${result.data.id}`)
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
-    name: 'experiment-get',
-    schema,
-    handler: getHandler,
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('experiment', {
+        name: 'experiment-get',
+        schema,
+        handler: getHandler,
+    })

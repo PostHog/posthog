@@ -23,7 +23,7 @@ class TestResolveSlackUser:
 
         self.integration = Integration.objects.create(
             team=self.team,
-            kind="slack-twig",
+            kind="slack-posthog-code",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )

@@ -16,10 +16,12 @@ import type { workflowsLogicType } from './workflowsLogicType'
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFlow> {}
 
+export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
+
 export interface WorkflowsFilters {
     search: string
     createdBy: string | null
-    status: string | null
+    status: WorkflowStatusFilter
 }
 
 export const workflowsLogic = kea<workflowsLogicType>([
@@ -36,19 +38,19 @@ export const workflowsLogic = kea<workflowsLogicType>([
         setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
         setSearchTerm: (search: string) => ({ search }),
         setCreatedBy: (createdBy: string | null) => ({ createdBy }),
-        setStatus: (status: string | null) => ({ status }),
+        setStatusFilter: (status: WorkflowStatusFilter) => ({ status }),
         toggleArchivedWorkflowSelection: (id: string) => ({ id }),
         selectAllArchivedWorkflows: (ids: string[]) => ({ ids }),
         clearArchivedWorkflowSelection: true,
     }),
     reducers({
         filters: [
-            { search: '', createdBy: null, status: null } as WorkflowsFilters,
+            { search: '', createdBy: null, status: 'all' } as WorkflowsFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 setSearchTerm: (state, { search }) => ({ ...state, search }),
                 setCreatedBy: (state, { createdBy }) => ({ ...state, createdBy }),
-                setStatus: (state, { status }) => ({ ...state, status }),
+                setStatusFilter: (state, { status }) => ({ ...state, status }),
             },
         ],
         selectedArchivedWorkflowIds: [
@@ -65,7 +67,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 },
                 selectAllArchivedWorkflows: (_, { ids }) => new Set<string>(ids),
                 clearArchivedWorkflowSelection: () => new Set<string>(),
+                setStatusFilter: () => new Set<string>(),
                 loadWorkflowsSuccess: () => new Set<string>(),
+            },
+        ],
+        hasLoadedWorkflows: [
+            false as boolean,
+            {
+                loadWorkflows: () => false,
+                loadWorkflowsSuccess: () => true,
             },
         ],
     }),
@@ -186,39 +196,32 @@ export const workflowsLogic = kea<workflowsLogicType>([
         filteredWorkflows: [
             (s) => [s.workflows, s.filters, s.workflowsFuse],
             (workflows, filters, workflowsFuse): HogFlow[] => {
-                let filtered = workflows.filter((workflow) => workflow.status !== 'archived')
+                let filtered = workflows
 
-                // Filter by search term using Fuse
                 if (filters.search) {
                     const searchResults = workflowsFuse.search(filters.search)
-                    filtered = searchResults.map((result) => result.item)
+                    const matchedIds = new Set(searchResults.map((result) => result.item.id))
+                    filtered = filtered.filter((w) => matchedIds.has(w.id))
                 }
 
-                // Filter by status
-                if (filters.status) {
-                    filtered = filtered.filter((workflow) => workflow.status === filters.status)
-                }
-
-                // Filter by creator
                 if (filters.createdBy) {
-                    filtered = filtered.filter((workflow) => workflow.created_by?.uuid === filters.createdBy)
+                    filtered = filtered.filter((w) => w.created_by?.uuid === filters.createdBy)
+                }
+
+                if (filters.status !== 'all') {
+                    filtered = filtered.filter((w) => w.status === filters.status)
                 }
 
                 return filtered
             },
         ],
-        archivedWorkflows: [
-            (s) => [s.workflows],
-            (workflows): HogFlow[] => {
-                return workflows.filter((workflow) => workflow.status === 'archived')
-            },
-        ],
         allArchivedSelected: [
-            (s) => [s.archivedWorkflows, s.selectedArchivedWorkflowIds],
-            (archivedWorkflows, selectedIds): boolean => {
-                return archivedWorkflows.length > 0 && archivedWorkflows.every((w) => selectedIds.has(w.id))
+            (s) => [s.filteredWorkflows, s.selectedArchivedWorkflowIds],
+            (filteredWorkflows, selectedIds): boolean => {
+                return filteredWorkflows.length > 0 && filteredWorkflows.every((w) => selectedIds.has(w.id))
             },
         ],
+        selectedArchivedCount: [(s) => [s.selectedArchivedWorkflowIds], (selectedIds): number => selectedIds.size],
         creators: [
             (s) => [s.workflows],
             (workflows) => {
@@ -238,6 +241,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        loadWorkflowsFailure: ({ error }) => {
+            lemonToast.error(`Failed to load workflows: ${error || 'Unknown error'}`)
+        },
         deleteSelectedWorkflows: () => {
             const ids = Array.from(values.selectedArchivedWorkflowIds)
             if (ids.length === 0) {
@@ -245,7 +251,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             }
             LemonDialog.open({
                 width: 500,
-                title: `Delete ${ids.length} workflow${ids.length === 1 ? '' : 's'}?`,
+                title: `Delete ${ids.length} archived workflow${ids.length === 1 ? '' : 's'}?`,
                 description: `Are you sure you want to permanently delete ${ids.length} archived workflow${ids.length === 1 ? '' : 's'}? This action cannot be undone.`,
                 primaryButton: {
                     children: 'Delete',

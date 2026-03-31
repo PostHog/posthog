@@ -7,6 +7,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Team
+from posthog.models.utils import generate_random_token_secret
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
@@ -16,7 +17,8 @@ class TestExternalTicketAPI(BaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.save(update_fields=["conversations_enabled"])
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.save(update_fields=["conversations_enabled", "secret_api_token"])
         self.client = APIClient()
         self.ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -28,7 +30,7 @@ class TestExternalTicketAPI(BaseTest):
         self.url = f"/api/conversations/external/ticket/{self.ticket.id}"
 
     def _auth_headers(self, token=None):
-        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.api_token}"}
+        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
 
     # -- Authentication ---------------------------------------------------
 
@@ -53,6 +55,17 @@ class TestExternalTicketAPI(BaseTest):
         response = self.client.get(self.url, **headers)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_rejects_public_api_token(self):
+        response = self.client.get(self.url, **self._auth_headers(token=self.team.api_token))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_accepts_backup_token(self):
+        backup_token = generate_random_token_secret()
+        self.team.secret_api_token_backup = backup_token
+        self.team.save(update_fields=["secret_api_token_backup"])
+        response = self.client.get(self.url, **self._auth_headers(token=backup_token))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_rejects_when_conversations_disabled(self):
         self.team.conversations_enabled = False
         self.team.save(update_fields=["conversations_enabled"])
@@ -66,17 +79,21 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["id"], str(self.ticket.id))
-        self.assertEqual(data["ticket_number"], self.ticket.ticket_number)
+        self.assertEqual(data["number"], self.ticket.ticket_number)
         self.assertEqual(data["status"], "new")
         self.assertIsNone(data["priority"])
         self.assertEqual(data["channel_source"], "widget")
+        self.assertIsNone(data["channel_detail"])
         self.assertEqual(data["distinct_id"], "user-ext-123")
         self.assertEqual(data["message_count"], 0)
         self.assertIsNone(data["last_message_at"])
         self.assertIsNone(data["last_message_text"])
         self.assertEqual(data["unread_team_count"], 0)
         self.assertEqual(data["unread_customer_count"], 0)
-        self.assertIsNone(data["sla_due_at"])
+        self.assertIsNone(data["sla"])
+        self.assertIsNone(data["assignee"])
+        self.assertIsNone(data["url"])
+        self.assertEqual(data["tags"], [])
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
@@ -86,8 +103,11 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_get_ticket_cross_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization, name="Other team", conversations_enabled=True)
-        response = self.client.get(self.url, **self._auth_headers(token=other_team.api_token))
+        other_token = generate_random_token_secret()
+        other_team = Team.objects.create(
+            organization=self.organization, name="Other team", conversations_enabled=True, secret_api_token=other_token
+        )
+        response = self.client.get(self.url, **self._auth_headers(token=other_team.secret_api_token))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     # -- PATCH ticket -----------------------------------------------------
@@ -148,12 +168,15 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_patch_cross_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization, name="Other team", conversations_enabled=True)
+        other_token = generate_random_token_secret()
+        other_team = Team.objects.create(
+            organization=self.organization, name="Other team", conversations_enabled=True, secret_api_token=other_token
+        )
         response = self.client.patch(
             self.url,
             {"status": "resolved"},
             content_type="application/json",
-            **self._auth_headers(token=other_team.api_token),
+            **self._auth_headers(token=other_team.secret_api_token),
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.ticket.refresh_from_db()
@@ -217,7 +240,52 @@ class TestExternalTicketAPI(BaseTest):
 
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.json()["sla_due_at"])
+        self.assertIsNotNone(response.json()["sla"])
+
+    # -- GET enriched fields -----------------------------------------------
+
+    def test_get_ticket_returns_assignee(self):
+        from products.conversations.backend.models import TicketAssignment
+
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assignee = response.json()["assignee"]
+        self.assertIsNotNone(assignee)
+        self.assertEqual(assignee["type"], "user")
+        self.assertEqual(assignee["id"], self.user.id)
+        self.assertEqual(assignee["user"]["email"], self.user.email)
+
+    def test_get_ticket_returns_role_assignee(self):
+        from products.conversations.backend.models import TicketAssignment
+
+        from ee.models.rbac.role import Role
+
+        role = Role.objects.create(name="Support", organization=self.organization)
+        TicketAssignment.objects.create(ticket=self.ticket, role=role)
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assignee = response.json()["assignee"]
+        self.assertEqual(assignee["type"], "role")
+        self.assertEqual(assignee["id"], str(role.id))
+        self.assertEqual(assignee["role"]["name"], "Support")
+        self.assertIsNone(assignee["user"])
+
+    def test_get_ticket_returns_url(self):
+        self.ticket.session_context = {"current_url": "https://example.com/page"}
+        self.ticket.save(update_fields=["session_context"])
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["url"], "https://example.com/page")
+
+    def test_get_ticket_returns_tags(self):
+        from posthog.models import Tag
+
+        tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=tag)
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], ["bug"])
 
     # -- URL validation ---------------------------------------------------
 

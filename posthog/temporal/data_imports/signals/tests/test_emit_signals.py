@@ -34,6 +34,8 @@ MODULE_PATH = "posthog.temporal.data_imports.workflow_activities.emit_signals"
 
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
     defaults: dict[str, Any] = {
+        "source_product": "test_product",
+        "source_type": "test",
         "emitter": lambda team_id, record: SignalEmitterOutput(
             source_product="test_product",
             source_type="test",

@@ -50,7 +50,7 @@ def generate_zsh_completion(cli_name: str = "hogli") -> str:
             desc = cmd_config.get("description", "")
             # Escape special characters for zsh
             desc = desc.replace("[", "\\[").replace("]", "\\]")
-            desc = desc.replace("'", "\\'")
+            desc = desc.replace("'", "'\"'\"'")
 
         # Escape colons in command name for zsh completion format
         escaped_cmd = cmd.replace(":", "\\:")

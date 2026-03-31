@@ -10,6 +10,7 @@ envconfig = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 health = { path = "../common/health" }
+async-trait = { workspace = true }
 axum = { workspace = true }
 metrics = { workspace = true }
 common-metrics = { path = "../common/metrics" }
@@ -46,6 +47,7 @@ once_cell = { workspace = true }
 futures.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tower.workspace = true
+tiktoken-rs.workspace = true
 
 
 [dev-dependencies]

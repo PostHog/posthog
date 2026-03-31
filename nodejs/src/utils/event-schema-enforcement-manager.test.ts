@@ -22,7 +22,7 @@ describe('EventSchemaEnforcementManager', () => {
 
         postgres = new PostgresRouter(defaultConfig)
         schemaManager = new EventSchemaEnforcementManager(postgres)
-        const team = await getFirstTeam(hub)
+        const team = await getFirstTeam(hub.postgres)
         teamId = team.id
         projectId = team.project_id
         fetchSchemasSpy = jest.spyOn(schemaManager as any, 'fetchSchemas')

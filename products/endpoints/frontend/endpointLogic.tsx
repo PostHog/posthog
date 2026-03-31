@@ -116,6 +116,13 @@ export const endpointLogic = kea<endpointLogicType>([
                 createEndpointSuccess: () => null,
             },
         ],
+        // Clear stale endpoint data immediately when loading a new endpoint
+        endpoint: [
+            null as EndpointVersionType | null,
+            {
+                loadEndpoint: () => null,
+            },
+        ],
         // Extend the loader reducer to clear on action
         materializationStatus: [
             null as EndpointType['materialization'] | null,
@@ -206,8 +213,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.createEndpointSuccess(response)
                 } catch (error: any) {
                     console.error('Failed to create endpoint:', error)
-                    const queryError = error.attr === 'query' ? error.detail : null
-                    actions.createEndpointFailure(queryError)
+                    actions.createEndpointFailure(error.detail || null)
                 }
             },
             createEndpointSuccess: ({ response }) => {

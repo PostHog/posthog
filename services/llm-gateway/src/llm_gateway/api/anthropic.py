@@ -8,7 +8,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from llm_gateway.api.handler import ANTHROPIC_CONFIG, BEDROCK_CONFIG, handle_llm_request
+from llm_gateway.api.handler import ANTHROPIC_CONFIG, BEDROCK_CONFIG, _sanitize_request_data, handle_llm_request
 from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
@@ -113,7 +113,7 @@ async def _handle_count_tokens(
     user: RateLimitedUser,
     product: str = "llm_gateway",
 ) -> dict[str, Any]:
-    data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
+    data = _sanitize_request_data(body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS))
     provider = body.provider or "anthropic"
 
     if provider == "bedrock":

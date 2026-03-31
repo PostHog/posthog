@@ -23,6 +23,8 @@ import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
+import { TraceReviewValue } from './traceReviews/TraceReviewValue'
 import { CompatMessage } from './types'
 import { normalizeMessages, parseJSONPreview } from './utils'
 
@@ -234,6 +236,42 @@ function LazyGenerationSentimentCell({ generationEventId }: { generationEventId:
     return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
 }
 
+function LazyTraceReviewColumnCell({ traceId }: { traceId: string }): JSX.Element {
+    const { getTraceReview, isTraceLoading, didTraceReviewLoadFail } = useValues(traceReviewsLazyLoaderLogic)
+    const { ensureReviewsLoaded } = useActions(traceReviewsLazyLoaderLogic)
+    const cached = typeof getTraceReview === 'function' ? getTraceReview(traceId) : undefined
+    const loading = typeof isTraceLoading === 'function' ? isTraceLoading(traceId) : false
+    const failed = typeof didTraceReviewLoadFail === 'function' ? didTraceReviewLoadFail(traceId) : false
+
+    useEffect(() => {
+        if (!traceId || cached !== undefined || loading || failed) {
+            return
+        }
+
+        ensureReviewsLoaded([traceId])
+    }, [cached, ensureReviewsLoaded, failed, loading, traceId])
+
+    if (loading || cached === undefined) {
+        if (failed) {
+            return (
+                <Tooltip title="Failed to load review status.">
+                    <LemonButton type="tertiary" size="xsmall" onClick={() => ensureReviewsLoaded([traceId])}>
+                        Retry
+                    </LemonButton>
+                </Tooltip>
+            )
+        }
+
+        return <AIDataLoading variant="inline" />
+    }
+
+    if (cached === null) {
+        return <>–</>
+    }
+
+    return <TraceReviewValue review={cached} />
+}
+
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     const { input, isLoading } = useAIData(eventData)
 
@@ -437,7 +475,8 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             return <PersonColumnCell person={null} />
         },
     },
-    sentiment: {
+    // Uses __llm_sentiment to avoid collision with user-defined 'sentiment' columns in SQL queries
+    __llm_sentiment: {
         title: 'Sentiment',
         render: ({ record }) => {
             if (!record || typeof record !== 'object' || Array.isArray(record)) {
@@ -490,11 +529,27 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             return <ToolsDisplay tools={tools} />
         },
     },
-    tools: {
+    // Uses __llm_tools to avoid collision with user-defined 'tools' columns in SQL queries
+    __llm_tools: {
         title: 'Tools',
         render: ({ record }) => {
             const row = record as LLMTrace
             return <ToolsDisplay tools={row.tools} />
+        },
+    },
+    review: {
+        title: 'Review',
+        render: ({ record }) => {
+            if (!record || typeof record !== 'object' || Array.isArray(record)) {
+                return <>–</>
+            }
+
+            const traceRecord = record as LLMTrace
+            if (!traceRecord.id) {
+                return <>–</>
+            }
+
+            return <LazyTraceReviewColumnCell traceId={traceRecord.id} />
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page

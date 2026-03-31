@@ -15,6 +15,13 @@ from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
+def _runs_on_internal_pr() -> bool:
+    value = os.getenv("RUNS_ON_INTERNAL_PR")
+    if value is None:
+        return True
+    return value.lower() in {"1", "true"}
+
+
 @pytest.fixture
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
@@ -22,8 +29,10 @@ def activity_environment():
 
 
 @pytest.fixture(autouse=True)
-def array_oauth_app():
+def posthog_code_oauth_app():
     """Create the Array OAuth application for tests."""
+    if not _runs_on_internal_pr():
+        pytest.skip("Skipping test that requires internal secrets on external PRs")
     app, _ = OAuthApplication.objects.get_or_create(
         client_id=ARRAY_APP_CLIENT_ID_DEV,
         defaults={
@@ -138,6 +147,8 @@ def task_context(test_task, test_task_run) -> TaskProcessingContext:
         task_id=str(test_task.id),
         run_id=str(test_task_run.id),
         team_id=test_task.team_id,
+        team_uuid=str(test_task.team.uuid),
+        organization_id=str(test_task.team.organization_id),
         github_integration_id=test_task.github_integration_id,
         repository=test_task.repository,
         distinct_id=test_task.created_by.distinct_id or "test-distinct-id",

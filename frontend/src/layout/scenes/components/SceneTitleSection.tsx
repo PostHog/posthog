@@ -196,13 +196,13 @@ type SceneMainTitleProps = {
     className?: string
 
     /**
-     * Optional callback to generate a name using AI
+     * Optional callback to generate metadata (name, description) using AI
      */
-    onGenerateName?: () => void
+    onGenerateMetadata?: () => void
     /**
-     * Whether name generation is currently in progress
+     * Whether metadata generation is currently in progress
      */
-    isGeneratingName?: boolean
+    isGeneratingMetadata?: boolean
     /**
      * Props for MaxTool registration - when provided,
      * the AI button in the title section registers the tool with Max
@@ -229,8 +229,8 @@ export function SceneTitleSection({
     actions,
     forceBackTo,
     className,
-    onGenerateName,
-    isGeneratingName,
+    onGenerateMetadata,
+    isGeneratingMetadata,
     maxToolProps,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -333,8 +333,8 @@ export function SceneTitleSection({
                                     forceEdit={forceEdit}
                                     renameDebounceMs={renameDebounceMs}
                                     saveOnBlur={saveOnBlur}
-                                    onGenerateName={onGenerateName}
-                                    isGeneratingName={isGeneratingName}
+                                    onGenerateMetadata={onGenerateMetadata}
+                                    isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
                                         hasDescription ? (
                                             <ButtonPrimitive
@@ -403,8 +403,8 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
-    onGenerateName?: () => void
-    isGeneratingName?: boolean
+    onGenerateMetadata?: () => void
+    isGeneratingMetadata?: boolean
     suffix?: React.ReactNode
 }
 
@@ -416,22 +416,22 @@ export function SceneName({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
-    onGenerateName,
-    isGeneratingName = false,
+    onGenerateMetadata,
+    isGeneratingMetadata = false,
     suffix,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
+    const [prevInitialName, setPrevInitialName] = useState(initialName)
+    if (initialName !== prevInitialName) {
+        setPrevInitialName(initialName)
+        setName(initialName)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
     const containerRef = useRef<HTMLDivElement>(null)
 
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setName(initialName)
-        }
-    }, [initialName, isLoading])
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -442,24 +442,19 @@ export function SceneName({
     }, [isLoading, forceEdit])
 
     const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const handleBlur = (e: React.FocusEvent): void => {
-        // Check if focus is moving to an element within our container (like the generate button)
         const relatedTarget = e.relatedTarget as HTMLElement | null
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
         }
-        if (saveOnBlur && name !== initialName) {
+        if (saveOnBlur && !forceEdit && name !== initialName) {
             debouncedOnBlurSave(name || '')
         }
         if (!forceEdit) {
@@ -480,8 +475,9 @@ export function SceneName({
                             value={name || ''}
                             onChange={(e) => {
                                 setName(e.target.value)
-                                if (!saveOnBlur || forceEdit) {
-                                    // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                                if (forceEdit) {
+                                    onChange?.(e.target.value)
+                                } else if (!saveOnBlur) {
                                     debouncedOnChange(e.target.value)
                                 }
                             }}
@@ -504,20 +500,20 @@ export function SceneName({
                                 }
                             }}
                         />
-                        {onGenerateName && (
-                            <Tooltip title={isGeneratingName ? 'Thinking...' : 'Name this insight'}>
+                        {onGenerateMetadata && (
+                            <Tooltip title={isGeneratingMetadata ? 'Thinking...' : 'Generate name and description'}>
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        if (!isGeneratingName) {
-                                            onGenerateName()
+                                        if (!isGeneratingMetadata) {
+                                            onGenerateMetadata()
                                         }
                                     }}
-                                    disabled={isGeneratingName}
+                                    disabled={isGeneratingMetadata}
                                     className="shrink-0 transition duration-50 cursor-pointer hover:scale-110 rounded-md border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <AnimatedSparkles
-                                        triggerAnimation={isGeneratingName}
+                                        triggerAnimation={isGeneratingMetadata}
                                         className="relative size-full pl-0.5 pb-0.5"
                                     />
                                 </button>
@@ -600,17 +596,17 @@ function SceneDescription({
     maxLength,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
+    const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
+    if (initialDescription !== prevInitialDescription) {
+        setPrevInitialDescription(initialDescription)
+        setDescription(initialDescription)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses = 'text-sm my-0 select-auto'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setDescription(initialDescription)
-        }
-    }, [initialDescription, isLoading])
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -621,19 +617,15 @@ function SceneDescription({
     }, [isLoading, forceEdit])
 
     const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const handleBlur = (): void => {
-        if (saveOnBlur && description !== initialDescription) {
+        if (saveOnBlur && !forceEdit && description !== initialDescription) {
             debouncedOnBlurSaveDescription(description || '')
         }
         if (!forceEdit) {
@@ -652,8 +644,9 @@ function SceneDescription({
                         maxLength={maxLength}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur || forceEdit) {
-                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                            if (forceEdit) {
+                                onChange?.(e.target.value)
+                            } else if (!saveOnBlur) {
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}

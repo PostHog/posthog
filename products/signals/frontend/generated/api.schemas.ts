@@ -10,17 +10,30 @@
 /**
  * * `session_replay` - Session replay
  * `llm_analytics` - LLM analytics
+ * `github` - GitHub
+ * `linear` - Linear
+ * `zendesk` - Zendesk
+ * `error_tracking` - Error tracking
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
 export const SourceProductEnumApi = {
     SessionReplay: 'session_replay',
     LlmAnalytics: 'llm_analytics',
+    Github: 'github',
+    Linear: 'linear',
+    Zendesk: 'zendesk',
+    ErrorTracking: 'error_tracking',
 } as const
 
 /**
  * * `session_analysis_cluster` - Session analysis cluster
  * `evaluation` - Evaluation
+ * `issue` - Issue
+ * `ticket` - Ticket
+ * `issue_created` - Issue created
+ * `issue_reopened` - Issue reopened
+ * `issue_spiking` - Issue spiking
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -28,6 +41,11 @@ export type SignalSourceConfigSourceTypeEnumApi =
 export const SignalSourceConfigSourceTypeEnumApi = {
     SessionAnalysisCluster: 'session_analysis_cluster',
     Evaluation: 'evaluation',
+    Issue: 'issue',
+    Ticket: 'ticket',
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
 } as const
 
 export interface SignalSourceConfigApi {

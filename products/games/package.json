@@ -1,8 +1,5 @@
 {
     "name": "@posthog/products-games",
-    "scripts": {
-        "backend:contract-check": "echo 'Contract files unchanged'"
-    },
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",

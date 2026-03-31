@@ -6,8 +6,11 @@ use std::{collections::HashMap, fmt, net::IpAddr, sync::Arc};
 use uuid::Uuid;
 
 use crate::{
-    api::types::FlagsQueryParams, cohorts::cohort_cache_manager::CohortCacheManager,
-    flags::flag_models::FeatureFlagList, rayon_dispatcher::RayonDispatcher, router,
+    api::types::FlagsQueryParams,
+    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
+    flags::{flag_group_type_mapping::GroupTypeCacheManager, flag_models::FeatureFlagList},
+    rayon_dispatcher::RayonDispatcher,
+    router,
     utils::user_agent::UserAgentInfo,
 };
 
@@ -52,6 +55,7 @@ pub struct FeatureFlagEvaluationContext {
     pub non_persons_reader: Arc<dyn common_database::Client + Send + Sync>,
     pub non_persons_writer: Arc<dyn common_database::Client + Send + Sync>,
     pub cohort_cache: Arc<CohortCacheManager>,
+    pub group_type_cache: Arc<GroupTypeCacheManager>,
     pub person_property_overrides: Option<HashMap<String, Value>>,
     pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     pub groups: Option<HashMap<String, Value>>,
@@ -67,6 +71,10 @@ pub struct FeatureFlagEvaluationContext {
     pub rayon_dispatcher: RayonDispatcher,
     /// When true, skip all writes to PostgreSQL and Redis.
     pub skip_writes: bool,
+    /// Provider for realtime/behavioral cohort membership lookups.
+    pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    /// Whether to enable realtime cohort evaluation.
+    pub enable_realtime_cohort_evaluation: bool,
 }
 
 /// SDK type classification based on user-agent parsing.

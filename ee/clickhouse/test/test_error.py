@@ -76,7 +76,7 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
                 code=499,
             ),
             "CHQueryErrorS3Error",
-            "Code: 499.\nS3 error occurred. Try again later.",
+            "Code: 499.\nS3 error occurred. (Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 404: while reading file.parquet)",
             499,
             "CHQueryErrorS3Error",
         ),

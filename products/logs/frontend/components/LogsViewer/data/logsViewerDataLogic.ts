@@ -110,7 +110,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setLiveTailRunning: (enabled: boolean) => ({ enabled }),
         setLiveTailInterval: (interval: number) => ({ interval }),
         setLogs: (logs: LogMessage[]) => ({ logs }),
-        setSparkline: (sparkline: any[]) => ({ sparkline }),
+        setSparkline: (sparkline: any[] | null) => ({ sparkline }),
         setNextCursor: (nextCursor: string | null) => ({ nextCursor }),
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
@@ -305,7 +305,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setSparklineAbortController(null)
                     return response
                 },
-                setSparkline: ({ sparkline }) => sparkline,
+                setSparkline: ({ sparkline }) => sparkline ?? [],
             },
         ],
     })),
@@ -370,7 +370,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         sparklineData: [
             (s) => [s.sparkline, s.sparklineBreakdownBy],
-            (sparkline: any[], sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
+            (sparkline: any[] | null, sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
+                if (!sparkline) {
+                    return { labels: [], dates: [], data: [] }
+                }
+
                 const breakdownKey = sparklineBreakdownBy
 
                 let lastTime = ''
@@ -429,7 +433,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         totalLogsMatchingFilters: [
             (s) => [s.sparkline],
-            (sparkline): number => sparkline.reduce((sum, item) => sum + item.count, 0),
+            (sparkline): number => sparkline?.reduce((sum: number, item: any) => sum + item.count, 0) ?? 0,
         ],
         logsRemainingToLoad: [
             (s) => [s.totalLogsMatchingFilters, s.logs],
@@ -502,15 +506,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         runQuery: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
-            }
-            // Track query execution (skip initial page load)
-            if (values.hasRunQuery) {
-                posthog.capture('logs query executed', {
-                    has_search_term: !!values.filters.searchTerm,
-                    has_filters: values.filters.filterGroup.values.length > 0,
-                    severity_count: values.filters.severityLevels?.length ?? 0,
-                    service_count: values.filters.serviceNames?.length ?? 0,
-                })
             }
             actions.clearLogs()
             actions.fetchLogs()

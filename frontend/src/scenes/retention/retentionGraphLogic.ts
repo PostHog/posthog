@@ -8,7 +8,6 @@ import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retenti
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DateRange, RetentionFilter, RetentionQuery } from '~/queries/schema/schema-general'
-import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 
 import { dateOptionToTimeIntervalMap } from './constants'
@@ -25,7 +24,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['querySource', 'dateRange', 'retentionFilter'],
+            ['querySource', 'dateRange', 'retentionFilter', 'labelGroupType'],
             retentionLogic(props),
             [
                 'hasValidBreakdown',
@@ -185,17 +184,6 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                     return startIndex - trendSeries[0].days.length
                 }
                 return 0
-            },
-        ],
-
-        aggregationGroupTypeIndex: [
-            (s) => [s.querySource],
-            (querySource: RetentionQuery | null) => {
-                return (
-                    (isLifecycleQuery(querySource) || isStickinessQuery(querySource)
-                        ? null
-                        : querySource?.aggregation_group_type_index) ?? 'people'
-                )
             },
         ],
 

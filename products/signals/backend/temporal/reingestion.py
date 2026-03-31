@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import structlog
 import temporalio
@@ -11,15 +11,20 @@ from temporalio.common import RetryPolicy
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.api import emit_signal, soft_delete_report_signals
+from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.grouping import WaitForClickHouseInput, wait_for_signal_in_clickhouse_activity
+from products.signals.backend.temporal.grouping import (
+    WaitForClickHouseInput,
+    WaitForClickHouseSignal,
+    wait_for_signal_in_clickhouse_activity,
+)
 from products.signals.backend.temporal.summary import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     fetch_signals_for_report_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportReingestionWorkflowInputs
+from products.signals.backend.utils import soft_delete_report_signals
 
 logger = structlog.get_logger(__name__)
 
@@ -133,7 +138,7 @@ class SignalReportReingestionWorkflow:
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -159,18 +164,23 @@ class SignalReportReingestionWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # 2b. Wait for the last soft-deleted signal to land in ClickHouse before re-ingesting
-        last_signal = fetch_result.signals[-1]
+        # 2b. Wait for all soft-deleted signals to land in ClickHouse before re-ingesting
         await workflow.execute_activity(
             wait_for_signal_in_clickhouse_activity,
             WaitForClickHouseInput(
                 team_id=inputs.team_id,
-                signal_id=last_signal.signal_id,
-                timestamp=datetime.fromisoformat(last_signal.timestamp),
+                signals=[
+                    WaitForClickHouseSignal(
+                        signal_id=s.signal_id,
+                        timestamp=s.timestamp,
+                    )
+                    for s in fetch_result.signals
+                ],
+                max_wait_time_seconds=3600,
             ),
-            start_to_close_timeout=timedelta(minutes=2),
-            heartbeat_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            start_to_close_timeout=timedelta(hours=1, minutes=5),
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
         # 3. Delete the report in Postgres

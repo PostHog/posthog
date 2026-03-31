@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "experimentId": {
+            "description": "The ID of the experiment to delete",
+            "type": "number"
+        }
+    },
+    "required": ["experimentId"],
+    "type": "object"
+}

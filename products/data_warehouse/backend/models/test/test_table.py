@@ -2,16 +2,23 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import (
+    DateTimeDatabaseField,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    StructDatabaseField,
+)
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
+from products.data_warehouse.backend.models.util import postgres_column_to_dwh_column
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
@@ -71,6 +78,62 @@ class TestTable(BaseTest):
 
         with pytest.raises(QueryError, match="Direct Postgres tables cannot be printed into ClickHouse SQL"):
             definition.to_printed_clickhouse(context=None)
+
+    def test_postgres_column_to_dwh_column_supports_struct_types(self):
+        column = postgres_column_to_dwh_column(
+            "membership",
+            'STRUCT("type" VARCHAR, tier VARCHAR, frequency VARCHAR, provider VARCHAR)',
+            False,
+        )
+
+        assert column == {
+            "clickhouse": "Tuple(String, String, String, String)",
+            "hogql": "StructDatabaseField",
+            "valid": True,
+            "fields": {
+                "type": {"clickhouse": "String", "hogql": "string", "valid": True},
+                "tier": {"clickhouse": "String", "hogql": "string", "valid": True},
+                "frequency": {"clickhouse": "String", "hogql": "string", "valid": True},
+                "provider": {"clickhouse": "String", "hogql": "string", "valid": True},
+            },
+        }
+
+    def test_direct_postgres_table_supports_struct_columns(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        table = DataWarehouseTable.objects.create(
+            name="accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={
+                "membership": {
+                    "clickhouse": "Tuple(String, String, String, String)",
+                    "hogql": "StructDatabaseField",
+                    "fields": {
+                        "type": {"clickhouse": "String", "hogql": "string", "valid": True},
+                        "tier": {"clickhouse": "String", "hogql": "string", "valid": True},
+                        "frequency": {"clickhouse": "String", "hogql": "string", "valid": True},
+                        "provider": {"clickhouse": "String", "hogql": "string", "valid": True},
+                    },
+                }
+            },
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectPostgresTable)
+        assert isinstance(definition.fields["membership"], StructDatabaseField)
+        assert set(definition.fields["membership"].fields.keys()) == {"type", "tier", "frequency", "provider"}
 
     def test_get_columns(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -596,3 +659,51 @@ class TestTable(BaseTest):
 
         with self.assertRaises(Exception):
             table.hogql_definition()
+
+    @parameterized.expand(
+        [
+            (
+                "credential_error",
+                "DB::Exception: The AWS Access Key Id you provided does not exist in our records.",
+                499,
+                "The Access Key you provided does not exist",
+            ),
+            (
+                "archived_storage_class",
+                "DB::Exception: The operation is not valid for the object's storage class. (S3_ERROR)",
+                499,
+                "Some files in the bucket are archived",
+            ),
+            (
+                "access_denied",
+                "DB::Exception: Access Denied: while reading key: some/path/file.parquet",
+                499,
+                "Access was denied when reading the provided file",
+            ),
+            (
+                "no_such_bucket",
+                "DB::Exception: S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'",
+                499,
+                "The provided bucket doesn't exist",
+            ),
+            (
+                "empty_csv",
+                "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty",
+                499,
+                "The provided file doesn't exist in the bucket",
+            ),
+        ]
+    )
+    def test_safe_expose_ch_error(self, _name, error_message, error_code, expected_message):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            url_pattern="https://example.com/test.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+        )
+
+        with pytest.raises(Exception, match=expected_message):
+            table._safe_expose_ch_error(ServerException(message=error_message, code=error_code))

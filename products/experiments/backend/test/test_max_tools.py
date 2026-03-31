@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from posthog.schema import (
     MaxExperimentMetricResult,
@@ -7,9 +7,11 @@ from posthog.schema import (
     MaxExperimentVariantResultFrequentist,
 )
 
-from posthog.models import Experiment, FeatureFlag
+from posthog.event_usage import EventSource
+from posthog.models import FeatureFlag
 
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
+from products.experiments.backend.models.experiment import Experiment
 
 from ee.hogai.utils.types import AssistantState
 
@@ -138,6 +140,37 @@ class TestCreateExperimentTool(APIBaseTest):
 
         experiment = await Experiment.objects.select_related("feature_flag").aget(name="New Experiment", team=self.team)
         assert experiment.feature_flag.key == "existing-flag"
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    async def test_create_experiment_reports_posthog_ai_source(self, mock_report_user_action):
+        await self._create_multivariate_flag(key="tracked-experiment-flag")
+        tool = self._create_tool()
+
+        result, _artifact = await tool._arun_impl(
+            name="Tracked Experiment",
+            feature_flag_key="tracked-experiment-flag",
+        )
+
+        assert "Successfully created" in result
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[0] == self.user
+        assert mock_report_user_action.call_args.args[1] == "experiment created"
+        assert mock_report_user_action.call_args.args[2] == {
+            "experiment_id": ANY,
+            "experiment_name": "Tracked Experiment",
+            "feature_flag_key": "tracked-experiment-flag",
+            "type": "product",
+            "status": "draft",
+            "metrics_count": 0,
+            "secondary_metrics_count": 0,
+            "has_description": False,
+            "variant_count": 2,
+            "created_at": ANY,
+            "source": EventSource.POSTHOG_AI,
+        }
+        assert mock_report_user_action.call_args.kwargs["team"] == self.team
+        assert mock_report_user_action.call_args.kwargs["request"] is None
 
     async def test_create_experiment_flag_already_used(self):
         flag = await self._create_multivariate_flag(key="used-flag")

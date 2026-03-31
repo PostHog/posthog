@@ -10,7 +10,7 @@ from products.data_warehouse.backend.models.util import postgres_column_to_dwh_c
 
 DIRECT_POSTGRES_URL_PATTERN = "direct://postgres"
 
-type DirectPostgresColumns = dict[str, dict[str, str | bool]]
+type DirectPostgresColumns = dict[str, dict[str, Any]]
 
 
 def postgres_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | None) -> DirectPostgresColumns:

@@ -1,6 +1,16 @@
 import React from 'react'
 
-import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark, IconPlay } from '@posthog/icons'
+import {
+    IconBadge,
+    IconBolt,
+    IconCursor,
+    IconEye,
+    IconLeave,
+    IconList,
+    IconLogomark,
+    IconPlay,
+    IconServer,
+} from '@posthog/icons'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -129,6 +139,17 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
                 hidden={definition.hidden}
                 tooltipTitle="Custom action"
                 className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted"
+            />
+        )
+    }
+    if (definition.is_data_warehouse) {
+        return (
+            <IconWithBadge
+                icon={<IconServer />}
+                verified={definition.verified}
+                hidden={definition.hidden}
+                tooltipTitle="Data warehouse event"
+                className="taxonomy-icon taxonomy-icon-muted"
             />
         )
     }

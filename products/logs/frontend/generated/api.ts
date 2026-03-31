@@ -8,7 +8,36 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { ExplainRequestApi, PaginatedPluginLogEntryListApi, PluginConfigsLogsListParams } from './api.schemas'
+import type {
+    ExplainRequestApi,
+    LogsAlertConfigurationApi,
+    LogsAlertsListParams,
+    LogsViewApi,
+    LogsViewsListParams,
+    PaginatedLogsAlertConfigurationListApi,
+    PaginatedLogsViewListApi,
+    PaginatedPluginLogEntryListApi,
+    PatchedLogsAlertConfigurationApi,
+    PatchedLogsViewApi,
+    PluginConfigsLogsListParams,
+} from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
 
 /**
  * Explain a log entry using AI.
@@ -32,40 +61,230 @@ export const logsExplainLogWithAICreate = async (
     })
 }
 
-export const getHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
+export const getLogsViewsListUrl = (projectId: string, params?: LogsViewsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/logs/views/?${stringifiedParams}`
+        : `/api/environments/${projectId}/logs/views/`
 }
 
-export const hogFlowTemplatesLogsRetrieve = async (
+export const logsViewsList = async (
     projectId: string,
+    params?: LogsViewsListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsViewListApi> => {
+    return apiMutator<PaginatedLogsViewListApi>(getLogsViewsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsViewsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/logs/views/`
+}
+
+export const logsViewsCreate = async (
+    projectId: string,
+    logsViewApi: NonReadonly<LogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsViewApi),
+    })
+}
+
+export const getLogsViewsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsViewsUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsUpdate = async (
+    projectId: string,
+    shortId: string,
+    logsViewApi: NonReadonly<LogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsViewApi),
+    })
+}
+
+export const getLogsViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedLogsViewApi: NonReadonly<PatchedLogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsViewApi),
+    })
+}
+
+export const getLogsViewsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsViewsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getDomainsScimLogsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
+}
+
+export const domainsScimLogsRetrieve = async (
+    organizationId: string,
     id: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id), {
+    return apiMutator<void>(getDomainsScimLogsRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
+export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/alerts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/alerts/`
 }
 
-export const hogFlowsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id), {
+export const logsAlertsList = async (
+    projectId: string,
+    params?: LogsAlertsListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsAlertConfigurationListApi> => {
+    return apiMutator<PaginatedLogsAlertConfigurationListApi>(getLogsAlertsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_functions/${id}/logs/`
+export const getLogsAlertsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/alerts/`
 }
 
-export const hogFunctionsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsLogsRetrieveUrl(projectId, id), {
+export const logsAlertsCreate = async (
+    projectId: string,
+    logsAlertConfigurationApi: NonReadonly<LogsAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertConfigurationApi),
+    })
+}
+
+export const getLogsAlertsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/`
+}
+
+export const logsAlertsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsAlertsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/`
+}
+
+export const logsAlertsUpdate = async (
+    projectId: string,
+    id: string,
+    logsAlertConfigurationApi: NonReadonly<LogsAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertConfigurationApi),
+    })
+}
+
+export const getLogsAlertsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/`
+}
+
+export const logsAlertsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLogsAlertConfigurationApi: NonReadonly<PatchedLogsAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsAlertConfigurationApi),
+    })
+}
+
+export const getLogsAlertsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/`
+}
+
+export const logsAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsAlertsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -137,7 +356,7 @@ export const logsValuesRetrieve = async (projectId: string, options?: RequestIni
 
 export const getPluginConfigsLogsListUrl = (
     projectId: string,
-    pluginConfigId: string,
+    pluginConfigId: number,
     params?: PluginConfigsLogsListParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -157,7 +376,7 @@ export const getPluginConfigsLogsListUrl = (
 
 export const pluginConfigsLogsList = async (
     projectId: string,
-    pluginConfigId: string,
+    pluginConfigId: number,
     params?: PluginConfigsLogsListParams,
     options?: RequestInit
 ): Promise<PaginatedPluginLogEntryListApi> => {

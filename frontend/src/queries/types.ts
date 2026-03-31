@@ -60,10 +60,15 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
     /** Compare filter for Web Analytics queries */
     compareFilter?: any
+    formatCompareLabel?: (label: string, dateLabel?: string) => string
     /** Base currency for formatting monetary values */
     baseCurrency?: CurrencyCode
     /** Limit context sent to the /query endpoint */
     limitContext?: 'posthog_ai'
+    /** Custom action buttons rendered in the DataTable toolbar (second row, right side) */
+    customActions?: JSX.Element | JSX.Element[]
+    /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
+    onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

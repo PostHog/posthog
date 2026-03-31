@@ -1,8 +1,8 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
+import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
+import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
-import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
-import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { LLMProviderKeysSettings } from '@posthog/products-llm-analytics/frontend/settings/LLMProviderKeysSettings'
@@ -23,6 +23,7 @@ import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTyp
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
+import { PersonLastSeenAtEnabled } from 'scenes/settings/environment/PersonLastSeenAtEnabled'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
@@ -38,10 +39,9 @@ import {
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
-import {
-    ExceptionAutocaptureToggle,
-    ExceptionSuppressionRules,
-} from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
+import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
+import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
+import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -74,12 +74,14 @@ import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriend
 import { GithubIntegration, LinearIntegration } from './environment/Integrations'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
+import { JsSnippetVersionPin } from './environment/JsSnippetVersionPin'
 import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { PostHogCodeSlackIntegration } from './environment/PostHogCodeSlackIntegration'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
 import {
@@ -105,7 +107,6 @@ import {
     WebSnippetV2,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
-import { TwigSlackIntegration } from './environment/TwigSlackIntegration'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
@@ -132,6 +133,7 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -200,6 +202,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'google tag manager',
                     'gtm',
                 ],
+            },
+            {
+                id: 'js-snippet-version',
+                title: (
+                    <>
+                        Snippet version{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Experimental
+                        </LemonTag>
+                    </>
+                ),
+                description: 'Pin the snippet to a specific version of posthog-js. Defaults to the latest v1 release.',
+                flag: ['JS_SNIPPET_VERSIONING'],
+                component: <JsSnippetVersionPin />,
+                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
             },
             {
                 id: 'snippet-v2',
@@ -329,14 +346,14 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-twig',
-        title: 'Twig',
+        id: 'environment-posthog-code',
+        title: 'PostHog Code',
         flag: 'TASKS',
         settings: [
             {
-                id: 'integration-twig-slack',
+                id: 'integration-posthog-code-slack',
                 title: 'Slack integration',
-                component: <TwigSlackIntegration />,
+                component: <PostHogCodeSlackIntegration />,
             },
         ],
     },
@@ -486,6 +503,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['name', 'email', 'identity', 'display'],
             },
             {
+                id: 'person-last-seen-at',
+                title: 'Person last seen tracking',
+                description:
+                    'When enabled, PostHog tracks when each person was last active. The value updates hourly and is visible in the People list.',
+                docsUrl: 'https://posthog.com/docs/data/persons',
+                component: <PersonLastSeenAtEnabled />,
+                keywords: ['person', 'last seen', 'activity', 'tracking'],
+            },
+            {
                 id: 'path-cleaning',
                 title: 'Path cleaning rules',
                 description:
@@ -607,10 +633,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'LLM analytics',
         group: 'Products',
         flag: 'LLM_ANALYTICS_EVALUATIONS',
-        accessControl: {
-            resourceType: AccessControlResourceType.LlmAnalytics,
-            minimumAccessLevel: AccessControlLevel.Editor,
-        },
         settings: [
             {
                 id: 'llm-analytics-byok',
@@ -667,7 +689,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Cookieless server hash mode',
                 description:
                     'Enable cookieless tracking using a privacy-preserving hash to count unique users without cookies. You must enable this here before enabling cookieless in posthog-js.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/cookieless-tracking',
+                docsUrl: 'https://posthog.com/tutorials/cookieless-tracking',
                 component: <CookielessServerHashModeSetting />,
                 keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
             },
@@ -676,7 +698,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Bounce rate duration',
                 description:
                     'Set how long a user can stay on a page (in seconds) before the session is not counted as a bounce. Default is 10 seconds.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/bounce-rate',
+                docsUrl: 'https://posthog.com/tutorials/bounce-rate',
                 component: <BounceRateDurationSetting />,
                 keywords: ['bounce', 'session', 'duration', 'seconds'],
             },
@@ -997,15 +1019,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
             },
             {
-                id: 'error-tracking-suppression-rules',
-                title: 'Suppression rules',
-                description:
-                    'Filter autocaptured exceptions by type or message to skip capturing certain exceptions in the web SDK.',
-                platformSupport: FEATURE_SUPPORT.errorTrackingSuppressionRules,
-                component: <ExceptionSuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
-            },
-            {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when new errors occur or error rates spike.',
@@ -1022,15 +1035,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-auto-assignment',
                 title: 'Auto assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
-                component: <AutoAssignmentRules />,
+                component: <AssignmentRules />,
                 keywords: ['assign', 'owner', 'team', 'rule', 'routing'],
             },
             {
                 id: 'error-tracking-custom-grouping',
                 title: 'Custom grouping rules',
                 description: 'Define rules for how errors are grouped together into issues.',
-                component: <CustomGroupingRules />,
+                component: <GroupingRules />,
                 keywords: ['group', 'merge', 'fingerprint', 'dedup'],
+            },
+            {
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                description:
+                    'Drop exceptions by type or message before they create issues. Rules are evaluated both client-side and server-side.',
+                component: <SuppressionRules />,
+                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
                 id: 'error-tracking-integrations',
@@ -1043,7 +1064,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 description: 'Upload source maps to get readable stack traces from minified code.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/source-maps',
+                docsUrl: 'https://posthog.com/docs/error-tracking/upload-source-maps',
                 component: <SymbolSets />,
                 keywords: ['source map', 'sourcemap', 'debug', 'minified', 'stack trace'],
             },
@@ -1092,6 +1113,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsRetentionSettings />,
                 flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
+            },
+            {
+                id: 'logs-alerting',
+                title: 'Alerting',
+                description: 'Configure alerts to get notified when log volumes breach thresholds.',
+                component: <LogsAlertingSection />,
+                flag: 'LOGS_ALERTING',
+                keywords: ['notification', 'alert', 'threshold', 'logs'],
             },
         ],
     },
@@ -1579,6 +1608,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <AllowImpersonation />,
                 flag: 'CONTROL_SUPPORT_LOGIN',
                 keywords: ['impersonation', 'support login', 'debug'],
+            },
+            {
+                id: 'sidebar-auto-suggest',
+                title: 'Automatically suggest new apps',
+                description:
+                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new product.",
+                component: <SidebarAutoSuggestSetting />,
+                flag: 'AI_FIRST',
+                keywords: ['sidebar', 'suggest', 'products', 'apps', 'auto'],
             },
             {
                 id: 'hedgehog-mode',

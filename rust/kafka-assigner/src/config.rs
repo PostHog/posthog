@@ -21,13 +21,13 @@ pub struct Config {
     #[envconfig(from = "BIND_PORT", default = "50051")]
     pub port: u16,
 
-    #[envconfig(default = "64")]
+    #[envconfig(default = "1024")]
     pub stream_channel_size: usize,
 
     #[envconfig(default = "30")]
     pub consumer_lease_ttl_secs: i64,
 
-    #[envconfig(default = "10")]
+    #[envconfig(default = "5")]
     pub consumer_keepalive_interval_secs: u64,
 
     // ── Assigner / leader election ──────────────────────────────────
@@ -105,6 +105,19 @@ impl Config {
         Duration::from_secs(self.kafka_metadata_timeout_secs)
     }
 
+    pub fn validate(&self) -> Result<(), String> {
+        if self.consumer_keepalive_interval_secs as i64 >= self.consumer_lease_ttl_secs {
+            return Err(format!(
+                "consumer_keepalive_interval_secs ({}) must be less than consumer_lease_ttl_secs ({})",
+                self.consumer_keepalive_interval_secs, self.consumer_lease_ttl_secs
+            ));
+        }
+        if self.handoff_timeout_secs == 0 {
+            return Err("handoff_timeout_secs must be greater than 0".to_string());
+        }
+        Ok(())
+    }
+
     pub fn build_strategy(&self) -> Result<Arc<dyn AssignmentStrategy>, String> {
         match self.assignment_strategy.as_str() {
             "sticky-balanced" => Ok(Arc::new(StickyBalancedStrategy)),
@@ -120,7 +133,7 @@ mod tests {
     #[test]
     fn default_config_parses() {
         let config = Config::init_with_defaults().expect("default config should parse");
-        assert_eq!(config.stream_channel_size, 64);
+        assert_eq!(config.stream_channel_size, 1024);
         assert_eq!(config.consumer_lease_ttl_secs, 30);
         assert_eq!(config.leader_lease_ttl_secs, 15);
         assert_eq!(config.handoff_timeout_secs, 300);

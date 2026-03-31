@@ -1,8 +1,14 @@
+import io
+import time
+
+from django.http import HttpRequest
 from django.test import TestCase, override_settings
 
 from parameterized import parameterized
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
 
-from ee.api.agentic_provisioning.signature import _parse_signature_header, compute_signature
+from ee.api.agentic_provisioning.signature import _parse_signature_header, compute_signature, verify_stripe_signature
 
 HMAC_SECRET = "test_hmac_secret"
 
@@ -55,3 +61,79 @@ class TestComputeSignature(TestCase):
         sig1 = compute_signature(HMAC_SECRET, 1700000000, b"body1")
         sig2 = compute_signature(HMAC_SECRET, 1700000000, b"body2")
         assert sig1 != sig2
+
+
+@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+class TestVerifySignatureAfterDRFParsing(TestCase):
+    def _make_drf_request_with_consumed_stream(self, body: bytes) -> Request:
+        django_request = HttpRequest()
+        django_request.method = "POST"
+        django_request.content_type = "application/json"
+        django_request.META = {
+            "REQUEST_METHOD": "POST",
+            "CONTENT_TYPE": "application/json",
+            "CONTENT_LENGTH": str(len(body)),
+        }
+        django_request._stream = io.BytesIO(body)
+        django_request._read_started = False  # type: ignore[attr-defined]
+
+        drf_request = Request(django_request, parsers=[JSONParser()])
+        _ = drf_request.data
+
+        return drf_request
+
+    def test_returns_400_when_stream_consumed(self):
+        body = b'{"email":"test@example.com"}'
+        ts = int(time.time())
+        sig = compute_signature(HMAC_SECRET, ts, body)
+
+        drf_request = self._make_drf_request_with_consumed_stream(body)
+        drf_request.META["HTTP_STRIPE_SIGNATURE"] = f"t={ts},v1={sig}"
+
+        result = verify_stripe_signature(drf_request)
+        assert result is not None, "Body was consumed so signature can't be verified"
+        assert result.status_code == 400
+        assert result.data["error"]["code"] == "body_not_readable"
+
+    def test_succeeds_when_stream_not_consumed(self):
+        body = b'{"email":"test@example.com"}'
+        ts = int(time.time())
+        sig = compute_signature(HMAC_SECRET, ts, body)
+
+        django_request = HttpRequest()
+        django_request.method = "POST"
+        django_request.content_type = "application/json"
+        django_request.META = {
+            "REQUEST_METHOD": "POST",
+            "CONTENT_TYPE": "application/json",
+            "CONTENT_LENGTH": str(len(body)),
+            "HTTP_STRIPE_SIGNATURE": f"t={ts},v1={sig}",
+        }
+        django_request._stream = io.BytesIO(body)
+        django_request._read_started = False  # type: ignore[attr-defined]
+
+        drf_request = Request(django_request, parsers=[JSONParser()])
+        result = verify_stripe_signature(drf_request)
+        assert result is None
+
+    def test_succeeds_when_body_cached_despite_stream_consumed(self):
+        body = b'{"email":"test@example.com"}'
+        ts = int(time.time())
+        sig = compute_signature(HMAC_SECRET, ts, body)
+
+        django_request = HttpRequest()
+        django_request.method = "POST"
+        django_request.content_type = "application/json"
+        django_request.META = {
+            "REQUEST_METHOD": "POST",
+            "CONTENT_TYPE": "application/json",
+            "CONTENT_LENGTH": str(len(body)),
+            "HTTP_STRIPE_SIGNATURE": f"t={ts},v1={sig}",
+        }
+        django_request._body = body
+        django_request._stream = io.BytesIO(b"")
+        django_request._read_started = True  # type: ignore[attr-defined]
+
+        drf_request = Request(django_request, parsers=[JSONParser()])
+        result = verify_stripe_signature(drf_request)
+        assert result is None

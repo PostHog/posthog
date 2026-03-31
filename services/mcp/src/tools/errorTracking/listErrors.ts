@@ -1,13 +1,15 @@
 import type { z } from 'zod'
 
+import { withUiApp } from '@/resources/ui-apps'
 import { ErrorTrackingListSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ErrorTrackingListSchema
-
 type Params = z.infer<typeof schema>
+type Result = WithPostHogUrl
 
-export const listErrorsHandler: ToolBase<typeof schema, unknown>['handler'] = async (
+export const listErrorsHandler: ToolBase<typeof schema, Result>['handler'] = async (
     context: Context,
     params: Params
 ) => {
@@ -32,13 +34,12 @@ export const listErrorsHandler: ToolBase<typeof schema, unknown>['handler'] = as
         throw new Error(`Failed to list errors: ${errorsResult.error.message}`)
     }
 
-    return errorsResult.data.results
+    return withPostHogUrl(context, { results: errorsResult.data.results }, '/error_tracking')
 }
 
-const tool = (): ToolBase<typeof schema> => ({
-    name: 'list-errors',
-    schema,
-    handler: listErrorsHandler,
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('error-issue-list', {
+        name: 'list-errors',
+        schema,
+        handler: listErrorsHandler,
+    })

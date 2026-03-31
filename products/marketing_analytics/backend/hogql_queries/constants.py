@@ -1,7 +1,7 @@
 # Marketing Analytics Constants and Configuration
 
 import math
-from typing import Optional, Union
+from typing import Optional, TypedDict, Union
 
 from pydantic import BaseModel
 
@@ -19,6 +19,7 @@ from posthog.schema import (
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
@@ -27,12 +28,17 @@ from posthog.schema import (
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
+    MarketingIntegrationConfig8,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
+    MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources,
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
     NativeMarketingSource,
+    PinterestAdsDefaultSources,
+    PinterestAdsTableExclusions,
+    PinterestAdsTableKeywords,
     RedditAdsDefaultSources,
     RedditAdsTableExclusions,
     RedditAdsTableKeywords,
@@ -176,8 +182,8 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION,
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS,
         expr=ast.Call(
             name="round",
             args=[
@@ -216,8 +222,8 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION,
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
         expr=ast.Call(
             name="round",
             args=[
@@ -239,6 +245,45 @@ BASE_COLUMN_MAPPING = {
 }
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
+
+
+class DrillDownLevelConfig(TypedDict):
+    column_alias: str
+    excluded_base_columns: frozenset[MarketingAnalyticsBaseColumns]
+
+
+# Centralized drill-down level configuration
+DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelConfig] = {
+    MarketingAnalyticsDrillDownLevel.CHANNEL: {
+        "column_alias": "Channel",
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+                MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.SOURCE: {
+        "column_alias": MarketingAnalyticsBaseColumns.SOURCE,
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+                MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.CAMPAIGN: {
+        "column_alias": MarketingAnalyticsBaseColumns.CAMPAIGN,
+        "excluded_base_columns": frozenset(),
+    },
+}
+
+# All possible grouping column aliases (used to identify string columns)
+DRILL_DOWN_STRING_COLUMN_ALIASES: frozenset[str] = frozenset(
+    cfg["column_alias"] for cfg in DRILL_DOWN_LEVEL_CONFIG.values()
+)
 
 # Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {
@@ -270,6 +315,7 @@ _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
+    MarketingIntegrationConfig8,
 ]
 
 
@@ -306,6 +352,7 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.REDDIT_ADS: RedditAdsDefaultSources,
     NativeMarketingSource.BING_ADS: BingAdsDefaultSources,
     NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsDefaultSources,
+    NativeMarketingSource.PINTEREST_ADS: PinterestAdsDefaultSources,
 }
 
 _TABLE_KEYWORDS_ENUMS = {
@@ -316,6 +363,7 @@ _TABLE_KEYWORDS_ENUMS = {
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
     NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
     NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableKeywords,
+    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableKeywords,
 }
 
 _TABLE_EXCLUSIONS_ENUMS = {
@@ -326,6 +374,7 @@ _TABLE_EXCLUSIONS_ENUMS = {
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
     NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
     NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableExclusions,
+    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableExclusions,
 }
 
 # Derived constants from generated types
@@ -370,6 +419,7 @@ SNAPCHAT_CONVERSION_VALUE_FIELDS = [e.value for e in SnapchatAdsConversionValueF
 META_CONVERSION_ACTION_TYPES = {
     "omni": [e.value for e in MetaAdsConversionOmniActionTypes],
     "fallback": [e.value for e in MetaAdsConversionFallbackActionTypes],
+    "specific": [e.value for e in MetaAdsConversionSpecificActionTypes],
 }
 
 # Column kind mapping for WebAnalyticsItemBase
@@ -382,10 +432,10 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: "unit",
     MarketingAnalyticsBaseColumns.CPC: "currency",
     MarketingAnalyticsBaseColumns.CTR: "percentage",
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: "unit",
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: "currency",
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: "unit",
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: "currency",
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: "currency",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
@@ -398,10 +448,10 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: False,  # More impressions is good
     MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
     MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: False,  # More reported conversions is good
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: False,  # Higher conversion value is good
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: False,  # Higher ROAS is good
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: True,  # Higher cost per conversion is bad
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: True,  # Higher cost per conversion is bad
 }
 
 
@@ -447,12 +497,8 @@ def to_marketing_analytics_data(
             kind = "unit"
             is_increase_bad = False  # More conversions is good
 
-    # For string columns (ID, Campaign, Source), preserve the string values
-    if kind == "unit" and key in [
-        MarketingAnalyticsBaseColumns.ID.value,
-        MarketingAnalyticsBaseColumns.CAMPAIGN.value,
-        MarketingAnalyticsBaseColumns.SOURCE.value,
-    ]:
+    # For string columns (ID, Campaign, Source, and drill-down grouping aliases), preserve the string values
+    if kind == "unit" and key in (DRILL_DOWN_STRING_COLUMN_ALIASES | {MarketingAnalyticsBaseColumns.ID.value}):
         # String columns - no numeric processing needed
         pass
     else:

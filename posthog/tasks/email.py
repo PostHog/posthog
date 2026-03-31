@@ -945,6 +945,7 @@ def send_hog_functions_daily_digest() -> None:
     Queries ClickHouse first to find failures, then fans out to team-specific tasks.
     """
     from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
     logger.info("Starting HogFunctions daily digest task")
 
@@ -960,7 +961,8 @@ def send_hog_functions_daily_digest() -> None:
     AND metric_kind = 'failure'
     """
 
-    failed_teams_data = sync_execute(failures_query, {})
+    with tags_context(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.DIGEST):
+        failed_teams_data = sync_execute(failures_query, {})
 
     if not failed_teams_data:
         logger.info("No HogFunctions with failures found")
@@ -1009,6 +1011,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         hog_function_ids: Optional list of specific hog function IDs to process
     """
     from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.models.hog_functions.hog_function import HogFunction
 
     logger.info(f"Processing HogFunctions digest for team {team_id}")
@@ -1041,10 +1044,11 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
     final_query = metrics_query.format(hog_function_filter=hog_function_filter)
 
-    metrics_data = sync_execute(
-        final_query,
-        query_params,
-    )
+    with tags_context(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.DIGEST):
+        metrics_data = sync_execute(
+            final_query,
+            query_params,
+        )
 
     if not metrics_data:
         logger.info(f"No functions with metrics found for team {team_id}")
@@ -1435,7 +1439,8 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         compute_week_over_week_change,
         get_crash_free_sessions,
         get_daily_exception_counts,
-        get_exception_counts_for_org,
+        get_exception_counts,
+        get_exception_summary_for_team,
         get_new_issues_for_team,
         get_top_issues_for_team,
     )
@@ -1449,18 +1454,25 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         logger.warning(f"Organization {org_id} not found for Error Tracking weekly digest")
         return
 
-    team_exception_counts = get_exception_counts_for_org(org.id)
-    if not team_exception_counts:
+    all_org_teams = {t.id: t for t in Team.objects.filter(organization_id=org.id)}
+    if not all_org_teams:
         return
 
-    all_org_teams = {t.id: t for t in Team.objects.filter(organization_id=org.id)}
-    excluded_project_count = len(all_org_teams) - len(team_exception_counts)
+    # Use unfiltered counts only to determine which teams have any exceptions at all
+    unfiltered_counts = get_exception_counts(list(all_org_teams.keys()))
+    team_ids_with_exceptions = {row[0] for row in unfiltered_counts}
+    if not team_ids_with_exceptions:
+        return
 
     # Pre-compute per-team digest data only for teams that have exceptions
     team_digest_data: dict[int, dict] = {}
-    for team_id, counts in team_exception_counts.items():
+    for team_id in team_ids_with_exceptions:
         team = all_org_teams.get(team_id)
         if not team:
+            continue
+
+        counts = get_exception_summary_for_team(team)
+        if not counts or counts["exception_count"] == 0:
             continue
 
         team_digest_data[team_id] = {
@@ -1472,11 +1484,13 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             "ingestion_failure_count": counts["ingestion_failure_count"],
             "top_issues": get_top_issues_for_team(team),
             "new_issues": get_new_issues_for_team(team),
-            "daily_counts": get_daily_exception_counts(team_id),
+            "daily_counts": get_daily_exception_counts(team),
             "crash_free": get_crash_free_sessions(team),
             "error_tracking_url": f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest",
             "ingestion_failures_url": build_ingestion_failures_url(team_id),
         }
+
+    excluded_project_count = len(all_org_teams) - len(team_digest_data)
 
     all_memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
 
@@ -1500,7 +1514,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             continue
 
         # Auto-select busiest project for first-time users
-        auto_select_project_for_user(user, org.id, team_exception_counts)
+        auto_select_project_for_user(user, org.id, team_digest_data)
         user.refresh_from_db(fields=["partial_notification_settings"])
 
         # Build per-user list of enabled teams

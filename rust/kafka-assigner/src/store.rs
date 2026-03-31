@@ -170,6 +170,11 @@ impl KafkaAssignerStore {
         Ok(())
     }
 
+    pub async fn delete_all_assignments(&self) -> Result<()> {
+        let key = self.key(StoreKey::AssignmentsPrefix);
+        Ok(self.inner.delete_prefix(&key).await?)
+    }
+
     pub async fn watch_assignments(&self) -> Result<WatchStream> {
         let key = self.key(StoreKey::AssignmentsPrefix);
         Ok(self.inner.watch(&key).await?)

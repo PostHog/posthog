@@ -66,12 +66,19 @@ class Subscription(models.Model):
 
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
     dashboard_export_insights = models.ManyToManyField(
         "posthog.Insight",
         blank=True,
         related_name="subscriptions_dashboard_export",
+    )
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
     )
 
     # Subscription type (email, slack etc.)
@@ -100,6 +107,11 @@ class Subscription(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

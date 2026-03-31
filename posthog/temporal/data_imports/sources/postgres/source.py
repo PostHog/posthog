@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     SSLRequiredError,
     filter_postgres_incremental_fields,
+    get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
     get_postgres_row_count,
     get_schemas as get_postgres_schemas,
@@ -137,7 +138,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "Name or service not known": None,
             "Network is unreachable": None,
             "InsufficientPrivilege": None,
-            "OperationalError: connection failed: connection to server at": None,
+            "Connection refused": None,
+            "No route to host": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,
             "SSLRequiredError": None,
@@ -146,7 +148,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
         }
 
-    def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):
@@ -157,6 +161,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 password=config.password,
                 database=config.database,
                 schema=config.schema,
+                names=names,
             )
             db_foreign_keys = get_postgres_foreign_keys(
                 host=host,
@@ -165,6 +170,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 password=config.password,
                 database=config.database,
                 schema=config.schema,
+                names=names,
             )
 
             if with_counts:
@@ -175,6 +181,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                     schema=config.schema,
+                    names=names,
                 )
             else:
                 row_counts = {}
@@ -220,7 +227,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
         except SSLRequiredError as e:
             return False, str(e)
         except OperationalError as e:
@@ -242,6 +249,19 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
 
         return True, None
+
+    def get_connection_metadata(
+        self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, object]:
+        with self.with_ssh_tunnel(config) as (host, port):
+            return get_postgres_connection_metadata(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                require_ssl=require_ssl,
+            )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema

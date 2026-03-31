@@ -10,7 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -40,6 +40,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
@@ -71,6 +72,7 @@ class DataWarehouseSavedQuerySerializerMixin:
     This mixin is intended to be used with serializers.ModelSerializer subclasses.
     """
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         try:
             jobs = view.jobs  # type: ignore
@@ -81,12 +83,15 @@ class DataWarehouseSavedQuerySerializerMixin:
 
         return view.last_run_at
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
         return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
         return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self.context.get("database", None)  # type: ignore[attr-defined]
@@ -135,6 +140,8 @@ class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializer
             "latest_error",
             "is_materialized",
             "origin",
+            "is_test",
+            "expires_at",
         ]
         read_only_fields = fields
 
@@ -146,8 +153,18 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
-    edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
-    soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
+    edited_history_id = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Activity log ID from the last known edit. Used for conflict detection.",
+    )
+    soft_update = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="If true, skip column inference and validation. For saving drafts.",
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -169,6 +186,8 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "soft_update",
             "is_materialized",
             "origin",
+            "is_test",
+            "expires_at",
         ]
         read_only_fields = [
             "id",
@@ -182,11 +201,19 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "latest_history_id",
             "is_materialized",
             "origin",
+            "expires_at",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
+            "name": {
+                "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
+            },
+            "query": {
+                "help_text": 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}',
+            },
         }
 
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
         # First check if we have an activity log from a recent creation/update
         if (
@@ -310,6 +337,9 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
+                # Clamp deprecated 5min interval to 15min for saved queries
+                if sync_frequency == "5min":
+                    sync_frequency = "15min"
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 locked_instance.sync_frequency_interval = sync_frequency_interval
@@ -436,6 +466,11 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
 
         return query
 
+    def validate_is_test(self, is_test):
+        if is_test and not self.context["request"].user.is_staff:
+            raise serializers.ValidationError("Only staff users can create test views.")
+        return is_test
+
     def validate_name(self, name):
         # if it's an upsert, we don't want to validate the name
         if self.instance is not None and isinstance(self.instance, DataWarehouseSavedQuery):
@@ -487,9 +522,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 ),
             )
             .exclude(deleted=True)
-            .exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
             .order_by(self.ordering)
         )
+
+        # Hide endpoint-origin saved queries from the list view — they belong to the endpoints UI.
+        # Allow retrieve so the Node detail page can fetch them by ID.
+        if self.action == "list":
+            base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
 
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(
@@ -581,7 +620,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(methods=["POST"], detail=True)
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_view:write"],
+        throttle_classes=[RunSavedQueryRateThrottle],
+    )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
         saved_query = self.get_object()
@@ -590,7 +634,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=True)
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_view:write"],
+        throttle_classes=[MaterializationRateThrottle],
+    )
     def revert_materialization(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
         Undo materialization, revert back to the original view.
@@ -615,7 +664,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=True)
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_view:write"],
+        throttle_classes=[MaterializationRateThrottle],
+    )
     def materialize(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
         Enable materialization for this saved query with a 24-hour sync frequency.
@@ -843,7 +897,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response({"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)})
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["warehouse_view:read"])
     def run_history(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the recent run history (up to 5 most recent) for this materialized view."""
         saved_query = self.get_object()

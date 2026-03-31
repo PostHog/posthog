@@ -10,8 +10,6 @@ from collections.abc import Generator
 import httpx
 import openai
 
-from posthog.security.outbound_proxy import external_httpx
-
 from products.llm_analytics.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
@@ -63,7 +61,7 @@ class OpenRouterAdapter(OpenAIAdapter):
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
         try:
-            response = external_httpx.get(
+            response = httpx.get(
                 "https://openrouter.ai/api/v1/auth/key",
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=OpenAIConfig.TIMEOUT,

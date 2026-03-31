@@ -16,7 +16,9 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
+    LLMPromptDuplicateSerializer,
     LLMPromptFetchQuerySerializer,
+    LLMPromptListQuerySerializer,
     LLMPromptPublicSerializer,
     LLMPromptPublishSerializer,
     LLMPromptResolveQuerySerializer,
@@ -27,10 +29,12 @@ from posthog.api.llm_prompt_serializers import (
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.llm_prompt import (
+    LLMPromptDuplicateNameConflictError,
     LLMPromptNotFoundError,
     LLMPromptVersionConflictError,
     LLMPromptVersionLimitError,
     archive_prompt,
+    duplicate_prompt,
     get_active_prompt_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
@@ -89,6 +93,7 @@ class LLMPromptFeatureFlagPermission(BasePermission):
         )
 
 
+@extend_schema(tags=["llm_analytics"])
 class LLMPromptViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -361,6 +366,53 @@ class LLMPromptViewSet(
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(request=LLMPromptDuplicateSerializer, responses={201: LLMPromptSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<prompt_name>[^/]+)/duplicate",
+        required_scopes=["llm_prompt:write"],
+    )
+    @llma_track_latency("llma_prompts_duplicate")
+    @monitor(feature=None, endpoint="llma_prompts_duplicate", method="POST")
+    def duplicate(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMPromptDuplicateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        new_name = payload.validated_data["new_name"]
+
+        try:
+            new_prompt = duplicate_prompt(
+                self.team,
+                user=cast(User, request.user),
+                source_name=prompt_name,
+                new_name=new_name,
+            )
+        except LLMPromptNotFoundError:
+            return self._prompt_not_found_response(prompt_name)
+        except LLMPromptDuplicateNameConflictError:
+            return Response(
+                {"attr": "new_name", "detail": "A prompt with this name already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma prompt duplicated",
+            {
+                "prompt_id": str(new_prompt.id),
+                "prompt_name": new_prompt.name,
+                "source_prompt_name": prompt_name,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_prompt(new_prompt), status=status.HTTP_201_CREATED)
+
+    @extend_schema(parameters=[LLMPromptListQuerySerializer])
     @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> Response:

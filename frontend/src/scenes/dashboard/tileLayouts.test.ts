@@ -1,4 +1,4 @@
-import { Layout } from 'react-grid-layout'
+import { Layout, LayoutItem } from 'react-grid-layout'
 
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
@@ -63,7 +63,7 @@ describe('calculating tile layouts', () => {
 })
 
 describe('calculateDuplicateLayout', () => {
-    const smLayout = (i: string, x: number, y: number, w: number, h: number): Layout => ({ i, x, y, w, h })
+    const smLayout = (i: string, x: number, y: number, w: number, h: number): LayoutItem => ({ i, x, y, w, h })
 
     it.each([
         {
@@ -117,10 +117,7 @@ describe('calculateDuplicateLayout', () => {
             expected: { duplicateLayouts: {}, tilesToUpdate: [] },
         },
     ])('$name', ({ layouts, tileId, expected }) => {
-        const result = calculateDuplicateLayout(
-            layouts as Partial<Record<DashboardLayoutSize, Layout[]>> | null,
-            tileId
-        )
+        const result = calculateDuplicateLayout(layouts as Partial<Record<DashboardLayoutSize, Layout>> | null, tileId)
 
         expect(result.duplicateLayouts).toEqual(expected.duplicateLayouts)
         expect(result.tilesToUpdate).toEqual(expected.tilesToUpdate)
@@ -129,7 +126,7 @@ describe('calculateDuplicateLayout', () => {
     it('only includes sm layout for duplicate (xs is derived)', () => {
         const layouts = {
             sm: [smLayout('1', 0, 0, 6, 5)],
-            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 5 } as Layout],
+            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 5 } as LayoutItem],
         }
 
         const result = calculateDuplicateLayout(layouts, 1)

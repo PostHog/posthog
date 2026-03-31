@@ -12,6 +12,8 @@ _runtime_version.ValidateProtobufRuntimeVersion(
     _runtime_version.Domain.PUBLIC, 5, 29, 0, "", "personhog/types/v1/cohort.proto"
 )
 _sym_db = _symbol_database.Default()
+from ....personhog.types.v1 import common_pb2 as personhog_dot_types_dot_v1_dot_common__pb2
+
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
     b'\n\x1fpersonhog/types/v1/cohort.proto\x12\x12personhog.types.v1\x1a\x1fpersonhog/types/v1/common.proto"8\n\x10CohortMembership\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x11\n\tis_member\x18\x02 \x01(\x08"|\n\x1cCheckCohortMembershipRequest\x12\x11\n\tperson_id\x18\x01 \x01(\x03\x12\x12\n\ncohort_ids\x18\x02 \x03(\x03\x125\n\x0cread_options\x18\x03 \x01(\x0b2\x1f.personhog.types.v1.ReadOptions"U\n\x18CohortMembershipResponse\x129\n\x0bmemberships\x18\x01 \x03(\x0b2$.personhog.types.v1.CohortMembershipb\x06proto3'
 )

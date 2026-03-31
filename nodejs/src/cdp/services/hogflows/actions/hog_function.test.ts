@@ -38,7 +38,7 @@ describe('HogFunctionHandler', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const emailService = new EmailService(
@@ -335,6 +335,7 @@ describe('HogFunctionHandler', () => {
             logs: [],
             metrics: [],
             capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {

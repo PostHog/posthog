@@ -7,8 +7,10 @@ import {
     ConversionGoalFilter,
     DataTableNode,
     DatabaseSchemaDataWarehouseTable,
+    MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
     SourceMap,
@@ -42,7 +44,7 @@ export type NativeSource = {
 export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType>([
     path(['scenes', 'marketingAnalytics', 'marketingAnalyticsTableLogic']),
     connect(() => ({
-        values: [marketingAnalyticsLogic, ['conversion_goals', 'draftConversionGoal']],
+        values: [marketingAnalyticsLogic, ['conversion_goals', 'draftConversionGoal', 'drillDownLevel']],
         actions: [marketingAnalyticsLogic, ['setDraftConversionGoal']],
     })),
     actions({
@@ -58,10 +60,22 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
     }),
     selectors({
         defaultColumns: [
-            (s) => [s.conversion_goals],
-            (conversionGoals: ConversionGoalFilter[]) => {
+            (s) => [s.conversion_goals, s.drillDownLevel],
+            (conversionGoals: ConversionGoalFilter[], drillDownLevel: MarketingAnalyticsDrillDownLevel) => {
+                const config = MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel]
+
+                const baseColumns =
+                    config.excludedBaseColumns.length > 0
+                        ? [
+                              config.columnAlias,
+                              ...Object.values(MarketingAnalyticsBaseColumns).filter(
+                                  (col) => !config.excludedBaseColumns.includes(col)
+                              ),
+                          ]
+                        : Object.values(MarketingAnalyticsBaseColumns).map((column) => column.toString())
+
                 const selectColumns = [
-                    ...Object.values(MarketingAnalyticsBaseColumns).map((column) => column.toString()),
+                    ...baseColumns,
                     ...conversionGoals
                         .map((goal) => [
                             goal.conversion_goal_name,

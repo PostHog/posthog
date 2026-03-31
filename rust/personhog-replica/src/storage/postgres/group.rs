@@ -1,70 +1,9 @@
 use async_trait::async_trait;
-use sqlx::FromRow;
 
-use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
+use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::GroupStorage;
 use crate::storage::types::{Group, GroupIdentifier, GroupKey, GroupTypeMapping};
-
-#[derive(Debug, Clone, FromRow)]
-struct GroupRow {
-    id: i32,
-    team_id: i32,
-    group_type_index: i32,
-    group_key: String,
-    group_properties: serde_json::Value,
-    created_at: chrono::DateTime<chrono::Utc>,
-    properties_last_updated_at: Option<serde_json::Value>,
-    properties_last_operation: Option<serde_json::Value>,
-    version: i64,
-}
-
-impl From<GroupRow> for Group {
-    fn from(row: GroupRow) -> Self {
-        Group {
-            id: row.id.into(),
-            team_id: row.team_id.into(),
-            group_type_index: row.group_type_index,
-            group_key: row.group_key,
-            group_properties: row.group_properties,
-            created_at: row.created_at,
-            properties_last_updated_at: row.properties_last_updated_at,
-            properties_last_operation: row.properties_last_operation,
-            version: row.version,
-        }
-    }
-}
-
-#[derive(Debug, Clone, FromRow)]
-struct GroupTypeMappingRow {
-    id: i32,
-    team_id: i32,
-    project_id: i64,
-    group_type: String,
-    group_type_index: i32,
-    name_singular: Option<String>,
-    name_plural: Option<String>,
-    default_columns: Option<Vec<String>>,
-    detail_dashboard_id: Option<i32>,
-    created_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl From<GroupTypeMappingRow> for GroupTypeMapping {
-    fn from(row: GroupTypeMappingRow) -> Self {
-        GroupTypeMapping {
-            id: row.id.into(),
-            team_id: row.team_id.into(),
-            project_id: row.project_id,
-            group_type: row.group_type,
-            group_type_index: row.group_type_index,
-            name_singular: row.name_singular,
-            name_plural: row.name_plural,
-            default_columns: row.default_columns,
-            detail_dashboard_id: row.detail_dashboard_id.map(|id| id.into()),
-            created_at: row.created_at,
-        }
-    }
-}
 
 #[async_trait]
 impl GroupStorage for PostgresStorage {
@@ -75,26 +14,36 @@ impl GroupStorage for PostgresStorage {
         group_key: &str,
         consistency: ConsistencyLevel,
     ) -> StorageResult<Option<Group>> {
-        let labels = [("operation".to_string(), "get_group".to_string())];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            ("operation".to_string(), "get_group".to_string()),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let row = sqlx::query_as::<_, GroupRow>(
+        let row = sqlx::query_as!(
+            Group,
             r#"
-            SELECT id, team_id, group_type_index, group_key, group_properties,
-                   created_at, properties_last_updated_at, properties_last_operation, version
+            SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+                   group_type_index, group_key, group_properties,
+                   created_at,
+                   properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
+                   properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   version
             FROM posthog_group
             WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
             "#,
+            team_id as i32,
+            group_type_index,
+            group_key
         )
-        .bind(team_id)
-        .bind(group_type_index)
-        .bind(group_key)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await?;
 
-        Ok(row.map(Group::from))
+        Ok(row)
     }
 
     async fn get_groups(
@@ -107,31 +56,47 @@ impl GroupStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [("operation".to_string(), "get_groups".to_string())];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            ("operation".to_string(), "get_groups".to_string()),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let group_type_indexes: Vec<i32> = identifiers.iter().map(|i| i.group_type_index).collect();
-        let group_keys: Vec<&str> = identifiers.iter().map(|i| i.group_key.as_str()).collect();
+        let group_keys: Vec<String> = identifiers.iter().map(|i| i.group_key.clone()).collect();
 
-        let rows = sqlx::query_as::<_, GroupRow>(
+        let rows = sqlx::query_as!(
+            Group,
             r#"
-            SELECT g.id, g.team_id, g.group_type_index, g.group_key, g.group_properties,
-                   g.created_at, g.properties_last_updated_at, g.properties_last_operation, g.version
+            SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
+                   g.group_type_index, g.group_key, g.group_properties,
+                   g.created_at,
+                   g.properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
+                   g.properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   g.version
             FROM posthog_group g
             INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
                 ON g.group_type_index = t.group_type_index AND g.group_key = t.group_key
             WHERE g.team_id = $1
             "#,
+            team_id as i32,
+            &group_type_indexes,
+            &group_keys
         )
-        .bind(team_id)
-        .bind(&group_type_indexes)
-        .bind(&group_keys)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
-        Ok(rows.into_iter().map(Group::from).collect())
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[("operation".to_string(), "get_groups".to_string())],
+            rows.len() as f64,
+        );
+
+        Ok(rows)
     }
 
     async fn get_groups_batch(
@@ -143,39 +108,55 @@ impl GroupStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [("operation".to_string(), "get_groups_batch".to_string())];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            ("operation".to_string(), "get_groups_batch".to_string()),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let team_ids: Vec<i32> = keys.iter().map(|k| k.team_id as i32).collect();
         let group_type_indexes: Vec<i32> = keys.iter().map(|k| k.group_type_index).collect();
-        let group_keys: Vec<&str> = keys.iter().map(|k| k.group_key.as_str()).collect();
+        let group_keys: Vec<String> = keys.iter().map(|k| k.group_key.clone()).collect();
 
-        let rows = sqlx::query_as::<_, GroupRow>(
+        let groups = sqlx::query_as!(
+            Group,
             r#"
-            SELECT g.id, g.team_id, g.group_type_index, g.group_key, g.group_properties,
-                   g.created_at, g.properties_last_updated_at, g.properties_last_operation, g.version
+            SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
+                   g.group_type_index, g.group_key, g.group_properties,
+                   g.created_at,
+                   g.properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
+                   g.properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   g.version
             FROM posthog_group g
             INNER JOIN UNNEST($1::integer[], $2::integer[], $3::text[]) AS t(team_id, group_type_index, group_key)
                 ON g.team_id = t.team_id AND g.group_type_index = t.group_type_index AND g.group_key = t.group_key
             "#,
+            &team_ids,
+            &group_type_indexes,
+            &group_keys
         )
-        .bind(&team_ids)
-        .bind(&group_type_indexes)
-        .bind(&group_keys)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
-        Ok(rows
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[("operation".to_string(), "get_groups_batch".to_string())],
+            groups.len() as f64,
+        );
+
+        Ok(groups
             .into_iter()
-            .map(|row| {
+            .map(|g| {
                 let key = GroupKey {
-                    team_id: row.team_id as i64,
-                    group_type_index: row.group_type_index,
-                    group_key: row.group_key.clone(),
+                    team_id: g.team_id,
+                    group_type_index: g.group_type_index,
+                    group_key: g.group_key.clone(),
                 };
-                (key, Group::from(row))
+                (key, g)
             })
             .collect())
     }
@@ -185,27 +166,45 @@ impl GroupStorage for PostgresStorage {
         team_id: i64,
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>> {
-        let labels = [(
-            "operation".to_string(),
-            "get_group_type_mappings_by_team_id".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_group_type_mappings_by_team_id".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let rows = sqlx::query_as::<_, GroupTypeMappingRow>(
+        let rows = sqlx::query_as!(
+            GroupTypeMapping,
             r#"
-            SELECT id, team_id, project_id, group_type, group_type_index,
-                   name_singular, name_plural, default_columns, detail_dashboard_id, created_at
+            SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+                   project_id as "project_id!",
+                   group_type, group_type_index,
+                   name_singular, name_plural, default_columns,
+                   detail_dashboard_id::bigint, created_at
             FROM posthog_grouptypemapping
             WHERE team_id = $1
             "#,
+            team_id as i32
         )
-        .bind(team_id)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
-        Ok(rows.into_iter().map(GroupTypeMapping::from).collect())
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_group_type_mappings_by_team_id".to_string(),
+            )],
+            rows.len() as f64,
+        );
+
+        Ok(rows)
     }
 
     async fn get_group_type_mappings_by_team_ids(
@@ -217,27 +216,47 @@ impl GroupStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "get_group_type_mappings_by_team_ids".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_group_type_mappings_by_team_ids".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let rows = sqlx::query_as::<_, GroupTypeMappingRow>(
+        let team_ids_i32: Vec<i32> = team_ids.iter().map(|&id| id as i32).collect();
+
+        let rows = sqlx::query_as!(
+            GroupTypeMapping,
             r#"
-            SELECT id, team_id, project_id, group_type, group_type_index,
-                   name_singular, name_plural, default_columns, detail_dashboard_id, created_at
+            SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+                   project_id as "project_id!",
+                   group_type, group_type_index,
+                   name_singular, name_plural, default_columns,
+                   detail_dashboard_id::bigint, created_at
             FROM posthog_grouptypemapping
             WHERE team_id = ANY($1)
             "#,
+            &team_ids_i32
         )
-        .bind(team_ids)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
-        Ok(rows.into_iter().map(GroupTypeMapping::from).collect())
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_group_type_mappings_by_team_ids".to_string(),
+            )],
+            rows.len() as f64,
+        );
+
+        Ok(rows)
     }
 
     async fn get_group_type_mappings_by_project_id(
@@ -245,27 +264,45 @@ impl GroupStorage for PostgresStorage {
         project_id: i64,
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>> {
-        let labels = [(
-            "operation".to_string(),
-            "get_group_type_mappings_by_project_id".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_group_type_mappings_by_project_id".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let rows = sqlx::query_as::<_, GroupTypeMappingRow>(
+        let rows = sqlx::query_as!(
+            GroupTypeMapping,
             r#"
-            SELECT id, team_id, project_id, group_type, group_type_index,
-                   name_singular, name_plural, default_columns, detail_dashboard_id, created_at
+            SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+                   project_id as "project_id!",
+                   group_type, group_type_index,
+                   name_singular, name_plural, default_columns,
+                   detail_dashboard_id::bigint, created_at
             FROM posthog_grouptypemapping
             WHERE project_id = $1
             "#,
+            project_id
         )
-        .bind(project_id)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
-        Ok(rows.into_iter().map(GroupTypeMapping::from).collect())
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_group_type_mappings_by_project_id".to_string(),
+            )],
+            rows.len() as f64,
+        );
+
+        Ok(rows)
     }
 
     async fn get_group_type_mappings_by_project_ids(
@@ -277,26 +314,44 @@ impl GroupStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "get_group_type_mappings_by_project_ids".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_group_type_mappings_by_project_ids".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let rows = sqlx::query_as::<_, GroupTypeMappingRow>(
+        let rows = sqlx::query_as!(
+            GroupTypeMapping,
             r#"
-            SELECT id, team_id, project_id, group_type, group_type_index,
-                   name_singular, name_plural, default_columns, detail_dashboard_id, created_at
+            SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+                   project_id as "project_id!",
+                   group_type, group_type_index,
+                   name_singular, name_plural, default_columns,
+                   detail_dashboard_id::bigint, created_at
             FROM posthog_grouptypemapping
             WHERE project_id = ANY($1)
             "#,
+            project_ids
         )
-        .bind(project_ids)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
-        Ok(rows.into_iter().map(GroupTypeMapping::from).collect())
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_group_type_mappings_by_project_ids".to_string(),
+            )],
+            rows.len() as f64,
+        );
+
+        Ok(rows)
     }
 }

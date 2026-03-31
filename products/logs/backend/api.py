@@ -17,19 +17,22 @@ from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, LogValuesQu
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.exporter import export_asset
 
+from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
+from products.logs.backend.views_api import LogsViewViewSet
 
-__all__ = ["LogsViewSet", "LogExplainViewSet"]
+__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsViewViewSet"]
 
 LOGS_MAX_EXPORT_ROWS = 10_000
 
@@ -89,6 +92,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if after_cursor:
             logs_query_params["after"] = after_cursor
         query = LogsQuery(**logs_query_params)
+        analytics_props = get_request_analytics_properties(request)
 
         def results_generator(query: LogsQuery, logs_query_params: dict):
             """
@@ -161,14 +165,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # Note: cursor pagination no longer skips time-slicing because we narrow the date range
             # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
             if live_logs_checkpoint:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
                 yield from response.results
                 return
 
             # if we're searching more than 20 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
             if date_range_length > dt.timedelta(minutes=20):
                 recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
                 limit -= len(response.results)
                 yield from response.results
                 if limit <= 0:
@@ -178,7 +182,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # otherwise if we're searching more than 4 hours search the next hour
             if date_range_length > dt.timedelta(hours=4):
                 recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=60), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
                 limit -= len(response.results)
                 yield from response.results
                 if limit <= 0:
@@ -188,14 +192,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # otherwise if we're searching more than 24 hours search the next 6 hours
             if date_range_length > dt.timedelta(hours=24):
                 recent_runner, runner = runner_slice(runner, dt.timedelta(hours=6), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
                 limit -= len(response.results)
                 yield from response.results
                 if limit <= 0:
                     return
                 runner.query.limit = limit
 
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
             yield from response.results
 
         results = list(results_generator(query, logs_query_params))
@@ -211,6 +215,23 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "uuid": last_result["uuid"],
             }
             next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
+
+        if not live_logs_checkpoint:
+            report_user_action(
+                request.user,
+                "logs query executed",
+                {
+                    "results_count": len(results),
+                    "has_more": has_more,
+                    "has_search_term": bool(query_data.get("searchTerm")),
+                    "has_filter_group": bool(query_data.get("filterGroup")),
+                    "severity_levels_count": len(query_data.get("severityLevels", [])),
+                    "service_names_count": len(query_data.get("serviceNames", [])),
+                    "is_paginated": bool(after_cursor),
+                },
+                team=self.team,
+                request=request,
+            )
 
         return Response(
             {
@@ -238,8 +259,26 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+
+        report_user_action(
+            request.user,
+            "logs sparkline queried",
+            {
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+                "breakdown_by": query_data.get("sparklineBreakdownBy"),
+            },
+            team=self.team,
+            request=request,
+        )
+
         return Response(response.results, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
@@ -359,6 +398,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         cache_key = f"team:{self.team.id}:has_logs"
         cached = cache.get(cache_key)
         if cached is True:
+            report_user_action(
+                request.user,
+                "logs has_logs checked",
+                {"has_logs": True},
+                team=self.team,
+                request=request,
+            )
             return Response({"hasLogs": True}, status=status.HTTP_200_OK)
 
         runner = HasLogsQueryRunner(self.team)
@@ -367,6 +413,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Only cache positive results (once you have logs, you always have logs)
         if has_logs:
             cache.set(cache_key, True, int(dt.timedelta(days=7).total_seconds()))
+
+        report_user_action(
+            request.user,
+            "logs has_logs checked",
+            {"has_logs": has_logs},
+            team=self.team,
+            request=request,
+        )
 
         return Response({"hasLogs": has_logs}, status=status.HTTP_200_OK)
 
@@ -392,6 +446,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         export_asset.delay(asset.id)
+
+        report_user_action(
+            request.user,
+            "logs export requested",
+            {
+                "export_id": asset.id,
+                "columns_count": len(columns),
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             {

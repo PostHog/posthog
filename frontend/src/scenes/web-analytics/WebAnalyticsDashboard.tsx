@@ -35,7 +35,7 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WebAnalyticsTile,
-    tabSplitIndexMap,
+    tabSplitIndicesMap,
 } from 'scenes/web-analytics/common'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
@@ -204,6 +204,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 insightProps: tab.insightProps,
             }))}
             tileId={tile.tileId}
+            splitIndices={tile.splitIndices}
             getNewInsightUrl={getNewInsightUrl}
         />
     )
@@ -237,6 +238,7 @@ export const WebTabs = ({
     setActiveTabId,
     getNewInsightUrl,
     tileId,
+    splitIndices,
 }: {
     className?: string
     activeTabId: string
@@ -254,6 +256,7 @@ export const WebTabs = ({
     setActiveTabId: (id: string) => void
     getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
     tileId: TileId
+    splitIndices?: number[]
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
@@ -340,7 +343,7 @@ export const WebTabs = ({
                 )}
 
                 <LemonSegmentedDropdown
-                    splitIndex={tabSplitIndexMap[tileId]}
+                    splitIndices={splitIndices ?? tabSplitIndicesMap[tileId]}
                     size="small"
                     value={activeTabId}
                     onChange={setActiveTabId}
@@ -458,12 +461,12 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
         {
             key: ProductTab.HEALTH,
             label: <HealthTabLabel />,
-            link: '/web/health',
+            link: urls.webAnalyticsHealth(),
         },
     ]
 }
 
-const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string; link: string }[] => {
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
         return []
     }
@@ -471,7 +474,14 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
     return [
         {
             key: ProductTab.LIVE,
-            label: 'Live',
+            label: (
+                <div className="flex items-center gap-1">
+                    Live
+                    <LemonTag type="highlight" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
             link: '/web/live',
         },
     ]

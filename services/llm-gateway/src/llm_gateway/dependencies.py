@@ -105,6 +105,35 @@ async def enforce_product_access(
     return user
 
 
+async def _extract_end_user_id_from_body(request: Request) -> str | None:
+    """Extract the client-provided user identifier from the request body.
+
+    For OpenAI-compatible endpoints, this is the top-level `user` field.
+    For Anthropic endpoints, this is `metadata.user_id`.
+    """
+    body = await get_cached_body(request)
+    if not body:
+        return None
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    user_id = data.get("user")
+    if user_id and isinstance(user_id, str):
+        return user_id
+
+    metadata = data.get("metadata")
+    if isinstance(metadata, dict):
+        uid = metadata.get("user_id")
+        if uid and isinstance(uid, str):
+            return uid
+
+    return None
+
+
 async def enforce_throttles(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(enforce_product_access)],
@@ -113,9 +142,11 @@ async def enforce_throttles(
     ensure_costs_fresh()
     product = get_product_from_request(request)
 
-    # For OAuth, end_user_id is the token holder (user_id)
-    # For personal API key, it will be set later from the request's 'user' param
-    end_user_id = str(user.user_id) if user.auth_method == "oauth_access_token" else None
+    end_user_id: str | None
+    if user.auth_method == "oauth_access_token":
+        end_user_id = str(user.user_id)
+    else:
+        end_user_id = await _extract_end_user_id_from_body(request)
 
     context = ThrottleContext(
         user=user,

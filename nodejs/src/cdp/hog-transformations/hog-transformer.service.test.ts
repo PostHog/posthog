@@ -8,6 +8,7 @@ import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transfo
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
+import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
@@ -47,10 +48,13 @@ describe('HogTransformer', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         // Create a team first before inserting hog functions
-        const team = await getFirstTeam(hub)
+        const team = await getFirstTeam(hub.postgres)
         teamId = team.id
 
-        hogTransformer = createHogTransformerService(hub, hub)
+        hogTransformer = createHogTransformerService(hub, {
+            ...hub,
+            monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+        })
     })
 
     afterEach(async () => {
@@ -90,7 +94,7 @@ describe('HogTransformer', () => {
                   "$geoip_country_name": "United States",
                   "$geoip_latitude": 41.5,
                   "$geoip_longitude": -81.6938,
-                  "$geoip_postal_code": "44192",
+                  "$geoip_postal_code": "44199",
                   "$geoip_subdivision_1_code": "OH",
                   "$geoip_subdivision_1_name": "Ohio",
                   "$geoip_time_zone": "America/New_York",
@@ -105,7 +109,7 @@ describe('HogTransformer', () => {
                     "$geoip_country_name": "United States",
                     "$geoip_latitude": 41.5,
                     "$geoip_longitude": -81.6938,
-                    "$geoip_postal_code": "44192",
+                    "$geoip_postal_code": "44199",
                     "$geoip_subdivision_1_code": "OH",
                     "$geoip_subdivision_1_name": "Ohio",
                     "$geoip_subdivision_2_code": null,
@@ -122,7 +126,7 @@ describe('HogTransformer', () => {
                     "$initial_geoip_country_name": "United States",
                     "$initial_geoip_latitude": 41.5,
                     "$initial_geoip_longitude": -81.6938,
-                    "$initial_geoip_postal_code": "44192",
+                    "$initial_geoip_postal_code": "44199",
                     "$initial_geoip_subdivision_1_code": "OH",
                     "$initial_geoip_subdivision_1_name": "Ohio",
                     "$initial_geoip_subdivision_2_code": null,
@@ -1040,7 +1044,7 @@ describe('HogTransformer', () => {
                     "$geoip_continent_code": "NA",
                     "$geoip_continent_name": "North America",
                     "$geoip_country_name": "United States",
-                    "$geoip_postal_code": "44192",
+                    "$geoip_postal_code": "44199",
                     "$geoip_subdivision_1_code": "OH",
                     "$geoip_subdivision_1_name": "Ohio",
                     "$geoip_time_zone": "America/New_York",
@@ -1054,7 +1058,7 @@ describe('HogTransformer', () => {
                       "$geoip_country_name": "United States",
                       "$geoip_latitude": 41.5,
                       "$geoip_longitude": -81.6938,
-                      "$geoip_postal_code": "44192",
+                      "$geoip_postal_code": "44199",
                       "$geoip_subdivision_1_code": "OH",
                       "$geoip_subdivision_1_name": "Ohio",
                       "$geoip_subdivision_2_code": null,
@@ -1071,7 +1075,7 @@ describe('HogTransformer', () => {
                       "$initial_geoip_country_name": "United States",
                       "$initial_geoip_latitude": 41.5,
                       "$initial_geoip_longitude": -81.6938,
-                      "$initial_geoip_postal_code": "44192",
+                      "$initial_geoip_postal_code": "44199",
                       "$initial_geoip_subdivision_1_code": "OH",
                       "$initial_geoip_subdivision_1_name": "Ohio",
                       "$initial_geoip_subdivision_2_code": null,

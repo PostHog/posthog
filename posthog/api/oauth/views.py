@@ -309,10 +309,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # First-party apps skip consent screen entirely
         if application.is_first_party:
             try:
-                # Auto-approve with all user's accessible teams
-                teams = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
-                credentials["scoped_teams"] = list(teams)
-                credentials["scoped_organizations"] = []
+                # Auto-approve with all user's accessible organizations.
+                org_ids = request.user.organizations.values_list("id", flat=True)
+                credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
+
+                # TODO(charlesvien): Populate scoped_teams for backwards compat with old
+                # Code clients that throw "No team found in OAuth scopes" when
+                # scoped_teams is empty. Remove once Code reads scoped_organizations.
+                team_ids = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
+                credentials["scoped_teams"] = list(team_ids)
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
@@ -343,11 +348,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})
 
         if not serializer.is_valid():
+            client_id = request.data.get("client_id", "unknown")
+            logger.warning("oauth_authorize_validation_error", client_id=client_id, errors=serializer.errors)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             application = OAuthApplication.objects.get(client_id=serializer.validated_data["client_id"])
         except OAuthApplication.DoesNotExist:
+            logger.warning("oauth_authorize_invalid_client", client_id=serializer.validated_data["client_id"])
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         credentials = {
@@ -373,6 +381,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             )
 
         except OAuthToolkitError as error:
+            logger.warning(
+                "oauth_authorize_toolkit_error",
+                client_id=serializer.validated_data["client_id"],
+                error=str(error),
+            )
             return self.error_response(
                 error, application, no_redirect=True, state=serializer.validated_data.get("state")
             )

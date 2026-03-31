@@ -12,17 +12,21 @@ export const defaultDataTableEventColumns: HogQLExpression[] = [
     'timestamp',
 ]
 
-export const defaultDataTablePersonColumns: HogQLExpression[] = [
-    PERSON_DISPLAY_NAME_COLUMN_NAME,
-    'id',
-    'created_at',
-    'last_seen_at',
-]
+export const defaultDataTablePersonColumns: HogQLExpression[] = [PERSON_DISPLAY_NAME_COLUMN_NAME, 'id', 'created_at']
+
+export function getDefaultDataTablePersonColumns(personLastSeenAtEnabled: boolean): HogQLExpression[] {
+    const columns = [...defaultDataTablePersonColumns]
+    if (personLastSeenAtEnabled) {
+        columns.push('last_seen_at')
+    }
+    return columns
+}
 
 export const defaultDataTableGroupColumns: HogQLExpression[] = ['group_name', 'created_at']
 
 export const defaultDataTableSessionColumns: HogQLExpression[] = [
     'session_id',
+    PERSON_DISPLAY_NAME_COLUMN_NAME,
     '$start_timestamp',
     '$end_timestamp',
     '$session_duration',
@@ -31,9 +35,12 @@ export const defaultDataTableSessionColumns: HogQLExpression[] = [
     '$is_bounce',
 ]
 
-export function defaultDataTableColumns(kind: NodeKind): HogQLExpression[] {
+export function defaultDataTableColumns(
+    kind: NodeKind,
+    personLastSeenAtEnabled: boolean = false // Temporary, until last_seen_at is enabled for everyone
+): HogQLExpression[] {
     return kind === NodeKind.PersonsNode || kind === NodeKind.ActorsQuery
-        ? defaultDataTablePersonColumns
+        ? getDefaultDataTablePersonColumns(personLastSeenAtEnabled)
         : kind === NodeKind.EventsQuery
           ? defaultDataTableEventColumns
           : kind === NodeKind.SessionsQuery

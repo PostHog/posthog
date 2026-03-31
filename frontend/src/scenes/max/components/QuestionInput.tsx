@@ -278,7 +278,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 <>
                                                     Ask follow-up{' '}
                                                     <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                        / for commands
+                                                        or / for commands
                                                     </span>
                                                 </>
                                             )
@@ -286,7 +286,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             <>
                                                 Ask a question{' '}
                                                 <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                    / for commands
+                                                    or / for commands
                                                 </span>
                                             </>
                                         )}
@@ -295,6 +295,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 <LemonTextArea
                                     aria-describedby={!question ? 'textarea-hint' : undefined}
                                     id="question-input"
+                                    data-attr="max-chat-input"
                                     ref={textAreaRef}
                                     value={isSharedThread ? '' : question}
                                     onChange={(value) => setQuestion(value)}
@@ -362,6 +363,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
                             showArrow
+                            ignoreDismissal
                             onApprove={() => askMax(pendingPrompt || question)}
                             onDismiss={() => completeThreadGeneration()}
                             middleware={[
@@ -372,6 +374,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
                         >
                             <LemonButton
+                                data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
                                 type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
                                 onClick={() => {
                                     if (threadLoading) {

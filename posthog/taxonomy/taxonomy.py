@@ -381,6 +381,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Debug information about full snapshots in the replay session.",
             "used_for_debug": True,
         },
+        "$sdk_debug_recording_script_not_loaded": {
+            "label": "Recording script not loaded",
+            "description": "Recording script not loaded. This can be caused by ad blockers.",
+            "used_for_debug": True,
+        },
         "$debug_first_full_snapshot_timestamp": {
             "label": "First full snapshot timestamp",
             "description": "The timestamp of the first full snapshot in the replay session.",
@@ -2581,3 +2586,9 @@ PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
     }
     for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }
+
+IGNORED_EVENT_NAMES: list[str] = [
+    name
+    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if defn.get("system") or defn.get("ignored_in_assistant")
+]

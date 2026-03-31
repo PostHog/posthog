@@ -1,14 +1,14 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { extractLayerIndex, PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventNameToEventsNode'
 import { EventsNode, FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
-import { ActionFilter, FunnelPathType, PropertyFilterType, PropertyOperator } from '~/types'
+import { FunnelPathType } from '~/types'
 
 import { customerJourneysLogic } from './customerJourneysLogic'
 import type { journeyEditorLogicType } from './journeyEditorLogicType'
@@ -23,26 +23,6 @@ export interface ExpansionContext {
     funnelStepCount: number
 }
 
-function eventNameToActionFilter(eventName: string, order: number): ActionFilter {
-    const isPageview = /^https?:\/\//.test(eventName)
-    return {
-        id: isPageview ? '$pageview' : eventName,
-        name: isPageview ? '$pageview' : eventName,
-        type: 'events',
-        order,
-        ...(isPageview && {
-            properties: [
-                {
-                    key: '$current_url',
-                    operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Event,
-                    value: eventName,
-                },
-            ],
-        }),
-    }
-}
-
 function layerIndexFromNodeId(nodeId: string): number {
     const rawName = nodeId.replace(/^path-/, '')
     return extractLayerIndex(rawName)
@@ -50,6 +30,13 @@ function layerIndexFromNodeId(nodeId: string): number {
 
 export const journeyEditorLogic = kea<journeyEditorLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerJourneys', 'journeyEditorLogic']),
+
+    connect(() => ({
+        actions: [
+            eventUsageLogic,
+            ['reportCustomerJourneyStepAddedFromPath', 'reportCustomerJourneyStepsSavedFromEditor'],
+        ],
+    })),
 
     actions({
         stagePathNode: (nodeId: string, eventName: string, expansion: PathExpansion, funnelStepCount: number) => ({
@@ -146,16 +133,10 @@ export const journeyEditorLogic = kea<journeyEditorLogicType>([
         newSeriesEntries: [
             (s) => [s.sortedStagedNodes, s.insertionIndex, s.stagedNodeOptional],
             (sortedNodes, insertionIndex, stagedNodeOptional): EventsNode[] => {
-                const actionFilters = sortedNodes.map((node, i) => eventNameToActionFilter(node.eventName, i))
-                const series = actionsAndEventsToSeries(
-                    { events: actionFilters },
-                    true,
-                    MathAvailability.None
-                ) as EventsNode[]
-                return series.map((entry, i) => {
-                    const nodeId = sortedNodes[i]?.nodeId
+                return sortedNodes.map((node, i) => {
+                    const entry = eventNameToEventsNode(node.eventName)
                     const isFirstFunnelStep = insertionIndex === 0 && i === 0
-                    if (!isFirstFunnelStep && nodeId && stagedNodeOptional[nodeId]) {
+                    if (!isFirstFunnelStep && stagedNodeOptional[node.nodeId]) {
                         return { ...entry, optionalInFunnel: true }
                     }
                     return entry
@@ -165,9 +146,12 @@ export const journeyEditorLogic = kea<journeyEditorLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        stagePathNode: ({ eventName, expansion }) => {
+            actions.reportCustomerJourneyStepAddedFromPath(eventName, expansion.pathType, expansion.stepIndex)
+        },
         saveChanges: async () => {
             try {
-                const { activeInsight } = customerJourneysLogic.values
+                const { activeInsight, activeJourney } = customerJourneysLogic.values
                 if (!activeInsight?.query || !isInsightVizNode(activeInsight.query)) {
                     throw new Error('No active insight found')
                 }
@@ -175,6 +159,7 @@ export const journeyEditorLogic = kea<journeyEditorLogicType>([
                 const query = activeInsight.query as InsightVizNode<FunnelsQuery>
                 const existingSeries = [...(query.source.series ?? [])]
                 const { insertionIndex, newSeriesEntries } = values
+                const stepsAdded = newSeriesEntries.length
 
                 existingSeries.splice(insertionIndex, 0, ...newSeriesEntries)
 
@@ -189,9 +174,8 @@ export const journeyEditorLogic = kea<journeyEditorLogicType>([
                 await insightsApi.update(activeInsight.id, { query: updatedQuery })
                 customerJourneysLogic.actions.loadActiveInsight()
                 actions.saveChangesSuccess()
-                lemonToast.success(
-                    `Added ${newSeriesEntries.length} step${newSeriesEntries.length > 1 ? 's' : ''} to funnel`
-                )
+                actions.reportCustomerJourneyStepsSavedFromEditor(stepsAdded, activeJourney?.id ?? null)
+                lemonToast.success(`Added ${stepsAdded} step${stepsAdded > 1 ? 's' : ''} to funnel`)
             } catch (e) {
                 const message = e instanceof Error ? e.message : 'Failed to save changes'
                 actions.saveChangesFailure(message)

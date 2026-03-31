@@ -291,7 +291,9 @@ def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
     return "string"
 
 
-def get_schemas(config: MongoDBSourceConfig, team_id: int) -> dict[str, list[tuple[str, str]]]:
+def get_schemas(
+    config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None
+) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
     connection_params = _parse_connection_string(config.connection_string)
@@ -305,6 +307,10 @@ def get_schemas(config: MongoDBSourceConfig, team_id: int) -> dict[str, list[tup
 
         # Get collection names
         collection_names = db.list_collection_names(authorizedCollections=True)
+
+        if names is not None:
+            names_set = set(names)
+            collection_names = [n for n in collection_names if n in names_set]
 
         if not collection_names:
             return schema_list

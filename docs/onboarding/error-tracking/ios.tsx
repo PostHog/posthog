@@ -24,6 +24,14 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
         badge: 'recommended',
         content: (
             <>
+                <CalloutBox type="fyi" title="Remote configuration">
+                    <Markdown>
+                        {dedent`
+                            Exception autocapture can also be managed remotely via the 
+                            [error tracking settings](https://app.posthog.com/settings/project-error-tracking#exception-autocapture).
+                        `}
+                    </Markdown>
+                </CalloutBox>
                 <CalloutBox type="fyi" title="Platform support">
                     <Markdown>
                         {dedent`

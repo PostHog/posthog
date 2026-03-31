@@ -102,11 +102,19 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 <LemonDivider vertical />
                                 <ScenePanel>
                                     <ScenePanelActionsSection>
-                                        <ButtonPrimitive menuItem onClick={() => duplicate()}>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => duplicate()}
+                                            data-attr="workflow-duplicate-btn"
+                                        >
                                             <IconCopy />
                                             Duplicate
                                         </ButtonPrimitive>
-                                        <ButtonPrimitive menuItem onClick={showSaveAsTemplateModal}>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={showSaveAsTemplateModal}
+                                            data-attr="workflow-save-as-template-btn"
+                                        >
                                             <IconScreen />
                                             Save as template
                                         </ButtonPrimitive>
@@ -117,6 +125,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             menuItem
                                             onClick={() => archiveWorkflow(workflow)}
                                             variant="danger"
+                                            data-attr="workflow-archive-btn"
                                         >
                                             <IconArchive />
                                             Archive
@@ -146,6 +155,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             </LemonButton>
                         ) : (
                             <LemonButton
+                                data-attr="workflow-save"
                                 type="primary"
                                 size="small"
                                 htmlType="submit"

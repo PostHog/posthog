@@ -1,336 +1,139 @@
 """
-Background tasks for warming team access token caches.
+Targeted invalidation for the per-token auth cache.
 
-This module provides Celery tasks to periodically warm the team access token
-caches, ensuring that the cached authentication system has fresh data.
+Sync functions are called by Django signal handlers to invalidate cache
+entries immediately. Each has an async Celery task counterpart used as
+a retry fallback if the synchronous attempt fails.
 """
 
-import logging
-from collections.abc import Iterable
+from collections.abc import Callable
+from typing import Any
 
-from django.conf import settings
+import structlog
+from celery import Task, shared_task
+from prometheus_client import Counter
 
-from celery import shared_task
-from celery.app.task import Task
+from posthog.exceptions_capture import capture_exception
+from posthog.storage.team_access_cache import token_auth_cache
 
-from posthog.storage.team_access_cache import (
-    get_teams_for_user_personal_api_keys,
-    get_teams_needing_cache_refresh_paginated,
-    warm_team_token_cache,
+logger = structlog.get_logger(__name__)
+
+AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER = Counter(
+    "posthog_auth_token_invalidation_failures_total",
+    "Auth token cache invalidation failures after all retries exhausted",
+    labelnames=["invalidation_type"],
 )
 
-logger = logging.getLogger(__name__)
 
-# Configuration
-CACHE_WARMING_BATCH_SIZE = getattr(settings, "CACHE_WARMING_BATCH_SIZE", 50)
-CACHE_WARMING_PAGE_SIZE = getattr(settings, "CACHE_WARMING_PAGE_SIZE", 1000)  # Teams per database page
+# --- Sync-with-async-fallback helper ---
 
 
-def _warm_team_caches(team_api_tokens: Iterable[str], reason: str, log_context: dict) -> int:
+def _sync_with_async_fallback(
+    action: Callable[[], None],
+    fallback_task: Task,
+    fallback_args: list[Any],
+    result_context: dict,
+) -> dict:
+    """Run a cache invalidation synchronously, falling back to an async Celery retry on failure.
+
+    All token invalidation is security-sensitive: a revoked token must stop
+    working immediately, not after Celery queue delay. If the sync attempt
+    fails (e.g., brief Redis blip), we schedule an async retry as a safety net.
     """
-    Warm caches for a list of teams.
-
-    Args:
-        team_api_tokens: List of project tokens to warm caches for
-        reason: Description for logging (e.g., "user activation", "PersonalAPIKey deletion")
-        log_context: Additional context to include in log messages
-
-    Returns:
-        Number of teams successfully updated
-    """
-    teams_updated = 0
-    for project_api_key in team_api_tokens:
+    try:
+        action()
+        return {"status": "success", **result_context}
+    except Exception as e:
+        capture_exception(e)
+        logger.exception("Sync invalidation failed, scheduling async retry", **result_context)
         try:
-            warm_team_token_cache(project_api_key)
-            teams_updated += 1
-            logger.debug(
-                f"Warmed cache for team after {reason}",
-                extra={"project_api_key": project_api_key, **log_context},
-            )
-        except Exception as e:
-            logger.warning(
-                f"Failed to warm cache for team after {reason}: {e}",
-                extra={"project_api_key": project_api_key, **log_context},
-            )
-    return teams_updated
+            fallback_task.apply_async(args=fallback_args, countdown=5)
+        except Exception as retry_exc:
+            capture_exception(retry_exc)
+            AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER.labels(invalidation_type="schedule_fallback").inc()
+            logger.exception("Failed to schedule async retry", **result_context)
+        return {"status": "failure", **result_context}
 
 
-def _warm_teams_for_user(user_id: int, reason: str) -> dict:
-    """
-    Shared implementation for warming team caches based on a user's access.
+# --- Celery tasks (used as async retry fallback) ---
 
-    This helper consolidates the cache warming logic used by multiple tasks
-    that need to update caches for all teams a user has access to.
 
-    Args:
-        user_id: The user's database ID
-        reason: Description for logging (e.g., "user status change", "PersonalAPIKey change")
+@shared_task(bind=True, max_retries=3, ignore_result=True)
+def invalidate_token_cache_task(self: Task, token_hash: str) -> dict:
+    """Invalidate a single token's cache entry.
 
-    Returns:
-        Dictionary with operation results including status, user_id, and teams_updated count
+    Used as the async retry fallback for invalidate_token_sync.
     """
     try:
-        affected_teams = get_teams_for_user_personal_api_keys(user_id)
-
-        if not affected_teams:
-            logger.debug(f"No teams found for user {user_id}, no cache updates needed")
-            return {"status": "success", "user_id": user_id, "teams_updated": 0}
-
-        teams_updated = _warm_team_caches(affected_teams, reason, {"user_id": user_id})
-
-        logger.info(
-            f"Updated {teams_updated} team caches after {reason}",
-            extra={"user_id": user_id, "teams_updated": teams_updated},
-        )
-
-        return {"status": "success", "user_id": user_id, "teams_updated": teams_updated}
-
+        token_auth_cache.invalidate_token(token_hash)
+        return {"status": "success", "token_prefix": token_hash[:12]}
     except Exception as e:
-        logger.exception(f"Error updating authentication cache for user {user_id} after {reason}: {e}")
-        return {"status": "failure", "user_id": user_id, "error": str(e)}
-
-
-def warm_user_teams_cache_sync(user_id: int) -> dict:
-    """
-    Synchronously warm the token cache for all teams a user has access to.
-
-    This function is used when immediate cache invalidation is required,
-    such as when a user is deactivated (security-critical operation).
-
-    Args:
-        user_id: The user's database ID
-
-    Returns:
-        Dictionary with operation results
-    """
-    return _warm_teams_for_user(user_id, "user deactivation")
-
-
-@shared_task(bind=True, max_retries=3)
-def warm_user_teams_cache_task(self: "Task", user_id: int) -> dict:
-    """
-    Warm the token cache for all teams a user has access to.
-
-    This task is triggered when a user is activated, ensuring their
-    Personal API Keys are properly added to team caches.
-
-    Args:
-        user_id: The user's database ID
-
-    Returns:
-        Dictionary with operation results
-    """
-    return _warm_teams_for_user(user_id, "user activation")
-
-
-@shared_task(bind=True, max_retries=3)
-def warm_personal_api_key_teams_cache_task(self: "Task", user_id: int) -> dict:
-    """
-    Warm the token cache for all teams a user's personal API keys have access to.
-
-    This task is triggered when a PersonalAPIKey is created or updated, ensuring
-    the team caches reflect the current state of the user's API keys.
-
-    Args:
-        user_id: The user's database ID
-
-    Returns:
-        Dictionary with operation results
-    """
-    return _warm_teams_for_user(user_id, "PersonalAPIKey change")
-
-
-@shared_task(bind=True, max_retries=3)
-def warm_personal_api_key_deleted_cache_task(self: "Task", user_id: int, scoped_team_ids: list[int] | None) -> dict:
-    """
-    Warm the token cache for teams after a PersonalAPIKey is deleted.
-
-    This task is triggered when a PersonalAPIKey is deleted. We need to warm
-    the caches for all teams that the deleted key had access to.
-
-    Args:
-        user_id: The user's database ID
-        scoped_team_ids: List of team IDs the key was scoped to, or None if unscoped
-
-    Returns:
-        Dictionary with operation results
-    """
-    from posthog.models.organization import OrganizationMembership
-    from posthog.models.team.team import Team
-
-    try:
-        if scoped_team_ids:
-            # Scoped key - only affects specific teams
-            team_api_tokens = list(Team.objects.filter(id__in=scoped_team_ids).values_list("api_token", flat=True))
-        else:
-            # Unscoped key - affects all teams in user's organizations
-            user_organizations = list(
-                OrganizationMembership.objects.filter(user_id=user_id).values_list("organization_id", flat=True)
+        logger.exception("Failed to invalidate token cache", token_prefix=token_hash[:12])
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER.labels(invalidation_type="token").inc()
+            capture_exception(e)
+            # Use the explicit exc_info tuple so stdlib logging attaches the original
+            # Redis/invalidation traceback, not the current MaxRetriesExceededError context.
+            logger.exception(
+                "Auth token cache invalidation exhausted all retries",
+                token_prefix=token_hash[:12],
+                max_retries=self.max_retries,
+                exc_info=(type(e), e, e.__traceback__),
             )
-
-            if user_organizations:
-                team_api_tokens = list(
-                    Team.objects.filter(organization_id__in=user_organizations).values_list("api_token", flat=True)
-                )
-            else:
-                team_api_tokens = []
-
-        if not team_api_tokens:
-            logger.debug(f"No teams found for deleted PersonalAPIKey (user {user_id}), no cache updates needed")
-            return {"status": "success", "user_id": user_id, "teams_updated": 0}
-
-        teams_updated = _warm_team_caches(team_api_tokens, "PersonalAPIKey deletion", {"user_id": user_id})
-
-        logger.info(
-            f"Updated {teams_updated} team caches after PersonalAPIKey deletion",
-            extra={"user_id": user_id, "teams_updated": teams_updated},
-        )
-
-        return {"status": "success", "user_id": user_id, "teams_updated": teams_updated}
-
-    except Exception as e:
-        logger.exception(f"Error updating authentication cache after PersonalAPIKey deletion for user {user_id}: {e}")
-        return {"status": "failure", "user_id": user_id, "error": str(e)}
+            raise
 
 
-@shared_task(bind=True, max_retries=3)
-def warm_organization_teams_cache_task(self: "Task", organization_id: str, user_id: int, action: str) -> dict:
+@shared_task(bind=True, max_retries=3, ignore_result=True)
+def invalidate_user_tokens_task(self: Task, user_id: int) -> dict:
+    """Invalidate all cached tokens for a user.
+
+    Used as the async retry fallback for invalidate_user_tokens_sync.
     """
-    Warm the token cache for all teams in an organization.
-
-    This task is triggered when a user is added to or removed from an organization,
-    ensuring team caches reflect the current membership state.
-
-    Args:
-        organization_id: The organization's ID
-        user_id: The user's database ID (for logging)
-        action: Description of the action (e.g., "added to organization", "removed from organization")
-
-    Returns:
-        Dictionary with operation results
-    """
-    from posthog.models.team.team import Team
-
     try:
-        team_api_tokens = list(Team.objects.filter(organization_id=organization_id).values_list("api_token", flat=True))
-
-        if not team_api_tokens:
-            logger.debug(f"No teams found in organization {organization_id}, no cache updates needed")
-            return {"status": "success", "organization_id": organization_id, "user_id": user_id, "teams_updated": 0}
-
-        log_context = {"user_id": user_id, "organization_id": organization_id}
-        teams_updated = _warm_team_caches(team_api_tokens, f"user {action}", log_context)
-
-        logger.info(
-            f"Updated {teams_updated} team caches after user {action}",
-            extra={"user_id": user_id, "organization_id": organization_id, "teams_updated": teams_updated},
-        )
-
-        return {
-            "status": "success",
-            "organization_id": organization_id,
-            "user_id": user_id,
-            "teams_updated": teams_updated,
-        }
-
+        token_auth_cache.invalidate_user_tokens(user_id)
+        return {"status": "success", "user_id": user_id}
     except Exception as e:
-        logger.exception(
-            f"Error updating authentication cache after user {action} for organization {organization_id}: {e}"
-        )
-        return {"status": "failure", "organization_id": organization_id, "user_id": user_id, "error": str(e)}
+        logger.exception("Failed to invalidate user tokens", user_id=user_id)
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER.labels(invalidation_type="user_tokens").inc()
+            capture_exception(e)
+            # Use the explicit exc_info tuple so stdlib logging attaches the original
+            # Redis/invalidation traceback, not the current MaxRetriesExceededError context.
+            logger.exception(
+                "Auth token cache invalidation for user exhausted all retries",
+                user_id=user_id,
+                max_retries=self.max_retries,
+                exc_info=(type(e), e, e.__traceback__),
+            )
+            raise
 
 
-@shared_task(bind=True, max_retries=3)
-def warm_team_cache_task(self: "Task", project_token: str) -> dict:
+# --- Synchronous invalidation (called by signal handlers) ---
+
+
+def invalidate_token_sync(token_hash: str) -> dict:
+    """Synchronously invalidate a single token's cache entry with async retry fallback.
+
+    Used for secret tokens, personal API keys, and project secret API keys —
+    all are cached under their SHA256 hash in the same Redis key namespace.
     """
-    Warm the token cache for a specific team.
-
-    Args:
-        project_token: The team's project token
-
-    Returns:
-        Dictionary with operation results
-    """
-    success = warm_team_token_cache(project_token)
-
-    if not success:
-        # Log a warning, but don't retry. We'll let the next scheduled task pick it up.
-        logger.warning(f"Failed to warm cache for team {project_token}")
-        return {"status": "failure", "project_token": project_token}
-
-    logger.info(
-        f"Successfully warmed cache for team {project_token}",
-        extra={"project_token": project_token},
+    return _sync_with_async_fallback(
+        action=lambda: token_auth_cache.invalidate_token(token_hash),
+        fallback_task=invalidate_token_cache_task,
+        fallback_args=[token_hash],
+        result_context={"token_prefix": token_hash[:12]},
     )
 
-    return {"status": "success", "project_token": project_token}
 
-
-@shared_task(bind=True, max_retries=1)
-def warm_all_team_access_caches_task(self: "Task") -> dict:
-    """
-    Warm caches for all teams that need refreshing.
-
-    This task identifies teams with expired or missing caches and
-    schedules individual warming tasks for each team.
-
-    Returns:
-        Dictionary with operation results
-    """
-    try:
-        teams_scheduled = 0
-        failed_teams = 0
-        teams_pages_processed = 0
-        total_teams_found = 0
-
-        # Use paginated approach for memory efficiency
-        logger.info(f"Using paginated cache warming with page size {CACHE_WARMING_PAGE_SIZE}")
-
-        for teams_page in get_teams_needing_cache_refresh_paginated(batch_size=CACHE_WARMING_PAGE_SIZE):
-            teams_pages_processed += 1
-
-            if not teams_page:
-                continue
-
-            total_teams_found += len(teams_page)
-
-            logger.debug(
-                f"Processing page {teams_pages_processed} with {len(teams_page)} teams needing refresh",
-                extra={"page": teams_pages_processed, "teams_in_page": len(teams_page)},
-            )
-
-            # Process teams in batches to avoid overwhelming the system
-            for i in range(0, len(teams_page), CACHE_WARMING_BATCH_SIZE):
-                batch = teams_page[i : i + CACHE_WARMING_BATCH_SIZE]
-
-                # Schedule warming tasks for this batch
-                for project_token in batch:
-                    try:
-                        warm_team_cache_task.delay(project_token)
-                        teams_scheduled += 1
-                    except Exception as e:
-                        # Log individual team scheduling failure but continue with others
-                        failed_teams += 1
-                        logger.warning(
-                            f"Failed to schedule cache warming for team {project_token}: {e}",
-                            extra={"project_token": project_token, "error": str(e)},
-                        )
-
-                logger.debug(f"Scheduled cache warming for batch of {len(batch)} teams")
-
-        logger.info(
-            "Cache warming completed",
-            extra={"teams_found": total_teams_found, "teams_scheduled": teams_scheduled, "failed_teams": failed_teams},
-        )
-
-        return {
-            "status": "success",
-            "teams_found": total_teams_found,
-            "teams_scheduled": teams_scheduled,
-            "failed_teams": failed_teams,
-        }
-
-    except Exception as e:
-        # Retry for systemic failures (database connectivity, etc.)
-        logger.exception(f"Systemic failure in cache warming batch task: {e}")
-        raise self.retry(exc=e, countdown=300)  # 5 minutes
+def invalidate_user_tokens_sync(user_id: int) -> dict:
+    """Synchronously invalidate all cached tokens for a user with async retry fallback."""
+    return _sync_with_async_fallback(
+        action=lambda: token_auth_cache.invalidate_user_tokens(user_id),
+        fallback_task=invalidate_user_tokens_task,
+        fallback_args=[user_id],
+        result_context={"user_id": user_id},
+    )

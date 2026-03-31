@@ -10,7 +10,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.proxy_service.common import UpdateProxyRecordInputs
+from posthog.temporal.proxy_service.common import SendProxyCreatedEmailInputs, UpdateProxyRecordInputs
 from posthog.temporal.proxy_service.create import (
     CreateCloudflareProxyInputs,
     CreateManagedProxyInputs,
@@ -53,6 +53,10 @@ def _make_mock_activities(failing_activity: str | None = None, error_type: str =
     async def mock_wait_cert(inputs: CreateCloudflareProxyInputs):
         _maybe_raise("wait_for_cloudflare_certificate")
 
+    @activity.defn(name="activity_send_proxy_created_email")
+    async def mock_send_email(inputs: SendProxyCreatedEmailInputs):
+        _maybe_raise("activity_send_proxy_created_email")
+
     @activity.defn(name="schedule_monitor_job")
     async def mock_schedule_monitor(inputs: ScheduleMonitorJobInputs):
         pass
@@ -62,6 +66,7 @@ def _make_mock_activities(failing_activity: str | None = None, error_type: str =
         mock_update_record,
         mock_create_hostname,
         mock_wait_cert,
+        mock_send_email,
         mock_schedule_monitor,
     ]
 
@@ -135,6 +140,28 @@ class TestCreateManagedProxyWorkflowErrorHandling:
 
     async def test_happy_path_sets_valid_status(self, _mock_cloudflare):
         activities, status_updates = _make_mock_activities()
+        task_queue = str(uuid.uuid4())
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[CreateManagedProxyWorkflow],
+                activities=activities,
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    CreateManagedProxyWorkflow.run,
+                    _make_workflow_inputs(),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert "valid" in status_updates
+        assert "erroring" not in status_updates
+
+    async def test_email_failure_does_not_fail_workflow(self, _mock_cloudflare):
+        activities, status_updates = _make_mock_activities(failing_activity="activity_send_proxy_created_email")
         task_queue = str(uuid.uuid4())
 
         async with await WorkflowEnvironment.start_time_skipping() as env:

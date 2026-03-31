@@ -11,6 +11,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface OnboardingComponentsContext {
@@ -49,6 +50,7 @@ export interface OnboardingComponentsContext {
     snippets?: Record<string, React.ComponentType<any>>
     selectedFile?: string | null
     setSelectedFile?: (file: string) => void
+    apiHost?: string
 }
 
 const OnboardingContext = createContext<OnboardingComponentsContext | null>(null)
@@ -129,7 +131,7 @@ function CodeBlock({
     const globalSelectedFile = context?.selectedFile
     const globalSetSelectedFile = context?.setSelectedFile
     const { currentTeam } = useValues(teamLogic)
-    const host = apiHostOrigin()
+    const host = context?.apiHost ?? apiHostOrigin()
 
     const replacePlaceholders = (codeString: string): string => {
         return codeString
@@ -329,13 +331,25 @@ export function OnboardingDocsContentWrapper({
     snippets,
     createSnippets,
     minimal,
+    useReverseProxy,
 }: {
     children: ReactNode
     snippets?: Record<string, React.ComponentType<any>>
     createSnippets?: (components: OnboardingComponentsContext) => Record<string, React.ComponentType<any>>
     minimal?: boolean
+    /** When true, code snippets show the reverse proxy domain (if one exists) instead of the default API host. */
+    useReverseProxy?: boolean
 }): JSX.Element {
     const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
+    const { proxyRecords } = useValues(proxyLogic)
+
+    const apiHost = useMemo(() => {
+        if (useReverseProxy) {
+            return domainFor(proxyRecords.find((r) => r.status === 'valid'))
+        }
+
+        return apiHostOrigin()
+    }, [useReverseProxy, proxyRecords])
 
     const baseComponents = useMemo<Omit<OnboardingComponentsContext, 'snippets'>>(
         () => ({
@@ -351,8 +365,9 @@ export function OnboardingDocsContentWrapper({
             Tab,
             selectedFile,
             setSelectedFile,
+            apiHost,
         }),
-        [selectedFile, minimal]
+        [selectedFile, minimal, apiHost]
     )
 
     const finalSnippets = useMemo(() => {

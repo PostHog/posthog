@@ -32,7 +32,6 @@ from ee.hogai.tools import (
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
 from ee.hogai.utils.feature_flags import (
-    has_create_form_tool_feature_flag,
     has_mcp_servers_feature_flag,
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
@@ -47,6 +46,7 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     ListDataTool,
     TodoWriteTool,
     SwitchModeTool,
+    CreateFormTool,
     CreateNotebookTool,
 ]
 
@@ -90,8 +90,6 @@ class ChatAgentToolkit(AgentToolkit):
             tools.append(TaskTool)
         if has_memory_tool_feature_flag(self._team, self._user):
             tools.append(ManageMemoriesTool)
-        if has_create_form_tool_feature_flag(self._team, self._user):
-            tools.append(CreateFormTool)
         return tools
 
 

@@ -6,6 +6,7 @@ import structlog
 
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
+from posthog.security.outbound_proxy import internal_requests
 from posthog.settings import CDP_API_URL, INTERNAL_API_SECRET, PLUGINS_RELOAD_REDIS_URL
 
 logger = structlog.get_logger(__name__)
@@ -69,7 +70,7 @@ def populate_plugin_capabilities_on_workers(plugin_id: str):
 
 def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict) -> requests.Response:
     logger.info(f"Creating hog invocation test for hog function {hog_function_id} on workers")
-    return requests.post(
+    return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
         json=payload,
         headers=get_internal_api_headers(),
@@ -78,7 +79,7 @@ def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict
 
 def create_hog_flow_invocation_test(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
     logger.info(f"Creating hog flow invocation test for hog flow {hog_flow_id} on workers")
-    return requests.post(
+    return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/invocations",
         json=payload,
         headers=get_internal_api_headers(),
@@ -86,14 +87,14 @@ def create_hog_flow_invocation_test(team_id: int, hog_flow_id: str, payload: dic
 
 
 def get_hog_function_status(team_id: int, hog_function_id: UUIDT) -> requests.Response:
-    return requests.get(
+    return internal_requests.get(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
         headers=get_internal_api_headers(),
     )
 
 
 def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) -> requests.Response:
-    return requests.patch(
+    return internal_requests.patch(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
         json={"state": state},
         headers=get_internal_api_headers(),
@@ -102,7 +103,7 @@ def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) 
 
 def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
     payload = {"team_id": team_id, "identifier": identifier}
-    response = requests.post(
+    response = internal_requests.post(
         CDP_API_URL + "/api/messaging/generate_preferences_token",
         json=payload,
         headers=get_internal_api_headers(),
@@ -113,25 +114,25 @@ def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
 
 
 def validate_messaging_preferences_token(token: str) -> requests.Response:
-    return requests.get(
+    return internal_requests.get(
         CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}",
         headers=get_internal_api_headers(),
     )
 
 
 def get_hog_function_templates() -> requests.Response:
-    return requests.get(
+    return internal_requests.get(
         CDP_API_URL + "/api/hog_function_templates",
         headers=get_internal_api_headers(),
     )
 
 
 def create_batch_hog_flow_job_invocation(team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT) -> requests.Response:
-    return requests.post(
+    return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
         headers=get_internal_api_headers(),
     )
 
 
 def get_plugin_server_status() -> requests.Response:
-    return requests.get(CDP_API_URL + f"/_health")
+    return internal_requests.get(CDP_API_URL + f"/_health")

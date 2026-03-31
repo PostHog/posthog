@@ -215,22 +215,30 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
 
 
 @pytest.mark.parametrize(
-    "ai_consent,proactive_tasks,expected",
+    "ai_consent,source_config_enabled,expected",
     [
         (True, True, True),
         (True, False, False),
+        (True, None, False),
         (False, True, False),
         (None, True, False),
     ],
 )
 @pytest.mark.django_db(transaction=True)
 def test_create_external_job_activity_emit_signals_respects_ai_consent(
-    activity_environment, team, organization, ai_consent, proactive_tasks, expected
+    activity_environment, team, organization, ai_consent, source_config_enabled, expected
 ):
+    from products.signals.backend.models import SignalSourceConfig
+
     organization.is_ai_data_processing_approved = ai_consent
     organization.save()
-    team.proactive_tasks_enabled = proactive_tasks
-    team.save()
+    if source_config_enabled is not None:
+        SignalSourceConfig.objects.create(
+            team=team,
+            source_product="zendesk",
+            source_type="ticket",
+            enabled=source_config_enabled,
+        )
     new_source = ExternalDataSource.objects.create(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),

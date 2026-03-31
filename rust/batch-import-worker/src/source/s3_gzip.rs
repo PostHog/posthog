@@ -1,8 +1,8 @@
 use crate::error::ToUserError;
 use crate::extractor::{ExtractedPartData, PartExtractor};
 use anyhow::{Context, Error};
+use async_trait::async_trait;
 use aws_sdk_s3::Client as S3Client;
-use axum::async_trait;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -76,7 +76,7 @@ class FakePersonHogClient:
         created_at: int = 0,
         version: int = 0,
         is_identified: bool = False,
-        is_user_id: bool = False,
+        is_user_id: bool | None = None,
         distinct_ids: list[str] | None = None,
     ) -> person_pb2.Person:
         person = person_pb2.Person(
@@ -87,8 +87,9 @@ class FakePersonHogClient:
             created_at=created_at,
             version=version,
             is_identified=is_identified,
-            is_user_id=is_user_id,
         )
+        if is_user_id is not None:
+            person.is_user_id = is_user_id
         self._persons_by_id[(team_id, person_id)] = person
         if uuid:
             self._persons_by_uuid[(team_id, uuid)] = person
@@ -207,28 +208,39 @@ class FakePersonHogClient:
     ) -> person_pb2.PersonsByDistinctIdsInTeamResponse:
         self.calls.append(_Call("get_persons_by_distinct_ids_in_team", request))
         results = []
-        seen_person_ids: set[int] = set()
         for did in request.distinct_ids:
             person = self._persons_by_distinct_id.get((request.team_id, did))
-            if person and person.id not in seen_person_ids:
-                seen_person_ids.add(person.id)
+            if person:
                 results.append(person_pb2.PersonWithDistinctIds(distinct_id=did, person=person))
         return person_pb2.PersonsByDistinctIdsInTeamResponse(results=results)
+
+    # NOTE: the real RPC returns one result per requested distinct_id (no
+    # deduplication by person).  Callers that need unique persons (e.g.
+    # _fetch_persons_by_distinct_ids_via_personhog) must deduplicate
+    # themselves.
 
     def get_distinct_ids_for_person(
         self, request: person_pb2.GetDistinctIdsForPersonRequest
     ) -> person_pb2.GetDistinctIdsForPersonResponse:
         self.calls.append(_Call("get_distinct_ids_for_person", request))
         dids = self._distinct_ids.get((request.team_id, request.person_id), [])
+        limit = request.limit if request.HasField("limit") and request.limit > 0 else None
+        if limit is not None:
+            dids = dids[:limit]
         return person_pb2.GetDistinctIdsForPersonResponse(distinct_ids=dids)
 
     def get_distinct_ids_for_persons(
         self, request: person_pb2.GetDistinctIdsForPersonsRequest
     ) -> person_pb2.GetDistinctIdsForPersonsResponse:
         self.calls.append(_Call("get_distinct_ids_for_persons", request))
+        limit = (
+            request.limit_per_person if request.HasField("limit_per_person") and request.limit_per_person > 0 else None
+        )
         results = []
         for pid in request.person_ids:
             dids = self._distinct_ids.get((request.team_id, pid), [])
+            if limit is not None:
+                dids = dids[:limit]
             results.append(person_pb2.PersonDistinctIds(person_id=pid, distinct_ids=dids))
         return person_pb2.GetDistinctIdsForPersonsResponse(person_distinct_ids=results)
 

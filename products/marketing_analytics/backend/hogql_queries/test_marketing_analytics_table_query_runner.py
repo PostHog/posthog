@@ -1,11 +1,15 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
     ConversionGoalFilter3,
     DateRange,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
@@ -17,7 +21,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
-from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT
+from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT, DRILL_DOWN_LEVEL_CONFIG
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
@@ -350,3 +354,77 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert valid_goals[0].conversion_goal_name == "Test Goal"
         assert len(warnings) == 1
         assert "Bad DW Goal" in warnings[0]
+
+    @parameterized.expand(
+        [
+            (MarketingAnalyticsDrillDownLevel.CHANNEL, "Channel"),
+            (MarketingAnalyticsDrillDownLevel.SOURCE, MarketingAnalyticsBaseColumns.SOURCE),
+            (MarketingAnalyticsDrillDownLevel.CAMPAIGN, MarketingAnalyticsBaseColumns.CAMPAIGN),
+        ]
+    )
+    def test_drill_down_column_alias(self, level, expected_alias):
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=level,
+        )
+        runner = self._create_query_runner(query)
+        runner._apply_drill_down_level()
+        assert runner.config.get_campaign_column_alias() == expected_alias
+
+    @parameterized.expand(
+        [
+            (MarketingAnalyticsDrillDownLevel.CHANNEL,),
+            (MarketingAnalyticsDrillDownLevel.SOURCE,),
+            (MarketingAnalyticsDrillDownLevel.CAMPAIGN,),
+        ]
+    )
+    def test_drill_down_to_query_produces_correct_columns(self, level):
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=level,
+        )
+        runner = self._create_query_runner(query)
+
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
+            mock_get_adapters.return_value = []
+            ast_query = runner.to_query()
+
+        column_names = [col.alias if isinstance(col, ast.Alias) else str(col) for col in ast_query.select]
+        config = DRILL_DOWN_LEVEL_CONFIG[level]
+
+        assert config["column_alias"] in column_names
+        for excluded in config["excluded_base_columns"]:
+            if str(excluded) != config["column_alias"]:
+                assert str(excluded) not in column_names
+
+    @parameterized.expand(
+        [
+            (MarketingAnalyticsDrillDownLevel.CHANNEL,),
+            (MarketingAnalyticsDrillDownLevel.SOURCE,),
+            (MarketingAnalyticsDrillDownLevel.CAMPAIGN,),
+        ]
+    )
+    def test_drill_down_calculate_returns_valid_response(self, level):
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=level,
+        )
+        runner = self._create_query_runner(query)
+        result = runner.calculate()
+
+        assert isinstance(result, MarketingAnalyticsTableQueryResponse)
+        assert result.columns is not None
+        assert config_alias_in_columns(result.columns, DRILL_DOWN_LEVEL_CONFIG[level]["column_alias"])
+
+
+def config_alias_in_columns(columns: list, alias: str) -> bool:
+    return any(str(col) == alias for col in columns)

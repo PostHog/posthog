@@ -30,7 +30,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables'],
+            ['database', 'dataWarehouseTables'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             featureFlagLogic,
@@ -65,14 +65,16 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     const clonedSources = JSON.parse(
                         JSON.stringify(values.dataWarehouseSources?.results ?? [])
                     ) as ExternalDataSource[]
-                    const sourceIndex = clonedSources.findIndex((n) => n.schemas.find((m) => m.id === schema.id))
-                    const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
-                    clonedSources[sourceIndex].schemas[schemaIndex] = schema
+                    const sourceIndex = clonedSources.findIndex((n) => n.schemas?.find((m) => m.id === schema.id))
+                    if (sourceIndex !== -1) {
+                        const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
+                        clonedSources[sourceIndex].schemas[schemaIndex] = schema
 
-                    actions.loadSourcesSuccess({
-                        ...values.dataWarehouseSources,
-                        results: clonedSources,
-                    })
+                        actions.loadSourcesSuccess({
+                            ...values.dataWarehouseSources,
+                            results: clonedSources,
+                        })
+                    }
 
                     await api.externalDataSchemas.update(schema.id, schema)
                     actions.loadSources()
@@ -273,7 +275,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        if (!values.database) {
+            actions.loadDatabase()
+        }
         actions.loadSources()
     }),
     beforeUnmount(() => {

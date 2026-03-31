@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import Any, Optional
 
 from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.parser import parse_expr, parse_program
+from posthog.hogql.parser import parse_expr, parse_program, parse_string_template
 
 from common.hogvm.python.execute import execute_bytecode, get_nested_value
 from common.hogvm.python.operation import (
@@ -1089,3 +1089,24 @@ class TestBytecodeExecute:
         assert self._run("sortableSemver('1.2.3') < sortableSemver('2.0.0')") is True
         assert self._run("sortableSemver('2.0.0') > sortableSemver('1.9.9')") is True
         assert self._run("sortableSemver('1.2.3') = sortableSemver('1.2.3')") is True
+
+    def test_boolean_template_preserves_type(self):
+        """Boolean template expressions like {true} or {event.properties.flag} should produce actual booleans, not strings."""
+        cases: list[tuple[str, dict[str, Any], bool | None | str]] = [
+            ("{true}", {}, True),
+            ("{false}", {}, False),
+            ("{event.properties.opt_out}", {"event": {"properties": {"opt_out": True}}}, True),
+            ("{event.properties.opt_out}", {"event": {"properties": {"opt_out": False}}}, False),
+            ("{event.properties.opt_out}", {"event": {"properties": {}}}, None),
+            (
+                "{event.properties.opt_out}",
+                {"event": {"properties": {"opt_out": "a non boolean value"}}},
+                "a non boolean value",
+            ),
+        ]
+        for template, globals, expected in cases:
+            bytecode = create_bytecode(parse_string_template(template)).bytecode
+            result = execute_bytecode(bytecode, globals=globals).result
+            assert result == expected, (
+                f"Template '{template}' should produce {expected!r}, got {result!r} ({type(result).__name__})"
+            )

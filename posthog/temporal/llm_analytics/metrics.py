@@ -2,6 +2,8 @@ import time
 import typing
 import datetime as dt
 
+from django.conf import settings
+
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 from temporalio.worker import (
@@ -201,6 +203,8 @@ class ExecutionTimeRecorder:
 
 class EvalsMetricsInterceptor(Interceptor):
     """Interceptor to emit Prometheus metrics for evals workflows."""
+
+    task_queue = settings.LLMA_EVALS_TASK_QUEUE
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _EvalsMetricsActivityInboundInterceptor(super().intercept_activity(next))

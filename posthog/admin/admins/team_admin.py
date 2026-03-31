@@ -22,6 +22,7 @@ from structlog import get_logger
 from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
 
+from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
@@ -32,16 +33,16 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.object_storage import store_session_id_chunks
-from posthog.temporal.delete_recordings.types import (
+from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
+from posthog.temporal.session_replay.delete_recordings.types import (
     DeletionConfig,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithSessionIdsInput,
     RecordingsWithTeamInput,
 )
-from posthog.temporal.export_recording.types import ExportRecordingInput
-from posthog.temporal.import_recording.types import ImportRecordingInput
+from posthog.temporal.session_replay.export_recording.types import ExportRecordingInput
+from posthog.temporal.session_replay.import_recording.types import ImportRecordingInput
 
 logger = get_logger()
 
@@ -91,7 +92,7 @@ class TeamAdmin(admin.ModelAdmin):
     ]
 
     exclude = DEPRECATED_ATTRS
-    inlines = [TeamMarketingAnalyticsConfigInline, UserProductListInline]
+    inlines = [OrganizationMemberForRelatedInline, TeamMarketingAnalyticsConfigInline, UserProductListInline]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request

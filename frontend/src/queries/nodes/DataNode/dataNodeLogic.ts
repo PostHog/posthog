@@ -37,6 +37,7 @@ import {
     AnyResponseType,
     DashboardFilter,
     DataNode,
+    DataVisualizationNode,
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
     EventsQuery,
@@ -65,6 +66,7 @@ import {
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
+    isDataVisualizationNode,
     isHogQLQuery,
     isInsightActorsQuery,
     isInsightQueryNode,
@@ -149,17 +151,35 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
     return concurrencyController
 }
 
-function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNode {
+function addModifiers<T extends Record<string, any>, N extends DataNode<T> | DataVisualizationNode>(
+    query: N,
+    modifiers?: HogQLQueryModifiers
+): N {
     if (!modifiers) {
         return query
     }
+    if (isDataVisualizationNode(query)) {
+        // for DataVisualizationNodes, add the modifier to the source query instead
+        return {
+            ...query,
+            source: addModifiers(query.source, modifiers),
+        }
+    }
     return {
         ...query,
-        modifiers: { ...query.modifiers, ...modifiers },
+        modifiers: { ...('modifiers' in query ? query.modifiers : {}), ...modifiers },
     }
 }
 
-function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T> {
+function addTags<T extends Record<string, any>, N extends DataNode<T> | DataVisualizationNode>(query: N): N {
+    if (isDataVisualizationNode(query)) {
+        // for DataVisualizationNodes, add the tags to the source query instead
+        return {
+            ...query,
+            source: addTags(query.source),
+        }
+    }
+
     // find the currently mounted scene logic to get the active scene, but don't use the kea connect()
     // method to do this as we don't want to mount the sceneLogic if it isn't already mounted
     const mountedSceneLogic = sceneLogic.findMounted()
@@ -176,7 +196,7 @@ function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T>
     if (result.tags && Object.keys(result.tags).length === 0) {
         delete result.tags // Remove empty tags object
     }
-    return result
+    return result as N
 }
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
@@ -274,7 +294,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
-                    const query = addTags(overrideQuery ?? props.query)
+                    const rawQuery = overrideQuery ?? props.query
+                    if (!rawQuery || typeof rawQuery !== 'object' || !('kind' in rawQuery)) {
+                        return null
+                    }
+                    const query = addTags(rawQuery)
 
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
@@ -312,11 +336,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     if (!values.currentTeamId) {
                         // if shared/exported, the team is not loaded
-                        return null
-                    }
-
-                    if (query === undefined || Object.keys(query).length === 0) {
-                        // no need to try and load a query before properly initialized
                         return null
                     }
 

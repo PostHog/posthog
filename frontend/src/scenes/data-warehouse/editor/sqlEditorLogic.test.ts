@@ -1,11 +1,15 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import * as queryRunner from '~/queries/query'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -58,6 +62,21 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     user_access_level: 'none',
 } as QueryBasedInsightModel
 
+const MOCK_VIEW = {
+    id: 'test-view',
+    name: 'Test view',
+    query: {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT 1',
+    },
+    is_materialized: false,
+    latest_history_id: null,
+    sync_frequency: null,
+    status: null,
+    last_run_at: null,
+    latest_error: null,
+} as any
+
 function createMockMonaco(): any {
     const mockModel = {
         getValue: () => '',
@@ -87,9 +106,12 @@ function createMockEditor(): any {
 
 describe('sqlEditorLogic', () => {
     let logic: ReturnType<typeof sqlEditorLogic.build>
+    let databaseLogic: ReturnType<typeof databaseTableListLogic.build>
     const TAB_ID = '1'
+    let queryEndpointMock: jest.Mock
 
     beforeEach(async () => {
+        queryEndpointMock = jest.fn(() => [200, { tables: {}, joins: [] }])
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/': (req) => {
@@ -99,12 +121,18 @@ describe('sqlEditorLogic', () => {
                     }
                     return [200, { results: [] }]
                 },
-                '/api/environments/:team_id/warehouse_saved_queries/': { results: [] },
-                '/api/environments/:team_id/warehouse_saved_queries/:id/': [404],
+                '/api/environments/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': (req) => {
+                    if (req.params.id === MOCK_VIEW.id) {
+                        return [200, MOCK_VIEW]
+                    }
+                    return [404]
+                },
+                '/api/environments/:team_id/lineage/get_upstream/': { nodes: [], edges: [] },
                 '/api/user_home_settings/@me/': {},
             },
             post: {
-                '/api/environments/:team_id/query/': { results: [] },
+                '/api/environments/:team_id/query/': queryEndpointMock,
             },
             patch: {
                 '/api/user_home_settings/@me/': [200],
@@ -117,10 +145,17 @@ describe('sqlEditorLogic', () => {
         initKeaTests()
         teamLogic.mount()
         sceneLogic.mount()
+        databaseLogic = databaseTableListLogic()
+        databaseLogic.mount()
         sceneLogic.actions.setTabs([
             { id: TAB_ID, title: 'SQL', pathname: '/sql', search: '', hash: '', active: true, iconType: 'blank' },
         ])
         await expectLogic(teamLogic).toFinishAllListeners()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        databaseLogic?.unmount()
     })
 
     describe('title section', () => {
@@ -223,6 +258,28 @@ describe('sqlEditorLogic', () => {
             })
         })
 
+        it('preserves editingInsight when reopening after starting from a new SQL tab', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({
+                        short_id: MOCK_INSIGHT_SHORT_ID,
+                    }),
+                })
+        })
+
         it('does not dispatch syncUrlWithQuery before the API responds', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -238,6 +295,92 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
                 .toNotHaveDispatchedActions(['syncUrlWithQuery'])
+        })
+    })
+
+    describe('open_view behavior', () => {
+        it('respects the requested output tab when opening a view from the URL', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }, { output_tab: OutputTab.Results })
+
+            await expectLogic(logic)
+                .toDispatchActions(['setViewLoading', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingView: partial({
+                        id: MOCK_VIEW.id,
+                    }),
+                    outputActiveTab: OutputTab.Results,
+                })
+        })
+
+        it('switches to the materialization tab when opening a view directly', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.editView(MOCK_VIEW.query.query, MOCK_VIEW)
+
+            await expectLogic(logic)
+                .toDispatchActions(['setActiveTab', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingView: partial({
+                        id: MOCK_VIEW.id,
+                    }),
+                    outputActiveTab: OutputTab.Materialization,
+                })
+        })
+    })
+
+    describe('output tab hash parameter', () => {
+        it('restores the selected output tab from the hash', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT 1',
+                output_tab: OutputTab.Visualization,
+            })
+
+            await expectLogic(logic).toDispatchActions(['setActiveTab', 'createTab', 'updateTab']).toMatchValues({
+                outputActiveTab: OutputTab.Visualization,
+            })
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
+        })
+
+        it('replaces the hash output tab when the selected tab changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setActiveTab(OutputTab.Materialization)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 1')
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Materialization)
         })
     })
 
@@ -280,6 +423,301 @@ describe('sqlEditorLogic', () => {
                 path: urls.endpoints(),
                 iconType: 'endpoints',
             })
+        })
+
+        it('ignores the legacy top-level connectionId when selecting the active connection', () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            logic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                connectionId: 'conn-123',
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT 1',
+                    connectionId: undefined,
+                },
+            } as DataVisualizationNode & { connectionId?: string })
+
+            expect(logic.values.selectedConnectionId).toBeUndefined()
+        })
+
+        it('reads connection id from hash and keeps it in URL sync', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
+            expect(router.values.hashParams.c).toEqual('conn-123')
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(router.values.hashParams.c).toEqual('conn-123')
+        })
+
+        it('reads send raw query from hash and keeps it in URL sync', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123', raw: '1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(router.values.hashParams.c).toEqual('conn-123')
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+        })
+
+        it('ignores send raw query from hash for PostHog warehouse', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', raw: '1' })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            expect(logic.values.sourceQuery.source.connectionId).toBeUndefined()
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+        })
+
+        it('keeps send raw query enabled after the first toggle', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            logic.actions.setSendRawQuery(true)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
+            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+        })
+
+        it('strips legacy top-level connection ids when source query changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            const sourceQueryWithLegacyConnectionId = {
+                ...logic.values.sourceQuery,
+                connectionId: 'legacy-conn-123',
+                source: {
+                    ...logic.values.sourceQuery.source,
+                    connectionId: 'conn-123',
+                    sendRawQuery: true,
+                },
+            } as DataVisualizationNode & { connectionId?: string }
+
+            logic.actions.setSourceQuery(sourceQueryWithLegacyConnectionId as DataVisualizationNode)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect('connectionId' in logic.values.sourceQuery).toEqual(false)
+            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+            expect(logic.values.activeTab?.sourceQuery).not.toBeUndefined()
+            expect(
+                logic.values.activeTab?.sourceQuery ? 'connectionId' in logic.values.activeTab.sourceQuery : false
+            ).toEqual(false)
+        })
+
+        it("doesn't enable send raw query for PostHog warehouse", async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setSendRawQuery(true)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+            expect(router.values.hashParams.raw).toBeUndefined()
+        })
+
+        it('loads the scoped schema only once when a connection id is present in the hash', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ tables: {}, joins: [] } as never)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(performQuerySpy).toHaveBeenCalledTimes(1)
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: 'conn-123' })
+            expect(databaseLogic.values.connectionId).toEqual('conn-123')
+
+            performQuerySpy.mockRestore()
+        })
+
+        it('passes sendRawQuery when running a direct query', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            performQuerySpy.mockClear()
+
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: {
+                    ...logic.values.sourceQuery.source,
+                    sendRawQuery: true,
+                },
+            })
+
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+
+            logic.actions.runQuery()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(performQuerySpy).toHaveBeenCalled()
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT 1',
+                connectionId: 'conn-123',
+                sendRawQuery: true,
+            })
+
+            performQuerySpy.mockRestore()
+        })
+
+        it("doesn't pass sendRawQuery when running against PostHog warehouse", async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            performQuerySpy.mockClear()
+
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: {
+                    ...logic.values.sourceQuery.source,
+                    sendRawQuery: true,
+                },
+            })
+
+            logic.actions.runQuery()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(performQuerySpy).toHaveBeenCalled()
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT 1',
+                sendRawQuery: undefined,
+            })
+            expect(performQuerySpy.mock.calls[0][0]).not.toHaveProperty('connectionId')
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+
+            performQuerySpy.mockRestore()
         })
     })
 })

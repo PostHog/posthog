@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconFeatures, IconRefresh } from '@posthog/icons'
@@ -12,6 +13,7 @@ import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/compon
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupKeySelect'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
@@ -42,6 +44,7 @@ export interface PropertyValueProps {
     addRelativeDateTimeOptions?: boolean
     inputClassName?: string
     groupTypeIndex?: GroupTypeIndex
+    groupKeyNames?: Record<string, string>
     size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
     preloadValues?: boolean
@@ -64,6 +67,7 @@ export function PropertyValue({
     addRelativeDateTimeOptions = false,
     inputClassName = undefined,
     groupTypeIndex = undefined,
+    groupKeyNames,
     editable = true,
     preloadValues = false,
     forceSingleSelect = false,
@@ -84,11 +88,14 @@ export function PropertyValue({
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
+    // Assignee values come from membersLogic/rolesLogic, not from the property values API
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
     const isNumericProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+
+    const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -122,17 +129,29 @@ export function PropertyValue({
 
     // preload values if preloadValues prop is set
     useEffect(() => {
-        if (preloadValues && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
+        if (
+            !isGroupKeyProperty &&
+            !isAssigneeProperty &&
+            preloadValues &&
+            propertyOptions?.status !== 'loading' &&
+            propertyOptions?.status !== 'loaded'
+        ) {
             load('')
         }
-    }, [preloadValues, load, propertyOptions?.status])
+    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isAssigneeProperty])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
-        if (!isDateTimeProperty && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
+        if (
+            !isGroupKeyProperty &&
+            !isAssigneeProperty &&
+            !isDateTimeProperty &&
+            propertyOptions?.status !== 'loading' &&
+            propertyOptions?.status !== 'loaded'
+        ) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
+    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, isAssigneeProperty, load, propertyOptions?.status])
 
     // set initial suggested values when options are loaded, but only if there is no search input
     // (to avoid overwriting suggestions based on search input)
@@ -234,11 +253,32 @@ export function PropertyValue({
         )
     }
 
+    if (isGroupKeyProperty && editable) {
+        return (
+            <GroupKeySelect
+                value={value ?? null}
+                groupTypeIndex={groupTypeIndex}
+                operator={operator}
+                onChange={setValue}
+                size={size}
+                autoFocus={autoFocus}
+                forceSingleSelect={forceSingleSelect}
+            />
+        )
+    }
+
     const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
         (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
 
     if (!editable) {
+        if (isGroupKeyProperty && groupKeyNames) {
+            const rawValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
+                String
+            )
+            const displayValues = rawValues.map((key) => groupKeyNames[key] || key)
+            return <>{displayValues.join(' or ')}</>
+        }
         return <>{formattedValues.join(' or ')}</>
     }
 
@@ -336,7 +376,7 @@ export function PropertyValue({
                         propertyKey,
                         eventNames,
                         properties: [],
-                        forceRefresh: true,
+                        refresh: 'force_blocking',
                     })
                 }
                 noPadding
@@ -362,7 +402,22 @@ export function PropertyValue({
                           }
                         : undefined
                 }
-                onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+                onChange={(nextVal) => {
+                    const newValues = nextVal.filter((v) => !formattedValues.includes(String(v)))
+                    if (newValues.length > 0) {
+                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
+                        const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
+
+                        posthog.capture('property_value_selected', {
+                            property_key: propertyKey,
+                            property_type: type,
+                            from_suggestion: fromSuggestion,
+                            options_count: displayOptions.length,
+                            had_search_input: currentSearchInput.current !== '',
+                        })
+                    }
+                    isMultiSelect ? setValue(nextVal) : setValue(nextVal[0])
+                }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
                 size={size}

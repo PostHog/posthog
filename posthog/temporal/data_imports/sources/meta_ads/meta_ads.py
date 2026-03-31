@@ -8,7 +8,6 @@ import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
-from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
@@ -137,7 +136,7 @@ def _fetch_time_range_chunk(
     chunk_params["time_range"] = json.dumps(chunk_time_range)
 
     # Make the initial request for this chunk
-    response = external_requests.get(url, params=chunk_params)
+    response = requests.get(url, params=chunk_params)
 
     if response.status_code != 200:
         # Only attempt fallback on the initial request (before any data is yielded)
@@ -155,7 +154,7 @@ def _fetch_time_range_chunk(
     # Handle pagination for remaining pages (no fallback here to avoid duplicates)
     next_url = response_payload.get("paging", {}).get("next")
     while next_url:
-        response = external_requests.get(next_url)
+        response = requests.get(next_url)
 
         if response.status_code != 200:
             raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
@@ -200,9 +199,9 @@ def _make_paginated_api_request(
         next_url = url
         while next_url:
             if next_url == url:
-                response = external_requests.get(next_url, params=params)
+                response = requests.get(next_url, params=params)
             else:
-                response = external_requests.get(next_url)
+                response = requests.get(next_url)
 
             if response.status_code != 200:
                 raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")

@@ -23,6 +23,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     byweekday: ['monday'],
     bysetpos: 1,
     dashboard_export_insights: [],
+    integration_id: null,
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
@@ -174,6 +175,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (key === 'target_type') {
                 actions.setSubscriptionValues({
                     target_value: '',
+                    integration_id: null,
                 })
             }
         },

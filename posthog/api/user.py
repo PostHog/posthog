@@ -77,12 +77,11 @@ from posthog.event_usage import (
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
-from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models import Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
-from posthog.security.outbound_proxy import external_requests, external_requests_session
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -92,6 +91,8 @@ from posthog.tasks.email import (
 )
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -1151,7 +1152,7 @@ def redirect_to_website(request):
 
     # check if a strapi id is attached
     if request.user.strapi_id is None:
-        response = external_requests.request(
+        response = requests.request(
             "POST",
             "https://squeak.posthog.cc/api/auth/local/register",
             json={
@@ -1207,7 +1208,7 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
-        session = external_requests_session()
+        session = requests.Session()
 
         if not settings.DEBUG:
             raise_if_user_provided_url_unsafe(webhook)

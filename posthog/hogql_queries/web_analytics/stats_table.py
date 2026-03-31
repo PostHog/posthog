@@ -588,14 +588,35 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         return f"{breakdown_value}-{row[3]}"  # Fourth value is the aggregation value
 
+    def _prepend_host(self, host_expr: ast.Expr, path_expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="nullIf",
+            args=[
+                ast.Call(
+                    name="concat",
+                    args=[host_expr, path_expr],
+                ),
+                ast.Constant(value=""),
+            ],
+        )
+
     def _counts_breakdown_value(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+                if self.query.includeHost:
+                    return self._prepend_host(ast.Field(chain=["events", "properties", "$host"]), path)
+                return path
             case WebStatsBreakdown.INITIAL_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+                if self.query.includeHost:
+                    return self._prepend_host(ast.Field(chain=["session", "$entry_hostname"]), path)
+                return path
             case WebStatsBreakdown.EXIT_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
+                if self.query.includeHost:
+                    return self._prepend_host(ast.Field(chain=["session", "$end_hostname"]), path)
+                return path
             case WebStatsBreakdown.EXIT_CLICK:
                 return ast.Field(chain=["session", "$last_external_click_url"])
             case WebStatsBreakdown.PREVIOUS_PAGE:
@@ -629,6 +650,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 return ast.Field(chain=["events", "properties", "$screen_name"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["session", "$entry_referring_domain"])
+            case WebStatsBreakdown.INITIAL_REFERRING_URL:
+                return ast.Call(
+                    name="cutQueryStringAndFragment",
+                    args=[ast.Field(chain=["events", "properties", "$session_entry_referrer"])],
+                )
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return ast.Field(chain=["session", "$entry_utm_source"])
             case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
@@ -757,10 +783,16 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 return parse_expr("breakdown_value IS NOT NULL")
 
     def _scroll_prev_pathname_breakdown(self):
-        return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
+        path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["events", "properties", "$host"]), path)
+        return path
 
     def _bounce_entry_pathname_breakdown(self):
-        return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+        path = self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["session", "$entry_hostname"]), path)
+        return path
 
 
 def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:

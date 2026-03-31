@@ -185,3 +185,55 @@ def activity_capture_event(inputs: CaptureEventInputs):
         },
         groups=groups(org),
     )
+
+
+@dataclass
+class SendProxyCreatedEmailInputs:
+    organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
+    domain: str
+
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "domain": self.domain,
+        }
+
+
+@activity.defn
+def activity_send_proxy_created_email(inputs: SendProxyCreatedEmailInputs):
+    """Send an email notification when a reverse proxy has been successfully provisioned."""
+    from posthog.email import EmailMessage, is_email_available
+
+    try:
+        connection.connect()
+
+        if not is_email_available():
+            return
+
+        record = ProxyRecord.objects.select_related("created_by").filter(id=inputs.proxy_record_id).first()
+        if record is None or record.created_by is None or not record.created_by.email:
+            return
+
+        user = record.created_by
+        message = EmailMessage(
+            campaign_key=f"proxy_provisioned_{inputs.proxy_record_id}",
+            subject="Your PostHog reverse proxy is ready",
+            template_name="proxy_provisioned",
+            template_context={
+                "user_name": user.first_name,
+                "domain": inputs.domain,
+                "settings_url": f"{settings.SITE_URL}/settings/organization-proxy",
+            },
+            use_http=True,
+        )
+        message.add_user_recipient(user)
+        message.send(send_async=True)
+    except Exception:
+        LOGGER.warning(
+            "Failed to send proxy provisioned email for proxy %s",
+            inputs.proxy_record_id,
+            exc_info=True,
+        )

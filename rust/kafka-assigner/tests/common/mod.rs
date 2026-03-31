@@ -230,7 +230,11 @@ pub async fn start_grpc_server(
     cancel: CancellationToken,
 ) -> GrpcTestServer {
     let registry = Arc::new(ConsumerRegistry::new());
-    let config = Config::init_with_defaults().expect("default config should parse");
+    let mut config = Config::init_with_defaults().expect("default config should parse");
+    // Use short lease TTL in tests so crash recovery doesn't take 30s.
+    // Keepalive must be shorter than TTL to avoid expiring healthy consumers.
+    config.consumer_lease_ttl_secs = 5;
+    config.consumer_keepalive_interval_secs = 1;
     let service =
         KafkaAssignerService::from_config(Arc::clone(&store), Arc::clone(&registry), &config);
 

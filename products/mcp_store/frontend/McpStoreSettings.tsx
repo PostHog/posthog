@@ -5,6 +5,8 @@ import { IconCheck, IconPlus, IconServer, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,12 +41,14 @@ function ConnectOAuthButton({
     description,
     oauthProviderKind,
     type = 'primary',
+    disabledReason,
 }: {
     name: string
     url: string
     description: string
     oauthProviderKind?: string
     type?: 'primary' | 'secondary'
+    disabledReason?: string | null
 }): JSX.Element {
     const [loading, setLoading] = useState(false)
 
@@ -53,6 +57,7 @@ function ConnectOAuthButton({
             type={type}
             size="small"
             loading={loading}
+            disabledReason={disabledReason}
             onClick={async () => {
                 setLoading(true)
                 try {
@@ -77,6 +82,10 @@ function ConnectOAuthButton({
 }
 
 export function McpStoreSettings(): JSX.Element {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)
     const {
@@ -115,7 +124,13 @@ export function McpStoreSettings(): JSX.Element {
         <>
             <div className="flex items-center justify-between mb-4">
                 <h3 className="mb-0">Installed servers</h3>
-                <LemonButton type="primary" icon={<IconPlus />} onClick={openAddCustomServerModal} size="small">
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    onClick={openAddCustomServerModal}
+                    size="small"
+                    disabledReason={restrictedReason}
+                >
                     Add custom server
                 </LemonButton>
             </div>
@@ -159,6 +174,7 @@ export function McpStoreSettings(): JSX.Element {
                                         name={installation.display_name || installation.name}
                                         url={installation.url ?? ''}
                                         description={installation.description ?? ''}
+                                        disabledReason={restrictedReason}
                                     />
                                 ) : installation.needs_reauth && installation.server_id ? (
                                     <LemonButton
@@ -167,6 +183,7 @@ export function McpStoreSettings(): JSX.Element {
                                         onClick={() => {
                                             window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server_id}`
                                         }}
+                                        disabledReason={restrictedReason}
                                     >
                                         Reconnect
                                     </LemonButton>
@@ -177,6 +194,7 @@ export function McpStoreSettings(): JSX.Element {
                                             toggleServerEnabled({ id: installation.id, enabled: checked })
                                         }
                                         size="small"
+                                        disabledReason={restrictedReason}
                                     />
                                 )}
                             </div>
@@ -194,10 +212,12 @@ export function McpStoreSettings(): JSX.Element {
                                                 status: 'danger' as const,
                                                 icon: <IconTrash />,
                                                 onClick: () => uninstallServer(installation.id),
+                                                disabledReason: restrictedReason ?? undefined,
                                             },
                                         ]}
                                     />
                                 }
+                                disabledReason={restrictedReason}
                             />
                         ),
                     },
@@ -273,6 +293,7 @@ export function McpStoreSettings(): JSX.Element {
                                                         auth_type: 'api_key',
                                                     })
                                                 }
+                                                disabledReason={restrictedReason}
                                             >
                                                 Connect
                                             </LemonButton>
@@ -283,6 +304,7 @@ export function McpStoreSettings(): JSX.Element {
                                                 description={server.description}
                                                 oauthProviderKind={server.oauth_provider_kind}
                                                 type="secondary"
+                                                disabledReason={restrictedReason}
                                             />
                                         )}
                                     </div>

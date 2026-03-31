@@ -87,7 +87,9 @@ rust/
      │                                                    │  grant etcd lease
      │                                                    │  write RegisteredConsumer
      │                                                    │  fetch current assignments
-     │◄── stream: Assignment { assigned: [...] } ─────────│
+     │◄── stream: Assignment { assigned: [...] } ─────────│  (always sent, even if empty)
+     │                                                    │
+     │         ... replay pending warms/releases ...      │  (on reconnect)
      │                                                    │
      │         ... consumer processes partitions ...      │
      │                                                    │
@@ -106,6 +108,10 @@ rust/
      │◄── PartitionReleasedResponse ──────────────────────│
      │                                                    │
 ```
+
+**Batching:** Warm and Release events are batched per-consumer in the relay
+before being sent over the stream. During a large rebalance, this prevents
+channel overflow that would occur if each partition triggered an individual event.
 
 ---
 
@@ -138,6 +144,10 @@ the handoff goes through a three-phase state machine:
 - The new owner warms up (catches up on state, builds caches, etc.)
 - Only after the new owner is Ready does the old owner get told to Release
 
+**Dead consumer fast path:** If the old owner is no longer registered (i.e. dead),
+the coordinator skips the handoff protocol entirely and directly assigns the
+partition to the new owner. This avoids creating handoffs that can never complete.
+
 ---
 
 ## Coordinator loop (leader only)
@@ -149,33 +159,49 @@ the handoff goes through a three-phase state machine:
                     └────────┬────────────┘
                              │ won election
                              ▼
-              ┌──────────────────────────────┐
-              │   Spawn concurrent watches   │
-              └──────┬──────────────┬────────┘
-                     │              │
-        ┌────────────┴───┐    ┌─────┴─────────────┐
-        │ Watch          │    │ Watch             │
-        │ /consumers/*   │    │ /handoffs/*       │
-        └────────┬───────┘    └──────┬────────────┘
-                 │                   │
-          debounce (1s)         on each event
-                 │                   │
-                 ▼                   ▼
-        ┌────────────────┐   ┌───────────────────────┐
-        │   Rebalance    │   │  Handle handoff       │
-        │                │   │  phase transition     │
-        │ 1. List Ready  │   │                       │
-        │    consumers   │   │ Ready → CAS to        │
-        │ 2. Run sticky  │   │   Complete + update   │
-        │    balanced    │   │   assignment owner    │
-        │    strategy    │   │                       │
-        │ 3. Diff vs     │   │ Stale cleanup:        │
-        │    current     │   │ - new owner dead →    │
-        │ 4. Write       │   │   delete handoff      │
-        │    assignments │   │ - old owner dead &    │
-        │    + handoffs  │   │   Complete → delete   │
-        └────────────────┘   └───────────────────────┘
+              ┌──────────────────────────────────────┐
+              │   Spawn concurrent tasks             │
+              │   (serialized via rebalance mutex)   │
+              └──┬──────────────┬──────────────┬─────┘
+                 │              │              │
+    ┌────────────┴───┐  ┌──────┴───────────┐  ┌──────┴──────────────┐
+    │ Watch          │  │ Watch            │  │ Periodic cleanup    │
+    │ /consumers/*   │  │ /handoffs/*      │  │ every timeout / 2   │
+    └────────┬───────┘  └──────┬───────────┘  └──────┬──────────────┘
+             │                 │                     │
+      debounce (1s)       on each event         on each tick:
+             │                 │                 - list consumers
+             ▼                 ▼                 - clean stale handoffs
+    ┌────────────────┐  ┌──────────────────┐    - rebalance if no
+    │   Rebalance    │  │ Handle handoff   │      handoffs remain
+    │                │  │ phase transition │         │
+    │ 1. List Ready  │  │                  │         ▼
+    │    consumers   │  │ Ready → CAS to   │  ┌──────────────────┐
+    │ 2. Run sticky  │  │   Complete +     │  │ Catches timed-   │
+    │    balanced    │  │   update assign. │  │ out handoffs     │
+    │    strategy    │  │   owner          │  │ when system is   │
+    │ 3. Diff vs     │  │                  │  │ quiescent        │
+    │    current     │  │ Stale cleanup:   │  └──────────────────┘
+    │ 4. Write       │  │ - new owner dead │
+    │    assignments │  │   → delete       │
+    │    + handoffs  │  │ - old owner dead │
+    │                │  │   & Complete →   │
+    │ Dead old owner │  │   delete         │
+    │ → direct       │  └──────────────────┘
+    │   assignment   │
+    │   (skip        │
+    │   handoff)     │
+    └────────────────┘
 ```
+
+**Empty cluster handling:** When no consumers are registered at all, the
+coordinator deletes all assignment keys from etcd to prevent stale state from
+lingering. If consumers exist but none are Ready (e.g. all are Draining),
+assignment is skipped until at least one becomes Ready.
+
+**No-op fast path:** If the desired assignment state matches current ownership
+for all topics and no handoffs are needed, the coordinator skips the write
+to avoid unnecessary etcd traffic.
 
 ---
 
@@ -221,7 +247,13 @@ Target: 5 each = [5, 5]
              ▼
     ┌───────────────────┐
     │  Receive initial  │──────── snapshot of currently-owned partitions
-    │  assignments      │
+    │  assignments      │         (always sent, even if empty)
+    └────────┬──────────┘
+             │
+             ▼
+    ┌───────────────────┐
+    │  Replay pending   │──────── on reconnect: any Warm/Release commands
+    │  handoff state    │         missed during disconnection are replayed
     └────────┬──────────┘
              │
              ▼
@@ -232,15 +264,16 @@ Target: 5 each = [5, 5]
              │
         ┌────┴────┐
         │         │
-   graceful    crash
-   shutdown       │
+   graceful    crash /
+   shutdown    disconnect
+        │         │
         │         ▼
-        │    ┌──────────────────┐
-        │    │  Keepalive fails │──── lease expires after TTL
-        │    │  → lease revoked │     consumer key deleted
-        │    └────────┬─────────┘     coordinator rebalances
-        │             │
-        ▼             ▼
+        │    ┌───────────────────┐
+        │    │  Lease expires    │──── TTL provides a grace window for
+        │    │  via TTL          │     reconnection (e.g. rolling restart).
+        │    └────────┬──────────┘     If the consumer reconnects before
+        │             │                expiry, it re-registers with a fresh
+        ▼             ▼                lease — no rebalance occurs.
     ┌────────────────────┐
     │  Consumer removed  │
     │  from etcd         │

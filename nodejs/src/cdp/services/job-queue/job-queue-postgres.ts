@@ -12,15 +12,15 @@ import {
     CyclotronJobInit,
     CyclotronJobUpdate,
     CyclotronManager,
-    CyclotronShadowManager,
     CyclotronWorker,
 } from '@posthog/cyclotron'
 
 import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
-import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 
 export class CyclotronJobQueuePostgres {
@@ -28,7 +28,19 @@ export class CyclotronJobQueuePostgres {
     private cyclotronManager?: CyclotronManager
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(
+        private consumerBatchSize: number,
+        private config: Pick<
+            CdpConfig,
+            | 'CYCLOTRON_DATABASE_URL'
+            | 'CYCLOTRON_SHARD_DEPTH_LIMIT'
+            | 'CDP_CYCLOTRON_COMPRESS_VM_STATE'
+            | 'CDP_CYCLOTRON_USE_BULK_COPY_JOB'
+            | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
+            | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
+            | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
+        >
+    ) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -70,7 +82,7 @@ export class CyclotronJobQueuePostgres {
             },
             queueName: queue,
             includeVmState: true, // NOTE: We used to omit the vmstate but given we can requeue to kafka we need it
-            batchMaxSize: this.config.CONSUMER_BATCH_SIZE, // Use the common value
+            batchMaxSize: this.consumerBatchSize, // Use the common value
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
             shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,
@@ -136,7 +148,7 @@ export class CyclotronJobQueuePostgres {
         const worker = this.getCyclotronWorker()
 
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 worker.updateJob(item.id, 'failed')
                 return worker.releaseJob(item.id)
             })
@@ -147,7 +159,7 @@ export class CyclotronJobQueuePostgres {
         const worker = this.getCyclotronWorker()
 
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 worker.updateJob(item.id, 'canceled')
                 return worker.releaseJob(item.id)
             })
@@ -157,7 +169,7 @@ export class CyclotronJobQueuePostgres {
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         const worker = this.getCyclotronWorker()
         await Promise.all(
-            invocationResults.map(async (item) => {
+            invocationResults.map((item) => {
                 const id = item.invocation.id
                 if (item.error) {
                     logger.debug('⚡️', 'Updating job to failed', id)
@@ -181,7 +193,7 @@ export class CyclotronJobQueuePostgres {
         // Called specially for jobs that came from postgres but are being requeued to kafka
         const worker = this.getCyclotronWorker()
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 const id = item.id
                 logger.debug('⚡️', 'Releasing job', id)
                 worker.updateJob(id, 'completed')
@@ -293,67 +305,4 @@ function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
     }
 
     return invocation
-}
-
-/**
- * Shadow version of CyclotronJobQueuePostgres for dual-write testing.
- * Uses CyclotronShadowManager which connects to a separate static singleton in the Rust library,
- * allowing it to connect to a different database than the main manager.
- *
- * Only supports producer functionality (queueInvocations) - not consumer functionality.
- */
-export class CyclotronJobQueuePostgresShadow {
-    private cyclotronManager?: CyclotronShadowManager
-
-    constructor(private config: PluginsServerConfig) {}
-
-    public async startAsProducer() {
-        if (!this.config.CYCLOTRON_DATABASE_URL) {
-            throw new Error('Cyclotron database URL not set!')
-        }
-
-        this.cyclotronManager = new CyclotronShadowManager({
-            shards: [
-                {
-                    dbUrl: this.config.CYCLOTRON_DATABASE_URL,
-                },
-            ],
-            shardDepthLimit: this.config.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
-            shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,
-            shouldUseBulkJobCopy: this.config.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
-        })
-
-        await this.cyclotronManager.connect()
-    }
-
-    public async stopProducer() {
-        return Promise.resolve()
-    }
-
-    public async queueInvocations(invocations: CyclotronJobInvocation[]) {
-        if (invocations.length === 0) {
-            return
-        }
-
-        if (!this.cyclotronManager) {
-            throw new Error('CyclotronShadowManager not initialized')
-        }
-
-        const cyclotronJobs = invocations.map((item) => invocationToCyclotronJobInitial(item))
-
-        try {
-            const chunkedCyclotronJobs = chunk(cyclotronJobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
-
-            if (this.config.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
-                await Promise.all(chunkedCyclotronJobs.map((jobs) => this.cyclotronManager!.bulkCreateJobs(jobs)))
-            } else {
-                for (const jobs of chunkedCyclotronJobs) {
-                    await this.cyclotronManager.bulkCreateJobs(jobs)
-                }
-            }
-        } catch (e) {
-            logger.error('⚠️', 'Error creating shadow cyclotron jobs', e)
-            throw e
-        }
-    }
 }

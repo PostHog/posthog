@@ -66,8 +66,8 @@ pub enum FlagError {
     NoTokenError,
     #[error("API key is not valid")]
     TokenValidationError,
-    #[error("Personal API key found in request {0} is invalid")]
-    PersonalApiKeyInvalid(String),
+    #[error("Personal API key is invalid")]
+    PersonalApiKeyInvalid,
     #[error("Secret API token is invalid")]
     SecretApiTokenInvalid,
     #[error("No authentication credentials provided")]
@@ -107,6 +107,8 @@ pub enum FlagError {
     TimeoutError(Option<String>),
     #[error("No group type mappings")]
     NoGroupTypeMappings,
+    #[error("Failed to fetch group type mappings from database")]
+    GroupTypeMappingFetchFailed,
     #[error("Dependency of type {0} with id {1} not found")]
     DependencyNotFound(DependencyType, i64),
     #[error("Failed to parse cohort filters")]
@@ -160,7 +162,7 @@ impl FlagError {
             // Authentication errors (401)
             FlagError::NoTokenError => ("missing_token", 401),
             FlagError::TokenValidationError => ("invalid_token", 401),
-            FlagError::PersonalApiKeyInvalid(_) => ("personal_api_key_invalid", 401),
+            FlagError::PersonalApiKeyInvalid => ("personal_api_key_invalid", 401),
             FlagError::SecretApiTokenInvalid => ("secret_api_token_invalid", 401),
             FlagError::NoAuthenticationProvided => ("no_authentication", 401),
 
@@ -169,6 +171,7 @@ impl FlagError {
             FlagError::DeserializeFiltersError => ("deserialize_filters_error", 500),
             FlagError::DatabaseError(_, _) => ("database_error", 500),
             FlagError::NoGroupTypeMappings => ("no_group_type_mappings", 500),
+            FlagError::GroupTypeMappingFetchFailed => ("group_type_mapping_fetch_failed", 500),
             FlagError::RowNotFound => ("row_not_found", 500),
             FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
@@ -311,6 +314,7 @@ impl FlagError {
             | FlagError::DeserializeFiltersError
             | FlagError::DatabaseError(_, _)
             | FlagError::NoGroupTypeMappings
+            | FlagError::GroupTypeMappingFetchFailed
             | FlagError::RowNotFound
             | FlagError::DependencyNotFound(_, _)
             | FlagError::CohortFiltersParsingError
@@ -350,7 +354,15 @@ impl IntoResponse for FlagError {
             FlagError::ClientFacing(err) => match err {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
-                ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
+                ClientFacingError::BillingLimit => {
+                    let response = AuthenticationErrorResponse {
+                        error_type: "quota_limited".to_string(),
+                        code: "payment_required".to_string(),
+                        detail: "You have exceeded your feature flag request quota".to_string(),
+                        attr: None,
+                    };
+                    return (StatusCode::PAYMENT_REQUIRED, Json(response)).into_response();
+                }
                 ClientFacingError::RateLimited
                 | ClientFacingError::IpRateLimited
                 | ClientFacingError::TokenRateLimited => {
@@ -386,11 +398,11 @@ impl IntoResponse for FlagError {
             FlagError::TokenValidationError => {
                 (StatusCode::UNAUTHORIZED, "The provided API key is invalid or has expired. Please check your API key and try again.".to_string())
             }
-            FlagError::PersonalApiKeyInvalid(source) => {
+            FlagError::PersonalApiKeyInvalid => {
                 let response = AuthenticationErrorResponse {
                     error_type: "authentication_error".to_string(),
                     code: "authentication_failed".to_string(),
-                    detail: format!("Personal API key found in request {source} is invalid."),
+                    detail: "Personal API key is invalid.".to_string(),
                     attr: None,
                 };
                 return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
@@ -465,6 +477,13 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "No group type mappings found. This is likely a configuration issue. Please contact support.".to_string(),
+                )
+            }
+            FlagError::GroupTypeMappingFetchFailed => {
+                tracing::error!("Failed to fetch group type mappings: {:?}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to fetch group type mappings from database.".to_string(),
                 )
             }
             FlagError::RowNotFound => {
@@ -730,7 +749,7 @@ mod tests {
             FlagError::MissingDistinctId,
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
-            FlagError::PersonalApiKeyInvalid("test".to_string()),
+            FlagError::PersonalApiKeyInvalid,
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,
@@ -741,6 +760,7 @@ mod tests {
             FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
             FlagError::TimeoutError(None),
             FlagError::NoGroupTypeMappings,
+            FlagError::GroupTypeMappingFetchFailed,
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::CohortFiltersParsingError,
@@ -830,6 +850,7 @@ mod tests {
             FlagError::Internal("".into()),
             FlagError::DeserializeFiltersError,
             FlagError::NoGroupTypeMappings,
+            FlagError::GroupTypeMappingFetchFailed,
             FlagError::RowNotFound,
             FlagError::CohortFiltersParsingError,
             FlagError::DataParsingError,
@@ -848,6 +869,7 @@ mod tests {
             FlagError::DeserializeFiltersError,
             FlagError::DatabaseError(sqlx::Error::RowNotFound, None),
             FlagError::NoGroupTypeMappings,
+            FlagError::GroupTypeMappingFetchFailed,
             FlagError::RowNotFound,
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             FlagError::CohortFiltersParsingError,
@@ -948,7 +970,7 @@ mod tests {
             FlagError::MissingDistinctId,
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
-            FlagError::PersonalApiKeyInvalid("test".to_string()),
+            FlagError::PersonalApiKeyInvalid,
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,

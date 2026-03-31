@@ -3,8 +3,8 @@ use crate::{
     flags::flag_models::FeatureFlagList,
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
-        DB_TEAM_READS_COUNTER, TEAM_CACHE_HIT_COUNTER, TEAM_NEGATIVE_CACHE_HIT_COUNTER,
-        TOKEN_VALIDATION_ERRORS_COUNTER,
+        DB_TEAM_READS_COUNTER, PG_TEAM_FALLBACK_SKIPPED_COUNTER, TEAM_CACHE_HIT_COUNTER,
+        TEAM_NEGATIVE_CACHE_HIT_COUNTER, TOKEN_VALIDATION_ERRORS_COUNTER,
     },
     team::team_models::Team,
 };
@@ -38,6 +38,8 @@ pub struct FlagService {
     flags_hypercache_reader: Arc<HyperCacheReader>,
     /// In-memory negative cache for invalid API tokens
     team_negative_cache: NegativeCache,
+    /// When true, skip PG fallback for team token lookups
+    skip_pg_team_fallback: bool,
 }
 
 impl FlagService {
@@ -47,6 +49,7 @@ impl FlagService {
         team_hypercache_reader: Arc<HyperCacheReader>,
         flags_hypercache_reader: Arc<HyperCacheReader>,
         team_negative_cache: NegativeCache,
+        skip_pg_team_fallback: bool,
     ) -> Self {
         Self {
             shared_redis_client,
@@ -54,6 +57,7 @@ impl FlagService {
             team_hypercache_reader,
             flags_hypercache_reader,
             team_negative_cache,
+            skip_pg_team_fallback,
         }
     }
 
@@ -104,15 +108,25 @@ impl FlagService {
     /// Fetches the team from HyperCache or the database.
     ///
     /// Uses team_metadata HyperCache (Redis → S3 → PostgreSQL fallback).
+    /// PostgreSQL fallback can be disabled via `skip_pg_team_fallback`.
     /// This is a read-only cache - Django handles cache writes.
     pub async fn get_team_from_cache_or_pg(&self, token: &str) -> Result<Team, FlagError> {
         let key = KeyType::string(token);
+        let skip_pg = self.skip_pg_team_fallback;
         let pg_client = self.pg_client.clone();
         let token_owned = token.to_string();
 
         let (data, source) = self
             .team_hypercache_reader
             .get_with_source_or_fallback(&key, || async move {
+                // This closure only runs on a genuine CacheMiss (key not found
+                // in Redis and S3). Transient errors (timeouts, parse failures)
+                // are propagated directly by HyperCache and never reach here.
+                if skip_pg {
+                    inc(PG_TEAM_FALLBACK_SKIPPED_COUNTER, &[], 1);
+                    return Err(FlagError::TokenValidationError);
+                }
+
                 // Fallback: load from PostgreSQL and convert to JSON Value
                 let team = Team::from_pg(pg_client, &token_owned).await?;
                 inc(DB_TEAM_READS_COUNTER, &[], 1);
@@ -158,9 +172,18 @@ impl FlagService {
         let (data, source) = self
             .flags_hypercache_reader
             .get_with_source_or_fallback(&key, || async move {
-                // Fallback: load from PostgreSQL and convert to JSON Value
+                // Fallback: load from PostgreSQL and convert to JSON Value.
+                // PG has no dependency metadata, so place all flags in a
+                // single evaluation stage — they will be evaluated but
+                // without guaranteed dependency ordering.
                 let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
-                let wrapper = crate::flags::flag_models::HypercacheFlagsWrapper { flags };
+                let evaluation_metadata =
+                    crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
+                let wrapper = crate::flags::flag_models::HypercacheFlagsWrapper {
+                    flags,
+                    cohorts: None,
+                    evaluation_metadata,
+                };
                 let value = serde_json::to_value(&wrapper).map_err(|e| {
                     tracing::error!(
                         "Failed to serialize flags from PG for team {}: {}",
@@ -174,10 +197,16 @@ impl FlagService {
             .await?;
 
         // Parse the result (from cache or fallback)
-        let flags = FeatureFlagList::parse_hypercache_value(data, team_id)?;
+        let (flags, evaluation_metadata, cohorts) =
+            FeatureFlagList::parse_hypercache_value(data, team_id)?;
 
         Ok(FlagResult {
-            flag_list: FeatureFlagList { flags },
+            flag_list: FeatureFlagList {
+                flags,
+                evaluation_metadata,
+                cohorts,
+                ..Default::default()
+            },
             cache_source: source,
         })
     }
@@ -186,18 +215,23 @@ impl FlagService {
 #[cfg(test)]
 mod tests {
     use common_cache::NegativeCache;
+    use rstest::rstest;
     use serde_json::json;
 
     use crate::{
         flags::{
-            flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup, HypercacheFlagsWrapper},
+            flag_models::{
+                EvaluationMetadata, FeatureFlag, FlagFilters, FlagPropertyGroup,
+                HypercacheFlagsWrapper,
+            },
             test_helpers::{hypercache_test_key, update_flags_in_hypercache},
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
             insert_new_team_in_redis, setup_hypercache_reader,
             setup_hypercache_reader_with_mock_redis, setup_pg_reader_client, setup_redis_client,
-            setup_team_hypercache_reader, TestContext,
+            setup_team_hypercache_reader, setup_team_hypercache_reader_with_mock_redis,
+            TestContext,
         },
     };
 
@@ -219,6 +253,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         // Test valid token returns the team
@@ -251,6 +286,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         // Test fetching from HyperCache
@@ -280,6 +316,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         // Test fetching from PostgreSQL (cache miss)
@@ -299,94 +336,105 @@ mod tests {
             .expect("Failed to insert new team in Redis");
 
         // Insert some mock flags into hypercache (new format)
+        let flags_vec = vec![
+            FeatureFlag {
+                id: 1,
+                team_id: team.id,
+                name: Some("Beta Feature".to_string()),
+                key: "beta_feature".to_string(),
+                filters: FlagFilters {
+                    groups: vec![FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "country".to_string(),
+                            value: Some(json!("US")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(50.0),
+                        variant: None,
+                        ..Default::default()
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    feature_enrollment: None,
+                    holdout: None,
+                },
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            },
+            FeatureFlag {
+                id: 2,
+                team_id: team.id,
+                name: Some("New User Interface".to_string()),
+                key: "new_ui".to_string(),
+                filters: FlagFilters {
+                    groups: vec![],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    feature_enrollment: None,
+                    holdout: None,
+                },
+                deleted: false,
+                active: false,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            },
+            FeatureFlag {
+                id: 3,
+                team_id: team.id,
+                name: Some("Premium Feature".to_string()),
+                key: "premium_feature".to_string(),
+                filters: FlagFilters {
+                    groups: vec![FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "is_premium".to_string(),
+                            value: Some(json!(true)),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        ..Default::default()
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    feature_enrollment: None,
+                    holdout: None,
+                },
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            },
+        ];
+        let evaluation_metadata = EvaluationMetadata::single_stage(&flags_vec);
         let mock_flags = FeatureFlagList {
-            flags: vec![
-                FeatureFlag {
-                    id: 1,
-                    team_id: team.id,
-                    name: Some("Beta Feature".to_string()),
-                    key: "beta_feature".to_string(),
-                    filters: FlagFilters {
-                        groups: vec![FlagPropertyGroup {
-                            properties: Some(vec![PropertyFilter {
-                                key: "country".to_string(),
-                                value: Some(json!("US")),
-                                operator: Some(OperatorType::Exact),
-                                prop_type: PropertyType::Person,
-                                group_type_index: None,
-                                negation: None,
-                            }]),
-                            rollout_percentage: Some(50.0),
-                            variant: None,
-                        }],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-                        holdout_groups: None,
-                    },
-                    deleted: false,
-                    active: true,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                },
-                FeatureFlag {
-                    id: 2,
-                    team_id: team.id,
-                    name: Some("New User Interface".to_string()),
-                    key: "new_ui".to_string(),
-                    filters: FlagFilters {
-                        groups: vec![],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-                        holdout_groups: None,
-                    },
-                    deleted: false,
-                    active: false,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                },
-                FeatureFlag {
-                    id: 3,
-                    team_id: team.id,
-                    name: Some("Premium Feature".to_string()),
-                    key: "premium_feature".to_string(),
-                    filters: FlagFilters {
-                        groups: vec![FlagPropertyGroup {
-                            properties: Some(vec![PropertyFilter {
-                                key: "is_premium".to_string(),
-                                value: Some(json!(true)),
-                                operator: Some(OperatorType::Exact),
-                                prop_type: PropertyType::Person,
-                                group_type_index: None,
-                                negation: None,
-                            }]),
-                            rollout_percentage: Some(100.0),
-                            variant: None,
-                        }],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-                        holdout_groups: None,
-                    },
-                    deleted: false,
-                    active: true,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                },
-            ],
+            flags: flags_vec,
+            evaluation_metadata,
+            ..Default::default()
         };
 
         // Write to hypercache (new format: {"flags": [...]})
@@ -402,6 +450,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         // Test fetching from hypercache
@@ -490,15 +539,19 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             }]),
                             rollout_percentage: Some(50.0 + i as f64),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
-                        holdout_groups: None,
+                        feature_enrollment: None,
+
+                        holdout: None,
                     },
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
@@ -507,11 +560,14 @@ mod tests {
                     bucketing_identifier: None,
                 })
                 .collect(),
+            ..Default::default()
         };
 
         // Serialize exactly like Django does for large payloads: JSON -> Pickle -> Zstd
         let wrapper = HypercacheFlagsWrapper {
             flags: large_flags.flags.clone(),
+            evaluation_metadata: EvaluationMetadata::single_stage(&large_flags.flags),
+            cohorts: None,
         };
         let json_string = serde_json::to_string(&wrapper).expect("Failed to serialize to JSON");
 
@@ -542,6 +598,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -601,6 +658,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         // Should fall back to PostgreSQL and succeed (returns empty list for new team)
@@ -643,6 +701,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -689,6 +748,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -738,6 +798,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -780,6 +841,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             negative_cache,
+            false,
         );
 
         let result = flag_service
@@ -804,6 +866,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             negative_cache.clone(),
+            false,
         );
 
         // First call should fail and populate the negative cache
@@ -832,6 +895,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             negative_cache.clone(),
+            false,
         );
 
         // Valid token should succeed and not be added to negative cache
@@ -863,6 +927,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             negative_cache.clone(),
+            false,
         );
 
         // First call: misses cache, hits Redis (mock) + PG fallback, fails, populates negative cache
@@ -883,5 +948,89 @@ mod tests {
             calls_after_first, calls_after_second,
             "Second call should not make additional Redis calls (served from negative cache)"
         );
+    }
+
+    #[tokio::test]
+    async fn test_skip_pg_fallback_still_resolves_token_from_hypercache() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("Failed to insert new team in Redis");
+
+        let negative_cache = NegativeCache::new(100, 300);
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            negative_cache.clone(),
+            true, // skip PG fallback
+        );
+
+        // Token is in HyperCache, so lookup should succeed even with PG fallback disabled
+        let result = flag_service
+            .verify_token_and_get_team(&team.api_token)
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().api_token, team.api_token);
+        assert!(
+            !negative_cache.contains(&team.api_token),
+            "Valid token found in HyperCache should not be in negative cache"
+        );
+    }
+
+    #[rstest]
+    #[case::skip_enabled_rejects(true)]
+    #[case::skip_disabled_falls_back_to_pg(false)]
+    #[tokio::test]
+    async fn test_skip_pg_fallback_with_pg_only_token(#[case] skip_pg: bool) {
+        use common_redis::MockRedisClient;
+
+        let mock_client = MockRedisClient::new();
+        let mock_redis: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
+        let team_hypercache_reader =
+            setup_team_hypercache_reader_with_mock_redis(mock_redis.clone());
+        let hypercache_reader = setup_hypercache_reader_with_mock_redis(mock_redis.clone());
+        let context = TestContext::new(None).await;
+
+        // Team exists in PG but not in HyperCache
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in PG");
+
+        let negative_cache = NegativeCache::new(100, 300);
+
+        let flag_service = FlagService::new(
+            mock_redis,
+            context.non_persons_reader.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            negative_cache.clone(),
+            skip_pg,
+        );
+
+        let result = flag_service
+            .verify_token_and_get_team(&team.api_token)
+            .await;
+
+        if skip_pg {
+            assert!(matches!(result, Err(FlagError::TokenValidationError)));
+            assert!(
+                negative_cache.contains(&team.api_token),
+                "Token should be negative-cached when PG fallback is skipped"
+            );
+        } else {
+            let resolved_team = result.expect("Should resolve via PG fallback");
+            assert_eq!(resolved_team.api_token, team.api_token);
+            assert!(
+                !negative_cache.contains(&team.api_token),
+                "Valid token should not be in negative cache"
+            );
+        }
     }
 }

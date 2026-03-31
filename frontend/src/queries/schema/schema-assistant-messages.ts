@@ -8,18 +8,24 @@ import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
     FunnelsQuery,
     HogQLQuery,
+    LifecycleQuery,
+    PathsQuery,
     QuerySchema,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsTopCustomersQuery,
+    StickinessQuery,
     TrendsQuery,
 } from './schema-general'
 
@@ -233,6 +239,9 @@ export type AnyAssistantGeneratedQuery =
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
+    | AssistantStickinessQuery
+    | AssistantPathsQuery
+    | AssistantLifecycleQuery
     | AssistantHogQLQuery
 
 export interface VisualizationItem {
@@ -244,6 +253,9 @@ export interface VisualizationItem {
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
+        | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -379,6 +391,7 @@ export enum AssistantEventType {
     Notebook = 'notebook',
     Update = 'update',
     Approval = 'approval',
+    Sandbox = 'sandbox',
 }
 
 export interface AssistantUpdateEvent {
@@ -475,7 +488,6 @@ export type AssistantTool =
     | 'upsert_alert'
     | 'finalize_plan'
     | 'call_mcp_server'
-    | 'recommend_products'
     | 'search_llm_traces'
 
 export enum AgentMode {
@@ -486,10 +498,10 @@ export enum AgentMode {
     Plan = 'plan',
     Execution = 'execution',
     Survey = 'survey',
-    Onboarding = 'onboarding',
     Research = 'research',
     Flags = 'flags',
     LLMAnalytics = 'llm_analytics',
+    Sandbox = 'sandbox',
 }
 
 export enum SlashCommandName {

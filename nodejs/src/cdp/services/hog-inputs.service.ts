@@ -78,7 +78,13 @@ export class HogInputsService {
             }
         }
 
-        const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
+        // Build a lookup of schema types for post-render coercion
+        const schemaTypes: Record<string, string> = {}
+        for (const schema of hogFunction.inputs_schema ?? []) {
+            schemaTypes[schema.key] = schema.type
+        }
+
+        const orderedInputs = Object.entries(inputs ?? {}).sort(([_k1, input1], [_k2, input2]) => {
             return (input1?.order ?? -1) - (input2?.order ?? -1)
         })
 
@@ -87,7 +93,16 @@ export class HogInputsService {
                 continue
             }
 
-            newGlobals.inputs[key] = await _formatInput(input, key)
+            let inputsResult = await _formatInput(input, key)
+
+            // Safety net: coerce string results to booleans for boolean schema fields.
+            // Handles edge cases where Liquid templating returns strings for boolean fields.
+            if (schemaTypes[key] === 'boolean' && typeof inputsResult === 'string') {
+                const lower = inputsResult.trim().toLowerCase()
+                inputsResult = lower === 'true' || lower === '1'
+            }
+
+            newGlobals.inputs[key] = inputsResult
         }
 
         return newGlobals.inputs

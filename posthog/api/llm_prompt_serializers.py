@@ -12,6 +12,20 @@ DEFAULT_VERSION_PAGE_SIZE = 50
 MAX_PROMPT_PAYLOAD_BYTES = 1_000_000
 
 
+def validate_prompt_name_value(value: str) -> str:
+    if value.lower() in RESERVED_PROMPT_NAMES:
+        raise serializers.ValidationError(
+            "'new' is a reserved name and cannot be used.",
+            code="reserved_name",
+        )
+    if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+        raise serializers.ValidationError(
+            "Only letters, numbers, hyphens (-) and underscores (_) are allowed.",
+            code="invalid_name",
+        )
+    return value
+
+
 def validate_prompt_payload_size(prompt_payload: Any) -> Any:
     prompt_payload_bytes = len(json.dumps(prompt_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     if prompt_payload_bytes > MAX_PROMPT_PAYLOAD_BYTES:
@@ -23,14 +37,43 @@ def validate_prompt_payload_size(prompt_payload: Any) -> Any:
 
 
 class LLMPromptFetchQuerySerializer(serializers.Serializer):
-    version = serializers.IntegerField(min_value=1, required=False)
+    version = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="Specific prompt version to fetch. If omitted, the latest version is returned.",
+    )
+
+
+class LLMPromptListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional substring filter applied to prompt names and prompt content.",
+    )
 
 
 class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
-    version_id = serializers.UUIDField(required=False)
-    offset = serializers.IntegerField(min_value=0, required=False)
-    before_version = serializers.IntegerField(min_value=1, required=False)
-    limit = serializers.IntegerField(min_value=1, required=False, default=DEFAULT_VERSION_PAGE_SIZE, max_value=100)
+    version_id = serializers.UUIDField(
+        required=False,
+        help_text="Exact prompt version UUID to resolve. Can be used together with version for extra safety.",
+    )
+    offset = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        help_text="Zero-based offset into version history for pagination. Mutually exclusive with before_version.",
+    )
+    before_version = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="Return versions older than this version number. Mutually exclusive with offset.",
+    )
+    limit = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        default=DEFAULT_VERSION_PAGE_SIZE,
+        max_value=100,
+        help_text="Maximum number of versions to return per page (1-100).",
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs.get("offset") is not None and attrs.get("before_version") is not None:
@@ -39,8 +82,11 @@ class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
 
 
 class LLMPromptPublishSerializer(serializers.Serializer):
-    prompt = serializers.JSONField()
-    base_version = serializers.IntegerField(min_value=1)
+    prompt = serializers.JSONField(help_text="Prompt payload to publish as a new version.")
+    base_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
+    )
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
@@ -81,6 +127,10 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "version_count",
             "first_version_created_at",
         ]
+        extra_kwargs = {
+            "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
+            "prompt": {"help_text": "Prompt payload as JSON or string data."},
+        }
 
     def get_is_latest(self, instance: LLMPrompt) -> bool:
         return bool(getattr(instance, "is_latest", False))
@@ -100,19 +150,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         return value.isoformat().replace("+00:00", "Z")
 
     def validate_name(self, value: str) -> str:
-        if value.lower() in RESERVED_PROMPT_NAMES:
-            raise serializers.ValidationError(
-                "'new' is a reserved name and cannot be used.",
-                code="reserved_name",
-            )
-
-        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
-            raise serializers.ValidationError(
-                "Only letters, numbers, hyphens (-) and underscores (_) are allowed.",
-                code="invalid_name",
-            )
-
-        return value
+        return validate_prompt_name_value(value)
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
@@ -179,6 +217,16 @@ class LLMPromptPublicSerializer(serializers.Serializer):
     latest_version = serializers.IntegerField()
     version_count = serializers.IntegerField()
     first_version_created_at = serializers.DateTimeField()
+
+
+class LLMPromptDuplicateSerializer(serializers.Serializer):
+    new_name = serializers.CharField(
+        max_length=255,
+        help_text="Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        return validate_prompt_name_value(value)
 
 
 class LLMPromptResolveResponseSerializer(serializers.Serializer):

@@ -16,12 +16,14 @@ import type {
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
     PaginatedDataWarehouseSavedQueryMinimalListApi,
     PaginatedExternalDataSchemaListApi,
+    PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedQueryTabStateListApi,
     PaginatedTableListApi,
@@ -366,6 +368,23 @@ export const dataWarehouseDataHealthIssuesRetrieve = async (
 }
 
 /**
+ * Returns the data ops overview dashboard ID for this team, creating it if it doesn't exist yet.
+ */
+export const getDataWarehouseDataOpsDashboardRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/data_ops_dashboard/`
+}
+
+export const dataWarehouseDataOpsDashboardRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDataWarehouseDataOpsDashboardRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Returns success and failed job statistics for the last 1, 7, or 30 days.
 Query parameter 'days' can be 1, 7, or 30 (default: 7).
  */
@@ -599,6 +618,48 @@ export const externalDataSourcesDestroy = async (
 /**
  * Create, Read, Update and Delete External data Sources.
  */
+export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/create_webhook/`
+}
+
+export const externalDataSourcesCreateWebhookCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const getExternalDataSourcesDeleteWebhookCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/delete_webhook/`
+}
+
+export const externalDataSourcesDeleteWebhookCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
 export const getExternalDataSourcesJobsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
 }
@@ -675,6 +736,81 @@ export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedExternalDataSourceSerializersApi),
     })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/update_webhook_inputs/`
+}
+
+export const externalDataSourcesUpdateWebhookInputsCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesUpdateWebhookInputsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const getExternalDataSourcesWebhookInfoRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/webhook_info/`
+}
+
+export const externalDataSourcesWebhookInfoRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const getExternalDataSourcesConnectionsListUrl = (
+    projectId: string,
+    params?: ExternalDataSourcesConnectionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/connections/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/connections/`
+}
+
+export const externalDataSourcesConnectionsList = async (
+    projectId: string,
+    params?: ExternalDataSourcesConnectionsListParams,
+    options?: RequestInit
+): Promise<PaginatedExternalDataSourceConnectionOptionListApi> => {
+    return apiMutator<PaginatedExternalDataSourceConnectionOptionListApi>(
+        getExternalDataSourcesConnectionsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**

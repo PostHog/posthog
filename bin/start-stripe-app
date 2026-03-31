@@ -7,6 +7,7 @@ TEAM_ID="${1:-1}"
 if ! command -v stripe &> /dev/null; then
     echo "Error: Stripe CLI is not installed."
     echo "Install it with: brew install stripe/stripe-cli/stripe"
+    echo "Install the apps plugin: stripe plugin install apps"
     exit 1
 fi
 

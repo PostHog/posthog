@@ -2,16 +2,18 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{Cursor, Read};
 
-use axum::async_trait;
+use async_trait::async_trait;
 use serde::Deserialize;
 use symbolic::debuginfo::Archive;
 use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
 use zip::ZipArchive;
 
+use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym};
+
 use crate::{
     error::{AppleError, ResolveError},
-    symbol_store::{Fetcher, Parser},
+    symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
 /// Manifest format for source files bundled in the dSYM ZIP under `__source/`
@@ -28,6 +30,14 @@ pub struct ParsedAppleSymbols {
     /// Source file contents indexed by DWARF absolute path.
     /// None if the bundle doesn't contain source files.
     sources: Option<HashMap<String, String>>,
+    /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
+    decompressed_bytes: usize,
+}
+
+impl Countable for ParsedAppleSymbols {
+    fn byte_count(&self) -> usize {
+        self.decompressed_bytes
+    }
 }
 
 pub struct AppleProvider {}
@@ -53,13 +63,26 @@ impl Parser for AppleProvider {
     type Err = ResolveError;
 
     async fn parse(&self, source: Self::Source) -> Result<ParsedAppleSymbols, ResolveError> {
-        // CLI uploads raw zip data directly
-        ParsedAppleSymbols::from_dsym_zip(source)
+        // Try to unwrap symbol_data container first (new format),
+        // fall back to raw ZIP for backward compatibility with existing uploads.
+        // TODO(2026-09-24): Remove raw ZIP fallback once all old uploads have expired.
+        let (zip_data, decompressed_bytes) =
+            match read_symbol_data_with_byte_count::<AppleDsym>(source.clone()) {
+                Ok((dsym, bytes)) => (dsym.data, bytes),
+                Err(_) => {
+                    let len = source.len();
+                    (source, len)
+                }
+            };
+        ParsedAppleSymbols::from_dsym_zip(zip_data, decompressed_bytes)
     }
 }
 
 impl ParsedAppleSymbols {
-    pub fn from_dsym_zip(zip_data: Vec<u8>) -> Result<Self, ResolveError> {
+    pub fn from_dsym_zip(
+        zip_data: Vec<u8>,
+        decompressed_bytes: usize,
+    ) -> Result<Self, ResolveError> {
         let cursor = Cursor::new(zip_data);
         let mut archive =
             ZipArchive::new(cursor).map_err(|e| AppleError::ParseError(e.to_string()))?;
@@ -74,6 +97,7 @@ impl ParsedAppleSymbols {
         Ok(Self {
             symcache_data,
             sources,
+            decompressed_bytes,
         })
     }
 
@@ -119,6 +143,16 @@ impl ParsedAppleSymbols {
     fn extract_dwarf_from_zip(
         archive: &mut ZipArchive<Cursor<Vec<u8>>>,
     ) -> Result<Vec<u8>, ResolveError> {
+        // New format: single DWARF binary stored as "dwarf" at root level
+        if let Ok(mut file) = archive.by_name("dwarf") {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data)
+                .map_err(|e| AppleError::ParseError(e.to_string()))?;
+            return Ok(data);
+        }
+
+        // Old format: full dSYM bundle with Contents/Resources/DWARF/<name>
+        // TODO(2026-09-24): Remove this fallback once all old uploads have expired.
         for i in 0..archive.len() {
             let mut file = archive
                 .by_index(i)

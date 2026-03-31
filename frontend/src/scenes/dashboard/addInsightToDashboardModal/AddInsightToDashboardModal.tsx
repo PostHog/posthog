@@ -67,7 +67,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                     Build a new insight and add it to this dashboard
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2 sm:ml-auto flex-wrap">
+                            <div className="flex items-center gap-2 sm:ml-auto flex-wrap pr-0.5">
                                 {QUICK_CREATE_TYPES.map(({ type, icon: Icon, label }) => (
                                     <LemonButton
                                         key={type}
@@ -89,16 +89,22 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                         <div className="p-2 space-y-1 min-w-48">
                                             {additionalTypes.map(([type, metadata]) => {
                                                 const Icon = metadata.icon
+                                                const typeUrl =
+                                                    type === InsightType.SQL
+                                                        ? urls.sqlEditor({
+                                                              dashboard: dashboard?.id,
+                                                          })
+                                                        : urls.insightNew({
+                                                              type: type as InsightType,
+                                                              dashboardId: dashboard?.id,
+                                                          })
                                                 return (
                                                     <LemonButton
                                                         key={type}
                                                         type="tertiary"
                                                         fullWidth
                                                         icon={Icon ? <Icon /> : undefined}
-                                                        to={urls.insightNew({
-                                                            type: type as InsightType,
-                                                            dashboardId: dashboard?.id,
-                                                        })}
+                                                        to={typeUrl}
                                                         data-attr={`create-${type.toLowerCase()}`}
                                                         onClick={() => handleNewInsightClicked(type)}
                                                     >

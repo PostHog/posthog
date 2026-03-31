@@ -29,6 +29,7 @@ jobs:
     check-docs-generated:
         name: Check docs are up to date
         runs-on: ubuntu-24.04
+        timeout-minutes: 10
 
         steps:
             - name: Check if source file changed
@@ -57,6 +58,9 @@ jobs:
               with:
                   node-version: 24
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-docs-check.yml
 
             - name: Install dependencies
               if: steps.source-check.outputs.changed == 'true'

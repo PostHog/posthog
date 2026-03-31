@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import type { ApiClient } from '@/api/client'
+import type { ApiClient, GroupType } from '@/api/client'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
@@ -20,7 +20,11 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
-} & Record<PrefixedString<'session'>, SessionState>
+    aiConsentGiven: boolean | undefined
+    aiConsentFetchedAt: number | undefined
+} & Record<PrefixedString<'session'>, SessionState> &
+    Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
+    Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined>
 
 export type Env = {
     /**
@@ -37,6 +41,12 @@ export type Env = {
      */
     POSTHOG_API_BASE_URL: string | undefined
     /**
+     * Base URL for serving MCP UI app static assets.
+     * When using Workers Static Assets, this is the Worker's own public URL.
+     * Example: https://mcp.posthog.com
+     */
+    MCP_APPS_BASE_URL: string | undefined
+    /**
      * PostHog base URL for MCP Apps analytics (used for CSP and analytics ingestion).
      * For local development, set to http://localhost:8010.
      */
@@ -45,6 +55,16 @@ export type Env = {
      * PostHog API token for MCP Apps analytics (used for CSP and analytics ingestion).
      */
     POSTHOG_UI_APPS_TOKEN: string | undefined
+    /**
+     * PostHog API key for dev/self-hosted analytics.
+     * Falls back to the production US key if not set.
+     */
+    POSTHOG_ANALYTICS_API_KEY: string | undefined
+    /**
+     * PostHog host for dev/self-hosted analytics.
+     * Falls back to the production US host if not set.
+     */
+    POSTHOG_ANALYTICS_HOST: string | undefined
 }
 
 export type Context = {

@@ -27,6 +27,8 @@ _PROVIDER_TO_API_KEY: Final[dict[str, tuple[str, str]]] = {
     "vertex_ai": ("gemini_api_key", "GEMINI_API_KEY"),
     "vertex_ai-language-models": ("gemini_api_key", "GEMINI_API_KEY"),
     "gemini": ("gemini_api_key", "GEMINI_API_KEY"),
+    "openrouter": ("openrouter_api_key", "OPENROUTER_API_KEY"),
+    "fireworks_ai": ("fireworks_api_key", "FIREWORKS_API_KEY"),
 }
 
 
@@ -49,10 +51,10 @@ def _get_configured_providers() -> frozenset[str]:
     return frozenset(configured)
 
 
-def _is_chat_model(cost_data: ModelCost) -> bool:
-    """Check if a model is a chat model (not embedding, image generation, etc)."""
+def _is_text_generation_model(cost_data: ModelCost) -> bool:
+    """Check if a model supports text generation (chat/completions/responses)."""
     mode = cost_data.get("mode", "")
-    return mode in ("chat", "completion", "")
+    return mode in ("chat", "completion", "responses", "")
 
 
 def _normalize_provider(provider: str) -> str:
@@ -119,8 +121,7 @@ class ModelRegistryService:
             # Filter out models where provider is not configured
             if not _is_configured_provider(model_provider, configured_providers):
                 continue
-            # Filter out non-chat models
-            if not _is_chat_model(model_cost_data):
+            if not _is_text_generation_model(model_cost_data):
                 continue
             # Filter out Bedrock models that don't support the messages endpoint
             if not _supports_bedrock_messages_endpoint(raw_model_id, model_provider):
@@ -158,7 +159,7 @@ class ModelRegistryService:
         if not _supports_bedrock_messages_endpoint(model_id, provider):
             return False
 
-        return _is_configured_provider(provider, configured_providers) and _is_chat_model(cost_data)
+        return _is_configured_provider(provider, configured_providers) and _is_text_generation_model(cost_data)
 
 
 def get_available_models(product: str) -> list[ModelInfo]:

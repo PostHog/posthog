@@ -24,9 +24,22 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Customer analytics configuration',
         },
+        CustomerJourneyBuilder: {
+            import: () => import('./frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
+            projectBased: true,
+            name: 'New journey',
+        },
+        CustomerJourneyTemplates: {
+            import: () => import('./frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
+            projectBased: true,
+            name: 'New journey',
+        },
     },
     routes: {
         '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
+        '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
+        '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
+        '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
         '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
         '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     },
@@ -39,6 +52,9 @@ export const manifest: ProductManifest = {
         customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
         customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
         customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
+        customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
+        customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
+        customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
     },
     treeItemsProducts: [
         {
@@ -50,6 +66,7 @@ export const manifest: ProductManifest = {
             tags: ['beta'],
             flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             sceneKey: 'CustomerAnalytics',
+            sceneKeys: ['CustomerAnalytics', 'CustomerJourneyTemplates', 'CustomerJourneyBuilder'],
         },
     ],
 }

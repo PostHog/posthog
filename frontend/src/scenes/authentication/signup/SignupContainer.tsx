@@ -36,7 +36,6 @@ export function SignupContainer(): JSX.Element | null {
             view="signup"
             sideLogo
             leftContainerContent={<SignupLeftContainer />}
-            hideFooterForTwig
             footer={
                 <div className="sm:flex sm:justify-center w-full gap-[10%]">
                     {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (

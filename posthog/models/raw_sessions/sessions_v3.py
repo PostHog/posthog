@@ -168,6 +168,12 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Event names - store unique event names seen in this session
     event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
 
+    -- Hosts - store unique hostnames seen in this session (extracted from $host property)
+    hosts SimpleAggregateFunction(groupUniqArrayArray({max_hosts}), Array(String)),
+
+    -- Emails - store unique emails seen in this session (extracted from person_properties.email)
+    emails SimpleAggregateFunction(groupUniqArrayArray({max_emails}), Array(String)),
+
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean)
 ) ENGINE = {engine}
@@ -192,7 +198,9 @@ def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
 
     -- Indexes
     INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-    INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
+    INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+    INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
+    INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
 ) ENGINE = {engine}""",
     )
 
@@ -212,7 +220,13 @@ SETTINGS {settings}
         engine=SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
         settings=SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3(),
         session_timestamp_modifier="DEFAULT",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
+
+
+SESSION_V3_MAX_HOSTS_PER_SESSION = 100
+SESSION_V3_MAX_EMAILS_PER_SESSION = 10
 
 
 def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
@@ -268,8 +282,10 @@ PROPERTIES = f"""
             `gclid` Nullable(String),
             `gad_source` Nullable(String),
             `fbclid` Nullable(String),
+            `$host` Nullable(String),
 {f",{new_line}".join([f"            `{ad_id}` Nullable(String)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         )') as p,
+        JSONExtractString(person_properties, 'email') as _person_email,
         tupleElement(p, '$current_url') as _current_url,
         tupleElement(p, '$external_click_url') as _external_click_url,
         tupleElement(p, '$browser') as _browser,
@@ -299,7 +315,8 @@ PROPERTIES = f"""
         )) AS Map(String, String)) as ad_ids_map,
         CAST(arrayFilter(x -> x IS NOT NULL, [
 {f",{new_line}".join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
-        ]) AS Array(String)) as ad_ids_set"""
+        ]) AS Array(String)) as ad_ids_set,
+        tupleElement(p, '$host') as _host"""
 
 
 def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
@@ -381,6 +398,12 @@ SELECT
 
     -- event names
     [event] as event_names,
+
+    -- hosts
+    if(_host IS NOT NULL AND _host != '', [_host], []) AS hosts,
+
+    -- emails
+    if(_person_email IS NOT NULL AND _person_email != '', [_person_email], []) AS emails,
 
     false as has_replay_events
 FROM {source_table} AS source_table
@@ -507,6 +530,12 @@ SELECT
     -- event names
     CAST([], 'Array(String)') as event_names,
 
+    -- hosts
+    CAST([], 'Array(String)') as hosts,
+
+    -- emails
+    CAST([], 'Array(String)') as emails,
+
     -- replay
     true as has_replay_events
 FROM {source_table} AS source_table
@@ -630,6 +659,8 @@ def WRITABLE_RAW_SESSIONS_TABLE_SQL_V3():
             sharding_key="cityHash64(session_id_v7)",
         ),
         session_timestamp_modifier="DEFAULT",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
 
 
@@ -644,6 +675,8 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3():
             sharding_key="cityHash64(session_id_v7)",
         ),
         session_timestamp_modifier="MATERIALIZED",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
 
 
@@ -722,6 +755,12 @@ SELECT
     -- event names
     groupUniqArrayArray(2000)(event_names) as event_names,
 
+    -- hosts
+    groupUniqArrayArray({SESSION_V3_MAX_HOSTS_PER_SESSION})(hosts) as hosts,
+
+    -- emails
+    groupUniqArrayArray({SESSION_V3_MAX_EMAILS_PER_SESSION})(emails) as emails,
+
     -- replay
     max(has_replay_events) as has_replay_events
 FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
@@ -771,24 +810,39 @@ LIMIT 20
 """
 
 
-def GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions: list[str]) -> str:
-    """Get the maximum number of active parts across specified partitions and all nodes.
+def GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(
+    partitions: list[str],
+    *,
+    table: str | None = None,
+    use_cluster: bool = True,
+) -> str:
+    """Get the maximum number of active parts across specified partitions.
+
+    ClickHouse's parts_to_throw_insert is per-partition, so this checks the max
+    active parts in any single (host, partition) combination.
 
     Args:
         partitions: List of partition names in YYYYMM format (e.g., ['202501', '202412'])
+        table: Table name to check. Defaults to the sharded raw sessions table.
+        use_cluster: If True, query across all cluster replicas. If False, query
+            only the local node's system.parts (useful for standalone/experimental nodes).
     """
     if not partitions:
         raise ValueError("partitions list cannot be empty")
     # Format partitions for SQL IN clause: ('202501', '202412')
     partitions_sql = ", ".join(f"'{p}'" for p in partitions)
+    table = table or SHARDED_RAW_SESSIONS_TABLE_V3()
+    parts_table = (
+        f"clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)" if use_cluster else "system.parts"
+    )
 
     return f"""
         SELECT coalesce(max(parts_count), 0), argMax(partition, parts_count), argMax(host, parts_count)
         FROM (
             SELECT hostName() as host, count() as parts_count, partition
-            FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
-            WHERE database = '{settings.CLICKHOUSE_DATABASE}'
-              AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
+            FROM {parts_table}
+            WHERE database = currentDatabase()
+              AND table = '{table}'
               AND partition IN ({partitions_sql})
               AND active = 1
             GROUP BY host, partition

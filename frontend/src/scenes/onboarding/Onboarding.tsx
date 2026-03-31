@@ -6,7 +6,6 @@ import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
@@ -28,10 +27,8 @@ import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingEr
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingLogicProps, OnboardingStepElement, onboardingLogic } from './onboardingLogic'
-import { OnboardingMax } from './OnboardingMax'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
-import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
@@ -66,7 +63,6 @@ const OnboardingWrapper = ({
     const {
         currentOnboardingStep,
         shouldShowBillingStep,
-        shouldShowReverseProxyStep,
         shouldShowDataWarehouseStep,
         product,
         billingProduct,
@@ -96,11 +92,6 @@ const OnboardingWrapper = ({
         if (shouldShowDataWarehouseStep) {
             const DataWarehouseStep = <OnboardingDataWarehouseSourcesStep />
             steps = [...steps, DataWarehouseStep]
-        }
-
-        if (shouldShowReverseProxyStep) {
-            const ReverseProxyStep = <OnboardingReverseProxy />
-            steps = [...steps, ReverseProxyStep]
         }
 
         if (shouldShowBillingStep && billingProduct) {
@@ -484,14 +475,8 @@ export const onboardingViews = {
 
 export function Onboarding(): JSX.Element | null {
     const { product, productKey } = useValues(onboardingLogic)
-    const isAIChatOnboarding = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'chat')
 
-    // Show AI chat for product discovery if 'chat' variant is enabled and no product selected yet
-    // Once a product is selected, fall through to the normal onboarding steps
     if (!productKey) {
-        if (isAIChatOnboarding) {
-            return <OnboardingMax />
-        }
         return <ProductSelection />
     }
 

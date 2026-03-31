@@ -164,7 +164,7 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     }
 }
 
-fn extract_trace_id(input: &[u8]) -> [u8; 16] {
+pub fn extract_trace_id(input: &[u8]) -> [u8; 16] {
     if input.len() == 16 {
         let mut bytes = [0; 16];
         bytes.copy_from_slice(input);
@@ -174,7 +174,7 @@ fn extract_trace_id(input: &[u8]) -> [u8; 16] {
     }
 }
 
-fn extract_span_id(input: &[u8]) -> [u8; 8] {
+pub fn extract_span_id(input: &[u8]) -> [u8; 8] {
     if input.len() == 8 {
         let mut bytes = [0; 8];
         bytes.copy_from_slice(input);
@@ -239,7 +239,7 @@ fn convert_severity_number_to_text(severity_number: i32) -> String {
     }
 }
 
-fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String, String> {
+pub fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String, String> {
     let Some(resource) = resource else {
         return HashMap::new();
     };
@@ -280,7 +280,7 @@ fn try_extract_severity(body: &str) -> Option<String> {
     None
 }
 
-fn any_value_to_json(value: AnyValue) -> JsonValue {
+pub fn any_value_to_json(value: AnyValue) -> JsonValue {
     match value.value {
         Some(value_enum) => match value_enum {
             any_value::Value::StringValue(s) => json!(s),
@@ -311,7 +311,7 @@ fn any_value_to_json(value: AnyValue) -> JsonValue {
     }
 }
 
-fn any_value_to_string(value: AnyValue) -> String {
+pub fn any_value_to_string(value: AnyValue) -> String {
     any_value_to_json(value).to_string()
 }
 

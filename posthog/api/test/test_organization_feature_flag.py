@@ -8,16 +8,16 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.api.dashboards.dashboard import Dashboard
 from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
-from posthog.models.experiment import Experiment
 from posthog.models.scheduled_change import ScheduledChange
-from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 
+from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models.experiment import Experiment
+from products.surveys.backend.models import Survey
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -162,7 +162,15 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
-            "filters": self.feature_flag_to_copy.filters,
+            "filters": {
+                "groups": [
+                    {
+                        "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
+                    }
+                ],
+                "aggregation_group_type_index": None,
+            },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
@@ -172,6 +180,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": [],
+            "experiment_set_metadata": [],
             "surveys": [],
             "features": [],
             "rollback_conditions": None,
@@ -180,7 +189,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": [],
             "has_enriched_analytics": False,
             "tags": [],
-            "evaluation_tags": [],
+            "evaluation_contexts": [],
             "user_access_level": "manager",
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
@@ -247,7 +256,15 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
-            "filters": self.feature_flag_to_copy.filters,
+            "filters": {
+                "groups": [
+                    {
+                        "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
+                    }
+                ],
+                "aggregation_group_type_index": None,
+            },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
@@ -257,12 +274,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "can_edit": True,
             "has_enriched_analytics": False,
             "tags": [],
-            "evaluation_tags": [],
+            "evaluation_contexts": [],
             "id": ANY,
             "created_at": ANY,
             "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": ANY,
+            "experiment_set_metadata": ANY,
             "surveys": ANY,
             "features": ANY,
             "analytics_dashboards": ANY,
@@ -377,7 +395,15 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
-            "filters": self.feature_flag_to_copy.filters,
+            "filters": {
+                "groups": [
+                    {
+                        "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
+                    }
+                ],
+                "aggregation_group_type_index": None,
+            },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
@@ -387,12 +413,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "can_edit": True,
             "has_enriched_analytics": False,
             "tags": [],
-            "evaluation_tags": [],
+            "evaluation_contexts": [],
             "id": ANY,
             "created_at": ANY,
             "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": ANY,
+            "experiment_set_metadata": ANY,
             "surveys": ANY,
             "features": ANY,
             "analytics_dashboards": ANY,
@@ -422,7 +449,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["failed"]), 1)
         self.assertEqual(response.json()["failed"][0]["project_id"], target_project_2.id)
         self.assertEqual(
-            response.json()["failed"][0]["errors"],
+            response.json()["failed"][0]["error_message"],
             "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]",
         )
 
@@ -445,6 +472,24 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.json())
+
+    def test_copy_feature_flag_from_other_org_returns_not_found(self):
+        from posthog.models.organization import Organization
+
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org)
+        FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-org-flag")
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": "other-org-flag",
+            "from_project": other_team.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Feature flag to copy does not exist.")
 
     def test_copy_feature_flag_to_nonexistent_target(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -510,7 +555,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["success"]), 0)
         self.assertEqual(len(response.json()["failed"]), 1)
         self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
-        self.assertEqual(response.json()["failed"][0]["errors"], "Project not found.")
+        self.assertEqual(response.json()["failed"][0]["error_message"], "Project not found.")
 
     def test_copy_feature_flag_cohort_nonexistent_in_destination(self):
         cohorts = {}

@@ -1,23 +1,20 @@
 import './FeatureFlag.scss'
 
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 
-import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconMessage, IconServer } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonDialog, LemonDivider, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconServer } from '@posthog/icons'
+import { LemonCollapse, LemonDialog, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -30,22 +27,24 @@ import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
 interface FeatureFlagOverviewV2Props {
     featureFlag: FeatureFlagType
-    onGetFeedback?: (variantKey?: string) => void
 }
 
 interface TagsDisplayProps {
     tags: string[]
-    evaluationTags: string[]
+    evaluationContexts: string[]
     flagId: number | null
-    hasEvaluationTags: boolean
+    hasEvaluationContexts: boolean
 }
 
-function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDisplayProps): JSX.Element {
-    const hasTags = tags.length > 0 || evaluationTags.length > 0
-
-    if (hasEvaluationTags && hasTags) {
+function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }: TagsDisplayProps): JSX.Element {
+    if (hasEvaluationContexts) {
         return (
-            <FeatureFlagEvaluationTags tags={tags} evaluationTags={evaluationTags} flagId={flagId} context="static" />
+            <FeatureFlagEvaluationContexts
+                tags={tags}
+                evaluationContexts={evaluationContexts}
+                flagId={flagId}
+                context="static"
+            />
         )
     }
 
@@ -63,24 +62,17 @@ function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDi
  * based on the useFormUI flag. If other entry points need to render this overview,
  * ensure the gate is checked there as well.
  */
-export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFlagOverviewV2Props): JSX.Element {
+export function FeatureFlagOverviewV2({ featureFlag }: FeatureFlagOverviewV2Props): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { recordingFilterForFlag, featureFlagActiveUpdateLoading } = useValues(featureFlagLogic)
     const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
-    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
-    const hasEvaluationTags = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]
+    const hasEvaluationContexts = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const hasEvaluationRuntimes = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
 
     const multivariateEnabled = !!featureFlag.filters?.multivariate
     const variants = featureFlag.filters?.multivariate?.variants || []
     const hasPayload = !!featureFlag.filters?.payloads?.['true']
-
-    const reportViewRecordingsClicked = (): void => {
-        posthog.capture('viewed recordings from feature flag', {
-            multivariate: multivariateEnabled.toString(),
-        })
-    }
 
     const handleToggleClick = (): void => {
         LemonDialog.open({
@@ -201,102 +193,53 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <div className="font-semibold">Advanced options</div>
 
                             <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium">
-                                    {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
-                                </label>
+                                {!hasEvaluationContexts && <label className="text-sm font-medium">Tags</label>}
                                 <TagsDisplay
                                     tags={featureFlag.tags || []}
-                                    evaluationTags={featureFlag.evaluation_tags || []}
+                                    evaluationContexts={featureFlag.evaluation_contexts || []}
                                     flagId={featureFlag.id}
-                                    hasEvaluationTags={hasEvaluationTags}
+                                    hasEvaluationContexts={hasEvaluationContexts}
                                 />
                             </div>
 
                             {hasEvaluationRuntimes && (
-                                <>
-                                    <LemonDivider className="my-1" />
-
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-sm font-medium">Evaluation runtime</label>
-                                        <div className="flex items-center gap-2">
-                                            {evaluationRuntimeDisplay.icon}
-                                            <span className="font-medium text-sm">
-                                                {evaluationRuntimeDisplay.label}
-                                            </span>
-                                            <LemonTag type="muted" size="small">
-                                                {evaluationRuntimeDisplay.tag}
-                                            </LemonTag>
-                                        </div>
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-medium">Evaluation runtime</label>
+                                    <div className="flex items-center gap-2">
+                                        {evaluationRuntimeDisplay.icon}
+                                        <span className="text-sm">{evaluationRuntimeDisplay.label}</span>
+                                        <LemonTag type="muted" size="small">
+                                            {evaluationRuntimeDisplay.tag}
+                                        </LemonTag>
                                     </div>
-                                </>
+                                </div>
                             )}
 
                             {!featureFlag.is_remote_configuration && (
-                                <>
-                                    <LemonDivider className="my-1" />
-
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-sm font-medium">Persistence</label>
-                                        <span className="text-sm text-muted">
-                                            {featureFlag.ensure_experience_continuity ? (
-                                                <>
-                                                    This flag <b className="text-default">persists</b> across
-                                                    authentication steps
-                                                </>
-                                            ) : (
-                                                <>
-                                                    This flag <b className="text-default">does not persist</b> across
-                                                    authentication steps
-                                                </>
-                                            )}
-                                        </span>
-                                    </div>
-                                </>
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-medium">Persistence</label>
+                                    <span className="text-sm text-muted">
+                                        {featureFlag.ensure_experience_continuity
+                                            ? 'Persists across authentication steps'
+                                            : 'Does not persist across authentication steps'}
+                                    </span>
+                                </div>
                             )}
                         </div>
                     </EditableOverviewSection>
 
                     {!featureFlag.is_remote_configuration && (
                         <div className="rounded border p-4 bg-bg-light flex flex-col gap-3">
-                            <div className="font-semibold">Insights</div>
-                            <RecentFeatureFlagInsights />
-
-                            <div className="flex flex-col gap-3 mt-2 pt-3 border-t border-border-light">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted">
-                                        Watch recordings of users exposed to this flag
-                                    </span>
-                                    <ViewRecordingsPlaylistButton
-                                        filters={recordingFilterForFlag}
-                                        type="secondary"
-                                        size="small"
-                                        data-attr="feature-flag-view-recordings"
-                                        onClick={() => {
-                                            reportViewRecordingsClicked()
-                                            addProductIntentForCrossSell({
-                                                from: ProductKey.FEATURE_FLAGS,
-                                                to: ProductKey.SESSION_REPLAY,
-                                                intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                            })
-                                        }}
-                                    />
-                                </div>
-                                {onGetFeedback && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-muted">
-                                            Gather feedback from users who see this flag
-                                        </span>
-                                        <LemonButton
-                                            onClick={() => onGetFeedback()}
-                                            type="secondary"
-                                            size="small"
-                                            sideIcon={<IconMessage />}
-                                        >
-                                            Get feedback
-                                        </LemonButton>
-                                    </div>
-                                )}
+                            <div className="flex items-center justify-between">
+                                <div className="font-semibold">Related insights</div>
+                                <ViewRecordingsPlaylistButton
+                                    filters={recordingFilterForFlag}
+                                    type="secondary"
+                                    size="xsmall"
+                                    data-attr="feature-flag-view-recordings"
+                                />
                             </div>
+                            <RecentFeatureFlagInsights />
                         </div>
                     )}
                 </div>
@@ -361,6 +304,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     id={String(featureFlag.id)}
                                     filters={featureFlag.filters}
                                     isDisabled={!featureFlag.active}
+                                    evaluationRuntime={featureFlag.evaluation_runtime}
                                 />
                             </EditableOverviewSection>
                         </>

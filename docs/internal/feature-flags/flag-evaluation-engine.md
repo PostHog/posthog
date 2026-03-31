@@ -19,8 +19,8 @@ The Rust feature flags service evaluates flags using a deterministic, hash-based
    ┌──────────┐  ┌───────────┐   ┌────────────┐
    │ SHA1     │  │ Property  │   │ Dependency │
    │ hashing  │  │ matching  │   │ graph      │
-   │ (rollout │  │ (23       │   │ (petgraph  │
-   │  + vars) │  │ operators)│   │  DAG)      │
+   │ (rollout │  │ (23       │   │ (pre-built │
+   │  + vars) │  │ operators)│   │  or DAG)   │
    └──────────┘  └───────────┘   └────────────┘
 ```
 
@@ -44,6 +44,21 @@ pub struct FeatureFlag {
     pub bucketing_identifier: Option<String>,        // "distinct_id" or "device_id"
 }
 ```
+
+### EvaluationMetadata
+
+Pre-computed dependency metadata, built by Django at cache-write time and shipped as a top-level field alongside the flags array in the HyperCache.
+
+```rust
+pub struct EvaluationMetadata {
+    pub dependency_stages: Vec<Vec<i32>>,           // flag IDs grouped by stage (stage 0 first)
+    pub flags_with_missing_deps: Vec<i32>,          // flag IDs with broken dependencies
+    pub transitive_deps: HashMap<i32, HashSet<i32>>, // flag ID → transitive dep IDs
+}
+```
+
+On the wire (JSON), `transitive_deps` keys are stringified integers (`{"1": [2, 3]}`).
+Custom serde converts between this and the in-memory `HashMap<i32, HashSet<i32>>`.
 
 ### FlagFilters
 
@@ -78,8 +93,34 @@ pub struct PropertyFilter {
     pub prop_type: PropertyType,                    // Person, Group, Cohort, or Flag
     pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
+    #[serde(skip)]
+    pub compiled_regex: Option<CompiledRegex>,       // Pre-compiled regex (see below)
 }
 ```
+
+### CompiledRegex
+
+Pre-compiled regex state for `Regex`/`NotRegex` operators, populated by `prepare_regex()` at flag-load time. Skipped during serde (de)serialization.
+
+```rust
+pub enum CompiledRegex {
+    Compiled(fancy_regex::Regex),  // Valid pattern, compiled with backtrack_limit(10_000)
+    InvalidPattern,                 // Pattern failed to compile — always returns Ok(false)
+}
+```
+
+`fancy_regex::Regex` uses `Arc<Prog>` internally, so `Clone` is cheap and the enum is `Send + Sync` for concurrent evaluation across tokio tasks.
+
+### Regex pre-compilation
+
+Regex patterns are compiled once per request rather than on every `match_property()` call.
+
+**Entry point:** `FeatureFlagList::prepare_regexes()` is called in `fetch_and_filter()` (in `handler/flags.rs`) immediately after flag list construction, before any evaluation begins.
+
+- `PropertyFilter::prepare_regex()` — compiles the filter's value as a regex with `backtrack_limit(10_000)` for `Regex`/`NotRegex` operators. No-op for other operators or when `compiled_regex` is already `Some` (idempotent). Stores `CompiledRegex::Compiled` on success or `CompiledRegex::InvalidPattern` on failure. If `value` is `None`, leaves `compiled_regex` as `None` (fallback path).
+- `FeatureFlagList::prepare_regexes()` — walks all flags → `filters.groups` and `filters.super_groups` → property filters, calling `prepare_regex()` on each.
+
+The fallback on-the-fly compilation path (`compiled_regex: None`) is retained for cohort property filters (constructed dynamically in `cohort_operations.rs`, not from the flag cache) and for test code that constructs `PropertyFilter` directly.
 
 ## Per-flag evaluation flow
 
@@ -196,18 +237,18 @@ Each flag has one or more condition groups (OR'd). Within each group, property f
 
 Defined in `rust/feature-flags/src/properties/property_matching.rs`. The service supports 23 operators:
 
-| Category     | Operators                                                                       | Behavior                                                                                                         |
-| ------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Existence    | `is_set`, `is_not_set`                                                          | Key presence check in property map                                                                               |
-| Equality     | `exact`, `is_not`                                                               | Case-insensitive comparison. Arrays checked with contains. Boolean normalization for `"true"`/`"false"` strings. |
-| String       | `icontains`, `not_icontains`                                                    | ASCII-case-insensitive substring match                                                                           |
-| Regex        | `regex`, `not_regex`                                                            | `fancy_regex` with 10,000 step backtrack limit (ReDoS protection)                                                |
-| Numeric      | `gt`, `gte`, `lt`, `lte`                                                        | Parse both sides as `f64`                                                                                        |
-| Semver       | `semver_gt`, `semver_gte`, `semver_lt`, `semver_lte`, `semver_eq`, `semver_neq` | Direct `Version` comparison                                                                                      |
-| Semver range | `semver_tilde`, `semver_caret`, `semver_wildcard`                               | `VersionReq` parsing (`~1.2.3`, `^1.2.3`, `1.2.x`)                                                               |
-| Date         | `is_date_exact`, `is_date_after`, `is_date_before`                              | Supports relative dates, ISO 8601, Unix timestamps                                                               |
-| Cohort       | `in`, `not_in`                                                                  | Handled by cohort matching, not property matching                                                                |
-| Flag         | `flag_evaluates_to`                                                             | Handled by flag dependency matching                                                                              |
+| Category     | Operators                                                                       | Behavior                                                                                                                                                                                                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Existence    | `is_set`, `is_not_set`                                                          | Key presence check in property map                                                                                                                                                                                                                                                           |
+| Equality     | `exact`, `is_not`                                                               | Case-insensitive comparison. Arrays checked with contains. Boolean normalization for `"true"`/`"false"` strings.                                                                                                                                                                             |
+| String       | `icontains`, `not_icontains`                                                    | ASCII-case-insensitive substring match                                                                                                                                                                                                                                                       |
+| Regex        | `regex`, `not_regex`                                                            | `fancy_regex` with 10,000 step backtrack limit (ReDoS protection). Patterns are pre-compiled once per request via `prepare_regexes()`. Three-state dispatch in `match_property()`: pre-compiled fast path → `InvalidPattern` short-circuit to `Ok(false)` → fallback on-the-fly compilation. |
+| Numeric      | `gt`, `gte`, `lt`, `lte`                                                        | Parse both sides as `f64`                                                                                                                                                                                                                                                                    |
+| Semver       | `semver_gt`, `semver_gte`, `semver_lt`, `semver_lte`, `semver_eq`, `semver_neq` | Direct `Version` comparison                                                                                                                                                                                                                                                                  |
+| Semver range | `semver_tilde`, `semver_caret`, `semver_wildcard`                               | `VersionReq` parsing (`~1.2.3`, `^1.2.3`, `1.2.x`)                                                                                                                                                                                                                                           |
+| Date         | `is_date_exact`, `is_date_after`, `is_date_before`                              | Supports relative dates, ISO 8601, Unix timestamps                                                                                                                                                                                                                                           |
+| Cohort       | `in`, `not_in`                                                                  | Handled by cohort matching, not property matching                                                                                                                                                                                                                                            |
+| Flag         | `flag_evaluates_to`                                                             | Handled by flag dependency matching                                                                                                                                                                                                                                                          |
 
 ## Multivariate flags (variant selection)
 
@@ -271,13 +312,46 @@ Flags can depend on other flags via `PropertyFilter` with `prop_type: Flag` and 
 
 ### Dependency graph
 
-The service builds a directed acyclic graph (DAG) using `petgraph` to determine evaluation order:
+The dependency graph determines evaluation order so that flags are evaluated after their dependencies.
+
+#### Pre-computed path (HyperCache)
+
+Django pre-computes all dependency metadata at cache-write time and ships it as a top-level `evaluation_metadata` alongside the flags array in the HyperCache:
+
+```json
+{
+  "flags": [...],
+  "evaluation_metadata": {
+    "dependency_stages": [[3], [2], [1]],
+    "flags_with_missing_deps": [5],
+    "transitive_deps": {"1": [2, 3], "2": [3]}
+  }
+}
+```
+
+- `dependency_stages`: Flag IDs pre-grouped by evaluation stage. Stage 0 (no deps) first.
+- `flags_with_missing_deps`: Flag IDs with missing, cyclic, or transitively broken dependencies (fail closed).
+- `transitive_deps`: Flag ID → transitive dependency flag IDs. Keys are stringified ints (JSON requirement).
+
+Rust deserializes `EvaluationMetadata` and maps pre-grouped stages directly to `Vec<Vec<FeatureFlag>>` — no graph construction or Kahn's algorithm needed.
+
+#### Fallback path (PostgreSQL)
+
+When `evaluation_metadata` is absent (PG fallback, old cache entries), the service builds a DAG using `petgraph`:
 
 1. Extract dependencies from all flag property filters
 2. Build a directed graph (edges from dependent -> dependency)
 3. Detect and remove cycles (cycle-starting nodes and all their dependents are removed)
 4. Track missing dependencies (flags depending on non-existent flags)
 5. Compute topological evaluation stages using Kahn's algorithm
+
+#### Backwards compatibility
+
+The two paths are fully compatible via `#[serde(default)]` on `evaluation_metadata`:
+
+- **Old Rust + new cache**: `evaluation_metadata` is an unknown field, ignored. Falls back to petgraph.
+- **New Rust + old cache**: `evaluation_metadata` absent → `None` → falls back to petgraph.
+- **New Rust + new cache**: `evaluation_metadata` present → fast pre-computed path.
 
 ### Evaluation stages
 
@@ -386,7 +460,7 @@ Property overrides from the request body are merged on top of DB-fetched propert
 
 The evaluation engine follows a lazy-but-batched approach:
 
-1. **Flag definitions**: Fetched once per request from HyperCache (Redis -> S3 -> PostgreSQL)
+1. **Flag definitions**: Fetched once per request from HyperCache (Redis -> S3 -> PostgreSQL), including pre-computed `evaluation_metadata` when available
 2. **Group type mappings**: Fetched once per request if any flag uses groups
 3. **Person properties**: Fetched once per request from PostgreSQL, merged with request overrides
 4. **Group properties**: Fetched once per request from PostgreSQL, merged with request overrides
@@ -397,19 +471,20 @@ The evaluation engine follows a lazy-but-batched approach:
 
 ## Related files
 
-| File                                                         | Purpose                                         |
-| ------------------------------------------------------------ | ----------------------------------------------- |
-| `rust/feature-flags/src/handler/evaluation.rs`               | Entry point: creates matcher and calls evaluate |
-| `rust/feature-flags/src/flags/flag_matching.rs`              | Core matching engine: `FeatureFlagMatcher`      |
-| `rust/feature-flags/src/flags/flag_matching_utils.rs`        | Hash calculation, property fetching, DB queries |
-| `rust/feature-flags/src/properties/property_matching.rs`     | Property filter operator implementations        |
-| `rust/feature-flags/src/flags/flag_models.rs`                | Data models                                     |
-| `rust/feature-flags/src/flags/flag_operations.rs`            | Flag helper methods, `DependencyProvider` trait |
-| `rust/feature-flags/src/flags/flag_match_reason.rs`          | Match reason enum with priority ordering        |
-| `rust/feature-flags/src/utils/graph_utils.rs`                | Dependency graph using petgraph                 |
-| `rust/feature-flags/src/cohorts/cohort_cache_manager.rs`     | Moka-backed cohort cache                        |
-| `rust/feature-flags/src/flags/test_flag_matching.rs`         | Unit tests for flag matching                    |
-| `rust/feature-flags/tests/test_flag_matching_consistency.rs` | Cross-language consistency tests                |
+| File                                                         | Purpose                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------- |
+| `rust/feature-flags/src/handler/evaluation.rs`               | Entry point: creates matcher and calls evaluate         |
+| `rust/feature-flags/src/flags/flag_matching.rs`              | Core matching engine: `FeatureFlagMatcher`              |
+| `rust/feature-flags/src/flags/flag_matching_utils.rs`        | Hash calculation, property fetching, DB queries         |
+| `rust/feature-flags/src/properties/property_matching.rs`     | Property filter operator implementations                |
+| `rust/feature-flags/src/flags/flag_models.rs`                | Data models                                             |
+| `rust/feature-flags/src/flags/flag_operations.rs`            | Flag helper methods, `DependencyProvider` trait         |
+| `rust/feature-flags/src/flags/flag_match_reason.rs`          | Match reason enum with priority ordering                |
+| `rust/feature-flags/src/flags/property_filter.rs`            | Regex pre-compilation: `prepare_regex()` implementation |
+| `rust/feature-flags/src/utils/graph_utils.rs`                | Dependency graph (pre-computed + petgraph fallback)     |
+| `rust/feature-flags/src/cohorts/cohort_cache_manager.rs`     | Moka-backed cohort cache                                |
+| `rust/feature-flags/src/flags/test_flag_matching.rs`         | Unit tests for flag matching                            |
+| `rust/feature-flags/tests/test_flag_matching_consistency.rs` | Cross-language consistency tests                        |
 
 ## See also
 

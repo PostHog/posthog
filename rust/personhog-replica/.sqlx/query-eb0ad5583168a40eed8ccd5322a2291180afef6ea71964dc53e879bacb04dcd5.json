@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT cohort_id\n            FROM posthog_cohortpeople\n            WHERE person_id = $1 AND cohort_id = ANY($2)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cohort_id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4Array"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eb0ad5583168a40eed8ccd5322a2291180afef6ea71964dc53e879bacb04dcd5"
+}

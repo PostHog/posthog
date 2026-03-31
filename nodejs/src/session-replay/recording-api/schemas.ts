@@ -42,10 +42,14 @@ export const DeleteRecordingsBodySchema = z.object({
 export const GetBlockQuerySchema = z
     .object({
         key: z.string({ required_error: 'Missing key query parameter' }).min(1, 'Invalid key query parameter'),
-        start: nonNegativeIntString('start'),
-        end: nonNegativeIntString('end'),
+        start_byte: nonNegativeIntString('start_byte'),
+        end_byte: nonNegativeIntString('end_byte'),
+        decompress: z
+            .enum(['true', 'false', '1', '0'])
+            .optional()
+            .transform((v) => v === 'true' || v === '1'),
     })
-    .refine((data) => data.start <= data.end, {
-        message: 'start must be less than or equal to end',
-        path: ['start'],
+    .refine((data) => data.start_byte <= data.end_byte, {
+        message: 'start_byte must be less than or equal to end_byte',
+        path: ['start_byte'],
     })

@@ -64,6 +64,7 @@ See [serializer-fields.md](references/serializer-fields.md) for patterns and exa
 11. **Error responses are typed** — use `OpenApiResponse(response=ErrorSerializer)`, not `OpenApiTypes.OBJECT`
 12. **List endpoints declare pagination** — reset with `pagination_class=None` on custom actions that don't paginate
 13. **Prefer `@validated_request`** over manual `serializer.is_valid()` + `@extend_schema` — it handles both in one decorator
+14. **ViewSets outside `products/` need `@extend_schema(tags=["<product>"])`** — ViewSets in `products/<name>/backend/` are auto-tagged via module path, but ViewSets in `posthog/api/` or `ee/` are not. Without the tag, the MCP scaffold and frontend type generator can't route the endpoint to the right product
 
 **Streaming endpoints:** For SSE or streaming responses, use `@extend_schema(request=InputSerializer, responses={(200, "text/event-stream"): OpenApiTypes.STR})` to document the request schema even though the response can't be fully typed.
 

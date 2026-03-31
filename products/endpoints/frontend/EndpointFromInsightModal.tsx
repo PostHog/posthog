@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -7,10 +8,12 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
+import { slugify } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery, InsightQueryNode } from '~/queries/schema/schema-general'
 
+import { validateEndpointName } from './common'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
@@ -37,12 +40,15 @@ export function EndpointFromInsightModal({
         ? endpoints.filter((endpoint) => endpoint.derived_from_insight === insightShortId)
         : []
 
+    const slugifiedName = useMemo(() => (endpointName ? slugify(endpointName) : ''), [endpointName])
+    const nameValidationError = useMemo(() => validateEndpointName(endpointName?.trim() || ''), [endpointName])
+
     const handleSubmit = (): void => {
-        if (!endpointName?.trim()) {
+        if (nameValidationError) {
             return
         }
         createEndpoint({
-            name: endpointName.trim(),
+            name: endpointName!.trim(),
             description: endpointDescription?.trim() || undefined,
             query: insightQuery,
             derived_from_insight: insightShortId,
@@ -96,7 +102,15 @@ export function EndpointFromInsightModal({
                         </div>
                     )}
 
-                    <LemonField.Pure label="Name">
+                    <LemonField.Pure
+                        label="Name"
+                        error={endpointName?.trim() ? nameValidationError : undefined}
+                        info={
+                            endpointName && slugifiedName !== endpointName.trim()
+                                ? `Will be saved as: ${slugifiedName}`
+                                : undefined
+                        }
+                    >
                         <LemonInput
                             value={endpointName || ''}
                             onChange={setEndpointName}
@@ -121,11 +135,7 @@ export function EndpointFromInsightModal({
                 <LemonButton type="secondary" onClick={handleClose}>
                     Cancel
                 </LemonButton>
-                <LemonButton
-                    type="primary"
-                    onClick={handleSubmit}
-                    disabledReason={!endpointName?.trim() ? 'Endpoint name is required' : undefined}
-                >
+                <LemonButton type="primary" onClick={handleSubmit} disabledReason={nameValidationError}>
                     Create endpoint
                 </LemonButton>
             </LemonModal.Footer>

@@ -18,6 +18,7 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
         "ticket_id": str(ticket.id),
         "ticket_number": ticket.ticket_number,
         "channel_source": ticket.channel_source,
+        "channel_detail": ticket.channel_detail,
         "status": ticket.status,
         "priority": ticket.priority,
     }

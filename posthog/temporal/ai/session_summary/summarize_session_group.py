@@ -18,6 +18,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import CachedSessionBatchEventsQueryResponse
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
     create_session_batch_events_query,
@@ -90,7 +91,7 @@ def _get_db_events_per_page(
         offset=offset,
     )
     runner = SessionBatchEventsQueryRunner(query=query, team=team)
-    response = runner.run()
+    response = runner.run(analytics_props={"source": EventSource.POSTHOG_AI})
     if not isinstance(response, CachedSessionBatchEventsQueryResponse):
         msg = (
             f"Failed to fetch events for sessions {logging_session_ids(session_ids)} in team {team.id} "

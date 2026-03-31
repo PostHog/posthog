@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -19,12 +17,9 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
-
     return (
         <DateFilter
-            showExplicitDateToggle={canAccessExplicitDateToggle}
+            showExplicitDateToggle
             dateTo={dateRange?.date_to ?? undefined}
             dateFrom={dateRange?.date_from ?? '-7d'}
             explicitDate={dateRange?.explicitDate ?? false}

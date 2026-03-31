@@ -57,6 +57,10 @@ class ClickHouseUser(StrEnum):
     MAX_AI = "max_ai"  # llm/a
     ENDPOINTS = "endpoints"
 
+    # Backups - used by Dagster backup jobs
+    BACKUPS = "backups"
+    # Part breaker - used by Dagster part breaking jobs
+    PART_BREAKER = "part_breaker"
     # Dev Operations - do not normally use
     OPS = "ops"
     # Only for migrations - do not normally use

@@ -11,7 +11,9 @@ from dataclasses import asdict, dataclass
 from django.conf import settings
 
 import grpc.aio
+import requests
 import dns.resolver
+import dns.asyncresolver
 import temporalio.common
 from structlog import get_logger
 from temporalio import activity, workflow
@@ -25,7 +27,6 @@ from temporalio.client import (
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
 from posthog.models import ProxyRecord
-from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule
@@ -38,7 +39,9 @@ from posthog.temporal.proxy_service.cloudflare import (
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     RecordDeletedException,
+    SendProxyCreatedEmailInputs,
     UpdateProxyRecordInputs,
+    activity_send_proxy_created_email,
     activity_update_proxy_record,
     get_grpc_client,
     record_exists,
@@ -119,7 +122,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
 
     try:
-        cnames = dns.resolver.query(inputs.domain, "CNAME")
+        cnames = await dns.asyncresolver.resolve(inputs.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
 
         if cnames[0].target == dns.name.from_text(inputs.target_cname):
@@ -137,16 +140,39 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         # It means there is a record set, but it's not a CNAME record
         # A likely reason for this is that they have set Cloudflare proxying on.
         # Check for this explicitly to create a nice message for the user.
-        arecords = dns.resolver.query(inputs.domain, "A")
+        arecords = await dns.asyncresolver.resolve(inputs.domain, "A")
         if len(arecords) == 0:
             raise
         ip = arecords[0].to_text()
         # this is rare enough and fast enough that it's probably fine
         # but maybe we want to cache this and/or do it async
-        cloudflare_ips = external_requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
+        cloudflare_ips = requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
         is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
         if is_cloudflare:
-            # the customer has set cloudflare proxying on
+            # Before blaming the customer, check if the IPs match our target
+            # CNAME. Cloudflare CNAME flattening (for domains using Cloudflare
+            # nameservers) replaces the CNAME with A records even when proxy is
+            # off (grey cloud). If the IPs match our target, the setup is
+            # correct — the CNAME is just being flattened.
+            try:
+                target_arecords = await dns.asyncresolver.resolve(inputs.target_cname, "A")
+                target_ips = {r.to_text() for r in target_arecords}
+                customer_ips = {r.to_text() for r in arecords}
+                if customer_ips == target_ips:
+                    logger.info(
+                        "DNS for %s returned flattened A records matching target %s - treating as valid",
+                        inputs.domain,
+                        inputs.target_cname,
+                    )
+                    return
+            except Exception as exc:
+                logger.warning(
+                    "Failed to resolve A records for target CNAME %s: %s",
+                    inputs.target_cname,
+                    exc,
+                )
+            # IPs don't match our target — customer likely has Cloudflare
+            # proxying enabled on their own zone
             await update_record(
                 proxy_record_id=inputs.proxy_record_id,
                 message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
@@ -541,13 +567,15 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Everything's created and ready to go, update to VALID
+            # Everything's created and ready to go, update to VALID and clear
+            # any messages from earlier retries (e.g. Cloudflare proxying warning)
             await temporalio.workflow.execute_activity(
                 activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
                     status=ProxyRecord.Status.VALID.value,
+                    message="",
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -555,6 +583,27 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
                 ),
             )
+
+            # Send email notification — failure should not block the workflow
+            try:
+                await temporalio.workflow.execute_activity(
+                    activity_send_proxy_created_email,
+                    SendProxyCreatedEmailInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        domain=inputs.domain,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=30),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=2,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
+            except ActivityError:
+                logger.warning(
+                    "Failed to send proxy provisioned email for domain %s, continuing",
+                    inputs.domain,
+                )
 
             schedule_inputs = ScheduleMonitorJobInputs(
                 organization_id=inputs.organization_id,

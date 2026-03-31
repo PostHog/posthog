@@ -31,13 +31,15 @@ def filter_snowflake_incremental_fields(
             results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type == "datetime":
             results.append((column_name, IncrementalFieldType.DateTime, nullable))
-        elif type == "numeric":
+        elif type in ("number", "numeric"):
             results.append((column_name, IncrementalFieldType.Numeric, nullable))
 
     return results
 
 
-def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str, bool]]]:
+def get_schemas(
+    config: SnowflakeSourceConfig, names: list[str] | None = None
+) -> dict[str, list[tuple[str, str, bool]]]:
     auth_connect_args: dict[str, str | None] = {}
     file_name: str | None = None
 
@@ -83,6 +85,10 @@ def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str,
 
     if file_name is not None:
         os.unlink(file_name)
+
+    if names is not None:
+        names_set = set(names)
+        schema_list = {k: v for k, v in schema_list.items() if k in names_set}
 
     return schema_list
 

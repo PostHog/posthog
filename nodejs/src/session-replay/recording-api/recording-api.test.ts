@@ -11,6 +11,13 @@ import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
+jest.mock('@clickhouse/client', () => ({
+    createClient: jest.fn().mockReturnValue({
+        query: jest.fn(),
+        close: jest.fn().mockResolvedValue(undefined),
+    }),
+}))
+
 jest.mock('@aws-sdk/client-s3', () => ({
     S3Client: jest.fn().mockImplementation(() => ({
         send: jest.fn(),
@@ -71,6 +78,11 @@ describe('RecordingApi', () => {
             SESSION_RECORDING_API_REDIS_PORT: 6379,
             REDIS_POOL_MIN_SIZE: 1,
             REDIS_POOL_MAX_SIZE: 10,
+            CLICKHOUSE_HOST: 'localhost',
+            CLICKHOUSE_DATABASE: 'default',
+            CLICKHOUSE_USER: 'default',
+            CLICKHOUSE_PASSWORD: undefined,
+            CLICKHOUSE_SECURE: false,
         }
 
         mockKeyStore = {
@@ -90,11 +102,12 @@ describe('RecordingApi', () => {
             validateS3Key: jest.fn().mockReturnValue(true),
             formatS3KeyError: jest.fn().mockReturnValue('Invalid key format'),
             getBlock: jest.fn(),
+            listBlocks: jest.fn(),
             deleteRecordings: jest.fn(),
         } as unknown as jest.Mocked<RecordingService>
         ;(getKeyStore as jest.Mock).mockReturnValue(mockKeyStore)
         ;(getBlockDecryptor as jest.Mock).mockReturnValue(mockDecryptor)
-        ;(RecordingService as jest.Mock).mockImplementation(() => mockService)
+        ;(RecordingService as unknown as jest.Mock).mockImplementation(() => mockService)
     })
 
     describe('service', () => {
@@ -219,28 +232,28 @@ describe('RecordingApi', () => {
             it('should return 400 if key is missing', async () => {
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ start: '0', end: '100' })
+                    .query({ start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Missing key query parameter' })
             })
 
-            it('should return 400 if start is missing', async () => {
+            it('should return 400 if start_byte is missing', async () => {
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, end: '100' })
+                    .query({ key: validKey, end_byte: '100' })
 
                 expect(res.status).toBe(400)
-                expect(res.body).toEqual({ error: 'Missing start query parameter' })
+                expect(res.body).toEqual({ error: 'Missing start_byte query parameter' })
             })
 
-            it('should return 400 if end is missing', async () => {
+            it('should return 400 if end_byte is missing', async () => {
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0' })
+                    .query({ key: validKey, start_byte: '0' })
 
                 expect(res.status).toBe(400)
-                expect(res.body).toEqual({ error: 'Missing end query parameter' })
+                expect(res.body).toEqual({ error: 'Missing end_byte query parameter' })
             })
 
             it.each([
@@ -250,19 +263,19 @@ describe('RecordingApi', () => {
             ])('should return 400 for invalid team_id: %s (%s)', async (teamId) => {
                 const res = await supertest(app)
                     .get(`/api/projects/${teamId}/recordings/session-123/block`)
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Invalid team_id parameter' })
             })
 
-            it('should return 400 when start is greater than end', async () => {
+            it('should return 400 when start_byte is greater than end_byte', async () => {
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '100', end: '50' })
+                    .query({ key: validKey, start_byte: '100', end_byte: '50' })
 
                 expect(res.status).toBe(400)
-                expect(res.body).toEqual({ error: 'start must be less than or equal to end' })
+                expect(res.body).toEqual({ error: 'start_byte must be less than or equal to end_byte' })
             })
 
             it('should return 400 for invalid S3 key', async () => {
@@ -270,7 +283,7 @@ describe('RecordingApi', () => {
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: '../etc/passwd', start: '0', end: '100' })
+                    .query({ key: '../etc/passwd', start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Invalid key format' })
@@ -285,7 +298,7 @@ describe('RecordingApi', () => {
                 try {
                     const res = await supertest(uninitializedApp)
                         .get('/api/projects/1/recordings/session-123/block')
-                        .query({ key: validKey, start: '0', end: '100' })
+                        .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                     expect(res.status).toBe(503)
                     expect(res.body).toEqual({ error: 'S3 client not initialized' })
@@ -301,7 +314,7 @@ describe('RecordingApi', () => {
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
                     .responseType('buffer')
 
                 expect(res.status).toBe(200)
@@ -316,7 +329,7 @@ describe('RecordingApi', () => {
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(404)
                 expect(res.body).toEqual({ error: 'Block not found' })
@@ -332,7 +345,7 @@ describe('RecordingApi', () => {
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(410)
                 expect(res.body).toEqual({
@@ -347,11 +360,110 @@ describe('RecordingApi', () => {
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(500)
                 expect(res.body).toEqual({ error: 'Failed to fetch block from S3' })
             })
+        })
+    })
+
+    describe('listBlocks endpoint', () => {
+        let app: express.Application
+        let server: Server
+
+        beforeEach(async () => {
+            const recordingApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
+            await recordingApi.start(mockService)
+            app = express()
+            app.use('/', recordingApi.router())
+            server = app.listen(0, () => {})
+        })
+
+        afterEach(() => {
+            server.close()
+        })
+
+        it('should return blocks from service', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01T00:00:00Z',
+                    end_timestamp: '2024-01-01T00:01:00Z',
+                },
+                {
+                    key: 'session_recordings/30d/2000-bbb',
+                    start_byte: 0,
+                    end_byte: 200,
+                    start_timestamp: '2024-01-01T00:01:00Z',
+                    end_timestamp: '2024-01-01T00:02:00Z',
+                },
+            ])
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({
+                blocks: [
+                    {
+                        key: 'session_recordings/30d/1000-aaa',
+                        start_byte: 0,
+                        end_byte: 100,
+                        start_timestamp: '2024-01-01T00:00:00Z',
+                        end_timestamp: '2024-01-01T00:01:00Z',
+                    },
+                    {
+                        key: 'session_recordings/30d/2000-bbb',
+                        start_byte: 0,
+                        end_byte: 200,
+                        start_timestamp: '2024-01-01T00:01:00Z',
+                        end_timestamp: '2024-01-01T00:02:00Z',
+                    },
+                ],
+            })
+            expect(mockService.listBlocks).toHaveBeenCalledWith('session-123', 1)
+        })
+
+        it('should return empty blocks when session not found', async () => {
+            mockService.listBlocks.mockResolvedValue([])
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({ blocks: [] })
+        })
+
+        it('should return 400 for invalid team_id', async () => {
+            const res = await supertest(app).get('/api/projects/abc/recordings/session-123/blocks')
+
+            expect(res.status).toBe(400)
+        })
+
+        it('should return 500 when service throws', async () => {
+            mockService.listBlocks.mockRejectedValue(new Error('ClickHouse error'))
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(500)
+            expect(res.body).toEqual({ error: 'Failed to list blocks' })
+        })
+
+        it('should return 503 if service not initialized', async () => {
+            const uninitializedApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
+            const uninitializedApp = express()
+            uninitializedApp.use('/', uninitializedApi.router())
+            const uninitializedServer = uninitializedApp.listen(0, () => {})
+
+            try {
+                const res = await supertest(uninitializedApp).get('/api/projects/1/recordings/session-123/blocks')
+
+                expect(res.status).toBe(503)
+                expect(res.body).toEqual({ error: 'Service not initialized' })
+            } finally {
+                uninitializedServer.close()
+            }
         })
     })
 

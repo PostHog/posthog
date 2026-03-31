@@ -247,10 +247,22 @@ class LogsQueryRunnerMixin(QueryRunner):
             interval_count=int(interval_count),
             now=dt.datetime.now(),
             timezone_info=ZoneInfo("UTC"),
+            exact_timerange=True,
         )
 
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
+
+        # add time_bucket to filter so we get part+granule pruning at the primary key level
+        # this is important as it reduces the parts/granules that need to have their skip indexes loaded
+        exprs.append(
+            parse_expr(
+                "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                },
+            )
+        )
 
         if self.query.serviceNames:
             exprs.append(
@@ -490,7 +502,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
             transform_null_in=False,
-            allow_experimental_analyzer=True,
+            enable_analyzer=True,
             max_bytes_to_read=None,
             read_overflow_mode=None,
         )

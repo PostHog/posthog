@@ -17,8 +17,8 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team.team import Team
+from posthog.models.utils import hash_key_value
 from posthog.settings.utils import get_list
 from posthog.utils import patchable
 
@@ -163,7 +163,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
-        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
         if personal_api_key_only and request.user.is_authenticated and personal_api_key is None:
             return True
 
@@ -228,7 +228,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         """
         ident = None
         if request.user.is_authenticated:
-            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
             if api_key is not None:
                 ident = hash_key_value(api_key[0])
             else:
@@ -329,16 +329,6 @@ class SignupEmailPrecheckThrottle(IPThrottle):
 
     scope = "signup_email_precheck"
     rate = "30/minute"
-
-
-class OnboardingIPThrottle(IPThrottle):
-    """
-    Rate limit onboarding product recommendations by IP address.
-    This endpoint uses an LLM, so we want to be conservative with rate limits.
-    """
-
-    scope = "onboarding_ip"
-    rate = "10/hour"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -481,16 +471,6 @@ class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
 
 class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "api_queries_sustained"
-    rate = "2400/hour"
-
-
-class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
-    scope = "web_analytics_api_burst"
-    rate = "240/minute"
-
-
-class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
-    scope = "web_analytics_api_sustained"
     rate = "2400/hour"
 
 
@@ -781,8 +761,46 @@ class CodeInviteThrottle(UserRateThrottle):
     rate = "20000/hour"
 
 
+class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit running a saved query per saved query per team.
+    # Prevents agents from running the same query repeatedly without reason.
+    scope = "saved_query"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        pk = view.kwargs.get("pk", "")
+        if team_id and pk:
+            return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{pk}"}
+        return super().get_cache_key(request, view)
+
+
+class MaterializationRateThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit materialization toggle actions (materialize / revert) per saved query per team.
+    # Prevents agents from thrashing materialization state on the same query.
+    scope = "materialization"
+    rate = "5/hour"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        pk = view.kwargs.get("pk", "")
+        if team_id and pk:
+            return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{pk}"}
+        return super().get_cache_key(request, view)
+
+
 class ToolbarOAuthRefreshThrottle(IPThrottle):
     """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
 
     scope = "toolbar_oauth_refresh"
     rate = "30/minute"
+
+
+class EmailVerifyDomainThrottle(UserRateThrottle):
+    scope = "email_verify_domain"
+    rate = "6/minute"
+
+
+class EmailSendTestThrottle(UserRateThrottle):
+    scope = "email_send_test"
+    rate = "1/minute"

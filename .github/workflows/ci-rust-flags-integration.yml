@@ -1,0 +1,231 @@
+name: Rust Flags Integration Tests
+
+on:
+    workflow_dispatch:
+    pull_request:
+        paths:
+            - 'rust/feature-flags/**'
+            - 'posthog/api/test/rust_integration/**'
+            - 'posthog/api/feature_flag.py'
+            - 'posthog/api/cohort.py'
+            - 'posthog/models/feature_flag/**'
+            - 'posthog/models/cohort/**'
+            - '.github/workflows/ci-rust-flags-integration.yml'
+    push:
+        branches:
+            - master
+        paths:
+            - 'rust/feature-flags/**'
+            - 'posthog/api/test/rust_integration/**'
+            - 'posthog/api/feature_flag.py'
+            - 'posthog/api/cohort.py'
+            - 'posthog/models/feature_flag/**'
+            - 'posthog/models/cohort/**'
+            - '.github/workflows/ci-rust-flags-integration.yml'
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+env:
+    # Django SECRET_KEY for cryptographic signing (sessions, CSRF, etc.) - test-only, not used in production
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461b81b72'
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+    REDIS_URL: 'redis://localhost:6379/'
+    TEST: 1
+    UV_HTTP_TIMEOUT: 300
+
+jobs:
+    rust-flags-integration:
+        name: Rust /flags Integration Tests
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
+
+        services:
+            postgres:
+                image: postgres:16-alpine
+                env:
+                    POSTGRES_USER: posthog
+                    POSTGRES_PASSWORD: posthog
+                    POSTGRES_DB: test_posthog
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+            redis:
+                image: redis:7-alpine
+                ports:
+                    - 6379:6379
+                options: >-
+                    --health-cmd "redis-cli ping"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.12.12'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: true
+
+            - name: Install system dependencies
+              run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-flags-integration-debug'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Create persons database
+              run: |
+                  PGPASSWORD=posthog psql -h localhost -U posthog -d test_posthog -c "CREATE DATABASE test_posthog_persons;"
+
+            - name: Install sqlx-cli
+              uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Set up test database schema
+              run: |
+                  python manage.py migrate --run-syncdb
+              env:
+                  DEBUG: '1'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+
+            - name: Run persons database migrations
+              run: |
+                  sqlx migrate run --source rust/persons_migrations/
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
+
+            - name: Build Rust flags service
+              working-directory: rust
+              env:
+                  # Debug builds compile much faster than release (~4 min vs ~9 min).
+                  # We disable debug assertions because the codebase contains
+                  # debug_assert! checks that intentionally panic on data invariant
+                  # violations, which would crash the service mid-test-run.
+                  RUSTFLAGS: '-C debug-assertions=no'
+              run: cargo build -p feature-flags
+
+            - name: Download MaxMind Database
+              run: |
+                  ./bin/download-mmdb
+
+            - name: Start Rust flags service
+              working-directory: rust
+              run: |
+                  ./target/debug/feature-flags > /tmp/rust-flags.log 2>&1 &
+                  RUST_FLAGS_PID=$!
+                  echo "RUST_FLAGS_PID=$RUST_FLAGS_PID" >> $GITHUB_ENV
+                  # Wait for service to be ready, checking the process is still alive
+                  for i in {1..30}; do
+                      if ! kill -0 "$RUST_FLAGS_PID" 2>/dev/null; then
+                          echo "ERROR: Rust flags service exited unexpectedly"
+                          exit 1
+                      fi
+                      if curl -s http://127.0.0.1:3001/_readiness > /dev/null 2>&1; then
+                          echo "Rust flags service is ready"
+                          break
+                      fi
+                      echo "Waiting for Rust flags service... ($i/30)"
+                      sleep 2
+                  done
+                  if ! curl -s http://127.0.0.1:3001/_readiness > /dev/null 2>&1; then
+                      echo "ERROR: Rust flags service failed to start after 30 attempts"
+                      exit 1
+                  fi
+              env:
+                  BIND_HOST: '127.0.0.1'
+                  BIND_PORT: '3001'
+                  READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+                  WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+                  PERSONS_READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog_persons
+                  PERSONS_WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog_persons
+                  REDIS_URL: redis://localhost:6379/
+                  # Disable cohort definition caching so each request fetches
+                  # fresh cohort data. Without this, tests that create new cohorts
+                  # after the first cache load would see stale definitions.
+                  CACHE_TTL_SECONDS: '0'
+                  RUST_BACKTRACE: '1'
+
+            - name: Start Django API server
+              run: |
+                  python manage.py runserver 127.0.0.1:8000 --noreload &
+                  DJANGO_PID=$!
+                  echo "DJANGO_PID=$DJANGO_PID" >> $GITHUB_ENV
+                  for i in {1..15}; do
+                      if ! kill -0 "$DJANGO_PID" 2>/dev/null; then
+                          echo "ERROR: Django server exited unexpectedly"
+                          exit 1
+                      fi
+                      if curl -s http://127.0.0.1:8000/_health > /dev/null 2>&1; then
+                          echo "Django server is ready"
+                          break
+                      fi
+                      echo "Waiting for Django server... ($i/15)"
+                      sleep 2
+                  done
+                  if ! curl -s http://127.0.0.1:8000/_health > /dev/null 2>&1; then
+                      echo "ERROR: Django server failed to start after 15 attempts"
+                      exit 1
+                  fi
+              env:
+                  DEBUG: '1'
+                  # Override the global TEST=1 so Celery tasks are enqueued to Redis
+                  # (not executed synchronously) and don't try to reach ClickHouse.
+                  TEST: '0'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  # Django reads PERSONS_DB_WRITER_URL (not PERSONS_DATABASE_URL) to
+                  # configure the persons_db_writer database alias.
+                  PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
+
+            - name: Run integration tests
+              run: |
+                  pytest posthog/api/test/rust_integration/test_flags.py -v --tb=short
+              env:
+                  SKIP_RUST_INTEGRATION_TESTS: '0'
+                  FEATURE_FLAGS_SERVICE_URL: 'http://127.0.0.1:3001'
+                  DJANGO_API_URL: 'http://127.0.0.1:8000'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
+                  PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
+
+            - name: Dump Rust flags service logs
+              if: failure()
+              run: |
+                  echo "=== Rust flags service logs ==="
+                  cat /tmp/rust-flags.log || echo "No log file found"
+
+            - name: Stop services
+              if: always()
+              run: |
+                  if [ -n "$RUST_FLAGS_PID" ]; then
+                      kill $RUST_FLAGS_PID || true
+                  fi
+                  if [ -n "$DJANGO_PID" ]; then
+                      kill $DJANGO_PID || true
+                  fi

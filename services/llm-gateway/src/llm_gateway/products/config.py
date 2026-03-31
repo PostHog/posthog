@@ -41,6 +41,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-sonnet-4-5",
                 "claude-sonnet-4-6",
                 "claude-haiku-4-5",
+                "gpt-5.4",
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
@@ -57,6 +58,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-6",
                 "claude-sonnet-4-5",
                 "claude-haiku-4-5",
+                "gpt-5.4",
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
@@ -70,12 +72,17 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,
         allow_api_keys=True,
     ),
+    "llma_labeling": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-5.4"}),
+        allow_api_keys=True,
+    ),
     "django": ProductConfig(
         allowed_application_ids=None,
         allowed_models=None,
         allow_api_keys=True,
     ),
-    "slack-twig": ProductConfig(
+    "slack-posthog-code": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
         allow_api_keys=True,
@@ -100,6 +107,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset({"gpt-5-mini"}),
         allow_api_keys=True,
     ),
+    "customer_archetype_classification": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-5-mini"}),
+        allow_api_keys=True,
+    ),
 }
 
 
@@ -108,6 +120,7 @@ ALLOWED_PRODUCTS: Final[frozenset[str]] = frozenset(PRODUCTS.keys())
 PRODUCT_ALIASES: Final[dict[str, str]] = {
     "array": "posthog_code",
     "twig": "posthog_code",
+    "slack-twig": "slack-posthog-code",
 }
 
 

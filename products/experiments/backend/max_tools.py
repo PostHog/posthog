@@ -8,14 +8,17 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import MaxExperimentMetricResult
 
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models import Experiment, FeatureFlag
+from posthog.models import FeatureFlag
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
+from products.experiments.backend.models.experiment import Experiment
 
 from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
@@ -168,6 +171,7 @@ class CreateExperimentTool(MaxTool):
                     "feature_flag_variants": feature_flag_variants,
                     "minimum_detectable_effect": 30,
                 },
+                event_source=EventSource.POSTHOG_AI,
             )
 
         try:
@@ -449,8 +453,6 @@ class SessionReplaySummaryTool(MaxTool):
                     error="not_started",
                 )
                 return "❌ Experiment has not started yet. No session replays available.", output.model_dump()
-            if not experiment.start_date:
-                raise ValueError(f"Experiment {experiment_id} has no start date")
 
             # Get variants from feature flag
             feature_flag = experiment.feature_flag
@@ -479,9 +481,12 @@ class SessionReplaySummaryTool(MaxTool):
 
                     @database_sync_to_async
                     def count_recordings(q):
-                        recordings, has_more, _, _ = list_recordings_from_query(query=q, user=None, team=self._team)
-                        # If has_more, there are 100+ recordings
-                        return len(recordings) if not has_more else 100
+                        with tags_context(
+                            product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id
+                        ):
+                            recordings, has_more, _, _ = list_recordings_from_query(query=q, user=None, team=self._team)
+                            # If has_more, there are 100+ recordings
+                            return len(recordings) if not has_more else 100
 
                     count = await count_recordings(query)
                     recording_counts[variant_key] = count

@@ -395,12 +395,12 @@ async fn grpc_crash_during_warming() {
     .await;
 
     // Crash c-1 — drops the gRPC stream. The server detects the closed
-    // channel, revokes the etcd lease, and the consumer disappears.
+    // channel and the etcd lease expires via TTL, removing the consumer.
     c1.crash();
 
-    // Stale handoffs targeting dead c-1 should be cleaned up.
+    // Stale handoffs targeting dead c-1 should be cleaned up after lease expiry.
     let check_store = Arc::clone(&store);
-    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move { store.list_handoffs().await.unwrap_or_default().is_empty() }
     })
@@ -456,8 +456,9 @@ async fn grpc_consumer_crashes_mid_operation() {
     // Wait for c-1 to disappear and all partitions to converge to c-0.
     // The c-0 driver handles WarmPartition commands for incoming partitions.
     // Complete-phase handoffs with dead old_owner (c-1) are auto-cleaned.
+    // The lease expires via TTL (not eagerly revoked), so we need extra time.
     let check_store = Arc::clone(&store);
-    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
@@ -505,9 +506,10 @@ async fn grpc_rapid_reconnect() {
     let _c0_new_driver = spawn_consumer_driver(c0_new, Duration::ZERO);
 
     // Wait for the consumer to be registered and all partitions assigned.
-    // There may be a brief window where the old lease is revoked and the
-    // new one isn't yet seen by the assigner, so partitions may briefly
-    // be unassigned. The system should converge.
+    // The old lease is NOT eagerly revoked — it expires naturally via TTL.
+    // If the reconnect happens before the TTL elapses, the new registration
+    // overwrites the key without a Delete event, avoiding unnecessary
+    // rebalancing. The system should converge.
     let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
@@ -563,9 +565,9 @@ async fn grpc_sequential_crashes_converge() {
     // Crash c-2.
     c2_driver.abort();
 
-    // Wait for convergence to c-0 + c-1.
+    // Wait for convergence to c-0 + c-1 (lease expires via TTL).
     let check_store = Arc::clone(&store);
-    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
@@ -582,9 +584,9 @@ async fn grpc_sequential_crashes_converge() {
     // Crash c-1.
     c1_driver.abort();
 
-    // Wait for convergence to c-0 only.
+    // Wait for convergence to c-0 only (lease expires via TTL).
     let check_store = Arc::clone(&store);
-    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();

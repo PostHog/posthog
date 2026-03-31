@@ -177,6 +177,34 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get(self.base_authorization_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_first_party_app_auto_approves_with_org_scoped_grant(self):
+        first_party_app = OAuthApplication.objects.create(
+            name="First Party App",
+            client_id="first_party_client_id",
+            client_secret="first_party_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+            is_first_party=True,
+        )
+
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", first_party_app.client_id)
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location = response["Location"]
+        self.assertIn("code=", location)
+
+        code = parse_qs(urlparse(location).query)["code"][0]
+        grant = OAuthGrant.objects.get(code=code)
+
+        self.assertIn(self.team.pk, grant.scoped_teams)
+        self.assertIn(str(self.organization.id), grant.scoped_organizations)
+
     def test_authorize_missing_client_id(self):
         url = self.base_authorization_url
 

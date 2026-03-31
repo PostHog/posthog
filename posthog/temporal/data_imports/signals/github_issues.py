@@ -108,6 +108,8 @@ def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
 
 
 GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
+    source_product="github",
+    source_type="issue",
     emitter=github_issue_emitter,
     partition_field="created_at",
     partition_field_is_datetime_string=True,

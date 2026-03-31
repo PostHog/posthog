@@ -15,6 +15,7 @@ export type PanelLayoutNavIdentifier =
     | 'Shortcuts'
     | 'DataManagement'
     | 'DataAndPeople'
+    | 'Chat'
 export type NavExperimentTab = 'home' | 'chat'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
@@ -156,7 +157,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             },
         ],
         expandedNavSections: [
-            { ai: true, project: true, files: true, favorites: false, apps: false } as Record<string, boolean>,
+            { ai: true, project: true, files: true, favorites: false, apps: true } as Record<string, boolean>,
             { persist: true },
             {
                 toggleNavSection: (state, { section }) => ({

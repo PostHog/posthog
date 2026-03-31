@@ -1,13 +1,15 @@
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
+import type { CommonConfig } from '../../common/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { HealthCheckResult, PluginServerService, PluginsServerConfig, TeamId } from '../../types'
+import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
 import { GeoIPService } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
 import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import { CdpCoreServicesConfig, CdpCoreServicesDeps, createCdpCoreServices } from '../cdp-services'
+import type { CdpConfig } from '../config'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
@@ -26,7 +28,8 @@ import { NativeDestinationExecutorService } from '../services/native-destination
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
-    Pick<PluginsServerConfig, 'KAFKA_CLIENT_RACK' | 'CDP_OVERFLOW_QUEUE_ENABLED'>
+    Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
+    Pick<CdpConfig, 'CDP_OVERFLOW_QUEUE_ENABLED'>
 
 export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
     personRepository: PersonRepository
@@ -64,6 +67,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     segmentDestinationExecutorService: SegmentDestinationExecutorService
 
     protected kafkaProducer?: KafkaProducerWrapper
+    protected warehouseKafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
 
     protected heartbeat = () => {}
@@ -90,7 +94,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
 
         // Base-only services
         this.hogMasker = new HogMaskerService(services.redis)
-        this.personsManager = new PersonsManagerService(deps.personRepository)
+        this.personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     }
@@ -118,6 +122,10 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
             KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
+            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'WAREHOUSE_PRODUCER').then((producer) => {
+                this.warehouseKafkaProducer = producer
+                this.hogFunctionMonitoringService.setWarehouseKafkaProducer(producer)
+            }),
         ])
     }
 
@@ -126,8 +134,8 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.isStopping = true
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        logger.info('🔁', `${this.name} - stopping kafka producer`)
-        await this.kafkaProducer?.disconnect()
+        logger.info('🔁', `${this.name} - stopping kafka producers`)
+        await Promise.all([this.kafkaProducer?.disconnect(), this.warehouseKafkaProducer?.disconnect()])
         logger.info('👍', `${this.name} - stopped!`)
     }
 

@@ -16,11 +16,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import Insight
+from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import DeliverSubscriptionReportActivityInputs
+from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs
 from posthog.utils import str_to_bool
 
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
@@ -46,7 +47,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    summary = serializers.CharField(read_only=True)
     invite_message = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    integration_id = serializers.IntegerField(required=False, allow_null=True)
     dashboard_export_insights = DashboardExportInsightsField(required=False)
 
     class Meta:
@@ -71,6 +74,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "title",
             "summary",
             "next_delivery_date",
+            "integration_id",
             "invite_message",
         ]
         read_only_fields = [
@@ -95,8 +99,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         self._validate_dashboard_export_subscription(attrs)
 
-        # SSRF protection for webhook subscriptions
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
+        integration_id = attrs.get("integration_id") or (self.instance.integration_id if self.instance else None)
+
+        if target_type == Subscription.SubscriptionTarget.SLACK:
+            if not integration_id:
+                raise ValidationError({"integration_id": ["A Slack integration is required for Slack subscriptions."]})
+            try:
+                integration = Integration.objects.get(id=integration_id, team_id=self.context["team_id"])
+            except Integration.DoesNotExist:
+                raise ValidationError(
+                    {"integration_id": ["This integration does not exist or does not belong to your team."]}
+                )
+            if integration.kind != "slack":
+                raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
+
+        # SSRF protection for webhook subscriptions
         target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else None)
         if target_type == Subscription.SubscriptionTarget.WEBHOOK and target_value:
             allowed, error = is_url_allowed(target_value)
@@ -175,8 +193,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         asyncio.run(
             temporal.start_workflow(
                 "handle-subscription-value-change",
-                DeliverSubscriptionReportActivityInputs(
+                ProcessSubscriptionWorkflowInputs(
                     subscription_id=instance.id,
+                    team_id=instance.team_id,
+                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
                     previous_value="",
                     invite_message=invite_message,
                 ),
@@ -201,8 +221,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         asyncio.run(
             temporal.start_workflow(
                 "handle-subscription-value-change",
-                DeliverSubscriptionReportActivityInputs(
+                ProcessSubscriptionWorkflowInputs(
                     subscription_id=instance.id,
+                    team_id=instance.team_id,
+                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
                     previous_value=previous_value,
                     invite_message=invite_message,
                 ),

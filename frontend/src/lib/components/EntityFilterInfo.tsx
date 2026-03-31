@@ -46,6 +46,7 @@ export function EntityFilterInfo({
               id: String(filter.id ?? ''),
               name: filter.name || String(filter.id ?? ''),
               is_action: filter.type === EntityTypes.ACTIONS,
+              is_data_warehouse: filter.type === EntityTypes.DATA_WAREHOUSE,
           })
         : null
 

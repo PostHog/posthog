@@ -98,8 +98,8 @@ export type DeviceType = 'Desktop' | 'Mobile'
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
 
-export const tabSplitIndexMap: Partial<Record<TileId, number>> = {
-    [TileId.SOURCES]: 2, // Show Channel + Referring Domain as buttons, rest in dropdown
+export const tabSplitIndicesMap: Partial<Record<TileId, number[]>> = {
+    [TileId.SOURCES]: [1, 3], // [Channel] [Referring Domain ▼ Referring URL] [UTM Source ▼ ...]
 }
 
 export const loadPriorityMap: Record<TileId, number> = {
@@ -263,6 +263,7 @@ export interface TabsTile extends BaseTile {
     activeTabId: string
     setTabId: (id: string) => void
     tabs: TabsTileTab[]
+    splitIndices?: number[]
 }
 
 export interface ReplayTile extends BaseTile {
@@ -296,6 +297,7 @@ export enum GraphsTab {
 export enum SourceTab {
     CHANNEL = 'CHANNEL',
     REFERRING_DOMAIN = 'REFERRING_DOMAIN',
+    REFERRING_URL = 'REFERRING_URL',
     UTM_SOURCE = 'UTM_SOURCE',
     UTM_MEDIUM = 'UTM_MEDIUM',
     UTM_CAMPAIGN = 'UTM_CAMPAIGN',
@@ -349,6 +351,27 @@ export interface WebAnalyticsStatusCheck {
     hasAuthorizedUrls: boolean
 }
 
+export const SOURCE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, SourceTab>> = {
+    [WebStatsBreakdown.InitialChannelType]: SourceTab.REFERRING_DOMAIN,
+    [WebStatsBreakdown.InitialReferringDomain]: SourceTab.REFERRING_URL,
+    [WebStatsBreakdown.InitialUTMSource]: SourceTab.UTM_MEDIUM,
+    [WebStatsBreakdown.InitialUTMMedium]: SourceTab.UTM_CAMPAIGN,
+    [WebStatsBreakdown.InitialUTMCampaign]: SourceTab.UTM_CONTENT,
+    [WebStatsBreakdown.InitialUTMContent]: SourceTab.UTM_TERM,
+    [WebStatsBreakdown.InitialUTMSourceMediumCampaign]: SourceTab.UTM_CONTENT,
+}
+
+export const GEOGRAPHY_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, GeographyTab>> = {
+    [WebStatsBreakdown.Country]: GeographyTab.REGIONS,
+    [WebStatsBreakdown.Region]: GeographyTab.CITIES,
+}
+
+export const DEVICE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, DeviceTab>> = {
+    [WebStatsBreakdown.DeviceType]: DeviceTab.BROWSER,
+    [WebStatsBreakdown.Browser]: DeviceTab.OS,
+    [WebStatsBreakdown.OS]: DeviceTab.VIEWPORT,
+}
+
 export type TileVisualizationOption = 'table' | 'graph'
 
 export const webStatsBreakdownToPropertyName = (
@@ -373,6 +396,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$channel_type', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialReferringDomain:
             return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialReferringURL:
+            return { key: '$session_entry_referrer', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSource:
             return { key: '$entry_utm_source', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialUTMCampaign:
@@ -515,6 +540,8 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
                 return 'Channel Type'
             case WebStatsBreakdown.InitialReferringDomain:
                 return 'Referring Domain'
+            case WebStatsBreakdown.InitialReferringURL:
+                return 'Referring URL'
             case WebStatsBreakdown.InitialUTMSource:
                 return 'UTM Source'
             case WebStatsBreakdown.InitialUTMCampaign:

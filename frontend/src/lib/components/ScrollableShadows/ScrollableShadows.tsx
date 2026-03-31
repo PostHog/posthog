@@ -20,6 +20,13 @@ export type ScrollableShadowsProps = {
     style?: CSSProperties
     /** Whether to disable scrolling. */
     disableScroll?: boolean
+    /**
+     * Whether scrolling should be constrained to the given direction.
+     * When false, both axes are allowed to scroll.
+     * Defaults to true for backwards compatibility.
+     * Should be used in conjunction with direction
+     */
+    constrainToDirection?: boolean
     /** Whether to hide the scrollable shadows. */
     hideShadows?: boolean
     /** Whether to hide the scrollbars. */
@@ -35,6 +42,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
         scrollRef,
         styledScrollbars = false,
         disableScroll = false,
+        constrainToDirection = true,
         hideShadows = false,
         hideScrollbars = false,
         style,
@@ -70,13 +78,15 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
                 style={
                     disableScroll
                         ? { overflow: 'hidden' }
-                        : {
-                              overflowX: direction === 'horizontal' ? undefined : 'hidden',
-                              overflowY: direction === 'vertical' ? undefined : 'hidden',
-                          }
+                        : constrainToDirection
+                          ? {
+                                overflowX: direction === 'horizontal' ? undefined : 'hidden',
+                                overflowY: direction === 'vertical' ? undefined : 'hidden',
+                            }
+                          : undefined
                 }
             >
-                {children}
+                <ScrollArea.Content className="min-w-0">{children}</ScrollArea.Content>
             </ScrollArea.Viewport>
         </ScrollArea.Root>
     )

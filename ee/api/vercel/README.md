@@ -122,6 +122,14 @@ Billing stays with PostHog for connected accounts - no billing provider migratio
 2. Verify Redirect URL is set to `{ngrok_url}/connect/vercel/callback`
 3. Check Django logs for detailed error messages
 
+### Blank page (React not mounting) after switching branches
+
+Vite caches resolved module paths in `node_modules/.pnpm`.
+When you switch branches, pnpm store hashes can change, leaving Vite with stale references (typically `@react-refresh` returns 500).
+
+**Solution**: Restart the Vite dev server.
+You can verify by checking `curl -s -o /dev/null -w "%{http_code}" http://localhost:8234/@react-refresh` — it should return 200.
+
 ### Environment variables not loaded
 
 **Solution**:
@@ -130,6 +138,12 @@ Billing stays with PostHog for connected accounts - no billing provider migratio
 2. Test credential loading: `op run --env-file=.env.vercel -- printenv | grep VERCEL`
 3. Restart your Django server
 4. Verify ngrok URL is set: Check that `JS_URL` and `NGROK_ORIGIN` in your `.env.vercel` match your ngrok tunnel URL
+
+### `JS_URL` doesn't affect Vite dev scripts
+
+In development, the Vite dev server script tags (`@vite/client`, `@react-refresh`, `src/index.tsx`) are hardcoded to `http://localhost:8234` in `posthog/utils.py`.
+`JS_URL` only sets `window.JS_URL` for the production bundle loader.
+Browsers exempt `localhost` from mixed content blocking, so this works even when the page is served over HTTPS via ngrok.
 
 ### 1Password shows "<concealed by 1Password>" in logs
 

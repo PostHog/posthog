@@ -11,11 +11,11 @@ import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, WorkflowsBatchExportInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.service import BatchExportField, BatchExportInsertInputs, WorkflowsBatchExportInputs
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -110,10 +110,11 @@ class WorkflowsConsumer(Consumer):
 
         parsed = urllib.parse.urlparse(url)
         if not all((parsed.scheme, parsed.netloc)):
-            raise ValueError("Invalid URL")
+            raise ValueError(f"Invalid URL: {url}")
 
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
+        self.internal_api_secret = settings.INTERNAL_API_SECRET
 
     async def consume_chunk(self, data: bytes):
         post = make_retryable_with_exponential_backoff(
@@ -126,12 +127,16 @@ class WorkflowsConsumer(Consumer):
             self.url,
             # Data is already JSON encoded, so we can't use json=data.
             data=b'{"clickhouse_event":' + data + b"}",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Api-Secret": self.internal_api_secret,
+            },
         ) as response:
             try:
                 response.raise_for_status()
             except aiohttp.ClientResponseError as err:
-                self.logger.exception("Request failed", status=err.status)
+                response_body = await response.text()
+                self.logger.exception("Request failed", status=err.status, response_body=response_body)
 
                 match err.status:
                     case 404:
@@ -201,7 +206,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
 
         transformer = JSONLStreamTransformer(max_workers=1)
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             consumer = WorkflowsConsumer(
                 inputs.url,
                 hog_function_id=inputs.hog_function_id,
@@ -218,6 +223,8 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 consumer=consumer,
                 producer_task=producer_task,
                 transformer=transformer,
+                # the CDP API expects the JSON columns to be strings
+                json_columns=(),
             )
 
         return result
@@ -236,7 +243,9 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Workflows API."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

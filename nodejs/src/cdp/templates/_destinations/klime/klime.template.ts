@@ -39,11 +39,9 @@ if (action == 'track') {
         payload['groupId'] := inputs.groupId
     }
     let props := {}
-    if (inputs.include_all_properties) {
-        for (let key, value in event.properties) {
-            if (not key like '$%') {
-                props[key] := value
-            }
+    for (let key, value in event.properties) {
+        if (not key like '$%') {
+            props[key] := value
         }
     }
     for (let key, value in inputs.properties) {
@@ -67,7 +65,11 @@ if (action == 'track') {
             }
         }
     }
-    for (let key, value in inputs.properties) {
+    let identifyMapping := inputs.userTraits
+    if (empty(identifyMapping)) {
+        identifyMapping := inputs.properties
+    }
+    for (let key, value in identifyMapping) {
         if (not empty(value)) {
             traits[key] := value
         }
@@ -76,19 +78,21 @@ if (action == 'track') {
         payload['traits'] := traits
     }
 } else if (action == 'group') {
-    if (empty(inputs.groupId)) {
+    let gid := inputs.groupId
+    if (event.event == '$groupidentify' and not empty(event.properties.$group_key)) {
+        gid := event.properties.$group_key
+    }
+    if (empty(gid)) {
         print('No group ID set. Skipping as group ID is required for group events.')
         return
     }
-    payload['groupId'] := inputs.groupId
+    payload['groupId'] := gid
     let traits := {}
-    if (inputs.include_all_properties) {
-        let groupSet := event.properties.$group_set
-        if (not empty(groupSet)) {
-            for (let key, value in groupSet) {
-                if (not key like '$%') {
-                    traits[key] := value
-                }
+    let groupSet := event.properties.$group_set
+    if (not empty(groupSet)) {
+        for (let key, value in groupSet) {
+            if (not key like '$%') {
+                traits[key] := value
             }
         }
     }
@@ -163,27 +167,37 @@ if (res.status >= 400) {
             key: 'groupId',
             type: 'string',
             label: 'Group ID',
-            description: 'Organization or account identifier. Required for group events.',
-            default: '',
+            description:
+                'Organization or account identifier. Required for group events. Defaults to your first PostHog group type ($group_0). If you use multiple group types, change to $group_1, $group_2, etc. You can also use a custom event property.',
+            default: '{event.properties.$group_0}',
             secret: false,
             required: false,
         },
         {
             key: 'include_all_properties',
             type: 'boolean',
-            label: 'Include all properties',
+            label: 'Include all person properties',
             description:
-                'If set, all event properties (for track), person properties (for identify), or group properties (for group) will be included. Individual properties can be overridden below.',
+                'If set, all person properties will be included as traits on identify events. May cause timeouts for persons with many properties.',
             default: false,
             secret: false,
             required: true,
         },
         {
+            key: 'userTraits',
+            type: 'dictionary',
+            label: 'User trait mapping',
+            description:
+                'Map of trait names to values, sent on identify events. By default sends email and name from person properties.',
+            default: { email: '{person.properties.email}', name: '{person.properties.name}' },
+            secret: false,
+            required: false,
+        },
+        {
             key: 'properties',
             type: 'dictionary',
             label: 'Property mapping',
-            description:
-                'Map of property names to values. These are sent as properties (track) or traits (identify/group).',
+            description: 'Map of property names to values. These are sent as properties (track) or traits (group).',
             default: {},
             secret: false,
             required: false,

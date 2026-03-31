@@ -1,5 +1,7 @@
 import { Edge, Position } from '@xyflow/react'
-import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+
+import { getElk } from 'lib/elk'
 
 import { NODE_HEIGHT, NODE_WIDTH } from './constants'
 import type { ElkDirection, Node } from './types'
@@ -16,8 +18,6 @@ const getElkPortSide = (position: Position): string => {
             return 'EAST'
     }
 }
-
-const elk = new ELK()
 
 export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?: ElkDirection): Promise<Node[]> => {
     if (nodes.length === 0) {
@@ -58,10 +58,10 @@ export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?
 
             return {
                 ...node,
-                width: NODE_WIDTH,
-                height: NODE_HEIGHT,
+                width: node.width ?? NODE_WIDTH,
+                height: node.height ?? NODE_HEIGHT,
                 targetPosition: direction === 'DOWN' ? 'top' : 'left',
-                sourcePosition: direction === 'RIGHT' ? 'bottom' : 'right',
+                sourcePosition: direction === 'DOWN' ? 'bottom' : 'right',
                 ports: [...handles],
             }
         }),
@@ -73,6 +73,7 @@ export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?
         })) as ElkExtendedEdge[],
     }
 
+    const elk = await getElk()
     const laidOutGraph = await elk.layout(graph)
     return (laidOutGraph.children?.map((node) => ({
         ...node,

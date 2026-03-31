@@ -149,8 +149,8 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_disables_default_job_at_same_level(self):
-        default_trace = self._create_job(name="Default (traces)", analysis_level="trace", enabled=True)
-        default_gen = self._create_job(name="Default (generations)", analysis_level="generation", enabled=True)
+        default_trace = self._create_job(name="Default - traces", analysis_level="trace", enabled=True)
+        default_gen = self._create_job(name="Default - generations", analysis_level="generation", enabled=True)
 
         response = self.client.post(
             self._url(),

@@ -10,8 +10,9 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 
 from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
-from posthog.models import MessagingRecord, Organization, Person, Team, User
+from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.messaging import MessagingRecord
 
 
 class TestEmail(BaseTest):
@@ -86,7 +87,7 @@ class TestEmail(BaseTest):
             )
 
     @patch("posthoganalytics.capture")
-    @patch("posthog.email.external_requests.post")
+    @patch("posthog.email.requests.post")
     def test_send_via_http_success(self, mock_post, mock_capture) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -126,7 +127,7 @@ class TestEmail(BaseTest):
                 },
             )
 
-    @patch("posthog.email.external_requests.post")
+    @patch("posthog.email.requests.post")
     def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -160,7 +161,7 @@ class TestEmail(BaseTest):
                 },
             )
 
-    @patch("posthog.email.external_requests.post")
+    @patch("posthog.email.requests.post")
     def test_send_via_http_api_error(self, mock_post) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 400

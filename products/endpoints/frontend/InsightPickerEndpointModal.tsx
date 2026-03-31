@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 
-import { IconCode2, IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
+import { IconEndpoints, IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -65,7 +65,7 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
                                 <div className="text-sm text-secondary">
                                     <>
                                         Once the insight is saved, open the right side panel and click
-                                        <br /> <IconCode2 /> <code>Create endpoint</code>.
+                                        <br /> <IconEndpoints /> <code>Create endpoint</code>.
                                     </>
                                 </div>
                             </div>
