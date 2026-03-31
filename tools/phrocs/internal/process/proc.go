@@ -343,24 +343,24 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
-		stdinR.Close()
-		stdinW.Close()
+		_ = stdinR.Close()
+		_ = stdinW.Close()
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	cmd.Stdout = stdoutW
 	cmd.Stderr = stdoutW
 
 	if err := cmd.Start(); err != nil {
-		stdinR.Close()
-		stdinW.Close()
-		stdoutR.Close()
-		stdoutW.Close()
+		_ = stdinR.Close()
+		_ = stdinW.Close()
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
 		return fmt.Errorf("start: %w", err)
 	}
 
 	// Close write ends in the parent so reads get EOF when the child exits.
-	stdinR.Close()
-	stdoutW.Close()
+	_ = stdinR.Close()
+	_ = stdoutW.Close()
 
 	waitDone := make(chan struct{})
 
@@ -375,7 +375,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 		_ = stdinW.Close()
 		p.stdinPipe = nil
 		p.mu.Unlock()
-		stdoutR.Close()
+		_ = stdoutR.Close()
 		send(StatusMsg{Name: p.Name, Status: StatusStopped})
 		return nil
 	}
@@ -408,7 +408,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 		exitErr := cmd.Wait()
 		close(waitDone)
 
-		stdoutR.Close()
+		_ = stdoutR.Close()
 
 		<-readDone
 		close(outChannel)
