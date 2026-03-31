@@ -336,7 +336,7 @@ def create_run(
     # requires the slot to be free before the insert. A new CI push always
     # replaces the previous run — approved and clean runs still show up in
     # their respective UI filters via REVIEW_STATE_FILTERS.
-    supersede_filter = Run.objects.filter(
+    supersede_filter = Run.objects.using(WRITER_DB).filter(
         repo_id=repo_id,
         branch=branch,
         run_type=run_type,
@@ -347,7 +347,7 @@ def create_run(
     if superseded_ids:
         from django.db.models import F
 
-        Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=F("id"))
+        Run.objects.using(WRITER_DB).filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=F("id"))
 
     removed = removed_identifiers or []
     total = len(snapshots) + unchanged_count
@@ -366,10 +366,10 @@ def create_run(
 
     # Fix up the sentinel pointers to reference the actual new run
     if superseded_ids:
-        Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
+        Run.objects.using(WRITER_DB).filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
 
     _added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines, removed)
-    _update_run_counts(run)
+    _update_run_counts(run, using=WRITER_DB)
 
     transaction.on_commit(
         lambda: _post_commit_status(run, repo, "pending", "Visual review in progress"), using=WRITER_DB
@@ -468,15 +468,16 @@ def _register_snapshots(
     return added_count, uploads
 
 
-def _update_run_counts(run: Run) -> None:
+def _update_run_counts(run: Run, using: str | None = None) -> None:
     """Recalculate result counts from RunSnapshot rows."""
-    counts = run.snapshots.values("result").annotate(n=Count("id"))
+    db_alias = using or WRITER_DB
+    counts = RunSnapshot.objects.using(db_alias).filter(run_id=run.id).values("result").annotate(n=Count("id"))
     by_result = {row["result"]: row["n"] for row in counts}
 
     run.changed_count = by_result.get(SnapshotResult.CHANGED, 0)
     run.new_count = by_result.get(SnapshotResult.NEW, 0)
     run.removed_count = by_result.get(SnapshotResult.REMOVED, 0)
-    run.save(update_fields=["changed_count", "new_count", "removed_count"])
+    run.save(using=db_alias, update_fields=["changed_count", "new_count", "removed_count"])
 
 
 @transaction.atomic(using=WRITER_DB)
@@ -502,10 +503,10 @@ def add_snapshots_to_run(
     added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
 
     # Atomically increment total (safe for concurrent shards)
-    Run.objects.filter(id=run_id, team_id=team_id).update(
+    Run.objects.using(WRITER_DB).filter(id=run_id, team_id=team_id).update(
         total_snapshots=F("total_snapshots") + added + unchanged_count
     )
-    _update_run_counts(run)
+    _update_run_counts(run, using=WRITER_DB)
 
     return added, uploads
 
@@ -564,10 +565,10 @@ def complete_run(
 
     # Reconcile final counts (includes shards' unchanged + any removals)
     if unchanged_count or removed:
-        Run.objects.filter(id=run_id, team_id=run.repo.team_id).update(
+        Run.objects.using(WRITER_DB).filter(id=run_id, team_id=run.repo.team_id).update(
             total_snapshots=F("total_snapshots") + unchanged_count,
         )
-        _update_run_counts(run)
+        _update_run_counts(run, using=WRITER_DB)
 
     verify_uploads_and_create_artifacts(run_id)
 

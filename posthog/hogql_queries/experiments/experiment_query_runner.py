@@ -214,6 +214,7 @@ class ExperimentQueryRunner(QueryRunner):
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
             force_precomputation=self.force_precomputation,
+            only_count_matured_users=self.experiment.only_count_matured_users,
         )
 
         # Skip precomputation for data warehouse metrics because the precomputed table

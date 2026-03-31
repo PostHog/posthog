@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from typing import Final
+
 from django.db import transaction
 from django.db.models import QuerySet
 
@@ -17,6 +20,11 @@ from products.logs.backend.models import LogsAlertConfiguration
 
 ALLOWED_WINDOW_MINUTES = {1, 5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
+_SENTINEL: Final = object()
+
+
+def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
+    return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -106,7 +114,43 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 }
             )
 
+        snooze_until = attrs.get("snooze_until")
+        if snooze_until is not None and snooze_until <= datetime.now(UTC):
+            raise ValidationError({"snooze_until": "Must be a future datetime."})
+
         return attrs
+
+    def update(self, instance: LogsAlertConfiguration, validated_data: dict) -> LogsAlertConfiguration:
+        snooze_data = validated_data.pop("snooze_until", _SENTINEL)
+
+        threshold_or_filter_fields = {
+            "threshold_count",
+            "threshold_operator",
+            "filters",
+            "datapoints_to_alarm",
+            "evaluation_periods",
+        }
+
+        threshold_changed = _any_field_changed(instance, validated_data, threshold_or_filter_fields)
+        window_changed = _any_field_changed(instance, validated_data, {"window_minutes"})
+
+        already_snoozed = snooze_data is _SENTINEL and instance.state == LogsAlertConfiguration.State.SNOOZED
+
+        if threshold_changed:
+            instance.mark_for_recheck(reset_state=not already_snoozed)
+        elif window_changed:
+            instance.mark_for_recheck(reset_state=False)
+
+        # Apply snooze last so it takes priority over the recheck state reset
+        if snooze_data is not _SENTINEL:
+            if snooze_data is None:
+                instance.state = LogsAlertConfiguration.State.NOT_FIRING
+                instance.snooze_until = None
+            else:
+                instance.state = LogsAlertConfiguration.State.SNOOZED
+                instance.snooze_until = snooze_data
+
+        return super().update(instance, validated_data)
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]

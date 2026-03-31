@@ -24,7 +24,6 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 method: 'POST',
                 path: `/api/environments/${projectId}/query/`,
                 body: { query },
-                headers: { 'X-PostHog-Client': 'mcp' },
             })
             const queryParam = encodeURIComponent(JSON.stringify(query))
             const baseUrl = context.api.getProjectBaseUrl(projectId)

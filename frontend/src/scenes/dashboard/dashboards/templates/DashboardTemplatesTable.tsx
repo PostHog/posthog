@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -8,6 +9,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import type { Sorting } from 'lib/lemon-ui/LemonTable'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
@@ -16,6 +18,8 @@ import { userLogic } from 'scenes/userLogic'
 import { DashboardTemplateType } from '~/types'
 
 const templatesTableLogic = dashboardTemplatesLogic({ scope: 'default' })
+
+const POPULAR_TEMPLATE_TOOLTIP = 'One of our most popular templates'
 
 export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { allTemplates, allTemplatesLoading, templateFilter, templateNameOrdering } = useValues(templatesTableLogic)
@@ -38,6 +42,21 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { user } = useValues(userLogic)
 
     const columns: LemonTableColumns<DashboardTemplateType> = [
+        {
+            key: 'featured',
+            width: '2rem',
+            align: 'center',
+            className: 'align-middle',
+            render: (_, record) => (
+                <span className="inline-flex min-h-5 w-full items-center justify-center leading-none">
+                    {record.scope === 'global' && record.is_featured ? (
+                        <Tooltip title={POPULAR_TEMPLATE_TOOLTIP}>
+                            <IconThumbsUpFilled className="size-4 text-success" aria-label={POPULAR_TEMPLATE_TOOLTIP} />
+                        </Tooltip>
+                    ) : null}
+                </span>
+            ),
+        },
         {
             title: 'Name',
             dataIndex: 'template_name',

@@ -1,1 +1,1 @@
-0021_add_team_to_endpointversion
+0022_backfill_team_id_on_endpointversion
