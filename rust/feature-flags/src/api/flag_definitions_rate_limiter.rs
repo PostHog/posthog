@@ -482,4 +482,36 @@ mod tests {
         let limiter = make_limiter(600, HashMap::new(), HashSet::new());
         assert_eq!(limiter.allowlist_count(), 0);
     }
+
+    #[test]
+    fn test_allowlist_starts_stale() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        assert!(limiter.is_allowlist_stale(60));
+    }
+
+    #[test]
+    fn test_update_allowlist_marks_as_fresh() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        limiter.update_allowlist(HashSet::from([123]));
+        assert!(!limiter.is_allowlist_stale(60));
+        assert_eq!(limiter.allowlist_count(), 1);
+    }
+
+    #[test]
+    fn test_mark_allowlist_refreshed_without_changing_data() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        assert!(limiter.is_allowlist_stale(60));
+        limiter.mark_allowlist_refreshed();
+        assert!(!limiter.is_allowlist_stale(60));
+        assert_eq!(limiter.allowlist_count(), 0);
+    }
+
+    #[test]
+    fn test_invalidate_allowlist_makes_stale() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        limiter.mark_allowlist_refreshed();
+        assert!(!limiter.is_allowlist_stale(60));
+        limiter.invalidate_allowlist();
+        assert!(limiter.is_allowlist_stale(60));
+    }
 }
