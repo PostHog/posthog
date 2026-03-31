@@ -501,11 +501,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     const decodedValue = decoder.decode(value)
                     parser.feed(decodedValue)
                 }
-            } catch {
+                clearTimeout(timeout)
+            } catch (err) {
                 // Connection dropped but the workflow keeps running.
                 // Keep the spinner going until the timeout kicks in
-            } finally {
-                clearTimeout(timeout)
+                posthog.captureException(err)
             }
         },
     })),
