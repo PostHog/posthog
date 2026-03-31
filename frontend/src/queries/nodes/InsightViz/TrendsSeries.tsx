@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -37,13 +36,10 @@ export function TrendsSeries(): JSX.Element | null {
         insightVizDataLogic(insightProps)
     )
     const { updateQuerySource, toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-
-    const supportsDwhLifecycle = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_LIFECYCLE_SUPPORT]
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
@@ -153,7 +149,7 @@ export function TrendsSeries(): JSX.Element | null {
                     ...((isTrends &&
                         display !== ChartDisplayType.CalendarHeatmap &&
                         display !== ChartDisplayType.BoxPlot) ||
-                    (supportsDwhLifecycle && isLifecycle)
+                    isLifecycle
                         ? [TaxonomicFilterGroupType.DataWarehouse]
                         : []),
                 ]}
