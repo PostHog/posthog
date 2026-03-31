@@ -272,6 +272,30 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         </Link>
                                     </div>
                                 )}
+                            {ticket?.channel_source === 'email' && ticket?.email_subject && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">Subject</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_subject}>
+                                        {ticket.email_subject}
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.channel_source === 'email' && ticket?.email_from && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">From</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_from}>
+                                        {ticket.email_from}
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.channel_source === 'email' && ticket?.email_to && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">To</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
+                                        {ticket.email_to}
+                                    </span>
+                                </div>
+                            )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>

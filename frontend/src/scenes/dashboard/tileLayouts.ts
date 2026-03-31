@@ -166,10 +166,15 @@ export const calculateLayouts = (
             const { x, y, w, h } = layout || {}
 
             const isTextTile = !!tile.text
+            const isButtonTile = !!tile.button_tile
+            if (isButtonTile) {
+                defaultW = 3
+                defaultH = 1
+            }
             const realW = Math.min(w || defaultW, columnCount)
             const realH = h || defaultH
-            const minH = isTextTile ? MIN_TEXT_TILE_HEIGHT_ROWS : MIN_TILE_HEIGHT_ROWS
-            const minW = isTextTile ? 1 : 2
+            const minH = isTextTile || isButtonTile ? MIN_TEXT_TILE_HEIGHT_ROWS : MIN_TILE_HEIGHT_ROWS
+            const minW = isTextTile || isButtonTile ? 1 : 2
 
             return {
                 i: tile.id?.toString(),

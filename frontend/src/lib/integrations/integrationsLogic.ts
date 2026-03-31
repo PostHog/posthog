@@ -4,10 +4,11 @@ import { router, urlToAction } from 'kea-router'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import api, { getCookie } from 'lib/api'
+import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { fromParamsGivenUrl, isKeyOf } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { integrationsGithubReposRetrieve } from '~/generated/core/api'
@@ -19,10 +20,15 @@ import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannel
 import type { integrationsLogicType } from './integrationsLogicType'
 import { ICONS } from './utils'
 
+function toastApiError(e: unknown): void {
+    const detail = e instanceof ApiError ? e.detail : null
+    lemonToast.error(detail || 'Something went wrong. Please try again.')
+}
+
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
     connect(() => ({
-        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
+        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight'], teamLogic, ['currentProjectId']],
         actions: [globalSetupLogic, ['markTaskAsCompleted']],
     })),
 
@@ -125,7 +131,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             {} as Record<number, GitHubRepoApi[]>,
             {
                 loadGitHubRepositories: async ({ integrationId }) => {
-                    const response = await integrationsGithubReposRetrieve('@current', integrationId)
+                    const response = await integrationsGithubReposRetrieve(
+                        String(values.currentProjectId),
+                        integrationId
+                    )
                     return {
                         ...values.githubRepositories,
                         [integrationId]: response.repositories || [],
@@ -161,8 +170,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         'Your request to connect to GitHub has been sent to the organization owners. They will need to complete the installation.'
                     )
                 }
-            } catch {
-                lemonToast.error(`Something went wrong. Please try again.`)
+            } catch (e) {
+                toastApiError(e)
             } finally {
                 router.actions.replace(replaceUrl)
             }
@@ -200,8 +209,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     actions.loadIntegrations()
                     lemonToast.success(`Integration successful.`)
                 }
-            } catch {
-                lemonToast.error(`Something went wrong. Please try again.`)
+            } catch (e) {
+                toastApiError(e)
             } finally {
                 router.actions.replace(replaceUrl)
             }

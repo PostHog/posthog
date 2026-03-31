@@ -1,6 +1,7 @@
 import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { KIND_LABELS } from './healthCategories'
+import type { HealthIssueKind } from './healthCategories'
 import type { HealthIssueSeverity } from './types'
 
 export const severityToTagType = (severity: HealthIssueSeverity): LemonTagType => {
@@ -19,8 +20,8 @@ export const severityLabel = (severity: HealthIssueSeverity): string => {
 }
 
 export const kindToLabel = (kind: string): string => {
-    if (KIND_LABELS[kind]) {
-        return KIND_LABELS[kind]
+    if (kind in KIND_LABELS) {
+        return KIND_LABELS[kind as HealthIssueKind]
     }
     return kind
         .split('_')

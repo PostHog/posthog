@@ -6,6 +6,8 @@ interface Series {
     data: number[]
     at(index: number): number
     hidden: boolean
+    compare: boolean
+    compareLabel: string
     borderColor: string
     backgroundColor: string
 }
@@ -22,6 +24,8 @@ function makeSeries(ds: ChartDataset): Series {
             return data[index]
         },
         hidden: ds.hidden ?? false,
+        compare: ds.compare ?? false,
+        compareLabel: ds.compare_label ?? '',
         borderColor: ds.borderColor ?? '',
         backgroundColor: ds.backgroundColor ?? '',
     }

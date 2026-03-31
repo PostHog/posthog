@@ -105,6 +105,7 @@ export const SyncTypeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
     Append: 'append',
+    Webhook: 'webhook',
 } as const
 
 /**
@@ -115,6 +116,8 @@ export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null | nul
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
+    /** @nullable */
+    readonly label: string | null
     /** @nullable */
     readonly table: ExternalDataSchemaApiTable
     should_sync?: boolean
@@ -133,8 +136,10 @@ export interface ExternalDataSchemaApi {
     readonly incremental_field: string | null
     /** @nullable */
     readonly incremental_field_type: string | null
-    readonly sync_frequency: string
-    readonly sync_time_of_day: string
+    /** @nullable */
+    readonly sync_frequency: string | null
+    /** @nullable */
+    readonly sync_time_of_day: string | null
     /** @nullable */
     readonly description: string | null
 }
@@ -289,10 +294,11 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Postmark` - Postmark
  * `Granola` - Granola
  * `BuildBetter` - BuildBetter
+ * `Convex` - Convex
  */
-export type SourceTypeE09EnumApi = (typeof SourceTypeE09EnumApi)[keyof typeof SourceTypeE09EnumApi]
+export type SourceType432EnumApi = (typeof SourceType432EnumApi)[keyof typeof SourceType432EnumApi]
 
-export const SourceTypeE09EnumApi = {
+export const SourceType432EnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -433,6 +439,7 @@ export const SourceTypeE09EnumApi = {
     Postmark: 'Postmark',
     Granola: 'Granola',
     BuildBetter: 'BuildBetter',
+    Convex: 'Convex',
 } as const
 
 /**
@@ -446,10 +453,27 @@ export const AccessMethodEnumApi = {
     Direct: 'direct',
 } as const
 
+/**
+ * * `duckdb` - duckdb
+ * `postgres` - postgres
+ */
+export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
+
+export const EngineEnumApi = {
+    Duckdb: 'duckdb',
+    Postgres: 'postgres',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     enabled?: boolean
     include_invoiceless_charges?: boolean
 }
+
+export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
 /**
  * Mixin for serializers to add user access control fields
@@ -462,8 +486,9 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeE09EnumApi
-    readonly latest_error: string
+    readonly source_type: SourceType432EnumApi
+    /** @nullable */
+    readonly latest_error: string | null
     /**
      * @maxLength 100
      * @nullable
@@ -475,8 +500,13 @@ export interface ExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method: AccessMethodEnumApi
+    /** Backend engine detected for the direct connection.
+
+* `duckdb` - duckdb
+* `postgres` - postgres */
+    readonly engine: EngineEnumApi | NullEnumApi | null
     readonly last_run_at: string
-    readonly schemas: string
+    readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
@@ -484,6 +514,7 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    readonly supports_webhooks: boolean
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -494,6 +525,8 @@ export interface PaginatedExternalDataSourceSerializersListApi {
     previous?: string | null
     results: ExternalDataSourceSerializersApi[]
 }
+
+export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
 /**
  * Mixin for serializers to add user access control fields
@@ -506,8 +539,9 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeE09EnumApi
-    readonly latest_error?: string
+    readonly source_type?: SourceType432EnumApi
+    /** @nullable */
+    readonly latest_error?: string | null
     /**
      * @maxLength 100
      * @nullable
@@ -519,8 +553,13 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method?: AccessMethodEnumApi
+    /** Backend engine detected for the direct connection.
+
+* `duckdb` - duckdb
+* `postgres` - postgres */
+    readonly engine?: EngineEnumApi | NullEnumApi | null
     readonly last_run_at?: string
-    readonly schemas?: string
+    readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
@@ -528,6 +567,27 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    readonly supports_webhooks?: boolean
+}
+
+export interface ExternalDataSourceConnectionOptionApi {
+    readonly id: string
+    /** @nullable */
+    readonly prefix: string | null
+    /** Backend engine detected for the direct connection.
+
+* `duckdb` - duckdb
+* `postgres` - postgres */
+    readonly engine: EngineEnumApi | NullEnumApi | null
+}
+
+export interface PaginatedExternalDataSourceConnectionOptionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataSourceConnectionOptionApi[]
 }
 
 export interface QueryTabStateApi {
@@ -589,10 +649,6 @@ export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 export const BlankEnumApi = {
     '': '',
 } as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
 
 /**
  * @nullable
@@ -673,6 +729,8 @@ export const OriginEnumApi = {
     ManagedViewset: 'managed_viewset',
 } as const
 
+export type DataWarehouseSavedQueryMinimalApiColumnsItem = { [key: string]: unknown }
+
 /**
  * Lightweight serializer for list views - excludes large query field to reduce memory usage.
  */
@@ -683,8 +741,9 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly name: string
     readonly created_by: UserBasicApi
     readonly created_at: string
-    readonly sync_frequency: string
-    readonly columns: string
+    /** @nullable */
+    readonly sync_frequency: string | null
+    readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
 
 * `Cancelled` - Cancelled
@@ -695,7 +754,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly status: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
-    readonly managed_viewset_kind: string
+    /** @nullable */
+    readonly managed_viewset_kind: string | null
     /** @nullable */
     readonly latest_error: string | null
     /** @nullable */
@@ -706,6 +766,13 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    readonly is_test: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at: string | null
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -716,6 +783,8 @@ export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
     previous?: string | null
     results: DataWarehouseSavedQueryMinimalApi[]
 }
+
+export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
@@ -735,8 +804,9 @@ export interface DataWarehouseSavedQueryApi {
     query?: unknown | null
     readonly created_by: UserBasicApi
     readonly created_at: string
-    readonly sync_frequency: string
-    readonly columns: string
+    /** @nullable */
+    readonly sync_frequency: string | null
+    readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
 
 * `Cancelled` - Cancelled
@@ -747,7 +817,8 @@ export interface DataWarehouseSavedQueryApi {
     readonly status: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
-    readonly managed_viewset_kind: string
+    /** @nullable */
+    readonly managed_viewset_kind: string | null
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -755,7 +826,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     edited_history_id?: string | null
-    readonly latest_history_id: string
+    /** @nullable */
+    readonly latest_history_id: number | null
     /**
      * If true, skip column inference and validation. For saving drafts.
      * @nullable
@@ -769,7 +841,16 @@ export interface DataWarehouseSavedQueryApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    is_test?: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at: string | null
 }
+
+export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
@@ -789,8 +870,9 @@ export interface PatchedDataWarehouseSavedQueryApi {
     query?: unknown | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    readonly sync_frequency?: string
-    readonly columns?: string
+    /** @nullable */
+    readonly sync_frequency?: string | null
+    readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
 
 * `Cancelled` - Cancelled
@@ -801,7 +883,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly status?: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
-    readonly managed_viewset_kind?: string
+    /** @nullable */
+    readonly managed_viewset_kind?: string | null
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -809,7 +892,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     edited_history_id?: string | null
-    readonly latest_history_id?: string
+    /** @nullable */
+    readonly latest_history_id?: number | null
     /**
      * If true, skip column inference and validation. For saving drafts.
      * @nullable
@@ -823,6 +907,13 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin?: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    is_test?: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at?: string | null
 }
 
 /**
@@ -860,8 +951,15 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeE09EnumApi
+    readonly source_type: SourceType432EnumApi
 }
+
+export type TableApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type TableApiExternalSchema = { [key: string]: unknown } | null | null
 
 export type TableApiOptions = { [key: string]: unknown }
 
@@ -877,9 +975,10 @@ export interface TableApi {
     /** @maxLength 500 */
     url_pattern: string
     credential: CredentialApi
-    readonly columns: string
+    readonly columns: readonly TableApiColumnsItem[]
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
-    readonly external_schema: string
+    /** @nullable */
+    readonly external_schema: TableApiExternalSchema
     options?: TableApiOptions
 }
 
@@ -973,6 +1072,21 @@ export type ExternalDataSchemasListParams = {
 }
 
 export type ExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -3,8 +3,10 @@ from posthog.test.base import BaseTest
 from rest_framework import serializers
 
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
-from posthog.models import Dashboard, Organization, Team
+from posthog.models import Organization, Team
 from posthog.models.uploaded_media import UploadedMedia
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class TestTeamScopedPrimaryKeyRelatedField(BaseTest):

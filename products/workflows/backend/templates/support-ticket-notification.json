@@ -1,0 +1,167 @@
+{
+    "id": "019ce1f1-5d12-0000-e318-4b3ebd4b2aea",
+    "name": "New support ticket notification",
+    "description": "Automatically notify your support team in Slack whenever a new support ticket is created so they can quickly review and respond.",
+    "version": 1,
+    "created_at": "2026-03-12T12:06:57.554838Z",
+    "created_by": {
+        "id": 310726,
+        "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+        "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+        "first_name": "Sara",
+        "last_name": "Miteva",
+        "email": "sara@posthog.com",
+        "is_email_verified": true,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "updated_at": "2026-03-12T12:07:27.301356Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_ticket_created",
+                    "name": "New ticket created",
+                    "type": "events"
+                }
+            ],
+            "bytecode": ["_H", 1, 32, "$conversation_ticket_created", 32, "event", 1, 1, 11]
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_function_431166ee-1322-4d35-8186-958120346fc2",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_431166ee-1322-4d35-8186-958120346fc2",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Support ticket is created",
+            "description": "A user has created a new support ticket.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_ticket_created",
+                            "name": "New ticket created",
+                            "type": "events"
+                        }
+                    ],
+                    "bytecode": ["_H", 1, 32, "$conversation_ticket_created", 32, "event", 1, 1, 11]
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_431166ee-1322-4d35-8186-958120346fc2",
+            "name": "Message in Slack channel",
+            "description": "Connect the right Slack channel and notify your support team.",
+            "on_error": null,
+            "created_at": 1773317149872,
+            "updated_at": 1773317149872,
+            "filters": null,
+            "type": "function",
+            "config": {
+                "inputs": {
+                    "slack_workspace": {
+                        "value": 54567,
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "🎫 *New support ticket created*\n\n*User:* {person.name}\n*Email:* {person.email}\n\nA user has submitted a new support request.",
+                                    "type": "mrkdwn"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "url": "{person.url}",
+                                        "text": {
+                                            "text": "View user in PostHog",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button"
+                                    },
+                                    {
+                                        "url": "{source.url}",
+                                        "text": {
+                                            "text": "Open ticket",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button"
+                                    }
+                                ]
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": "*{person.name}* created a ticket: '{event.event}'",
+                        "templating": "hog"
+                    }
+                },
+                "template_id": "template-slack"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
+    "tags": ["slack", "support ticket", "support"],
+    "scope": "global"
+}

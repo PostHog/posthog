@@ -185,7 +185,7 @@ locals {
             countIf(event = 'subscription_delivery_exhausted') AS failures
         FROM events
         WHERE event IN ('subscription_delivery_started', 'subscription_delivery_exhausted')
-            AND properties.$set.region = '{{REGION}}'
+            AND properties.region = '{{REGION}}'
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY date
       SQL

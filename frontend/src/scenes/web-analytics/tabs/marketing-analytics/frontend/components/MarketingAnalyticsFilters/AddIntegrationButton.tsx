@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
@@ -27,6 +29,10 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const [showPopover, setShowPopover] = useState(false)
     const [pendingNavigation, setPendingNavigation] = useState<{
@@ -55,7 +61,13 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                 if (pendingNavigation.onIntegrationSelect) {
                     pendingNavigation.onIntegrationSelect(pendingNavigation.integrationId)
                 } else {
-                    router.actions.push(urls.dataWarehouseSourceNew(pendingNavigation.integrationId))
+                    router.actions.push(
+                        urls.dataWarehouseSourceNew(
+                            pendingNavigation.integrationId,
+                            urls.marketingAnalyticsApp(),
+                            'Marketing analytics'
+                        )
+                    )
                 }
                 setShowPopover(false)
                 setPendingNavigation(null)
@@ -93,7 +105,9 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         if (onIntegrationSelect) {
             onIntegrationSelect(integrationId)
         } else {
-            router.actions.push(urls.dataWarehouseSourceNew(integrationId))
+            router.actions.push(
+                urls.dataWarehouseSourceNew(integrationId, urls.marketingAnalyticsApp(), 'Marketing analytics')
+            )
         }
         setShowPopover(false)
     }
@@ -115,6 +129,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                         key={integrationId}
                         fullWidth
                         size="small"
+                        disabledReason={restrictedReason}
                         onClick={() =>
                             handleIntegrateClick(integrationId, type as 'native' | 'external' | 'self-managed')
                         }
@@ -152,7 +167,13 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                 </div>
             }
         >
-            <LemonButton type="primary" size="small" icon={<IconPlusSmall />} data-attr="add-integration">
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlusSmall />}
+                data-attr="add-integration"
+                disabledReason={restrictedReason}
+            >
                 Add source
             </LemonButton>
         </LemonDropdown>

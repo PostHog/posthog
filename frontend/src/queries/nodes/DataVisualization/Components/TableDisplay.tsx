@@ -13,7 +13,9 @@ interface TableDisplayProps extends Pick<LemonSelectProps<ChartDisplayType>, 'di
 
 export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
-    const { autoVisualizationType, hasDateTimeColumns, visualizationType } = useValues(dataVisualizationLogic)
+    const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)
+
+    const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
 
     const displayTypeLabels: Record<ChartDisplayType, string> = {
         [ChartDisplayType.Auto]: 'Auto',
@@ -77,7 +79,9 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.ActionsLineGraph,
                     icon: <IconTrends />,
                     label: 'Line chart',
-                    disabledReason: !hasDateTimeColumns ? 'Requires a date or datetime column' : undefined,
+                    disabledReason: !canDisplayContinuousChart
+                        ? 'Requires at least two columns, including one numeric column'
+                        : undefined,
                 },
                 {
                     value: ChartDisplayType.ActionsBar,
@@ -93,7 +97,9 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.ActionsAreaGraph,
                     icon: <IconAreaChart />,
                     label: 'Area chart',
-                    disabledReason: !hasDateTimeColumns ? 'Requires a date or datetime column' : undefined,
+                    disabledReason: !canDisplayContinuousChart
+                        ? 'Requires at least two columns, including one numeric column'
+                        : undefined,
                 },
                 {
                     value: ChartDisplayType.TwoDimensionalHeatmap,

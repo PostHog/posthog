@@ -9,9 +9,9 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     BreakdownType,
-    DataWarehouseNode,
     EventsNode,
     FunnelAggregateByHogQL,
+    FunnelsDataWarehouseNode,
     FunnelTimeToConvertResults,
     FunnelVizType,
     GroupNode,
@@ -32,6 +32,7 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.property.property import PropertyName
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_cohort_name
 from posthog.queries.util import correct_result_for_sampling
+from posthog.types import FunnelEntityNode
 
 JOIN_ALGOS = "auto"
 
@@ -230,7 +231,7 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode | DataWarehouseNode | GroupNode,
+        step: FunnelEntityNode,
         count: int,
         index: int,
         people: Optional[list[uuid.UUID]] = None,
@@ -240,7 +241,7 @@ class FunnelBase(ABC):
             step_type = "events"
         elif isinstance(step, ActionsNode):
             step_type = "actions"
-        elif isinstance(step, DataWarehouseNode):
+        elif isinstance(step, FunnelsDataWarehouseNode):
             step_type = "data_warehouse"
         elif isinstance(step, GroupNode):
             step_type = "group"
@@ -262,7 +263,7 @@ class FunnelBase(ABC):
         if isinstance(step, EventsNode):
             name = step.event
             action_id = step.event
-        elif isinstance(step, DataWarehouseNode):
+        elif isinstance(step, FunnelsDataWarehouseNode):
             name = step.table_name
             action_id = None
         elif isinstance(step, GroupNode):
@@ -278,8 +279,6 @@ class FunnelBase(ABC):
                     events.append(node.event if node.event is not None else "All events")
                 elif isinstance(node, ActionsNode):
                     events.append(actions_by_id.get(int(node.id), "Unnamed action"))
-                elif isinstance(node, DataWarehouseNode):
-                    events.append(node.table_name)
             name = ", ".join(events)
             action_id = name
         else:

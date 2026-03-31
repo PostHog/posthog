@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
@@ -17,8 +17,8 @@ interface StoryProps {
     sectionId: SettingSectionId
 }
 
-type Story = StoryObj<(props: StoryProps) => JSX.Element>
-const meta: Meta<(props: StoryProps) => JSX.Element> = {
+type Story = StoryObj<StoryProps>
+const meta: Meta<StoryProps> = {
     title: 'Scenes-App/Settings/User',
     parameters: {
         layout: 'fullscreen',
@@ -45,30 +45,34 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             },
         }),
     ],
+    render: ({ sectionId }) => {
+        useEffect(() => {
+            router.actions.push(urls.settings(sectionId))
+        }, [sectionId])
+
+        return <App />
+    },
 }
 export default meta
 
-const Template: StoryFn<StoryProps> = ({ sectionId }) => {
-    useEffect(() => {
-        router.actions.push(urls.settings(sectionId))
-    }, [sectionId])
-
-    return <App />
-}
-
 // -- User --
 
-export const SettingsUserProfile: Story = Template.bind({})
-SettingsUserProfile.args = { sectionId: 'user-profile' }
+export const SettingsUserProfile: Story = {
+    args: { sectionId: 'user-profile' },
+}
 
-export const SettingsUserApiKeys: Story = Template.bind({})
-SettingsUserApiKeys.args = { sectionId: 'user-api-keys' }
+export const SettingsUserApiKeys: Story = {
+    args: { sectionId: 'user-api-keys' },
+}
 
-export const SettingsUserNotifications: Story = Template.bind({})
-SettingsUserNotifications.args = { sectionId: 'user-notifications' }
+export const SettingsUserNotifications: Story = {
+    args: { sectionId: 'user-notifications' },
+}
 
-export const SettingsUserCustomization: Story = Template.bind({})
-SettingsUserCustomization.args = { sectionId: 'user-customization' }
+export const SettingsUserCustomization: Story = {
+    args: { sectionId: 'user-customization' },
+}
 
-export const SettingsUserDangerZone: Story = Template.bind({})
-SettingsUserDangerZone.args = { sectionId: 'user-danger-zone' }
+export const SettingsUserDangerZone: Story = {
+    args: { sectionId: 'user-danger-zone' },
+}

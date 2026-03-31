@@ -62,7 +62,6 @@ Make sure to grant the following read permissions:
                     ),
                 ],
             ),
-            featureFlag="dwh_klaviyo",
         )
 
     def get_schemas(
@@ -78,6 +77,7 @@ Make sure to grant the following read permissions:
                 and endpoint not in append_only_endpoints,
                 supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                description="Only syncs the last 365 days on initial sync" if endpoint == "events" else None,
             )
             for endpoint in list(ENDPOINTS)
         ]

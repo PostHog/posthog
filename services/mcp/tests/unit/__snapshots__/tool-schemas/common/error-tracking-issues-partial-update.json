@@ -4,7 +4,21 @@
         "assignee": {
             "properties": {
                 "id": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "type": {
                     "type": "string"
@@ -46,6 +60,7 @@
                                     "salesforce",
                                     "hubspot",
                                     "google-pubsub",
+                                    "google-cloud-service-account",
                                     "google-cloud-storage",
                                     "google-ads",
                                     "google-sheets",

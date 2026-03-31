@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
@@ -98,9 +99,10 @@ export const organizationLogic = kea<organizationLogicType>([
                     userLogic.actions.loadUser()
                     return updatedOrganization
                 },
-                completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
+                completeOnboarding: async () =>
+                    await api.create(`api/organizations/${values.currentOrganization!.id}/onboarding/`, {}),
                 migrateAccessControlVersion: async () => {
-                    await api.create(`api/organizations/${values.currentOrganization?.id}/migrate_access_control/`, {})
+                    await api.create(`api/organizations/${values.currentOrganization!.id}/migrate_access_control/`, {})
                     window.location.reload()
                     return values.currentOrganization // Return current organization state since the page will reload anyway
                 },
@@ -108,6 +110,21 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     })),
     selectors({
+        currentOrganizationId: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): string => {
+                if (!currentOrganization || !currentOrganization.id) {
+                    // TODO: Fix callers that access currentOrganizationId before the organization is loaded,
+                    // then restore the throw. Temporarily falling back to "@current" to avoid crashes.
+                    posthog.captureException(new Error('currentOrganizationId accessed before organization loaded'), {
+                        severity: 'warning',
+                        tag: 'selector_accessed_before_loaded',
+                    })
+                    return '@current'
+                }
+                return currentOrganization.id
+            },
+        ],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
             (currentOrganization, currentOrganizationLoading): boolean =>

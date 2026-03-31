@@ -2,9 +2,8 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models.experiment import Experiment, ExperimentToSavedMetric
-
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
+from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 
 from ee.api.test.base import APILicensedTest
 
@@ -25,11 +24,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 data={
                     "name": "Test Experiment saved metric",
                     "query": {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     },
                 },
                 format="json",
@@ -46,11 +43,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}",
                 data={
                     "query": {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageleave"},
                     }
                 },
                 format="json",
@@ -90,7 +85,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'",
+            "Metric query kind must be 'ExperimentMetric'",
         )
 
         response = self.client.post(
@@ -106,7 +101,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'",
+            "Metric query kind must be 'ExperimentMetric'",
         )
 
         response = self.client.post(
@@ -121,7 +116,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'",
+            "Metric query kind must be 'ExperimentMetric'",
         )
 
         response = self.client.post(
@@ -129,13 +124,13 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             data={
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
-                "query": {"kind": "ExperimentTrendsQuery"},
+                "query": {"kind": "ExperimentMetric"},
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertTrue("'loc': ('count_query',), 'msg': 'Field required'" in response.json()["detail"])
+        self.assertIn("ExperimentMetric requires a metric_type", response.json()["detail"])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -143,8 +138,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",
@@ -159,11 +155,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
                 "tags": ["tag1"],
             },
@@ -179,8 +173,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(
             response.json()["query"],
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -223,8 +218,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(
             saved_metric.query,
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -236,8 +232,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric 2",
                 "description": "Test description 2",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
                 },
             },
         )
@@ -247,8 +244,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(
             response.json()["query"],
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageleave"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -260,8 +258,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(
             saved_metric.query,
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageleave"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -282,11 +281,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             data={
                 "name": "Test Experiment saved metric",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",
@@ -318,11 +315,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
                 "tags": ["tag1"],
             },
@@ -499,11 +494,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric with breakdown",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",
@@ -568,11 +561,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",
@@ -655,11 +646,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "name": "Shared Metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",
@@ -744,11 +733,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "name": "Test Metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",
@@ -796,4 +783,4 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             },
         )
         self.assertIn("query", saved_metrics[0])
-        self.assertEqual(saved_metrics[0]["query"]["kind"], "ExperimentTrendsQuery")
+        self.assertEqual(saved_metrics[0]["query"]["kind"], "ExperimentMetric")

@@ -244,7 +244,7 @@ export function AppearanceStep(): JSX.Element {
             </div>
 
             {/* Right: Preview */}
-            <div className="lg:sticky lg:top-8 lg:self-start">
+            <div className="min-w-0 lg:sticky lg:top-8 lg:self-start">
                 <div className="space-y-3">
                     <div className="flex items-center justify-between">
                         <h3 className="font-medium m-0 text-sm">Preview</h3>
@@ -257,7 +257,7 @@ export function AppearanceStep(): JSX.Element {
 
                     <div
                         className={clsx(
-                            'border border-border rounded-lg flex items-center justify-center relative min-h-[400px] p-4',
+                            'border border-border rounded-lg flex min-w-0 items-center justify-center overflow-hidden relative min-h-[400px] p-4',
                             previewBackground === 'light' ? 'bg-white' : 'bg-[#1d1f27]'
                         )}
                     >

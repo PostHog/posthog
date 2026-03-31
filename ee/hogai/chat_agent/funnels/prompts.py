@@ -62,8 +62,8 @@ Sequence:
 
 Exclusions:
 - $pageleave
-    - start index: 1
-    - end index: 2
+    - start index: 0
+    - end index: 1
 
 Breakdown:
 - event

@@ -1,0 +1,89 @@
+name: Resolve outdated bot comments
+
+# This workflow uses pull_request_target because it needs to resolve review threads.
+# SECURITY: We never checkout or execute code from the PR branch.
+# We only use the GitHub API to query and resolve review threads.
+
+on:
+    pull_request_target:
+        types: [synchronize]
+
+permissions:
+    contents: read
+
+jobs:
+    resolve-outdated:
+        name: Resolve outdated bot review comments
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+
+        # Skip forks for security
+        if: github.event.pull_request.head.repo.full_name == github.repository
+
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
+              with:
+                  app-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
+            - name: Resolve outdated bot threads
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  BOTS="copilot-pull-request-reviewer greptile-apps chatgpt-codex-connector"
+
+                  OWNER="${REPO%/*}"
+                  REPO_NAME="${REPO#*/}"
+
+                  THREADS=$(gh api graphql -f query='
+                    query($owner: String!, $repo: String!, $pr: Int!) {
+                      repository(owner: $owner, name: $repo) {
+                        pullRequest(number: $pr) {
+                          reviewThreads(first: 100) {
+                            pageInfo { hasNextPage }
+                            nodes {
+                              id
+                              isOutdated
+                              isResolved
+                              comments(first: 2) {
+                                totalCount
+                                nodes {
+                                  author { login }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }' -f owner="$OWNER" -f repo="$REPO_NAME" -F pr="$PR_NUMBER")
+
+                  HAS_NEXT=$(echo "$THREADS" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+                  if [ "$HAS_NEXT" = "true" ]; then
+                    echo "WARNING: more than 100 review threads found; some outdated bot threads may not be resolved"
+                  fi
+
+                  THREAD_IDS=$(echo "$THREADS" | jq -r --arg bots "$BOTS" '
+                    .data.repository.pullRequest.reviewThreads.nodes[]
+                    | select(.isOutdated == true and .isResolved == false and .comments.totalCount == 1)
+                    | select(.comments.nodes[0].author.login as $author | ($bots | split(" ") | any(. == $author)))
+                    | .id
+                  ')
+
+                  if [ -z "$THREAD_IDS" ]; then
+                    echo "No outdated bot threads to resolve"
+                    exit 0
+                  fi
+
+                  echo "$THREAD_IDS" | while read -r thread_id; do
+                    echo "Resolving thread $thread_id"
+                    gh api graphql -f query='
+                      mutation($id: ID!) {
+                        resolveReviewThread(input: { threadId: $id }) {
+                          thread { isResolved }
+                        }
+                      }' -f id="$thread_id"
+                  done

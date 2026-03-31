@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use health::{readiness_handler, HealthRegistry};
+use lifecycle::{LivenessHandler, ReadinessHandler};
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -90,14 +90,11 @@ async fn index() -> &'static str {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<
-    TZ: TimeSource + Send + Sync + 'static,
-    S: sinks::Event + Send + Sync + 'static,
-    R: Client + Send + Sync + 'static,
->(
+pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 'static>(
     timesource: TZ,
-    liveness: HealthRegistry,
-    sink: S,
+    readiness: ReadinessHandler,
+    liveness: LivenessHandler,
+    sink: Arc<dyn sinks::Event + Send + Sync>,
     redis: Arc<R>,
     global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
     global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
@@ -120,7 +117,7 @@ pub fn router<
     body_read_chunk_size_kb: usize,
 ) -> Router {
     let state = State {
-        sink: Arc::new(sink),
+        sink,
         timesource: Arc::new(timesource),
         redis,
         global_rate_limiter_token_distinctid,
@@ -244,8 +241,20 @@ pub fn router<
 
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(readiness_handler))
-        .route("/_liveness", get(move || ready(liveness.get_status())));
+        .route(
+            "/_readiness",
+            get(move || {
+                let r = readiness.clone();
+                async move { r.check().await }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get(move || {
+                let l = liveness.clone();
+                async move { l.check() }
+            }),
+        );
 
     let recordings_router = Router::new()
         .route(

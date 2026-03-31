@@ -19,7 +19,9 @@ import {
 import {
     LemonButton,
     LemonCheckbox,
+    LemonCollapse,
     LemonDivider,
+    LemonDialog,
     LemonInput,
     LemonSelect,
     LemonTable,
@@ -31,6 +33,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
@@ -51,8 +54,9 @@ import { urls } from 'scenes/urls'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { SidePanelTab } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { EvalsTabContent } from './components/EvalsTabContent'
@@ -76,6 +80,8 @@ import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
+import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
+import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
@@ -84,7 +90,7 @@ import { exportTraceToClipboard } from './traceExportUtils'
 import { TraceReviewButton } from './traceReviews/TraceReviewButton'
 import { traceReviewModalLogic } from './traceReviews/traceReviewModalLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
-import { getTraceReviewTagItems, TraceReviewTooltipContent } from './traceReviews/TraceReviewValue'
+import { getTraceReviewTagItems } from './traceReviews/TraceReviewValue'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
     formatLLMCost,
@@ -100,6 +106,237 @@ import {
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
 } from './utils'
+
+interface TraceQueueContext {
+    queueId: string | null
+    isActive: boolean
+    itemSearch: string
+    itemOrderBy: string
+}
+
+interface TraceQueueAssignment {
+    itemId: string
+    queueId: string
+    queueName: string
+}
+
+function getTraceQueueContext(searchParams: Record<string, unknown>): TraceQueueContext {
+    const queueId = typeof searchParams.queue_id === 'string' && searchParams.queue_id ? searchParams.queue_id : null
+
+    return {
+        queueId,
+        isActive: searchParams.back_to === 'reviews' && !!queueId,
+        itemSearch: typeof searchParams.queue_item_search === 'string' ? searchParams.queue_item_search : '',
+        itemOrderBy:
+            typeof searchParams.queue_item_order_by === 'string' && searchParams.queue_item_order_by
+                ? searchParams.queue_item_order_by
+                : 'created_at',
+    }
+}
+
+function getTraceReviewsBackPath(searchParams: Record<string, unknown>): string {
+    const queueContext = getTraceQueueContext(searchParams)
+
+    return combineUrl(urls.llmAnalyticsReviews(), {
+        ...sanitizeTraceUrlSearchParams(searchParams),
+        human_reviews_tab: queueContext.isActive ? undefined : 'reviews',
+    }).url
+}
+
+function getQueueTracePath({
+    traceId,
+    searchParams,
+    queueId,
+    viewMode,
+    itemSearch = '',
+    itemOrderBy = 'created_at',
+    previousTraceId,
+    nextTraceId,
+}: {
+    traceId: string
+    searchParams: Record<string, unknown>
+    queueId: string
+    viewMode: TraceViewMode
+    itemSearch?: string
+    itemOrderBy?: string
+    previousTraceId?: string | null
+    nextTraceId?: string | null
+}): string {
+    return combineUrl(urls.llmAnalyticsTrace(traceId), {
+        ...sanitizeTraceUrlSearchParams(searchParams),
+        back_to: 'reviews',
+        human_reviews_tab: undefined,
+        queue_id: queueId,
+        queue_item_search: itemSearch || undefined,
+        queue_item_order_by: itemOrderBy === 'created_at' ? undefined : itemOrderBy,
+        queue_prev_trace_id: previousTraceId || undefined,
+        queue_next_trace_id: nextTraceId || undefined,
+        tab: viewMode,
+    }).url
+}
+
+function QueueTraceNavigationButtons({
+    traceId,
+    queueId,
+    itemSearch = '',
+    itemOrderBy = 'created_at',
+    showBackToQueue = false,
+}: {
+    traceId: string
+    queueId: string
+    itemSearch?: string
+    itemOrderBy?: string
+    showBackToQueue?: boolean
+}): JSX.Element | null {
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const { viewMode } = useValues(traceLogic)
+    const { searchParams } = useValues(router)
+    const fallbackPreviousTraceId =
+        typeof searchParams.queue_prev_trace_id === 'string' && searchParams.queue_prev_trace_id
+            ? searchParams.queue_prev_trace_id
+            : null
+    const fallbackNextTraceId =
+        typeof searchParams.queue_next_trace_id === 'string' && searchParams.queue_next_trace_id
+            ? searchParams.queue_next_trace_id
+            : null
+    const [queueTraceIds, setQueueTraceIds] = useState<string[] | null>(null)
+    const [loading, setLoading] = useState(false)
+
+    useEffect(() => {
+        if (!queueId) {
+            setQueueTraceIds(null)
+            return
+        }
+
+        let isCancelled = false
+        setLoading(true)
+
+        void reviewQueuesApi
+            .listQueueItems({
+                queue_id: queueId,
+                search: itemSearch || undefined,
+                order_by: itemOrderBy,
+                limit: 1000,
+            })
+            .then((response) => {
+                if (!isCancelled) {
+                    setQueueTraceIds(response.results.map((item) => item.trace_id))
+                    setLoading(false)
+                }
+            })
+            .catch(() => {
+                if (!isCancelled) {
+                    setQueueTraceIds(null)
+                    setLoading(false)
+                }
+            })
+
+        return () => {
+            isCancelled = true
+        }
+    }, [itemOrderBy, itemSearch, queueId])
+
+    const currentIndex = queueTraceIds?.indexOf(traceId) ?? -1
+    const previousTraceId = currentIndex > 0 ? (queueTraceIds?.[currentIndex - 1] ?? null) : fallbackPreviousTraceId
+    const fallbackIndex = fallbackNextTraceId ? (queueTraceIds?.indexOf(fallbackNextTraceId) ?? -1) : -1
+    const nextTraceId = currentIndex >= 0 ? (queueTraceIds?.[currentIndex + 1] ?? null) : fallbackNextTraceId
+    const previousOfPrevious = currentIndex > 1 ? (queueTraceIds?.[currentIndex - 2] ?? null) : null
+    const followingTraceId =
+        currentIndex >= 0
+            ? (queueTraceIds?.[currentIndex + 2] ?? null)
+            : fallbackIndex >= 0
+              ? (queueTraceIds?.[fallbackIndex + 1] ?? null)
+              : null
+    const previousDisabledReason = loading
+        ? 'Checking which trace comes before this one in the queue.'
+        : 'This is the first trace in the queue.'
+    const nextDisabledReason = loading
+        ? 'Checking which trace comes after this one in the queue.'
+        : 'This is the last trace in the queue.'
+
+    const previousButton = (
+        <LemonButton
+            type="secondary"
+            size="xsmall"
+            disabled={!previousTraceId}
+            loading={loading && !previousTraceId}
+            onClick={() => {
+                if (!previousTraceId) {
+                    return
+                }
+
+                router.actions.push(
+                    getQueueTracePath({
+                        traceId: previousTraceId,
+                        searchParams,
+                        queueId,
+                        viewMode,
+                        itemSearch,
+                        itemOrderBy,
+                        previousTraceId: previousOfPrevious,
+                        nextTraceId: traceId,
+                    })
+                )
+            }}
+            data-attr="llma-queue-previous-trace"
+        >
+            Previous
+        </LemonButton>
+    )
+    const nextButton = (
+        <LemonButton
+            type="secondary"
+            size="xsmall"
+            disabled={!nextTraceId}
+            loading={loading && !nextTraceId}
+            onClick={() => {
+                if (!nextTraceId) {
+                    return
+                }
+
+                router.actions.push(
+                    getQueueTracePath({
+                        traceId: nextTraceId,
+                        searchParams,
+                        queueId,
+                        viewMode,
+                        itemSearch,
+                        itemOrderBy,
+                        previousTraceId: traceId,
+                        nextTraceId: followingTraceId,
+                    })
+                )
+            }}
+            data-attr="llma-queue-next-trace"
+        >
+            Next
+        </LemonButton>
+    )
+
+    return (
+        <div className="flex flex-wrap items-center gap-2">
+            {showBackToQueue ? (
+                <LemonButton type="secondary" size="xsmall" to={getTraceReviewsBackPath(searchParams)}>
+                    Back to queue
+                </LemonButton>
+            ) : null}
+            {!previousTraceId ? (
+                <Tooltip title={previousDisabledReason}>
+                    <span className="inline-flex">{previousButton}</span>
+                </Tooltip>
+            ) : (
+                previousButton
+            )}
+            {!nextTraceId ? (
+                <Tooltip title={nextDisabledReason}>
+                    <span className="inline-flex">{nextButton}</span>
+                </Tooltip>
+            ) : (
+                nextButton
+            )}
+        </div>
+    )
+}
 
 function TraceNavigation(): JSX.Element {
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
@@ -193,7 +430,7 @@ function TraceSceneWrapper(): JSX.Element {
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
     const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
     useMountedLogic(traceReviewsLazyLoaderLogic)
-    const { searchQuery, commentCount } = useValues(traceLogic)
+    const { traceId, searchQuery, commentCount, viewMode } = useValues(traceLogic)
     const { searchParams } = useValues(router)
     const {
         enrichedTree,
@@ -211,10 +448,35 @@ function TraceSceneWrapper(): JSX.Element {
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
     const backTo = searchParams.back_to
+    const queueContext = getTraceQueueContext(searchParams)
+    const previousQueueTraceId =
+        typeof searchParams.queue_prev_trace_id === 'string' && searchParams.queue_prev_trace_id
+            ? searchParams.queue_prev_trace_id
+            : null
+    const sanitizedBackSearchParams = sanitizeTraceUrlSearchParams(searchParams)
     const backPath =
         backTo === 'generations'
-            ? combineUrl(urls.llmAnalyticsGenerations(), searchParams).url
-            : combineUrl(urls.llmAnalyticsTraces(), searchParams).url
+            ? combineUrl(urls.llmAnalyticsGenerations(), sanitizedBackSearchParams).url
+            : backTo === 'reviews' && queueContext.isActive && queueContext.queueId && previousQueueTraceId && traceId
+              ? getQueueTracePath({
+                    traceId: previousQueueTraceId,
+                    searchParams,
+                    queueId: queueContext.queueId,
+                    viewMode,
+                    itemSearch: queueContext.itemSearch,
+                    itemOrderBy: queueContext.itemOrderBy,
+                    nextTraceId: traceId,
+                })
+              : backTo === 'reviews'
+                ? getTraceReviewsBackPath(searchParams)
+                : combineUrl(urls.llmAnalyticsTraces(), sanitizedBackSearchParams).url
+    const forceBackTo =
+        backTo === 'generations'
+            ? { name: 'Generations', path: backPath, key: 'generations' }
+            : backTo === 'reviews'
+              ? { name: previousQueueTraceId ? 'Previous trace' : 'Reviews', path: backPath, key: 'reviews' }
+              : { name: 'Traces', path: backPath, key: 'traces' }
+    const showTraceNavigation = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION]
 
     return (
         <>
@@ -230,16 +492,8 @@ function TraceSceneWrapper(): JSX.Element {
                         <SceneTitleSection
                             name={trace.id}
                             resourceType={{ type: 'llm_analytics' }}
-                            forceBackTo={{
-                                name: backTo === 'generations' ? 'Generations' : 'Traces',
-                                path: backPath,
-                                key: backTo === 'generations' ? 'generations' : 'traces',
-                            }}
-                            actions={
-                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION] ? (
-                                    <TraceNavigation />
-                                ) : undefined
-                            }
+                            forceBackTo={forceBackTo}
+                            actions={showTraceNavigation ? <TraceNavigation /> : undefined}
                             noBorder
                         />
                         <div className="flex items-start justify-between">
@@ -341,15 +595,22 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
     ) : null
 }
 
-function TraceReviewMetadata({ traceId }: { traceId: string }): JSX.Element {
-    const modalLogic = useMountedLogic(traceReviewModalLogic({ traceId }))
-    const { openModal } = useActions(modalLogic)
+function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const { isTraceReviewPanelExpanded } = useValues(traceLogic)
+    const { setTraceReviewPanelExpanded } = useActions(traceLogic)
+    const { searchParams } = useValues(router)
+    const queueContext = getTraceQueueContext(searchParams)
     const {
         getTraceReview,
         isTraceLoading: isTraceReviewLoading,
         didTraceReviewLoadFail,
     } = useValues(traceReviewsLazyLoaderLogic)
     const { ensureReviewsLoaded } = useActions(traceReviewsLazyLoaderLogic)
+    const [queueAssignment, setQueueAssignment] = useState<TraceQueueAssignment | null>(null)
+    const [queueAssignmentLoading, setQueueAssignmentLoading] = useState(false)
+    const [queueMutationLoading, setQueueMutationLoading] = useState(false)
+    const [queueAssignmentRefreshToken, setQueueAssignmentRefreshToken] = useState(0)
 
     const traceReview = getTraceReview(traceId)
     const traceReviewLoading = isTraceReviewLoading(traceId)
@@ -363,48 +624,284 @@ function TraceReviewMetadata({ traceId }: { traceId: string }): JSX.Element {
         ensureReviewsLoaded([traceId])
     }, [ensureReviewsLoaded, traceId, traceReview, traceReviewLoadFailed, traceReviewLoading])
 
-    if (traceReviewLoadFailed) {
-        return (
-            <>
-                <Chip title="Failed to load the review status.">Review unavailable</Chip>
-                <TraceReviewButton traceId={traceId} />
-            </>
-        )
+    useEffect(() => {
+        let isCancelled = false
+        setQueueAssignmentLoading(true)
+
+        void reviewQueuesApi
+            .listQueueItems({
+                trace_id: traceId,
+                limit: 1,
+            })
+            .then((response) => {
+                if (isCancelled) {
+                    return
+                }
+
+                const item = response.results[0]
+                setQueueAssignment(
+                    item
+                        ? {
+                              itemId: item.id,
+                              queueId: item.queue_id,
+                              queueName: item.queue_name,
+                          }
+                        : null
+                )
+                setQueueAssignmentLoading(false)
+            })
+            .catch(() => {
+                if (!isCancelled) {
+                    setQueueAssignment(null)
+                    setQueueAssignmentLoading(false)
+                }
+            })
+
+        return () => {
+            isCancelled = true
+        }
+    }, [traceId, queueAssignmentRefreshToken])
+
+    const reviewStatusSummary =
+        traceReviewLoadFailed || traceReviewLoading || traceReview === undefined
+            ? 'Checking review'
+            : traceReview === null
+              ? 'Not reviewed'
+              : 'Reviewed'
+    const reviewedWithoutQueue =
+        !queueAssignmentLoading &&
+        !traceReviewLoadFailed &&
+        !traceReviewLoading &&
+        traceReview !== undefined &&
+        traceReview !== null &&
+        !queueAssignment
+    const queueStatusSummary = queueAssignmentLoading
+        ? 'Checking queue'
+        : queueAssignment
+          ? `In ${queueAssignment.queueName}`
+          : reviewedWithoutQueue
+            ? "Can't be queued"
+            : 'No queue'
+    const panelSummary = `${reviewStatusSummary} · ${queueStatusSummary}`
+
+    const removeFromQueue = (): void => {
+        if (!queueAssignment || queueMutationLoading) {
+            return
+        }
+
+        LemonDialog.open({
+            title: `Remove from "${queueAssignment.queueName}"?`,
+            primaryButton: {
+                status: 'danger',
+                children: 'Remove from queue',
+                onClick: async () => {
+                    setQueueMutationLoading(true)
+
+                    try {
+                        await reviewQueuesApi.deleteQueueItem(queueAssignment.itemId)
+                        setQueueAssignment(null)
+                        lemonToast.success(`Removed from "${queueAssignment.queueName}".`)
+                    } catch {
+                        lemonToast.error('Failed to remove the trace from its queue.')
+                    } finally {
+                        setQueueMutationLoading(false)
+                    }
+                },
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
     }
 
-    if (traceReviewLoading || traceReview === undefined) {
-        return <Chip title="Loading the review status.">Checking review...</Chip>
-    }
+    const reviewTags =
+        traceReview && !traceReviewLoading && !traceReviewLoadFailed
+            ? getTraceReviewTagItems({ review: traceReview, maxVisibleScores: 3 })
+            : []
+    const currentQueueUrl = queueAssignment
+        ? combineUrl(urls.llmAnalyticsReviews(), {
+              human_reviews_tab: undefined,
+              queue_id: queueAssignment.queueId,
+          }).url
+        : null
+    const queueIdForReview = queueAssignment?.queueId ?? (queueContext.isActive ? queueContext.queueId : null)
+    useMountedLogic(traceReviewModalLogic({ traceId, queueId: queueIdForReview }))
+    const navigationQueueId = queueAssignment?.queueId ?? queueContext.queueId
+    const navigationSearch = queueContext.isActive ? queueContext.itemSearch : ''
+    const navigationOrderBy = queueContext.isActive ? queueContext.itemOrderBy : 'created_at'
+    const removeFromQueueButton = queueAssignment ? (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.LlmAnalytics}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            <LemonButton
+                type="secondary"
+                status="danger"
+                size="xsmall"
+                onClick={removeFromQueue}
+                loading={queueMutationLoading}
+                data-attr="llma-trace-remove-from-queue-button"
+            >
+                Remove
+            </LemonButton>
+        </AccessControlAction>
+    ) : null
 
+    const reviewActions: React.ReactNode[] = []
     if (traceReview === null) {
-        return (
-            <>
-                <Chip title="This trace has not been reviewed yet." type="muted" onClick={openModal}>
-                    Not reviewed
-                </Chip>
-                <TraceReviewButton traceId={traceId} />
-            </>
+        reviewActions.push(
+            <TraceReviewButton
+                key="review-action"
+                traceId={traceId}
+                queueId={queueIdForReview}
+                buttonType="primary"
+                buttonSize="xsmall"
+                buttonLabel="Review"
+                onReviewSaved={() => setQueueAssignmentRefreshToken((token) => token + 1)}
+            />
         )
+    } else if (traceReview && !traceReviewLoading && !traceReviewLoadFailed) {
+        reviewActions.push(
+            <TraceReviewButton
+                key="edit-review"
+                traceId={traceId}
+                queueId={queueIdForReview}
+                buttonType="secondary"
+                buttonSize="xsmall"
+                buttonLabel="Edit"
+                onReviewSaved={() => setQueueAssignmentRefreshToken((token) => token + 1)}
+            />
+        )
+        if (removeFromQueueButton) {
+            reviewActions.push(React.cloneElement(removeFromQueueButton, { key: 'remove-from-review' }))
+        }
     }
 
-    const reviewTooltip = <TraceReviewTooltipContent review={traceReview} />
-    const reviewTagItems = getTraceReviewTagItems({ review: traceReview, maxVisibleScores: 3 })
+    const queueActions: React.ReactNode[] = []
+    if (queueAssignment) {
+        queueActions.push(
+            <ReviewQueuePickerModal
+                key="move-queue"
+                traceId={traceId}
+                queueItemId={queueAssignment.itemId}
+                defaultQueueId={queueAssignment.queueId}
+                confirmLabel="Move queue"
+                buttonType="secondary"
+                buttonSize="xsmall"
+                onSuccess={() => setQueueAssignmentRefreshToken((token) => token + 1)}
+            />
+        )
+        if (!traceReview || traceReviewLoading || traceReviewLoadFailed) {
+            queueActions.push(React.cloneElement(removeFromQueueButton as JSX.Element, { key: 'remove-from-queue' }))
+        }
+    } else if (traceReview === null) {
+        queueActions.push(
+            <ReviewQueuePickerModal
+                key="add-queue"
+                traceId={traceId}
+                confirmLabel="Add to queue"
+                buttonType="secondary"
+                buttonSize="xsmall"
+                onSuccess={() => setQueueAssignmentRefreshToken((token) => token + 1)}
+            />
+        )
+    }
 
     return (
-        <>
-            {reviewTagItems.map((item) => (
-                <Chip
-                    key={item.key}
-                    title={item.label}
-                    tooltipTitle={reviewTooltip}
-                    type={item.type}
-                    onClick={openModal}
-                >
-                    {item.label}
-                </Chip>
-            ))}
-            <TraceReviewButton traceId={traceId} />
-        </>
+        <div className="border border-primary bg-surface-primary rounded overflow-hidden">
+            <LemonCollapse
+                embedded
+                size="small"
+                activeKey={isTraceReviewPanelExpanded ? 'workflow' : undefined}
+                onChange={(activeKey) => setTraceReviewPanelExpanded(!!activeKey)}
+                panels={[
+                    {
+                        key: 'workflow',
+                        header: (
+                            <div className="flex min-w-0 items-center gap-2 text-left">
+                                <span className="shrink-0 text-sm font-medium">Trace review</span>
+                                <span className="min-w-0 truncate text-xs text-muted">{panelSummary}</span>
+                            </div>
+                        ),
+                        content: (
+                            <div className="space-y-3 p-3">
+                                <div className="space-y-2">
+                                    <div className="text-sm text-muted">
+                                        {traceReviewLoadFailed
+                                            ? 'Review unavailable'
+                                            : traceReviewLoading || traceReview === undefined
+                                              ? 'Checking review…'
+                                              : traceReview === null
+                                                ? 'Not reviewed'
+                                                : reviewTags.length > 0
+                                                  ? `${pluralize(reviewTags.length, 'score', 'scores')} saved`
+                                                  : 'Review saved'}
+                                    </div>
+                                    {reviewTags.length > 0 ? (
+                                        <div className="space-y-1.5">
+                                            {reviewTags.map((item) => (
+                                                <div key={item.key}>
+                                                    <LemonTag type={item.type} size="small">
+                                                        {item.label}
+                                                    </LemonTag>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                    {reviewActions.length > 0 ? (
+                                        <div className="flex flex-wrap items-center gap-2">{reviewActions}</div>
+                                    ) : null}
+                                </div>
+                                <div className="space-y-2 border-t border-border pt-3">
+                                    <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                                        {queueAssignmentLoading ? (
+                                            <span className="text-muted">Checking queue…</span>
+                                        ) : queueAssignment ? (
+                                            <>
+                                                <span className="text-muted">In queue</span>
+                                                {currentQueueUrl ? (
+                                                    <Link
+                                                        to={currentQueueUrl}
+                                                        target="_blank"
+                                                        targetBlankIcon
+                                                        className="font-medium"
+                                                    >
+                                                        {queueAssignment.queueName}
+                                                    </Link>
+                                                ) : (
+                                                    <span className="font-medium">{queueAssignment.queueName}</span>
+                                                )}
+                                            </>
+                                        ) : reviewedWithoutQueue ? (
+                                            <span className="text-muted">
+                                                This trace has been reviewed. It can't be added to a queue.
+                                            </span>
+                                        ) : (
+                                            <span className="text-muted">No queue</span>
+                                        )}
+                                    </div>
+                                    {queueActions.length > 0 ? (
+                                        <div className="flex flex-wrap items-center gap-2">{queueActions}</div>
+                                    ) : null}
+                                </div>
+                                {navigationQueueId ? (
+                                    <div className="border-t border-border pt-3">
+                                        <QueueTraceNavigationButtons
+                                            traceId={traceId}
+                                            queueId={navigationQueueId}
+                                            itemSearch={navigationSearch}
+                                            itemOrderBy={navigationOrderBy}
+                                            showBackToQueue={queueContext.isActive}
+                                        />
+                                    </div>
+                                ) : null}
+                            </div>
+                        ),
+                        dataAttr: 'llma-trace-review-workflow-panel',
+                    },
+                ]}
+            />
+        </div>
     )
 }
 
@@ -431,7 +928,6 @@ function TraceMetadata({
     const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
 
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
-    const showTraceReview = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
     const sentimentResult = showSentiment ? getTraceSentiment(trace.id) : undefined
     const sentimentLoading = showSentiment ? isTraceLoading(trace.id) : false
     if (showSentiment && sentimentResult === undefined && !sentimentLoading) {
@@ -503,7 +999,6 @@ function TraceMetadata({
                     {formatLLMCost(trace.totalCost)}
                 </Chip>
             )}
-            {showTraceReview ? <TraceReviewMetadata traceId={trace.id} /> : null}
             {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
                 <Chip title="Billed total" icon={<span className="text-base">💰</span>}>
                     billed: {formatLLMCost(billedTotalUsd)}
@@ -552,9 +1047,11 @@ function TraceSidebar({
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
     const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
     const ref = useRef<HTMLDivElement | null>(null)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { mostRelevantEvent, searchOccurrences } = useValues(traceDataLogic)
     const { searchQuery } = useValues(traceLogic)
     const { setSearchQuery, setEventId } = useActions(traceLogic)
+    const showTraceWorkflow = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const [searchValue, setSearchValue] = useState(searchQuery)
 
@@ -587,58 +1084,58 @@ function TraceSidebar({
     }, [mostRelevantEvent, searchQuery, setEventId])
 
     return (
-        <aside
-            className="sticky bottom-[var(--scene-padding)] border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col w-full md:w-80"
-            ref={ref}
-        >
-            <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
-            <LemonDivider className="m-0" />
-            <div className="p-2">
-                <LemonInput
-                    placeholder="Search trace..."
-                    prefix={<IconSearch />}
-                    value={searchValue}
-                    onChange={onSearchChange}
-                    size="small"
-                    data-attr="trace-search-input"
-                />
-                {searchValue.trim() && (
-                    <div className="text-xs text-muted ml-1 mt-1">
-                        {searchOccurrences.length > 0 ? (
-                            <>
-                                {searchOccurrences.length}{' '}
-                                {searchOccurrences.length === 1 ? 'occurrence' : 'occurrences'}
-                            </>
-                        ) : (
-                            'No occurrences'
-                        )}
+        <aside className="sticky bottom-[var(--scene-padding)] max-h-fit flex flex-col gap-3 w-full md:w-80" ref={ref}>
+            {showTraceWorkflow ? <TraceWorkflowPanel traceId={trace.id} /> : null}
+            <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col">
+                <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
+                <LemonDivider className="m-0" />
+                <div className="p-2">
+                    <LemonInput
+                        placeholder="Search trace..."
+                        prefix={<IconSearch />}
+                        value={searchValue}
+                        onChange={onSearchChange}
+                        size="small"
+                        data-attr="trace-search-input"
+                    />
+                    {searchValue.trim() && (
+                        <div className="text-xs text-muted ml-1 mt-1">
+                            {searchOccurrences.length > 0 ? (
+                                <>
+                                    {searchOccurrences.length}{' '}
+                                    {searchOccurrences.length === 1 ? 'occurrence' : 'occurrences'}
+                                </>
+                            ) : (
+                                'No occurrences'
+                            )}
+                        </div>
+                    )}
+                    <div className="mt-2">
+                        <EventTypeFilters />
                     </div>
-                )}
-                <div className="mt-2">
-                    <EventTypeFilters />
                 </div>
+                <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
+                    <TreeNode
+                        topLevelTrace={trace}
+                        node={{
+                            event: trace,
+                            displayTotalCost: trace.totalCost || 0,
+                            displayLatency: trace.totalLatency || 0,
+                            displayUsage: formatLLMUsage(trace),
+                        }}
+                        isSelected={!eventId || eventId === trace.id}
+                        searchQuery={searchQuery}
+                        showBillingInfo={showBillingInfo}
+                    />
+                    <TreeNodeChildren
+                        tree={tree}
+                        trace={trace}
+                        selectedEventId={eventId}
+                        searchQuery={searchQuery}
+                        showBillingInfo={showBillingInfo}
+                    />
+                </ul>
             </div>
-            <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
-                <TreeNode
-                    topLevelTrace={trace}
-                    node={{
-                        event: trace,
-                        displayTotalCost: trace.totalCost || 0,
-                        displayLatency: trace.totalLatency || 0,
-                        displayUsage: formatLLMUsage(trace),
-                    }}
-                    isSelected={!eventId || eventId === trace.id}
-                    searchQuery={searchQuery}
-                    showBillingInfo={showBillingInfo}
-                />
-                <TreeNodeChildren
-                    tree={tree}
-                    trace={trace}
-                    selectedEventId={eventId}
-                    searchQuery={searchQuery}
-                    showBillingInfo={showBillingInfo}
-                />
-            </ul>
         </aside>
     )
 }
@@ -949,7 +1446,7 @@ const EventContent = React.memo(
         const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
         const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const { displayOption, lineNumber, initialTab, viewMode } = useValues(traceLogic)
+        const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
@@ -1191,6 +1688,7 @@ const EventContent = React.memo(
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 searchQuery={searchQuery}
                                                                 displayOption={displayOption}
+                                                                highlightMessageIndex={highlightMessageIndex}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
                                                             <EventContentDisplayAsync

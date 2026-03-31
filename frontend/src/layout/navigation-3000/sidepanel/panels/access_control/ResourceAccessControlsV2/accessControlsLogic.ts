@@ -132,26 +132,26 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         }) => params,
     }),
 
-    loaders(() => ({
+    loaders(({ props }) => ({
         defaults: [
             null as AccessControlDefaultsResponse | null,
             {
                 loadDefaults: async () =>
-                    api.get<AccessControlDefaultsResponse>('api/projects/@current/access_control_defaults'),
+                    api.get<AccessControlDefaultsResponse>(`api/projects/${props.projectId}/access_control_defaults`),
             },
         ],
         rolesData: [
             null as AccessControlRolesResponse | null,
             {
                 loadRoles: async () =>
-                    api.get<AccessControlRolesResponse>('api/projects/@current/access_control_roles'),
+                    api.get<AccessControlRolesResponse>(`api/projects/${props.projectId}/access_control_roles`),
             },
         ],
         membersData: [
             null as AccessControlMembersResponse | null,
             {
                 loadMembers: async () =>
-                    api.get<AccessControlMembersResponse>('api/projects/@current/access_control_members'),
+                    api.get<AccessControlMembersResponse>(`api/projects/${props.projectId}/access_control_members`),
             },
         ],
     })),

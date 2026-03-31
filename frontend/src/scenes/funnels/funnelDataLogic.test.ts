@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import timekeeper from 'timekeeper'
 
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -161,6 +162,24 @@ describe('funnelDataLogic', () => {
             }).toMatchValues({
                 querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
                 isEmptyFunnel: false,
+            })
+        })
+    })
+
+    describe('aggregationTargetLabel', () => {
+        it('uses the custom data warehouse entity label for custom aggregation targets', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    customAggregationTarget: true,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                aggregationTargetLabel: AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE,
             })
         })
     })

@@ -44,7 +44,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 
 // Small delay to ensure charts render completely
 export const ExperimentWithMeanMetric: Story = { play: makeDelay(500) }
