@@ -1,3 +1,4 @@
+import os
 import json
 import time
 import asyncio
@@ -258,8 +259,11 @@ async def backfill_precalculated_person_properties_activity(
         total_processed = 0
         total_events_produced = 0
         total_flushed = 0
-        # Collect all Kafka messages and flush at the end
-        kafka_results = []  # Store ProduceResult objects for later flushing
+        # Use batched Kafka flushing to avoid memory buildup and reduce data loss risk
+        kafka_results = []  # Store ProduceResult objects for periodic flushing
+        KAFKA_FLUSH_BATCH_SIZE = int(
+            os.environ.get("BACKFILL_KAFKA_FLUSH_BATCH_SIZE", "1000")
+        )  # Configurable flush size
 
         # Create metrics once for activity
         query_duration_metric = None
@@ -395,6 +399,21 @@ async def backfill_precalculated_person_properties_activity(
                                         )
                                         kafka_results.append(produce_result)
                                         total_events_produced += 1
+
+                                        # Periodically flush Kafka batches to avoid memory buildup
+                                        if len(kafka_results) >= KAFKA_FLUSH_BATCH_SIZE:
+                                            logger.info(
+                                                f"Flushing {len(kafka_results)} Kafka messages (batch size: {KAFKA_FLUSH_BATCH_SIZE})"
+                                            )
+                                            batch_flushed = await flush_kafka_batch_async(
+                                                kafka_results,
+                                                kafka_producer,
+                                                inputs.team_id,
+                                                logger,
+                                            )
+                                            total_flushed += batch_flushed
+                                            kafka_results.clear()  # Clear the batch after flushing
+
                                     except Exception as e:
                                         logger.warning(
                                             f"Failed to produce Kafka message for person {person_id}: {e}",
