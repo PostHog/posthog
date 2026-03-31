@@ -50,6 +50,9 @@ type KafkaConfig struct {
 	Brokers                          string `mapstructure:"brokers"`
 	Topic                            string `mapstructure:"topic"`
 	SecurityProtocol                 string `mapstructure:"security_protocol"`
+	EventsBrokers                    string `mapstructure:"events_brokers"`
+	EventsTopic                      string `mapstructure:"events_topic"`
+	EventsSecurityProtocol           string `mapstructure:"events_security_protocol"`
 	SessionRecordingEnabled          bool   `mapstructure:"session_recording_enabled"`
 	SessionRecordingTopic            string `mapstructure:"session_recording_topic"`
 	SessionRecordingBrokers          string `mapstructure:"session_recording_brokers"`
@@ -98,6 +101,9 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("kafka.topic")                               // LIVESTREAM_KAFKA_TOPIC
 	_ = viper.BindEnv("kafka.group_id")                            // LIVESTREAM_KAFKA_GROUP_ID
 	_ = viper.BindEnv("kafka.security_protocol")                   // LIVESTREAM_KAFKA_SECURITY_PROTOCOL
+	_ = viper.BindEnv("kafka.events_brokers")                      // LIVESTREAM_KAFKA_EVENTS_BROKERS
+	_ = viper.BindEnv("kafka.events_topic")                        // LIVESTREAM_KAFKA_EVENTS_TOPIC
+	_ = viper.BindEnv("kafka.events_security_protocol")            // LIVESTREAM_KAFKA_EVENTS_SECURITY_PROTOCOL
 	_ = viper.BindEnv("kafka.session_recording_enabled")           // LIVESTREAM_KAFKA_SESSION_RECORDING_ENABLED
 	_ = viper.BindEnv("kafka.session_recording_topic")             // LIVESTREAM_KAFKA_SESSION_RECORDING_TOPIC
 	_ = viper.BindEnv("kafka.session_recording_brokers")           // LIVESTREAM_KAFKA_SESSION_RECORDING_BROKERS
@@ -148,6 +154,16 @@ func LoadConfig() (*Config, error) {
 			config.Kafka.SecurityProtocol = "SSL"
 		}
 	}
+	if config.Kafka.EventsBrokers == "" {
+		return nil, errors.New("kafka.events_brokers must be set")
+	}
+	if config.Kafka.EventsTopic == "" {
+		return nil, errors.New("kafka.events_topic must be set")
+	}
+	if config.Kafka.EventsSecurityProtocol == "" {
+		return nil, errors.New("kafka.events_security_protocol must be set")
+	}
+
 	if config.Kafka.SessionRecordingEnabled {
 		if config.Kafka.SessionRecordingTopic == "" {
 			config.Kafka.SessionRecordingTopic = "session_recording_snapshot_item_events"

@@ -133,21 +133,20 @@ type PostHogKafkaConsumer struct {
 }
 
 func NewPostHogKafkaConsumer(
-	kafkaConfig configs.KafkaConfig, geolocator geo.GeoLocator,
+	brokers string, securityProtocol string, groupID string, topic string,
+	geolocator geo.GeoLocator,
 	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
-		"bootstrap.servers":          kafkaConfig.Brokers,
-		"group.id":                   kafkaConfig.GroupID,
+		"bootstrap.servers":          brokers,
+		"group.id":                   groupID,
 		"auto.offset.reset":          "latest",
 		"enable.auto.commit":         false,
-		"security.protocol":          kafkaConfig.SecurityProtocol,
+		"security.protocol":          securityProtocol,
 		"fetch.message.max.bytes":    1_000_000_000,
 		"fetch.max.bytes":            1_000_000_000,
 		"queued.max.messages.kbytes": 2_000_000,
 	}
-
-	applyKafkaConfigOverrides(config, kafkaConfig)
 
 	consumer, err := kafka.NewConsumer(config)
 	if err != nil {
@@ -156,7 +155,7 @@ func NewPostHogKafkaConsumer(
 
 	return &PostHogKafkaConsumer{
 		consumer:     consumer,
-		topic:        kafkaConfig.Topic,
+		topic:        topic,
 		geolocator:   geolocator,
 		incoming:     make(chan []byte, (1+parallel)*100),
 		outgoingChan: outgoingChan,

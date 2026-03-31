@@ -79,7 +79,10 @@ func main() {
 	go stats.KeepStats(statsChan, flushInterval)
 	go sessionStats.KeepStats(ctx, sessionStatsChan, flushInterval)
 
-	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka, geolocator, phEventChan, statsChan, config.Parallelism)
+	consumer, err := events.NewPostHogKafkaConsumer(
+		config.Kafka.EventsBrokers, config.Kafka.EventsSecurityProtocol,
+		config.Kafka.GroupID, config.Kafka.EventsTopic,
+		geolocator, phEventChan, statsChan, config.Parallelism)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
