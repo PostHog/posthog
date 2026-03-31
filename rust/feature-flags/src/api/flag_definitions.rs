@@ -90,8 +90,7 @@ pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<Tea
     let value = match serde_json::from_str::<serde_json::Value>(&raw_value) {
         Ok(serde_json::Value::String(s)) => s,
         Ok(serde_json::Value::Null) => return Ok(Some(HashSet::new())),
-        Ok(_) => raw_value.clone(), // non-string JSON (unlikely), treat as raw
-        Err(_) => raw_value.clone(), // not valid JSON, treat as bare string (like Django)
+        _ => raw_value, // non-string JSON or invalid JSON, treat as bare string (like Django)
     };
     let value = value.trim();
     if value.is_empty() {
