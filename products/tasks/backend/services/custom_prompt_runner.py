@@ -127,6 +127,7 @@ async def _poll_for_turn(
 
     elapsed = 0
     consecutive_storage_errors = 0
+    last_new_lines_at = 0  # elapsed time when we last saw new log lines
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
@@ -152,6 +153,17 @@ async def _poll_for_turn(
             continue
         consecutive_storage_errors = 0
 
+        if total_lines > skip_lines:
+            last_new_lines_at = elapsed
+        stale_seconds = elapsed - last_new_lines_at
+        if stale_seconds >= 60 and stale_seconds % 60 < POLL_INTERVAL_SECONDS:
+            logger.warning(
+                "custom_prompt - poll_for_turn: no new S3 log lines for %ds, run=%s, total_lines=%d",
+                stale_seconds,
+                task_run.id,
+                total_lines,
+            )
+
         printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         if finished and last_message:
             return last_message, full_log, total_lines, printed_lines
@@ -163,6 +175,16 @@ async def _poll_for_turn(
             TaskRun.Status.FAILED,
             TaskRun.Status.CANCELLED,
         }:
+            logger.warning(
+                "custom_prompt - poll_for_turn: TaskRun reached terminal status=%s, error_message=%s, "
+                "run=%s, elapsed=%ds, stale_for=%ds, total_lines=%d",
+                refreshed.status,
+                refreshed.error_message,
+                task_run.id,
+                elapsed,
+                elapsed - last_new_lines_at,
+                total_lines,
+            )
             # Terminal status — one final log read with retries.
             final_message = None
             final_log = None
