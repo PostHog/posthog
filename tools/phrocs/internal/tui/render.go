@@ -163,7 +163,7 @@ func (m *Model) ensureSidebarCursorVisible() {
 
 func (m Model) renderOutput() string {
 	content := lipgloss.JoinHorizontal(lipgloss.Top, m.viewportWithIndicator())
-	if m.copyMode || m.searchMode {
+	if m.isFullScreen() {
 		return content
 	}
 	return borderFor(m.isDark, m.focusedPane == focusOutput).Render(content)
