@@ -12,6 +12,8 @@ from posthog.temporal.ai.session_summary.types.video import (
     VideoSessionOutcome,
 )
 
+_SENTINEL = object()
+
 
 def _make_segment(
     *,
@@ -38,17 +40,20 @@ def _make_analysis(
     frustration_score: float = 0.5,
     outcome: str = "friction",
     sentiment_signals: list[SentimentSignal] | None = None,
-    sentiment: SessionSentiment | None = "auto",
+    sentiment: SessionSentiment | None | object = _SENTINEL,
 ) -> ConsolidatedVideoAnalysis:
     if segments is None:
         segments = [_make_segment()]
 
-    if sentiment == "auto":
-        sentiment = SessionSentiment(
+    resolved_sentiment: SessionSentiment | None
+    if sentiment is _SENTINEL:
+        resolved_sentiment = SessionSentiment(
             frustration_score=frustration_score,
             outcome=outcome,
             sentiment_signals=sentiment_signals or [],
         )
+    else:
+        resolved_sentiment = sentiment  # type: ignore[assignment]
 
     return ConsolidatedVideoAnalysis(
         segments=segments,
@@ -56,7 +61,7 @@ def _make_analysis(
         segment_outcomes=[
             VideoSegmentOutcome(segment_index=i, success=s.success, summary="Test") for i, s in enumerate(segments)
         ],
-        sentiment=sentiment,
+        sentiment=resolved_sentiment,
     )
 
 
@@ -81,6 +86,7 @@ class TestValidateAndClampSentiment:
     def test_outcome_clamps_score(self, _name, outcome, input_score, expected):
         analysis = _make_analysis(frustration_score=input_score, outcome=outcome)
         result = _validate_and_clamp_sentiment(analysis)
+        assert result.sentiment is not None
         assert result.sentiment.frustration_score == pytest.approx(expected, abs=0.01)
         assert result.sentiment.outcome == outcome
 
@@ -94,6 +100,7 @@ class TestValidateAndClampSentiment:
             segments=[_make_segment()], sentiment_signals=signals, outcome="friction", frustration_score=0.3
         )
         result = _validate_and_clamp_sentiment(analysis)
+        assert result.sentiment is not None
         assert len(result.sentiment.sentiment_signals) == 1
         assert result.sentiment.sentiment_signals[0].signal_type == "rage_click"
 
@@ -109,6 +116,7 @@ class TestValidateAndClampSentiment:
             frustration_score=0.6,
         )
         result = _validate_and_clamp_sentiment(analysis)
+        assert result.sentiment is not None
         assert len(result.sentiment.sentiment_signals) == 2
 
     def test_confusion_detected_raises_floor(self):
@@ -118,6 +126,7 @@ class TestValidateAndClampSentiment:
             outcome="successful",
         )
         result = _validate_and_clamp_sentiment(analysis)
+        assert result.sentiment is not None
         assert result.sentiment.frustration_score >= 0.5
 
     def test_blocking_exception_raises_floor(self):
@@ -127,22 +136,26 @@ class TestValidateAndClampSentiment:
             outcome="successful",
         )
         result = _validate_and_clamp_sentiment(analysis)
+        assert result.sentiment is not None
         assert result.sentiment.frustration_score >= 0.5
 
     def test_multiple_segments_dilute_signal_floor(self):
         segments = [_make_segment(confusion_detected=True), _make_segment(), _make_segment(), _make_segment()]
         analysis = _make_analysis(segments=segments, frustration_score=0.0, outcome="successful")
         result = _validate_and_clamp_sentiment(analysis)
+        assert result.sentiment is not None
         assert result.sentiment.frustration_score == pytest.approx(0.125, abs=0.01)
 
     def test_combined_confusion_and_blocking(self):
         segments = [_make_segment(confusion_detected=True, exception="blocking"), _make_segment()]
         analysis = _make_analysis(segments=segments, frustration_score=0.1, outcome="friction")
         result = _validate_and_clamp_sentiment(analysis)
+        assert result.sentiment is not None
         assert result.sentiment.frustration_score >= 0.5
 
     def test_score_always_in_valid_range(self):
         for outcome in ["successful", "friction", "frustrated", "blocked"]:
             analysis = _make_analysis(frustration_score=1.0, outcome=outcome)
             result = _validate_and_clamp_sentiment(analysis)
+            assert result.sentiment is not None
             assert 0.0 <= result.sentiment.frustration_score <= 1.0
