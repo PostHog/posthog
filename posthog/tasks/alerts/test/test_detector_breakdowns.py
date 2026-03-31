@@ -73,8 +73,9 @@ def _make_alert(team: MagicMock, detector_config: dict[str, Any], series_index: 
 
 # Stable data: all values ~10, no anomaly expected
 STABLE_DATA = [10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0]
-# Data with a clear anomaly spike at the end
-ANOMALOUS_DATA = [10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 100.0]
+# Data with a clear anomaly spike near the end (penultimate position so it
+# survives the "drop last incomplete interval" trim applied to time-series data)
+ANOMALOUS_DATA = [10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 100.0, 10.0]
 
 ZSCORE_DETECTOR_CONFIG = {"type": "zscore", "threshold": 0.9, "window": 10}
 
@@ -267,8 +268,8 @@ class TestSimulateDetectorBreakdowns:
         assert len(result["breakdown_results"]) == 2
         assert result["breakdown_results"][0]["label"] == "swap"
         assert result["breakdown_results"][1]["label"] == "staking"
-        # Aggregated totals
-        assert result["total_points"] == len(STABLE_DATA) + len(ANOMALOUS_DATA)
+        # Aggregated totals (each series has 1 point dropped for the incomplete current interval)
+        assert result["total_points"] == (len(STABLE_DATA) - 1) + (len(ANOMALOUS_DATA) - 1)
 
     @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
     def test_non_breakdown_has_no_breakdown_results(self, mock_calc: MagicMock) -> None:

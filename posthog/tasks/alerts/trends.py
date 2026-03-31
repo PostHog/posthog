@@ -389,6 +389,22 @@ def _is_non_time_series_trend(query: TrendsQuery) -> bool:
     return bool(query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES)
 
 
+def _drop_incomplete_current_interval(
+    data: np.ndarray, dates: list[str], is_non_time_series: bool
+) -> tuple[np.ndarray, list[str]]:
+    """Drop the current (incomplete) interval — always the last element.
+
+    The query does not set date_to, so the result includes the ongoing
+    interval whose value is still accumulating.  Comparing this partial
+    value against complete historical intervals causes systematic false
+    positives.
+    """
+    if not is_non_time_series and len(data) > 1:
+        data = data[:-1]
+        dates = dates[:-1] if dates else dates
+    return data, dates
+
+
 def _has_breakdown(query: TrendsQuery) -> bool:
     return bool(
         query.breakdownFilter
@@ -614,6 +630,9 @@ def check_trends_alert_with_detector(
             if len(data) == 0 or (not is_non_time_series and len(data) < 2):
                 continue
 
+            dates: list[str] = breakdown_result.get("days") or breakdown_result.get("labels") or []
+            data, dates = _drop_incomplete_current_interval(data, dates, is_non_time_series)
+
             detector = get_detector(detector_config)
             result = detector.detect(data)
 
@@ -621,7 +640,6 @@ def check_trends_alert_with_detector(
                 label = breakdown_result.get("label", "Series")
                 current_value = float(data[-1])
                 score_str = f" (anomaly probability: {result.score:.0%})" if result.score is not None else ""
-                dates: list[str] = breakdown_result.get("days") or breakdown_result.get("labels") or []
                 triggered_dates: list[str] | None = None
                 if result.triggered_indices and dates:
                     triggered_dates = [dates[i] for i in result.triggered_indices if i < len(dates)]
@@ -656,15 +674,7 @@ def check_trends_alert_with_detector(
     # Extract dates for chart alignment
     dates = selected_series_result.get("days") or selected_series_result.get("labels") or []
 
-    # Drop the current (incomplete) interval — always the last element.
-    # The query does not set date_to, so the result includes the ongoing
-    # interval whose value is still accumulating.  Comparing this partial
-    # value against complete historical intervals causes systematic false
-    # positives (the diff to the previous complete interval is always a
-    # large negative spike).
-    if not is_non_time_series and len(data) > 1:
-        data = data[:-1]
-        dates = dates[:-1] if dates else dates
+    data, dates = _drop_incomplete_current_interval(data, dates, is_non_time_series)
 
     # Create and run detector
     detector = get_detector(detector_config)
@@ -809,6 +819,7 @@ def simulate_detector_on_insight(
                 continue
 
             bd_dates: list[str] = br.get("days") or br.get("labels") or []
+            bd_data, bd_dates = _drop_incomplete_current_interval(bd_data, bd_dates, is_non_time_series)
 
             detector = get_detector(detector_config)
             bd_result = detector.detect_batch(bd_data)
