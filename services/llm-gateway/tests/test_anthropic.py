@@ -1,3 +1,4 @@
+import os
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -532,6 +533,7 @@ class TestAnthropicCountTokensEndpoint:
         assert sent_json["metadata"]["safe"] == "value"
         assert sent_json["metadata"]["nested"]["keep"] == "ok"
 
+    @patch.dict(os.environ, {}, clear=False)
     @patch("llm_gateway.api.anthropic.get_settings")
     def test_missing_api_key_returns_503(
         self,
@@ -539,6 +541,7 @@ class TestAnthropicCountTokensEndpoint:
         authenticated_client: TestClient,
         valid_request_body: dict,
     ) -> None:
+        os.environ.pop("ANTHROPIC_API_KEY", None)
         mock_settings = MagicMock()
         mock_settings.anthropic_api_key = None
         mock_get_settings.return_value = mock_settings
