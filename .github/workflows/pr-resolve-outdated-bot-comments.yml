@@ -1,5 +1,12 @@
 name: Resolve outdated bot comments
 
+# TODO: this workflow does not handle pagination properly, if there are
+# more than 100 review threads, some outdated bot threads will not be
+# resolved. We should add cursor-based pagination to handle this case.
+# Also we should probably add error handling for the GraphQL mutations
+# and retry logic for transient failures. And maybe we should add a
+# configurable list of bot usernames instead of hardcoding them.
+
 on:
     pull_request:
         types: [synchronize]
