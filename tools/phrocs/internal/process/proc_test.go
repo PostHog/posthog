@@ -48,18 +48,8 @@ func TestNewProcess_fields(t *testing.T) {
 	}
 }
 
-func TestNewProcess_readyWithoutPattern(t *testing.T) {
-	p := NewProcess("svc", config.ProcConfig{Shell: "true"}, 1000)
-	if !p.ready {
-		t.Error("process with no ready_pattern should start ready")
-	}
-}
-
-func TestNewProcess_notReadyWithPattern(t *testing.T) {
+func TestNewProcess_compilesReadyPattern(t *testing.T) {
 	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "started"}, 1000)
-	if p.ready {
-		t.Error("process with ready_pattern should not start ready")
-	}
 	if p.readyPattern == nil {
 		t.Error("readyPattern should be compiled")
 	}
@@ -91,9 +81,8 @@ func TestSnapshot_initialState(t *testing.T) {
 	if snap.Status != "stopped" {
 		t.Errorf("Status: got %q, want %q", snap.Status, "stopped")
 	}
-	// No ready_pattern means the process is considered ready immediately.
-	if !snap.Ready {
-		t.Error("Ready: expected true when no ready_pattern is configured")
+	if snap.Ready {
+		t.Error("Ready: expected false when process is stopped")
 	}
 	if snap.PID != 0 {
 		t.Errorf("PID: got %d, want 0", snap.PID)
@@ -402,12 +391,8 @@ func TestHasPrompt_completeLine(t *testing.T) {
 	}
 }
 
-func TestWriteInput_pipeMode(t *testing.T) {
-	// head -1 reads exactly one line from stdin and echoes it to stdout.
-	// We use startWithPipe indirectly — on CI PTY may or may not be
-	// available, so we use a shell command that works either way and
-	// verify the \r→\n translation by sending "hello\r".
-	p := NewProcess("pipe-input", config.ProcConfig{
+func TestWriteInput(t *testing.T) {
+	p := NewProcess("pty-input", config.ProcConfig{
 		Shell: `head -1`,
 	}, 100)
 
@@ -416,9 +401,9 @@ func TestWriteInput_pipeMode(t *testing.T) {
 		t.Skipf("skipping: cannot spawn subprocess: %v", err)
 	}
 
-	// Give the process a moment to start reading
 	time.Sleep(100 * time.Millisecond)
 
+	// PTY line discipline translates \r to \n, so head -1 sees a full line
 	if err := p.WriteInput([]byte("hello\r")); err != nil {
 		t.Fatalf("WriteInput failed: %v", err)
 	}
