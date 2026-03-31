@@ -429,9 +429,6 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["detail"], "Internal server error")
 
     def test_follower_permission_denied_returns_403_not_500(self):
-        """When a follower receives a coalesced response but fails its own
-        permission check, the mixin must return a proper 403 instead of
-        crashing with 'accepted_renderer not set on Response'."""
         mock_coalescer = mock.MagicMock()
         mock_coalescer.try_acquire.return_value = False
         mock_coalescer._dry_run = False
