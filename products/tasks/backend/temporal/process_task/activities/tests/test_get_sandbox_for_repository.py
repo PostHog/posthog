@@ -24,6 +24,8 @@ class TestGetSandboxForRepositoryActivity:
             task_id=str(test_task.id),
             run_id=str(test_task_run.id),
             team_id=test_task.team_id,
+            team_uuid=str(test_task.team.uuid),
+            organization_id=str(test_task.team.organization_id),
             github_integration_id=github_integration.id,
             repository=test_task.repository,
             distinct_id=test_task.created_by.distinct_id or "test-user-id",

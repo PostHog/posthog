@@ -506,7 +506,6 @@ export function DeltaChart({
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
-    const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
     const { openVariantDeltaTimeseriesModal } = useActions(modalsLogic)
 
     // Loading state
@@ -542,14 +541,8 @@ export function DeltaChart({
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
-            onDuplicateMetricClick={() => {
-                if (!metric.uuid) {
-                    return
-                }
-                const newUuid = crypto.randomUUID()
-                duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
-                updateExperimentMetrics()
-            }}
+            readOnly={true}
+            onDuplicateMetricClick={() => {}}
             onBreakdownChange={() => {}}
         />
     )

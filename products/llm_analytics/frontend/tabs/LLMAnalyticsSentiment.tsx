@@ -1,23 +1,24 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { urls } from 'scenes/urls'
 
 import { MessageSentimentBar, SENTIMENT_BAR_COLOR } from '../components/SentimentTag'
-import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { extractContentText, formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
 import { getTraceTimestamp, normalizeMessages } from '../utils'
-import type { GroupedSentimentCard, SentimentCard, SentimentFeedbackLabel } from './llmAnalyticsSentimentLogic'
-import { CLASSIFIER_WINDOW, llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
+import type {
+    GroupedSentimentCard,
+    SentimentCard,
+    SentimentCategory,
+    SentimentFeedbackLabel,
+} from './llmAnalyticsSentimentLogic'
+import { CLASSIFIER_WINDOW, llmAnalyticsSentimentLogic } from './llmAnalyticsSentimentLogic'
 
 /**
  * Truncates long text to show start + end with an ellipsis in the middle.
@@ -233,40 +234,17 @@ function SentimentCardRow({
     )
 }
 
-function SentimentFilters(): JSX.Element {
-    const { dateFilter, shouldFilterTestAccounts, propertyFilters } = useValues(llmAnalyticsSharedLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
-    const { taxonomicGroupTypes, generationsLoading } = useValues(llmAnalyticsSentimentLogic)
-    const { loadGenerations } = useActions(llmAnalyticsSentimentLogic)
-
-    return (
-        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap pb-3 mb-3 border-b">
-            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-            <PropertyFilters
-                propertyFilters={propertyFilters}
-                taxonomicGroupTypes={taxonomicGroupTypes}
-                onChange={setPropertyFilters}
-                pageKey="llm-analytics-sentiment"
-            />
-            <div className="flex-1" />
-            <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
-            <LemonButton
-                icon={<IconRefresh />}
-                size="small"
-                type="secondary"
-                onClick={loadGenerations}
-                loading={generationsLoading}
-                data-attr="llma-sentiment-reload"
-            >
-                Reload
-            </LemonButton>
-        </div>
-    )
-}
+const CATEGORY_CONFIG: { value: SentimentCategory; label: string; activeClass: string }[] = [
+    { value: 'positive', label: 'Positive', activeClass: 'bg-success/20 border-success' },
+    { value: 'negative', label: 'Negative', activeClass: 'bg-danger/20 border-danger' },
+    { value: 'neutral', label: 'Neutral', activeClass: 'bg-border/20 border-border' },
+]
 
 function SentimentControls(): JSX.Element {
-    const { sentimentFilter, intensityThreshold } = useValues(llmAnalyticsSentimentLogic)
-    const { setSentimentFilter, setIntensityThreshold } = useActions(llmAnalyticsSentimentLogic)
+    const { activeFilters, intensityThreshold, sentimentSummary, stillAnalyzing, generationsLoading } =
+        useValues(llmAnalyticsSentimentLogic)
+    const { toggleSentimentCategory, setIntensityThreshold, loadGenerations } = useActions(llmAnalyticsSentimentLogic)
+    const total = sentimentSummary.positive + sentimentSummary.negative + sentimentSummary.neutral
 
     return (
         <div className="flex items-center gap-4 flex-wrap mb-3" data-attr="llma-sentiment-controls">
@@ -274,20 +252,35 @@ function SentimentControls(): JSX.Element {
                 <Tooltip title="Filter by sentiment polarity. Each user message is classified as positive, negative, or neutral.">
                     <span className="text-sm font-medium">Show:</span>
                 </Tooltip>
-                <LemonSegmentedButton
-                    size="small"
-                    value={sentimentFilter}
-                    onChange={(value) => setSentimentFilter(value as SentimentFilterLabel)}
-                    options={[
-                        { value: 'positive', label: 'Positive' },
-                        { value: 'negative', label: 'Negative' },
-                        { value: 'both', label: 'Both' },
-                    ]}
-                    data-attr="llma-sentiment-filter"
-                />
+                <div className="flex items-center gap-1" data-attr="llma-sentiment-filter">
+                    {CATEGORY_CONFIG.map(({ value, label, activeClass }) => {
+                        const isActive = activeFilters.has(value)
+                        const count = sentimentSummary[value]
+                        return (
+                            <LemonButton
+                                key={value}
+                                size="small"
+                                type="secondary"
+                                className={isActive ? activeClass : 'opacity-50'}
+                                onClick={() => toggleSentimentCategory(value)}
+                                data-attr={`llma-sentiment-filter-${value}`}
+                            >
+                                {label}
+                                {count > 0 && <span className="text-xs text-muted ml-1 tabular-nums">({count})</span>}
+                            </LemonButton>
+                        )
+                    })}
+                </div>
+                {total > 0 && !stillAnalyzing && (
+                    <Tooltip
+                        title={`${sentimentSummary.positive} positive, ${sentimentSummary.negative} negative, ${sentimentSummary.neutral} neutral messages across all analyzed generations`}
+                    >
+                        <span className="text-xs text-muted tabular-nums ml-1">{total} total</span>
+                    </Tooltip>
+                )}
             </div>
             <div className="flex items-center gap-2">
-                <Tooltip title="Only show messages with a sentiment confidence score at or above this threshold. Higher values surface stronger signals.">
+                <Tooltip title="Only show messages with a sentiment confidence score at or above this threshold. Higher values surface stronger signals. Does not apply to neutral messages.">
                     <span className="text-sm font-medium whitespace-nowrap">Min intensity:</span>
                 </Tooltip>
                 <LemonSlider
@@ -300,6 +293,17 @@ function SentimentControls(): JSX.Element {
                 />
                 <span className="text-xs text-muted w-8 tabular-nums">{formatScore(intensityThreshold)}</span>
             </div>
+            <div className="flex-1" />
+            <LemonButton
+                icon={<IconRefresh />}
+                size="small"
+                type="secondary"
+                onClick={loadGenerations}
+                loading={generationsLoading}
+                data-attr="llma-sentiment-reload"
+            >
+                Reload
+            </LemonButton>
         </div>
     )
 }
@@ -318,7 +322,6 @@ export function LLMAnalyticsSentiment(): JSX.Element {
 
     return (
         <div data-attr="llma-sentiment-tab">
-            <SentimentFilters />
             <SentimentControls />
 
             {generationsLoading && generations.length === 0 ? (

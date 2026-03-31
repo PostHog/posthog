@@ -1339,6 +1339,32 @@ class TestSignupChallengeAPI(APIBaseTest):
         user = User.objects.get(email="challenge@posthog.com")
         self.assertEqual(user.first_name, "John")
 
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar._call_radar_api")
+    @patch("posthoganalytics.capture")
+    @override_settings(
+        WORKOS_RADAR_ENABLED=True,
+        WORKOS_RADAR_API_KEY="test_key",
+        CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123",
+    )
+    def test_social_signup_skips_radar_evaluation(self, mock_capture, mock_call_api):
+        session = self.client.session
+        session["backend"] = "google-oauth2"
+        session["email"] = "social@posthog.com"
+        session["user_name"] = "Social User"
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup/",
+            {
+                "first_name": "Social",
+                "organization_name": "Social Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_call_api.assert_not_called()
+
 
 class TestInviteSignupChallengeAPI(APIBaseTest):
     CONFIG_EMAIL = None

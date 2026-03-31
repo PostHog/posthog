@@ -3,7 +3,7 @@ use common_cookieless::CookielessConfig;
 use common_types::TeamId;
 use envconfig::Envconfig;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::ops::Deref;
@@ -165,6 +165,35 @@ impl FromStr for FlagDefinitionsRateLimits {
     }
 }
 
+/// Comma-separated list of team IDs that bypass rate limiting.
+/// Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS setting.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RateLimitingAllowList(pub HashSet<TeamId>);
+
+impl FromStr for RateLimitingAllowList {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Ok(RateLimitingAllowList::default());
+        }
+
+        let mut team_ids = HashSet::new();
+        for part in s.split(',').map(|p| p.trim()) {
+            if part.is_empty() {
+                continue;
+            }
+            let team_id = part.parse::<TeamId>().map_err(|e| {
+                format!("Invalid team ID '{part}' in RATE_LIMITING_ALLOW_LIST_TEAMS: {e}")
+            })?;
+            team_ids.insert(team_id);
+        }
+
+        Ok(RateLimitingAllowList(team_ids))
+    }
+}
+
 /// Per-token rate limit overrides for the /flags endpoint.
 /// Parses JSON from FLAGS_TOKEN_RATE_LIMIT_OVERRIDES environment variable.
 /// Format: {"token_string": "rate_string", ...}
@@ -225,12 +254,13 @@ pub struct Config {
     #[envconfig(default = "")]
     pub behavioral_cohorts_read_database_url: String,
 
-    // Feature gate for realtime cohort evaluation. When false (default), the realtime
-    // cohort block in prepare_flag_evaluation_state is skipped entirely, even if the
-    // behavioral cohorts DB is configured and cohorts with CohortType::Realtime exist.
-    // Set to true to enable realtime cohort membership lookups on the hot path.
-    #[envconfig(from = "ENABLE_REALTIME_COHORT_EVALUATION", default = "false")]
-    pub enable_realtime_cohort_evaluation: bool,
+    // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
+    // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
+    // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
+    // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
+    // membership lookups on the hot path for those teams.
+    #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
+    pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
 
     // Cache TTL for realtime cohort membership lookups (seconds).
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
@@ -476,6 +506,11 @@ pub struct Config {
     // Example: {"123": "1200/minute", "456": "2400/hour"}
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
+
+    // Teams that bypass rate limiting entirely (comma-separated team IDs)
+    // Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS behavior
+    #[envconfig(from = "RATE_LIMITING_ALLOW_LIST_TEAMS", default = "")]
+    pub rate_limiting_allow_list_teams: RateLimitingAllowList,
 
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
@@ -764,7 +799,7 @@ impl Config {
                 .to_string(),
             behavioral_cohorts_read_database_url:
                 "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
-            enable_realtime_cohort_evaluation: false,
+            realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             max_concurrency: 1000,
@@ -806,6 +841,7 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
@@ -906,6 +942,14 @@ impl Config {
 
     pub fn is_team_excluded(&self, team_id: i32, teams_to_exclude: &TeamIdCollection) -> bool {
         match teams_to_exclude {
+            TeamIdCollection::All => true,
+            TeamIdCollection::None => false,
+            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
+        }
+    }
+
+    pub fn is_team_included(&self, team_id: i32, teams_to_include: &TeamIdCollection) -> bool {
+        match teams_to_include {
             TeamIdCollection::All => true,
             TeamIdCollection::None => false,
             TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
@@ -1149,6 +1193,52 @@ mod tests {
         let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
         assert_eq!(limits.0.len(), 1);
         assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_empty() {
+        let list: RateLimitingAllowList = "".parse().unwrap();
+        assert!(list.0.is_empty());
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_single_id() {
+        let list: RateLimitingAllowList = "23047".parse().unwrap();
+        assert_eq!(list.0.len(), 1);
+        assert!(list.0.contains(&23047));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_multiple_ids() {
+        let list: RateLimitingAllowList = "23047,12345,67890".parse().unwrap();
+        assert_eq!(list.0.len(), 3);
+        assert!(list.0.contains(&23047));
+        assert!(list.0.contains(&12345));
+        assert!(list.0.contains(&67890));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_whitespace() {
+        let list: RateLimitingAllowList = " 23047 , 12345 ".parse().unwrap();
+        assert_eq!(list.0.len(), 2);
+        assert!(list.0.contains(&23047));
+        assert!(list.0.contains(&12345));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_trailing_comma() {
+        let list: RateLimitingAllowList = "23047,".parse().unwrap();
+        assert_eq!(list.0.len(), 1);
+        assert!(list.0.contains(&23047));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_invalid_id() {
+        let result: Result<RateLimitingAllowList, _> = "23047,abc".parse();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Invalid team ID 'abc' in RATE_LIMITING_ALLOW_LIST_TEAMS"));
     }
 
     #[test]

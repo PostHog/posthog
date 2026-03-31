@@ -2,7 +2,6 @@ import hashlib
 from dataclasses import dataclass
 
 from django.conf import settings
-from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.utils import timezone
 
@@ -78,7 +77,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         "start_upload",
         "finish_upload",
         "destroy",
-        "update",
+        "bulk_delete",
         "create",
     ]
 
@@ -105,19 +104,16 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def update(self, request, *args, **kwargs) -> Response:
-        symbol_set = self.get_object()
-        # TODO: delete file from s3
-        minified = request.FILES["minified"]
-        source_map = request.FILES["source_map"]
-        (storage_ptr, content_hash) = upload_symbol_set(minified, source_map)
-        symbol_set.storage_ptr = storage_ptr
-        symbol_set.content_hash = content_hash
-        symbol_set.failure_reason = None
-        symbol_set.last_used = timezone.now()
-        symbol_set.save()
-        ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
-        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+    @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
+    def bulk_delete(self, request, **kwargs):
+        ids = request.data.get("ids", [])
+        if not ids:
+            return Response({"detail": "ids is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(ids, list):
+            return Response({"detail": "ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+        symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=ids)
+        deleted_count, _ = symbol_sets.delete()
+        return Response({"deleted": deleted_count}, status=status.HTTP_200_OK)
 
     def list(self, request, *args, **kwargs) -> Response:
         queryset = self.filter_queryset(self.get_queryset())
@@ -518,11 +514,6 @@ def bulk_create_symbol_sets(
         _ = ErrorTrackingSymbolSet.objects.bulk_update(to_update, ["release", "content_hash", "storage_ptr"])
 
     return id_url_map
-
-
-def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
-    js_data = construct_js_data_object(minified.read(), source_map.read())
-    return upload_content(js_data)
 
 
 def upload_content(content: bytearray) -> tuple[str, str]:
