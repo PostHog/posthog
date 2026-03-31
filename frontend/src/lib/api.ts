@@ -755,7 +755,7 @@ export class ApiRequest {
 
     // # Tracing
     public tracingSpans(): ApiRequest {
-        return this.projectsDetail().addPathComponent('tracing').addPathComponent('spans')
+        return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')
     }
 
     // # Data management
