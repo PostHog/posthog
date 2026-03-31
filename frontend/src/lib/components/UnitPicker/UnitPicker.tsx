@@ -102,6 +102,7 @@ export function UnitPicker(): JSX.Element {
                 type="secondary"
                 data-attr="chart-aggregation-axis-format"
                 fullWidth
+                truncate
                 dropdown={{
                     onClickOutside: () => setIsVisible(false),
                     visible: isVisible,
@@ -148,7 +149,7 @@ export function UnitPicker(): JSX.Element {
                     closeOnClickInside: false,
                 }}
             >
-                {displayValue}
+                <span className="min-w-0 truncate">{displayValue}</span>
             </LemonButtonWithDropdown>
         </div>
     )
