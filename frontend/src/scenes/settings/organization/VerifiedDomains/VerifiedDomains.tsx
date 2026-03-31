@@ -168,8 +168,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 if (!isSSOEnforcementAvailable) {
                     return index === 0 ? (
                         <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SSO
-                            enforcement
+                            <IconLock className="text-warning ml-1" /> Upgrade to enable SSO enforcement
                         </Link>
                     ) : (
                         <></>
@@ -195,7 +194,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 if (!isSAMLAvailable) {
                     return index === 0 ? (
                         <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SAML
+                            <IconLock className="text-warning ml-1" /> Upgrade to enable SAML
                         </Link>
                     ) : (
                         <></>
@@ -229,7 +228,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 if (!isSCIMAvailable) {
                     return index === 0 ? (
                         <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SCIM
+                            <IconLock className="text-warning ml-1" /> Upgrade to enable SCIM
                         </Link>
                     ) : (
                         <></>
