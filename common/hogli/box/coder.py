@@ -6,6 +6,7 @@ All subprocess interactions with the Coder CLI are isolated here.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import shutil
@@ -23,6 +24,8 @@ TEMPLATE_NAME = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli box:setup`."
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
+
+_TERRAFORM_LOG_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+")
 
 
 def _fail(message: str) -> None:
@@ -53,7 +56,36 @@ def _run(args: list[str], *, capture_output: bool = False) -> subprocess.Complet
     return subprocess.run(args, capture_output=capture_output, text=True)
 
 
-def _run_with_rich_parameters(args: list[str], parameters: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def _run_filtered(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a command, suppressing verbose Terraform log lines.
+
+    Shows Coder build step progress and other CLI output while hiding
+    timestamped Terraform internals. On failure the full output is
+    printed for debugging.
+    """
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    captured: list[str] = []
+    assert proc.stdout is not None
+
+    for line in proc.stdout:
+        captured.append(line)
+        if not _TERRAFORM_LOG_RE.match(line):
+            click.echo(line, nl=False)
+
+    returncode = proc.wait()
+
+    if returncode != 0:
+        click.echo()
+        click.echo(click.style("Build failed. Full output:", fg="red"))
+        for line in captured:
+            click.echo(line, nl=False)
+
+    return subprocess.CompletedProcess(args, returncode, "".join(captured), "")
+
+
+def _run_with_rich_parameters(
+    args: list[str], parameters: dict[str, str], *, filtered: bool = False
+) -> subprocess.CompletedProcess[str]:
     """Run a Coder command with sensitive parameters passed via a temp YAML file."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as parameter_file:
         yaml.safe_dump(parameters, parameter_file)
@@ -61,7 +93,8 @@ def _run_with_rich_parameters(args: list[str], parameters: dict[str, str]) -> su
 
     try:
         file_path.chmod(0o600)
-        return _run([*args, "--rich-parameter-file", str(file_path)])
+        full_args = [*args, "--rich-parameter-file", str(file_path)]
+        return _run_filtered(full_args) if filtered else _run(full_args)
     finally:
         file_path.unlink(missing_ok=True)
 
@@ -135,7 +168,7 @@ def ensure_coder_installed() -> None:
 
 def _coder_whoami() -> subprocess.CompletedProcess[str]:
     """Run `coder whoami` against the configured deployment."""
-    return _run(["coder", "whoami", "--format", "json"], capture_output=True)
+    return _run(["coder", "whoami", "--output", "json"], capture_output=True)
 
 
 def coder_authenticated() -> bool:
@@ -207,6 +240,8 @@ def get_username() -> str:
     if result.returncode == 0:
         try:
             data = json.loads(result.stdout)
+            if isinstance(data, list):
+                data = data[0]
             return data["username"]
         except (json.JSONDecodeError, KeyError):
             pass
@@ -255,9 +290,8 @@ def create_workspace(name: str, disk_size: int, branch: str, claude_oauth_token:
     parameters = {
         "disk_size": str(disk_size),
         "repo": branch,
+        CLAUDE_OAUTH_PARAMETER: claude_oauth_token or "",
     }
-    if claude_oauth_token:
-        parameters[CLAUDE_OAUTH_PARAMETER] = claude_oauth_token
 
     args = [
         "coder",
@@ -267,28 +301,28 @@ def create_workspace(name: str, disk_size: int, branch: str, claude_oauth_token:
         TEMPLATE_NAME,
         "--yes",
     ]
-    result = _run_with_rich_parameters(args, parameters)
+    result = _run_with_rich_parameters(args, parameters, filtered=True)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
 
 def start_workspace(name: str) -> None:
     """Start a stopped workspace."""
-    result = _run(["coder", "start", name, "--yes"])
+    result = _run_filtered(["coder", "start", name, "--yes"])
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
 
 def stop_workspace(name: str) -> None:
     """Stop a running workspace."""
-    result = _run(["coder", "stop", name, "--yes"])
+    result = _run_filtered(["coder", "stop", name, "--yes"])
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
 
 def delete_workspace(name: str) -> None:
     """Delete a workspace."""
-    result = _run(["coder", "delete", name, "--yes"])
+    result = _run_filtered(["coder", "delete", name, "--yes"])
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

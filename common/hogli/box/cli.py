@@ -68,6 +68,7 @@ def _maybe_prompt_for_claude_oauth_token(configure_claude: bool | None) -> str |
     if not configure_claude:
         return None
 
+    click.echo("Run `claude setup-token` in another terminal and paste the token below.")
     token = click.prompt(
         "Claude OAuth token",
         default="",
