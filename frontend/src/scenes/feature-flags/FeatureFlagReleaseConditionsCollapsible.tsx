@@ -75,7 +75,14 @@ function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetN
     }
 
     const parts = properties.slice(0, 2).map((property) => {
-        const key = property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key || 'property'
+        let key: string
+        if (property.type === PropertyFilterType.Cohort) {
+            key = 'Cohort'
+        } else if (property.type === PropertyFilterType.Flag) {
+            key = property.label || property.key || 'flag'
+        } else {
+            key = property.key || 'property'
+        }
         const operator = isPropertyFilterWithOperator(property) ? allOperatorsToHumanName(property.operator) : 'is'
         const groupKeyNames: Record<string, string> =
             property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property

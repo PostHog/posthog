@@ -417,8 +417,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 },
                 saveEditModeChanges: async (_, breakpoint) => {
-                    actions.abortAnyRunningQuery()
-
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({

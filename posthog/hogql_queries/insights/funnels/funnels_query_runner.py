@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     CachedFunnelsQueryResponse,
     FunnelsQuery,
@@ -72,6 +74,9 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         return self.funnel_actor_class.actor_query()
 
     def _calculate(self):
+        if len(self.query.series) < 2:
+            raise ValidationError("Funnels require at least two steps.")
+
         query = self.to_query()
         timings = []
 

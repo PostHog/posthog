@@ -275,11 +275,25 @@ export const convertIndexBasedPayloadsToVariantKeys = (
     payloads?: Record<string | number, JsonType>
 ): Record<string, JsonType> => {
     const newPayloads: Record<string, JsonType> = {}
-    variants.forEach(({ key }, index) => {
-        if (payloads?.[index] !== undefined) {
-            newPayloads[key] = payloads[index]
+    const variantKeys = new Set(variants.map(({ key }) => key))
+
+    Object.entries(payloads || {}).forEach(([payloadKey, payloadValue]) => {
+        if (variantKeys.has(payloadKey)) {
+            newPayloads[payloadKey] = payloadValue
+            return
+        }
+
+        const payloadIndex = Number(payloadKey)
+        if (!Number.isInteger(payloadIndex) || String(payloadIndex) !== payloadKey) {
+            return
+        }
+
+        const variantKey = variants[payloadIndex]?.key
+        if (variantKey && newPayloads[variantKey] === undefined) {
+            newPayloads[variantKey] = payloadValue
         }
     })
+
     return newPayloads
 }
 

@@ -486,6 +486,7 @@
     'insert_users_list_by_uuid',
     'insert_users_list_by_uuid_into_pg_only',
     'is_calculating',
+    'is_flag_compatible',
     'last_calculation',
     'last_error_at',
     'objects',
