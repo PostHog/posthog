@@ -31,6 +31,7 @@ class TestBackfillPrecalculatedPersonPropertiesCoordinatorInputs:
             "cohort_ids": [1, 2, 3],
             "filter_storage_key": "test-key-456",
             "batch_size": 500,
+            "concurrent_workflows": 5,
         }
 
         assert inputs.properties_to_log == expected

@@ -5,8 +5,6 @@ import datetime as dt
 import dataclasses
 from typing import TYPE_CHECKING, Any
 
-from django.conf import settings
-
 import temporalio.activity
 import temporalio.workflow
 import temporalio.exceptions
@@ -28,6 +26,21 @@ if TYPE_CHECKING:
     from posthog.kafka_client.client import _KafkaProducer
 
 LOGGER = get_logger(__name__)
+
+
+def format_cohort_ids_for_logging(cohort_ids: list[int]) -> str:
+    """Format cohort IDs for logging, showing simplified text for large sets.
+
+    Args:
+        cohort_ids: List of cohort IDs
+
+    Returns:
+        String representation of cohort IDs, or simplified text if too many
+    """
+    if len(cohort_ids) > 10:
+        return f"More than 10... ({len(cohort_ids)} total)"
+    else:
+        return str(cohort_ids)
 
 
 def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, Any]:
@@ -174,19 +187,19 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     filter_storage_key: str  # Redis key containing the filters
     cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000
-    cursor: str = "00000000-0000-0000-0000-000000000000"  # UUID cursor for pagination
-    batch_sequence: int = 1  # Batch sequence number for workflow chaining
+    start_person_id: str = "00000000-0000-0000-0000-000000000000"  # Starting person ID for this batch
+    end_person_id: str = "ffffffff-ffff-ffff-ffff-ffffffffffff"  # Ending person ID for this batch
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
             "cohort_count": len(self.cohort_ids),
-            "cohort_ids": self.cohort_ids,
+            "cohort_ids": format_cohort_ids_for_logging(self.cohort_ids),
             "filter_storage_key": self.filter_storage_key,
             "batch_size": self.batch_size,
-            "cursor": self.cursor,
-            "batch_sequence": self.batch_sequence,
+            "start_person_id": self.start_person_id,
+            "end_person_id": self.end_person_id,
         }
 
 
@@ -237,11 +250,13 @@ async def backfill_precalculated_person_properties_activity(
 
     logger.info(
         f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids}, "
-        f"processing {len(filters)} total filters from cursor {inputs.cursor} "
+        f"processing {len(filters)} total filters from person ID {inputs.start_person_id} to {inputs.end_person_id} "
         f"with batch size {inputs.batch_size} ({len(filters)} filters = ~{inputs.batch_size * len(filters)} events per batch)"
     )
 
-    async with Heartbeater(details=(f"Processing persons from {inputs.cursor}",)) as heartbeater:
+    async with Heartbeater(
+        details=(f"Processing persons from {inputs.start_person_id} to {inputs.end_person_id}",)
+    ) as heartbeater:
         start_time = time.time()
         kafka_producer = KafkaProducer()
 
@@ -316,7 +331,8 @@ async def backfill_precalculated_person_properties_activity(
                 {properties_clause}
             FROM person FINAL
             WHERE team_id = %(team_id)s
-              AND id > %(cursor)s
+              AND id >= %(start_person_id)s
+              AND id <= %(end_person_id)s
               AND is_deleted = 0
             ORDER BY id
             LIMIT %(batch_size)s
@@ -325,11 +341,11 @@ async def backfill_precalculated_person_properties_activity(
 
         query_params = {
             "team_id": inputs.team_id,
-            "cursor": inputs.cursor,
-            "batch_size": inputs.batch_size,
+            "start_person_id": inputs.start_person_id,
+            "end_person_id": inputs.end_person_id,
         }
 
-        last_person_id = inputs.cursor
+        last_person_id = inputs.start_person_id
         batch_count = 0
 
         with tags_context(
@@ -432,7 +448,9 @@ async def backfill_precalculated_person_properties_activity(
             processing_rate = batch_count / query_duration
             person_processing_rate_metric.record(processing_rate, {"team_id": str(inputs.team_id)})
 
-        logger.info(f"Processed {batch_count} persons from {inputs.cursor} to {last_person_id}")
+        logger.info(
+            f"Processed {batch_count} persons from {inputs.start_person_id} to {last_person_id} (range: {inputs.start_person_id} - {inputs.end_person_id})"
+        )
         total_processed = batch_count
 
         # Update heartbeat
@@ -512,78 +530,8 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
         )
 
         workflow_logger.info(
-            f"Batch {inputs.batch_sequence} completed: processed {result.persons_processed} persons, "
-            f"last_id: {result.last_person_id}"
-        )
-
-        # If we processed a full batch and have more data to process, start the next workflow
-        if result.persons_processed >= inputs.batch_size and result.last_person_id:
-            workflow_logger.info(f"Starting next batch {inputs.batch_sequence + 1} from cursor {result.last_person_id}")
-
-            # Update cursor for next workflow
-            next_inputs = BackfillPrecalculatedPersonPropertiesInputs(
-                team_id=inputs.team_id,
-                filter_storage_key=inputs.filter_storage_key,
-                cohort_ids=inputs.cohort_ids,
-                batch_size=inputs.batch_size,
-                cursor=result.last_person_id,
-                batch_sequence=inputs.batch_sequence + 1,
-            )
-
-            # Start next workflow asynchronously (fire-and-forget)
-            try:
-                await temporalio.workflow.execute_activity(
-                    start_next_workflow_activity,
-                    next_inputs,
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-                )
-                workflow_logger.info(f"Successfully started next workflow batch {inputs.batch_sequence + 1}")
-            except Exception as e:
-                workflow_logger.error(f"Failed to start next workflow: {e}", exc_info=True)
-                # Don't raise - this workflow should complete successfully even if we can't start the next one
-
-        elif result.persons_processed < inputs.batch_size:
-            workflow_logger.info(
-                f"Reached end of data: processed {result.persons_processed} < {inputs.batch_size} batch size. Pipeline complete."
-            )
-        else:
-            workflow_logger.info(f"No more persons to process. Pipeline complete.")
-
-        workflow_logger.info(
-            f"Precalculated person properties backfill workflow batch {inputs.batch_sequence} completed: "
-            f"processed {result.persons_processed} persons, last_id: {result.last_person_id}"
+            f"Completed person properties precalculation: processed {result.persons_processed} persons, "
+            f"last_id: {result.last_person_id} (range: {inputs.start_person_id} - {inputs.end_person_id})"
         )
 
         return result
-
-
-@temporalio.activity.defn
-async def start_next_workflow_activity(inputs: BackfillPrecalculatedPersonPropertiesInputs) -> str:
-    """Start the next workflow in the pipeline independently."""
-    from posthog.temporal.common.client import async_connect
-
-    # Connect to Temporal
-    client = await async_connect()
-
-    next_batch_sequence = inputs.batch_sequence + 1
-    next_workflow_id = f"backfill-precalculated-person-properties-team-{inputs.team_id}-batch-{next_batch_sequence}"
-
-    next_inputs = BackfillPrecalculatedPersonPropertiesInputs(
-        team_id=inputs.team_id,
-        filter_storage_key=inputs.filter_storage_key,
-        cohort_ids=inputs.cohort_ids,
-        batch_size=inputs.batch_size,
-        cursor=inputs.cursor,  # Will be updated by the calling workflow
-        batch_sequence=next_batch_sequence,
-    )
-
-    # Start the next workflow independently
-    await client.start_workflow(
-        "backfill-precalculated-person-properties",
-        next_inputs,
-        id=next_workflow_id,
-        task_queue=settings.MESSAGING_TASK_QUEUE,
-    )
-
-    return next_workflow_id
