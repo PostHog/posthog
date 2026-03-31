@@ -45,6 +45,16 @@ services:
                         path /capture*
                     }
 
+                    @capture-logs {
+                        path /i/v1/logs
+                        path /i/v1/logs/*
+                    }
+
+                    @capture-traces {
+                        path /i/v1/traces
+                        path /i/v1/traces/*
+                    }
+
                     @flags {
                         path /flags
                         path /flags*
@@ -63,6 +73,14 @@ services:
 
                     handle @capture {
                         reverse_proxy app:3307
+                    }
+
+                    handle @capture-logs {
+                        reverse_proxy capture-logs:4318
+                    }
+
+                    handle @capture-traces {
+                        reverse_proxy capture-logs:4318
                     }
 
                     handle @replay-capture {
@@ -153,8 +171,6 @@ services:
                 condition: service_healthy
             objectstorage:
                 condition: service_started
-            seaweedfs:
-                condition: service_started
 
     db:
         # Not using extends — base mounts volumes that merge with ours,
@@ -243,31 +259,9 @@ services:
             service: objectstorage
 
     seaweedfs:
-        # Not using extends — base sets container_name and host ports that
-        # conflict between sandboxes and with the dev environment.
-        image: chrislusf/seaweedfs:4.03
-        restart: on-failure
-        entrypoint:
-            - /bin/sh
-            - -c
-            - |
-                /usr/bin/weed "$$@" &
-                WEED_PID=$$!
-                echo "Waiting for SeaweedFS to initialize..."
-                while true; do
-                    sleep 5
-                    echo "Checking if posthog bucket exists..."
-                    if echo "s3.bucket.list" | /usr/bin/weed shell -master=localhost:9333 2>&1 | grep -q "posthog"; then
-                        echo "Bucket posthog exists!"
-                        break
-                    fi
-                    echo "Bucket not found, attempting to create..."
-                    echo "s3.bucket.create -name posthog" | /usr/bin/weed shell -master=localhost:9333 2>&1 || true
-                    echo "Retrying in 5s..."
-                done
-                echo "SeaweedFS ready with posthog bucket"
-                wait $$WEED_PID
-            - --
+        extends:
+            file: docker-compose.base.yml
+            service: seaweedfs
         command: ['server', '-s3', '-s3.port=8333', '-filer', '-dir=/data']
         volumes:
             - seaweedfs-data:/data
@@ -278,41 +272,169 @@ services:
             service: elasticsearch
 
     temporal:
-        # Not using extends — base exposes port 7233 to host and Docker Compose
-        # merges lists, so `ports: []` can't remove it. Inline to avoid conflicts.
-        restart: on-failure
-        healthcheck:
-            test: ['CMD-SHELL', 'nc -z $(hostname) 7233']
-            interval: 5s
-            timeout: 5s
-            retries: 30
-            start_period: 300s
-        environment:
-            - DB=postgres12
-            - DB_PORT=5432
-            - POSTGRES_USER=posthog
-            - POSTGRES_PWD=posthog
-            - POSTGRES_SEEDS=db
-            - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-            - ENABLE_ES=true
-            - ES_SEEDS=elasticsearch
-            - ES_VERSION=v7
-        image: temporalio/auto-setup:1.26.2
-        labels:
-            kompose.volume.type: configMap
+        extends:
+            file: docker-compose.base.yml
+            service: temporal
         volumes:
             - ${SANDBOX_CODE:-.}/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+
+    temporal-admin-tools:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-admin-tools
+        depends_on:
+            - temporal
+
+    temporal-ui:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-ui
+        restart: on-failure
+        # No host ports — avoid conflicts between sandboxes
+        depends_on:
+            temporal:
+                condition: service_started
+            db:
+                condition: service_healthy
+
+    otel-collector:
+        extends:
+            file: docker-compose.base.yml
+            service: otel-collector
+        restart: on-failure
+        environment:
+            # Scope container log collection to this sandbox's compose project
+            COMPOSE_PROJECT: '${COMPOSE_PROJECT_NAME}'
+        volumes:
+            - ${SANDBOX_CODE:-.}/otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml:ro
+        depends_on:
+            - capture-logs
+        networks:
+            - default
+
+    jaeger:
+        extends:
+            file: docker-compose.base.yml
+            service: jaeger
+        restart: on-failure
+        # No host ports — avoid conflicts between sandboxes
+        networks:
+            - default
+
+    capture-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
+        depends_on:
+            - kafka
+        networks:
+            - otel_network
+            - default
+
+    kafka_ui:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka_ui
+        # No host ports — avoid conflicts between sandboxes
+        depends_on:
+            - kafka
+
+    flower:
+        extends:
+            file: docker-compose.base.yml
+            service: flower
+        # No host ports — avoid conflicts between sandboxes
+
+    maildev:
+        extends:
+            file: docker-compose.base.yml
+            service: maildev
+        # No host ports — avoid conflicts between sandboxes
+
+    webhook-tester:
+        image: tarampampam/webhook-tester:2.2.6
+        restart: on-failure
+        environment:
+            - AUTO_CREATE_SESSIONS=true
+
+    etcd:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: on-failure
+        environment:
+            ETCD_NAME: etcd0
+            ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+        # No host ports — avoid conflicts between sandboxes
+        healthcheck:
+            test: ['CMD', 'etcdctl', 'endpoint', 'health']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+    localstack:
+        extends:
+            file: docker-compose.base.yml
+            service: localstack
+        restart: on-failure
+        # No host ports — avoid conflicts between sandboxes
+
+    objectstorage-azure:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage-azure
+        # No host ports — avoid conflicts between sandboxes
+
+    duckgres:
+        image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
+        restart: on-failure
+        # No host ports — avoid conflicts between sandboxes
+        volumes:
+            - ${SANDBOX_CODE:-.}/devenv/duckgres.yaml:/app/config.yaml:ro
+            - duckgres-data:/app/data
         depends_on:
             db:
                 condition: service_healthy
-            elasticsearch:
+            objectstorage:
                 condition: service_started
+        command: ['--config', '/app/config.yaml']
+
+    redis-cluster:
+        image: redis:7.2
+        restart: on-failure
+        # No host ports — avoid conflicts between sandboxes
+        command: >
+            bash -c "
+            redis-server
+            --port 6379
+            --cluster-enabled yes
+            --cluster-config-file /data/nodes.conf
+            --cluster-node-timeout 5000
+            --cluster-announce-ip 127.0.0.1
+            --cluster-announce-port 6379
+            --appendonly yes &
+            sleep 1 &&
+            redis-cli -p 6379 cluster addslots $$(seq 0 16383) &&
+            tail -f /dev/null
+            "
+        volumes:
+            - redis-cluster-data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', '-p', '6379', 'cluster', 'info']
+            interval: 2s
+            timeout: 3s
+            retries: 10
+
+networks:
+    otel_network:
+        driver: bridge
 
 volumes:
     postgres-data:
     redpanda-data:
     clickhouse-data:
     seaweedfs-data:
+    redis-cluster-data:
+    duckgres-data:
     python-env:
     node-modules:
     uv-cache:

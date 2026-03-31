@@ -59,14 +59,22 @@ func (m *Manager) StartAll() {
 	}
 }
 
-// Sends SIGTERM to every running process (called on quit)
+// Stops every running process in parallel and waits for all of them to exit
+// (with SIGKILL escalation). Called on quit to ensure no orphaned processes
+// keep ports occupied.
 func (m *Manager) StopAll() {
 	m.mu.Lock()
 	procs := m.procs
 	m.mu.Unlock()
+	var wg sync.WaitGroup
 	for _, p := range procs {
-		p.Stop()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.Stop()
+		}()
 	}
+	wg.Wait()
 }
 
 // Returns the ordered slice of all processes (safe for reading status/lines)

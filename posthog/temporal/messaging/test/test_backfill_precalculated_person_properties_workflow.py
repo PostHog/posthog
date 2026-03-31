@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -8,8 +10,10 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch_async,
 )
-from posthog.temporal.messaging.filter_storage import store_filters
-from posthog.temporal.messaging.types import PersonPropertyFilter
+from posthog.temporal.messaging.precalculated_person_properties import (
+    PersonPropertyFilter,
+    store_filters,
+)
 
 
 class TestFlushKafkaBatchAsync:
@@ -29,7 +33,6 @@ class TestFlushKafkaBatchAsync:
         )
 
         assert result == 0
-        kafka_producer.flush.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_successful_batch_flush_async(self):

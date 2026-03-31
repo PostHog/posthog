@@ -219,7 +219,7 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(run_id) in command
                 assert shlex.quote(mode) in command
 
-    def test_start_agent_server_always_wraps_with_agentsh(self):
+    def test_start_agent_server_without_domains_skips_agentsh(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -240,11 +240,10 @@ class TestDockerSandboxUnit:
                         "background",
                     )
 
-        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", None)
+        mock_setup_agentsh.assert_not_called()
         command = mock_execute.call_args_list[0][0][0]
-        assert "agentsh exec --client-timeout 2h --timeout 2h" in command
-        assert "env -0 > /tmp/agent-env" in command
-        assert "/tmp/agentsh-env-wrapper.sh" in command
+        assert "agentsh exec" not in command
+        assert "nohup" in command
         assert "./node_modules/.bin/agent-server" in command
 
     def test_start_agent_server_passes_allowed_domains(self):
@@ -272,6 +271,8 @@ class TestDockerSandboxUnit:
         mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
         command = mock_execute.call_args_list[0][0][0]
         assert "--allowedDomains" in command
+        assert "agentsh exec" in command
+        assert "env -0 > /tmp/agent-env" in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

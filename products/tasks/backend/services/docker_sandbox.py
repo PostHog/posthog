@@ -600,10 +600,14 @@ class DockerSandbox:
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
-        return (
-            f"cd /scripts && env -0 > {ENV_FILE} && "
-            f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
-        )
+
+        if allowed_domains:
+            return (
+                f"cd /scripts && env -0 > {ENV_FILE} && "
+                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
+            )
+        else:
+            return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         """Execute the agent-server command and wait for the health check.
@@ -643,7 +647,8 @@ class DockerSandbox:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        self._setup_agentsh(WORKING_DIR, allowed_domains)
+        if allowed_domains:
+            self._setup_agentsh(WORKING_DIR, allowed_domains)
 
         mcp_servers_arg = ""
         if mcp_configs:

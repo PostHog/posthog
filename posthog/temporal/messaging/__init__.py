@@ -5,6 +5,7 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_coordin
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesWorkflow,
     backfill_precalculated_person_properties_activity,
+    start_next_workflow_activity,
 )
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     RealtimeCohortCalculationWorkflow,

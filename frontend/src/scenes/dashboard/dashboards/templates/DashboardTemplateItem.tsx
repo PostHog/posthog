@@ -27,6 +27,7 @@ export function TemplateItem({
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
             data-attr={dataAttr}
+            data-attr-id={dataAttr}
         >
             <div
                 className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
