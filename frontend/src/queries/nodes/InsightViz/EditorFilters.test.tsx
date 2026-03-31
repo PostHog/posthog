@@ -218,9 +218,15 @@ describe('EditorFilters', () => {
             expect(screen.queryByText('Enable formula mode')).not.toBeInTheDocument()
         })
 
-        it('shows advanced options expanded by default', () => {
+        it('shows funnel settings collapsed by default and expandable', async () => {
             setupAndRender(makeFunnelsQuery())
-            expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
+
+            const settingsButton = screen.getByRole('button', { name: /Funnel settings/ })
+            expect(settingsButton).toBeInTheDocument()
+            expect(settingsButton).toHaveAttribute('title', 'Show more')
+
+            await userEvent.click(settingsButton)
+            expect(settingsButton).toHaveAttribute('title', 'Show less')
         })
     })
 })

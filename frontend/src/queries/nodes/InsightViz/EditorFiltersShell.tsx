@@ -142,7 +142,7 @@ export function EditorFiltersShell({
                         </div>
                     </MaxTool>
                 ) : null}
-                {showing && <Resizer {...resizerProps} className="hidden @min-[1100px]/insight-viz:block" />}
+                {showing && <Resizer {...resizerProps} />}
             </div>
         )
     }
