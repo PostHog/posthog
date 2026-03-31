@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 
@@ -24,6 +24,11 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             email,
         }),
         setShowNewOrgWarning: (show: boolean) => ({ show }),
+        setChallengeRequired: (required: boolean) => ({ required }),
+        setChallengeNonce: (nonce: string | null) => ({ nonce }),
+        setTurnstileSiteKey: (siteKey: string | null) => ({ siteKey }),
+        setTurnstileToken: (token: string | null) => ({ token }),
+        resetChallenge: true,
     }),
 
     reducers({
@@ -39,9 +44,36 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                 setEmail: (_, { email }) => email,
             },
         ],
+        challengeRequired: [
+            false,
+            {
+                setChallengeRequired: (_, { required }) => required,
+                resetChallenge: () => false,
+            },
+        ],
+        challengeNonce: [
+            null as string | null,
+            {
+                setChallengeNonce: (_, { nonce }) => nonce,
+                resetChallenge: () => null,
+            },
+        ],
+        turnstileSiteKey: [
+            null as string | null,
+            {
+                setTurnstileSiteKey: (_, { siteKey }) => siteKey,
+            },
+        ],
+        turnstileToken: [
+            null as string | null,
+            {
+                setTurnstileToken: (_, { token }) => token,
+                resetChallenge: () => null,
+            },
+        ],
     }),
 
-    forms(() => ({
+    forms(({ actions, values }) => ({
         confirmOrganization: {
             defaults: {} as ConfirmOrganizationFormValues,
             errors: ({ organization_name, first_name }) => ({
@@ -50,10 +82,15 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             }),
 
             submit: async (formValues) => {
+                const submitData: Record<string, any> = { ...formValues }
+
+                if (values.turnstileToken && values.challengeNonce) {
+                    submitData.turnstile_token = values.turnstileToken
+                    submitData.challenge_nonce = values.challengeNonce
+                }
+
                 await api
-                    .create('api/social_signup/', {
-                        ...formValues,
-                    })
+                    .create('api/social_signup/', submitData)
                     .then(() => {
                         const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
@@ -62,10 +99,27 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                         location.href = nextUrl || '/'
                     })
                     .catch((error: any) => {
+                        if (error.code === 'challenge_required') {
+                            actions.setTurnstileToken(null)
+                            actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
+                            actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
+                            actions.setChallengeRequired(true)
+                            return
+                        }
+
+                        actions.resetChallenge()
                         console.error('error', error)
                         lemonToast.error(error.detail || 'Failed to create organization')
                     })
             },
+        },
+    })),
+
+    listeners(({ actions, values }) => ({
+        setTurnstileToken: ({ token }) => {
+            if (token && values.challengeNonce) {
+                actions.submitConfirmOrganization()
+            }
         },
     })),
 

@@ -11,6 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -22,8 +23,15 @@ export const scene: SceneExport = {
 }
 
 export function ConfirmOrganization(): JSX.Element {
-    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
-    const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
+    const {
+        isConfirmOrganizationSubmitting,
+        email,
+        showNewOrgWarning,
+        challengeRequired,
+        turnstileSiteKey,
+        turnstileToken,
+    } = useValues(confirmOrganizationLogic)
+    const { setShowNewOrgWarning, setTurnstileToken } = useActions(confirmOrganizationLogic)
 
     return (
         <BridgePage view="org-creation-confirmation" hedgehog>
@@ -83,15 +91,24 @@ export function ConfirmOrganization(): JSX.Element {
                 <SignupRoleSelect />
                 <SignupReferralSource disabled={isConfirmOrganizationSubmitting} />
 
-                <LemonButton
-                    htmlType="submit"
-                    fullWidth
-                    center
-                    type="primary"
-                    loading={isConfirmOrganizationSubmitting}
-                >
-                    Create organization
-                </LemonButton>
+                {challengeRequired && turnstileSiteKey ? (
+                    <TurnstileChallenge
+                        siteKey={turnstileSiteKey}
+                        onSuccess={setTurnstileToken}
+                        tokenReceived={!!turnstileToken}
+                        email={email}
+                    />
+                ) : (
+                    <LemonButton
+                        htmlType="submit"
+                        fullWidth
+                        center
+                        type="primary"
+                        loading={isConfirmOrganizationSubmitting}
+                    >
+                        Create organization
+                    </LemonButton>
+                )}
             </Form>
 
             <div className="text-center terms-and-conditions-text mt-4 text-secondary">

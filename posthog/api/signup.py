@@ -572,6 +572,8 @@ class SocialSignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
+    turnstile_token: serializers.Field = serializers.CharField(required=False, default="")
+    challenge_nonce: serializers.Field = serializers.CharField(required=False, default="")
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
@@ -587,6 +589,8 @@ class SocialSignupSerializer(serializers.Serializer):
         referral_source = validated_data.get("referral_source", "")
         referral_source_ai_prompt = validated_data.get("referral_source_ai_prompt", "")
         first_name = validated_data["first_name"]
+        turnstile_token = validated_data.get("turnstile_token", "")
+        challenge_nonce = validated_data.get("challenge_nonce", "")
 
         serializer = SignupSerializer(
             data={
@@ -597,6 +601,8 @@ class SocialSignupSerializer(serializers.Serializer):
                 "role_at_organization": role_at_organization,
                 "referral_source": referral_source,
                 "referral_source_ai_prompt": referral_source_ai_prompt,
+                "turnstile_token": turnstile_token,
+                "challenge_nonce": challenge_nonce,
             },
             context={"request": request},
         )
