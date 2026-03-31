@@ -27,6 +27,8 @@ from psycopg import sql
 if TYPE_CHECKING:
     from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
 
+DUCKLAKE_CATALOG_RESET_ENV_VAR = "POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET"
+
 logger = logging.getLogger(__name__)
 
 DEFAULTS: dict[str, str] = {
@@ -76,6 +78,11 @@ def is_dev_mode() -> bool:
         return USE_LOCAL_SETUP
     except ImportError:
         return True
+
+
+def is_ducklake_catalog_reset_allowed() -> bool:
+    """Allow destructive catalog resets only when local startup opted in explicitly."""
+    return is_dev_mode() and os.getenv(DUCKLAKE_CATALOG_RESET_ENV_VAR) == "1"
 
 
 def _get_config_from_env_strict() -> dict[str, str]:
@@ -314,6 +321,8 @@ def reset_ducklake_catalog(config: dict[str, str] | None = None) -> None:
     """Drop and recreate the DuckLake catalog database. Dev mode only."""
     if not is_dev_mode():
         raise RuntimeError("reset_ducklake_catalog is only allowed in dev mode")
+    if not is_ducklake_catalog_reset_allowed():
+        raise RuntimeError(f"DuckLake catalog reset requires local dev opt-in via {DUCKLAKE_CATALOG_RESET_ENV_VAR}=1")
 
     if config is None:
         config = get_config()
@@ -363,6 +372,11 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
                 raise
             if not is_version_mismatch(exc):
                 raise
+            if not is_ducklake_catalog_reset_allowed():
+                raise RuntimeError(
+                    "DuckLake catalog reset is disabled. "
+                    f"Set {DUCKLAKE_CATALOG_RESET_ENV_VAR}=1 to allow local catalog recreation."
+                ) from exc
             logger.warning("DuckLake version mismatch detected, resetting catalog: %s", exc)
             conn.close()
             reset_ducklake_catalog(config)
@@ -405,6 +419,7 @@ __all__ = [
     "get_ducklake_data_path",
     "ensure_ducklake_catalog",
     "initialize_ducklake",
+    "is_ducklake_catalog_reset_allowed",
     "is_version_mismatch",
     "parse_postgres_dsn",
     "is_dev_mode",

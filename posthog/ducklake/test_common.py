@@ -53,6 +53,7 @@ class TestIsVersionMismatch:
 
 
 class TestResetDucklakeCatalog:
+    @patch.dict("os.environ", {"POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET": "1"}, clear=True)
     @patch("posthog.ducklake.common.is_dev_mode", return_value=True)
     @patch("posthog.ducklake.common.psycopg")
     def test_terminates_connections_before_drop(self, mock_psycopg: MagicMock, _mock_dev: MagicMock):
@@ -68,7 +69,6 @@ class TestResetDucklakeCatalog:
         reset_ducklake_catalog(TEST_CONFIG)
 
         calls = [str(c) for c in mock_cursor.execute.call_args_list]
-        # pg_terminate_backend should be called before DROP
         assert any("pg_terminate_backend" in c for c in calls)
         assert any("DROP DATABASE" in c for c in calls)
         assert any("CREATE DATABASE" in c for c in calls)
@@ -81,8 +81,15 @@ class TestResetDucklakeCatalog:
         with pytest.raises(RuntimeError, match="only allowed in dev mode"):
             reset_ducklake_catalog(TEST_CONFIG)
 
+    @patch.dict("os.environ", {}, clear=True)
+    @patch("posthog.ducklake.common.is_dev_mode", return_value=True)
+    def test_requires_explicit_env_opt_in(self, _mock_dev: MagicMock):
+        with pytest.raises(RuntimeError, match="POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET=1"):
+            reset_ducklake_catalog(TEST_CONFIG)
+
 
 class TestInitializeDucklake:
+    @patch.dict("os.environ", {"POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET": "1"}, clear=True)
     @patch("posthog.ducklake.common.is_dev_mode", return_value=True)
     @patch("posthog.ducklake.common.reset_ducklake_catalog")
     @patch("posthog.ducklake.common.run_smoke_check")
@@ -160,6 +167,7 @@ class TestInitializeDucklake:
             with pytest.raises(duckdb.NotImplementedException, match="COPY FROM"):
                 initialize_ducklake(TEST_CONFIG)
 
+    @patch.dict("os.environ", {"POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET": "1"}, clear=True)
     @patch("posthog.ducklake.common.is_dev_mode", return_value=True)
     @patch("posthog.ducklake.common.reset_ducklake_catalog")
     @patch("posthog.ducklake.common.run_smoke_check")
