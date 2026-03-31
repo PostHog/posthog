@@ -16,7 +16,8 @@ export enum MaxContextType {
     NOTEBOOK = 'notebook',
 }
 
-export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & Partial<QueryBasedInsightModel>
+export type InsightWithQuery = Omit<Partial<QueryBasedInsightModel>, 'result'> &
+    Pick<Partial<QueryBasedInsightModel>, 'query'>
 
 export interface MaxInsightContext {
     type: MaxContextType.INSIGHT
@@ -156,7 +157,16 @@ export type MaxContextInput =
 export const createMaxContextHelpers = {
     dashboard: (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContextInput => ({
         type: MaxContextType.DASHBOARD,
-        data: dashboard,
+        data: {
+            ...dashboard,
+            tiles: dashboard.tiles.map((tile) => {
+                if (!tile.insight) {
+                    return tile
+                }
+                const { result: _, ...insightWithoutResult } = tile.insight
+                return { ...tile, insight: insightWithoutResult as QueryBasedInsightModel }
+            }),
+        },
     }),
 
     insight: (
@@ -170,13 +180,16 @@ export const createMaxContextHelpers = {
             variablesOverride?: Record<string, HogQLVariable>
             revenueAnalyticsQuery?: RevenueAnalyticsQuery
         } = {}
-    ): MaxInsightContextInput => ({
-        type: MaxContextType.INSIGHT,
-        data: insight,
-        filtersOverride,
-        variablesOverride,
-        revenueAnalyticsQuery,
-    }),
+    ): MaxInsightContextInput => {
+        const { result: _, ...insightWithoutResult } = insight as Partial<QueryBasedInsightModel>
+        return {
+            type: MaxContextType.INSIGHT,
+            data: insightWithoutResult as InsightWithQuery,
+            filtersOverride,
+            variablesOverride,
+            revenueAnalyticsQuery,
+        }
+    },
 
     event: (event: EventDefinition): MaxEventContextInput => ({
         type: MaxContextType.EVENT,
