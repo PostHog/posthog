@@ -202,7 +202,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
         batch_number: int,
         start_person_id: str,
         end_person_id: str,
-        child_workflow_handles: list,
+        child_workflow_handles: list[temporalio.workflow.ChildWorkflowHandle],
     ) -> None:
         """Helper to start a child workflow for a person ID range."""
         child_workflow_id = f"{temporalio.workflow.info().workflow_id}-batch-{batch_number}"
@@ -262,7 +262,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
         )
 
         # Process ranges with concurrent limit
-        child_workflow_handles = []
+        child_workflow_handles: list[temporalio.workflow.ChildWorkflowHandle] = []
         workflows_scheduled = 0
         completed_count = 0
         failed_count = 0
