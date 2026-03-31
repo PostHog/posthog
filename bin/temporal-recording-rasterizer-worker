@@ -80,7 +80,7 @@ docker run --rm \
     -e TEMPORAL_HOST="${TEMPORAL_HOST:-posthog-temporal-1}" \
     -e TEMPORAL_PORT="${TEMPORAL_PORT:-7233}" \
     -e RECORDING_API_BASE_URL="${RECORDING_API_BASE_URL:-http://host.docker.internal:6738}" \
-    -e RECORDING_API_SECRET="${RECORDING_API_SECRET:-posthog123}" \
+    -e INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}" \
     -e SITE_URL="${SITE_URL:-http://host.docker.internal:8000}" \
     -e VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT="${VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT:-http://posthog-objectstorage-1:19000}" \
     -e AWS_ACCESS_KEY_ID=object_storage_root_user \

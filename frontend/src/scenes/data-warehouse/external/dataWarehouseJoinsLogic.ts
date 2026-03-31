@@ -4,16 +4,18 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, PropertyDefinition, PropertyType } from '~/types'
 
 import type { dataWarehouseJoinsLogicType } from './dataWarehouseJoinsLogicType'
 
-const TYPE_MAPPING: Record<string, PropertyType> = {
+const TYPE_MAPPING: Partial<Record<DatabaseSerializedFieldType, PropertyType>> = {
     datetime: PropertyType.DateTime,
     string: PropertyType.String,
-    numeric: PropertyType.Numeric,
+    integer: PropertyType.Numeric,
+    float: PropertyType.Numeric,
+    decimal: PropertyType.Numeric,
     boolean: PropertyType.Boolean,
-    duration: PropertyType.Duration,
     array: PropertyType.StringArray,
 }
 
@@ -59,7 +61,7 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
                                 id: `${join.field_name}.${column.name}`,
                                 name: `${join.field_name}: ${column.name}`,
                                 table: join.field_name,
-                                property_type: TYPE_MAPPING[column.type.toLowerCase()] || PropertyType.String,
+                                property_type: TYPE_MAPPING[column.type] || PropertyType.String,
                             }))
                         )
                     }

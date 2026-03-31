@@ -184,7 +184,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
-async def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
+async def _is_pipeline_v3_enabled(team_id: int, source_type: str, logger: FilteringBoundLogger) -> bool:
     try:
         team = await database_sync_to_async_pool(Team.objects.only("uuid", "organization_id").get)(id=team_id)
     except Team.DoesNotExist:
@@ -199,14 +199,16 @@ async def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) ->
                 "project": str(team.id),
             },
             group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
+                "organization": {"id": str(team.organization_id), "source_type": source_type},
+                "project": {"id": str(team.id), "source_type": source_type},
             },
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
         if enabled:
-            logger.debug(f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id}")
+            logger.debug(
+                f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id} source_type {source_type}"
+            )
         return bool(enabled)
     except Exception as e:
         capture_exception(e)
@@ -240,7 +242,7 @@ async def _run(
     try:
         job, schema, source, table = await _get_models(job_inputs.run_id)
 
-        use_v3 = await _is_pipeline_v3_enabled(job_inputs.team_id, logger)
+        use_v3 = await _is_pipeline_v3_enabled(job_inputs.team_id, source.source_type, logger)
 
         if use_v3:
             from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3

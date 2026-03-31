@@ -22,11 +22,9 @@ from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
-from .dashboard import Dashboard
-from .dashboard_templates import DashboardTemplate
+from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
 from ..ducklake.models import DuckgresServer, DuckLakeCatalog
-from .dashboard_tile import ButtonTile, DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -113,13 +111,13 @@ __all__ = [
     "BatchExportDestination",
     "BatchExportRun",
     "BatchImport",
-    "ButtonTile",
     "Cohort",
     "CohortPeople",
     "CohortCalculationHistory",
     "ColumnConfiguration",
     "CoreEvent",
     "Dashboard",
+    "DataDeletionRequest",
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",
@@ -211,7 +209,6 @@ __all__ = [
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
-    "Text",
     "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",

@@ -70,8 +70,12 @@ metadata:
                 scheduled tasks, and email sending.
         nodejs:
             name: Node.js
-            about: Event ingestion pipeline that processes incoming events, runs CDP workflows,
-                and writes to Kafka (then ClickHouse).
+            about: CDP workflows, session recordings, logs ingestion, and evaluation scheduler.
+                Ingestion runs as a separate process (see ingestion unit).
+        ingestion:
+            name: Ingestion
+            about: Event ingestion pipeline that processes incoming events and writes to
+                Kafka (then ClickHouse). Runs as IngestionGeneralServer.
         django:
             name: Django
             about: Python web framework powering PostHog's backend API, admin interface,
@@ -107,6 +111,11 @@ core:
     dev:sync-flags:
         cmd: python manage.py sync_feature_flags
         description: Sync feature flags from configuration
+        services:
+            - postgresql
+    dev:sync-hog-templates:
+        cmd: python manage.py sync_hog_function_templates
+        description: Sync hog function templates from configuration
         services:
             - postgresql
     dev:sync-user-settings:
@@ -171,6 +180,7 @@ start:
             - frontend
             - celery
             - nodejs
+            - ingestion
             - postgresql
             - redis
             - kafka
@@ -205,10 +215,11 @@ start:
         hidden: true
     start:worker:
         bin_script: start-worker
-        description: Launch all background workers (Celery worker, beat scheduler, nodejs)
+        description: Launch all background workers (Celery worker, beat scheduler, nodejs, ingestion)
         services:
             - celery
             - nodejs
+            - ingestion
             - kafka
             - temporal
             - redis
@@ -655,7 +666,7 @@ tools:
         description: 'TODO: add description for generate_personhog_proto.sh'
         hidden: true
     phrocs:build:
-        cmd: cd tools/phrocs && make build && cp dist/phrocs ../../bin/phrocs
+        cmd: cd tools/phrocs && make build
         description: Build the phrocs binary from source
     phrocs:
         bin_script: phrocs
@@ -723,3 +734,7 @@ environment:
         description: Disable anonymous usage telemetry
     telemetry:status:
         description: Show current telemetry settings
+    start:stripe:mock:
+        bin_script: start-stripe-mock
+        description: 'Start the local Stripe mock API server'
+        hidden: true

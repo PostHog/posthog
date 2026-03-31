@@ -381,7 +381,7 @@ export function isQueryForGroup(query: PersonsNode | ActorsQuery): boolean {
         isActorsQuery(query) &&
         isInsightActorsQuery(query.source) &&
         isRetentionQuery(query.source.source) &&
-        query.source.source.aggregation_group_type_index !== undefined
+        query.source.source.aggregation_group_type_index != null
     )
 }
 

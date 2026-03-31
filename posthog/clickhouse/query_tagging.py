@@ -26,30 +26,46 @@ class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
     ENDPOINTS = "endpoints"
+    ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
+    GROUP_ANALYTICS = "group_analytics"
     LLM_ANALYTICS = "llm_analytics"
+    LOGS = "logs"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
+    MOBILE_REPLAY = "mobile_replay"
+    PIPELINE_DESTINATIONS = "pipeline_destinations"
+    PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
+    SIGNALS = "signals"
+    SURVEYS = "surveys"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
+    INTERNAL = "internal"  # for internal use only
+
 
 class Feature(StrEnum):
+    BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
-    QUERY = "query"
+    DIGEST = "digest"
+    QUERY = "query"  # user-facing queries only
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    PREAGGREGATION = "preaggregation"
+    DATA_DELETION = "data_deletion"
+    SCHEMA_INTROSPECTION = "schema_introspection"
+    USAGE_REPORT = "usage_report"
 
 
 class TemporalTags(BaseModel):
@@ -342,6 +358,8 @@ _SOURCE_SKIP_PREFIXES: tuple[str, ...] = (
     os.path.join(_PROJECT_ROOT, "posthog", "clickhouse", "client") + os.sep,
     _THIS_FILE,
     os.path.join(_PROJECT_ROOT, "posthog", "hogql", "query.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "hogql_queries", "insights", "paginators.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "queries", "insight.py"),
     os.path.join(_PROJECT_ROOT, "posthog", "utils.py"),
 )
 

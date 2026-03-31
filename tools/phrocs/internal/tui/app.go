@@ -2,6 +2,7 @@ package tui
 
 import (
 	"log"
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -22,6 +23,31 @@ const (
 	focusContainers
 )
 
+type SortMode int
+
+const (
+	SortName SortMode = iota
+	SortCPU
+	SortRAM
+	SortStatus
+	sortModeCount // sentinel for cycling
+)
+
+func (s SortMode) String() string {
+	switch s {
+	case SortName:
+		return "name"
+	case SortCPU:
+		return "CPU"
+	case SortRAM:
+		return "RAM"
+	case SortStatus:
+		return "status"
+	default:
+		return "name"
+	}
+}
+
 type Model struct {
 	mgr *process.Manager
 
@@ -30,6 +56,8 @@ type Model struct {
 	// Center viewport with output of the active process
 	viewport         viewport.Model
 	viewportAtBottom bool
+	activeContent    string
+	activeLineCount  int
 
 	// Copy mode: keyboard-driven line selection within the output pane
 	copyMode   bool
@@ -46,6 +74,7 @@ type Model struct {
 	services       []*process.Process
 	servicesCursor int
 	servicesOffset int
+	sortMode       SortMode
 
 	// Docker container sidebar (visible when docker-compose proc is selected)
 	containers         []docker.DockerContainer
@@ -54,6 +83,9 @@ type Model struct {
 	containerLines     []string
 	containerLogStream *docker.ContainerLogStream
 	composeArgs        docker.ComposeArgs
+
+	// Buffered text for PTY input when the output pane is focused
+	inputBuffer string
 
 	// Info mode: replaces the output viewport with process stats
 	infoMode bool
@@ -147,30 +179,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
-		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
+		if p := m.activeProc(); m.ready && p != nil && p.Name == msg.Name {
 			// In docker mode the viewport shows the status table or container logs,
 			// not the process's combined output
 			if m.isDockerMode() || m.infoMode {
 				break
 			}
-			m.viewport.SetContent(m.buildContent())
+			m.applyOutputDelta(msg)
 			// Don't auto-scroll while the user is selecting text in copy mode
 			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
 				m.viewport.GotoBottom()
-			}
-			if m.searchQuery != "" {
-				m.recomputeSearch()
 			}
 		}
 
 	case process.StatusMsg:
 		m.dbg("status: proc=%s status=%s", msg.Name, msg.Status)
+		// Capture the active name before re-fetching so sortServices
+		// can restore the cursor to the same process.
+		activeName := ""
+		if p := m.activeProc(); p != nil {
+			activeName = p.Name
+		}
 		// Re-fetch the process slice so status icons refresh on next render
 		m.services = m.mgr.Procs()
-		if m.servicesCursor >= len(m.services) {
-			m.servicesCursor = max(0, len(m.services)-1)
+		// Restore cursor to the same process in the new (unsorted) slice
+		m.servicesCursor = 0
+		for i, p := range m.services {
+			if p.Name == activeName {
+				m.servicesCursor = i
+				break
+			}
 		}
-		m.ensureSidebarCursorVisible()
+		m.sortServices()
 
 	// Container-related messages only relevant in docker mode
 	case docker.ContainerListMsg:
@@ -366,6 +406,7 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 
 	m.copyMode = false
 	m.searchMode = false
+	m.inputBuffer = ""
 	m.viewport.StyleLineFunc = nil
 
 	// Resize viewport to account for container sidebar appearing/disappearing
@@ -382,6 +423,8 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchCursor = 0
+		m.activeContent = ""
+		m.activeLineCount = 0
 		m.keys.LazyDocker.SetEnabled(true)
 		m.keys.ProcViewer.SetEnabled(false)
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
@@ -391,7 +434,13 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.containers = nil
 		m.keys.LazyDocker.SetEnabled(false)
 		m.keys.ProcViewer.SetEnabled(true)
-		m.viewport.SetContent(m.buildContent())
+		m.activeContent = m.buildContent()
+		if m.activeContent == "" {
+			m.activeLineCount = 0
+		} else {
+			m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
+		}
+		m.viewport.SetContent(m.activeContent)
 	}
 
 	if m.viewportAtBottom {
@@ -411,4 +460,103 @@ func (m Model) buildContent() string {
 		return ""
 	}
 	return strings.Join(p.Lines(), "\n")
+}
+
+// applyOutputDelta incrementally updates the viewport content using the
+// batch metadata in OutputMsg. Falls back to a full rebuild on eviction.
+func (m *Model) applyOutputDelta(msg process.OutputMsg) {
+	if msg.Evicted > 0 || len(msg.Added) == 0 {
+		m.activeContent = m.buildContent()
+		if m.activeContent == "" {
+			m.activeLineCount = 0
+		} else {
+			m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
+		}
+		m.viewport.SetContent(m.activeContent)
+		if m.searchQuery != "" {
+			m.recomputeSearch()
+		}
+		return
+	}
+
+	if m.activeLineCount == 0 || m.activeContent == "" {
+		m.activeContent = strings.Join(msg.Added, "\n")
+	} else {
+		m.activeContent += "\n" + strings.Join(msg.Added, "\n")
+	}
+	m.activeLineCount += len(msg.Added)
+	m.viewport.SetContent(m.activeContent)
+
+	if m.searchQuery != "" {
+		startIdx := m.activeLineCount - len(msg.Added)
+		for i, line := range msg.Added {
+			m.updateSearchForLine(line, startIdx+i, false)
+		}
+	}
+}
+
+// statusSortOrder returns a numeric rank for sorting by status.
+// Running/pending processes sort first, done last.
+func statusSortOrder(s process.Status) int {
+	switch s {
+	case process.StatusRunning:
+		return 0
+	case process.StatusPending:
+		return 1
+	case process.StatusCrashed:
+		return 2
+	case process.StatusStopped:
+		return 3
+	case process.StatusDone:
+		return 4
+	default:
+		return 5
+	}
+}
+
+// sortServices re-sorts m.services by the current sortMode, preserving
+// the cursor on the same process.
+func (m *Model) sortServices() {
+	if len(m.services) == 0 {
+		return
+	}
+	activeName := ""
+	if m.servicesCursor < len(m.services) {
+		activeName = m.services[m.servicesCursor].Name
+	}
+
+	sort.SliceStable(m.services, func(i, j int) bool {
+		a, b := m.services[i], m.services[j]
+
+		switch m.sortMode {
+		case SortCPU:
+			return a.CPUPercent() > b.CPUPercent()
+		case SortRAM:
+			return a.MemRSSMB() > b.MemRSSMB()
+		case SortStatus:
+			sa, sb := statusSortOrder(a.Status()), statusSortOrder(b.Status())
+			if sa != sb {
+				return sa < sb
+			}
+			return a.Name < b.Name
+		default:
+			// Always place info at the top of the list
+			if a.Name == "info" {
+				return true
+			}
+			if b.Name == "info" {
+				return false
+			}
+			return a.Name < b.Name
+		}
+	})
+
+	// Restore cursor to the same process
+	for i, p := range m.services {
+		if p.Name == activeName {
+			m.servicesCursor = i
+			break
+		}
+	}
+	m.ensureSidebarCursorVisible()
 }

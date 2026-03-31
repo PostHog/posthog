@@ -238,6 +238,12 @@ class ConvertKitSourceConfig(config.Config):
 
 
 @config.config
+class ConvexSourceConfig(config.Config):
+    deploy_url: str
+    deploy_key: str
+
+
+@config.config
 class CopperSourceConfig(config.Config):
     pass
 
@@ -703,7 +709,7 @@ class ShortcutSourceConfig(config.Config):
 
 @config.config
 class SlackSourceConfig(config.Config):
-    pass
+    slack_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -888,6 +894,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
         ExternalDataSourceType.CONFLUENCE: ConfluenceSourceConfig,
         ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
+        ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.COPPER: CopperSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,

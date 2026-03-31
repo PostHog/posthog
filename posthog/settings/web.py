@@ -63,6 +63,7 @@ PRODUCTS_APPS = [
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.notifications.backend.apps.NotificationsConfig",
+    "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
 ]
 
@@ -103,6 +104,7 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
+    "posthog.personhog_client.middleware.PersonHogGateMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.OAuthCoopMiddleware",
@@ -114,12 +116,14 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
@@ -366,7 +370,7 @@ SPECTACULAR_SETTINGS = {
         "posthog.api.documentation.custom_postprocessing_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
+        "DashboardRestrictionLevel": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "PropertyGroupOperator": ["AND", "OR"],
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
@@ -484,6 +488,15 @@ if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
 REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOINT", "")
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
+
+# Versioned posthog-js S3 bucket — enables versioned JS content serving when set
+POSTHOG_JS_S3_BUCKET = get_from_env("POSTHOG_JS_S3_BUCKET", "")
+# Base URL for CDN-fronted bucket (used in scriptsBaseUrl config field)
+POSTHOG_JS_SCRIPTS_BASE_URL = get_from_env("POSTHOG_JS_SCRIPTS_BASE_URL", "")
+# CDN cache control for array.js responses
+POSTHOG_JS_CDN_MAX_AGE = int(os.getenv("POSTHOG_JS_CDN_MAX_AGE", "3600"))
+POSTHOG_JS_CDN_STALE_WHILE_REVALIDATE = int(os.getenv("POSTHOG_JS_CDN_STALE_WHILE_REVALIDATE", "86400"))
+POSTHOG_JS_CDN_STALE_IF_ERROR = int(os.getenv("POSTHOG_JS_CDN_STALE_IF_ERROR", "86400"))
 
 ####
 # /capture

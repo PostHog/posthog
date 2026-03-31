@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use personhog_proto::personhog::{
-    leader::v1::{UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse},
     service::v1::person_hog_service_server::{PersonHogService, PersonHogServiceServer},
     types::v1::*,
 };

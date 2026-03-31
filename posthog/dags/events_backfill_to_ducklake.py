@@ -7,9 +7,10 @@ then registers those files with DuckLake using `ducklake_add_data_files`.
 The job is partitioned by date to allow incremental backfilling of historical data.
 Within each date partition, events are further chunked by team_id to keep file sizes manageable.
 
-S3 path structure: s3://{bucket}/backfill/events/team_id={team_id}/year={year}/month={month}/day={day}/
+S3 path structure: s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/
 
-This matches the DuckLake streaming partition scheme (team_id, year, month, day).
+Uses plain directory segments (not Hive-style key=value) to avoid DuckLake
+interpreting them as partition columns during ducklake_add_data_files.
 """
 
 import base64
@@ -207,11 +208,17 @@ ORDER BY event_time DESC;
     return f"http://localhost:8123/play?user=default#{base64.b64encode(sql.encode('utf-8')).decode('utf-8')}"
 
 
+# The shared DuckLake table should be partitioned by team_id first (most
+# selective predicate — every query filters by it) then by date.
+DUCKLAKE_EVENTS_PARTITION_EXPR = "team_id, year(timestamp), month(timestamp), day(timestamp)"
+
+
 def validate_ducklake_schema(context: AssetExecutionContext) -> None:
     """Validate that the DuckLake events table schema matches our export columns.
 
     This pre-flight check ensures we don't waste time exporting data that can't
-    be registered with DuckLake due to schema mismatches.
+    be registered with DuckLake due to schema mismatches. Also ensures the table
+    is partitioned by (team_id, year, month, day) for efficient pruning.
     """
     ducklake_config = get_config()
     storage_config = DuckLakeStorageConfig.from_runtime()
@@ -258,6 +265,18 @@ def validate_ducklake_schema(context: AssetExecutionContext) -> None:
             export_columns=len(EXPECTED_DUCKLAKE_COLUMNS),
         )
 
+        # Ensure partitioning includes team_id for efficient pruning (idempotent).
+        try:
+            conn.execute(f"ALTER TABLE {alias}.posthog.events SET PARTITIONED BY ({DUCKLAKE_EVENTS_PARTITION_EXPR})")
+            context.log.info(f"Partitioning set: {DUCKLAKE_EVENTS_PARTITION_EXPR}")
+        except Exception as exc:
+            context.log.warning(f"Failed to set partitioning (non-fatal): {exc}")
+            logger.warning(
+                "ducklake_partitioning_failed",
+                error=str(exc),
+                partition_expr=DUCKLAKE_EVENTS_PARTITION_EXPR,
+            )
+
     finally:
         conn.close()
 
@@ -278,15 +297,16 @@ def get_s3_path_for_partition(
 ) -> str:
     """Build S3 path for a partition file.
 
-    Path structure: s3://{bucket}/backfill/events/team_id={team_id}/year={year}/month={month}/day={day}/{chunk_id}.parquet
+    Path structure: s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/{chunk_id}.parquet
 
-    This matches the DuckLake streaming partition scheme.
+    Uses plain directory segments (not Hive-style key=value) to avoid DuckLake
+    interpreting them as partition columns during ducklake_add_data_files.
     """
     year = date.strftime("%Y")
     month = date.strftime("%m")
     day = date.strftime("%d")
 
-    filename = f"{BACKFILL_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/{chunk_id}.parquet"
+    filename = f"{BACKFILL_S3_PREFIX}/{team_id}/{year}/{month}/{day}/{chunk_id}.parquet"
 
     if is_local:
         return f"{OBJECT_STORAGE_ENDPOINT}/{bucket}/{filename}"
@@ -457,7 +477,11 @@ def cleanup_prior_run_files(
 
     if deleted_count > 0:
         context.log.info(f"Cleaned up {deleted_count} orphaned files from prior runs")
-        logger.info("cleanup_complete", deleted_count=deleted_count, partition_date=partition_date.isoformat())
+        logger.info(
+            "cleanup_complete",
+            deleted_count=deleted_count,
+            partition_date=partition_date.isoformat(),
+        )
 
     return deleted_count
 
@@ -522,7 +546,11 @@ def register_files_with_ducklake(
         conn.close()
 
     context.log.info(f"Registered {registered_count}/{len(s3_paths)} files with DuckLake")
-    logger.info("ducklake_registration_complete", registered=registered_count, total=len(s3_paths))
+    logger.info(
+        "ducklake_registration_complete",
+        registered=registered_count,
+        total=len(s3_paths),
+    )
     return registered_count
 
 

@@ -253,6 +253,13 @@ export function LemonTable<T extends Record<string, any>>({
 
     const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
 
+    const visibleDataColumnCount = useMemo(() => columns.filter((column) => !column.isHidden).length, [columns])
+    // Matches the main header row cell count so the loader row does not add an extra table column (which shifts headers while loading)
+    const headerLoaderColSpan = Math.max(
+        1,
+        Number(isRowExpansionToggleShown) + visibleDataColumnCount + Number(!!rowActions)
+    )
+
     return (
         <div
             id={id}
@@ -280,12 +287,17 @@ export function LemonTable<T extends Record<string, any>>({
                 <div className="LemonTable__content">
                     <table ref={tableRef}>
                         <colgroup>
-                            {isRowExpansionToggleShown && <col className="w-0" /> /* Expand/collapse column */}
+                            {isRowExpansionToggleShown && <col style={{ width: '1%' }} /> /* Expand/collapse column */}
                             {columns
                                 .filter((column) => !column.isHidden)
                                 .map((column, index) => (
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
+                                    <col
+                                        key={`LemonTable-col-${index}`}
+                                        // width:0 has no effect in auto-layout tables (ignored by Safari).
+                                        // width:1% is a standard workaround to shrink a column to its content.
+                                        style={{ width: column.width === 0 ? '1%' : column.width }}
+                                    />
                                 ))}
                         </colgroup>
                         {showHeader && (
@@ -506,7 +518,11 @@ export function LemonTable<T extends Record<string, any>>({
                                             })
                                     )}
                                     {rowActions && <th className="w-0" />}
-                                    <LemonTableLoader loading={loading} tag="th" />
+                                </tr>
+                                <tr className="LemonTable__loader-row">
+                                    <th colSpan={headerLoaderColSpan} className="LemonTable__loader-host">
+                                        <LemonTableLoader loading={loading} tag="div" />
+                                    </th>
                                 </tr>
                             </thead>
                         )}

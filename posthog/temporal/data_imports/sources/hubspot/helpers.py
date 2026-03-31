@@ -92,7 +92,11 @@ def fetch_property_history(
 
 
 def fetch_data(
-    endpoint: str, api_key: str, refresh_token: str, params: Optional[dict[str, Any]] = None
+    endpoint: str,
+    api_key: str,
+    refresh_token: str,
+    params: Optional[dict[str, Any]] = None,
+    source_id: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """
     Fetch data from HUBSPOT endpoint using a specified API key and yield the properties of each result.
@@ -125,19 +129,15 @@ def fetch_data(
     headers = _get_headers(api_key)
 
     # Make the API request
+    r = requests.get(url, headers=headers, params=params)
     try:
-        r = requests.get(url, headers=headers, params=params)
-        if r.status_code == 401:
-            # refresh token
-            api_key = hubspot_refresh_access_token(refresh_token)
-            headers = _get_headers(api_key)
-            r = requests.get(url, headers=headers, params=params)
+        r.raise_for_status()
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 401:
-            # refresh token
-            api_key = hubspot_refresh_access_token(refresh_token)
+            api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
             headers = _get_headers(api_key)
             r = requests.get(url, headers=headers, params=params)
+            r.raise_for_status()
         else:
             raise
     # Parse the API response and yield the properties of each result
@@ -176,14 +176,15 @@ def fetch_data(
         if _next:
             next_url = _next["link"]
             # Get the next page response
+            r = requests.get(next_url, headers=headers)
             try:
-                r = requests.get(next_url, headers=headers)
+                r.raise_for_status()
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
-                    # refresh token
-                    api_key = hubspot_refresh_access_token(refresh_token)
+                    api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
                     headers = _get_headers(api_key)
                     r = requests.get(next_url, headers=headers)
+                    r.raise_for_status()
                 else:
                     raise
             _data = r.json()
@@ -191,7 +192,7 @@ def fetch_data(
             _data = None
 
 
-def _get_property_names(api_key: str, refresh_token: str, object_type: str) -> list[str]:
+def _get_property_names(api_key: str, refresh_token: str, object_type: str, source_id: str | None = None) -> list[str]:
     """
     Retrieve property names for a given entity from the HubSpot API.
 
@@ -207,7 +208,7 @@ def _get_property_names(api_key: str, refresh_token: str, object_type: str) -> l
     properties = []
     endpoint = f"/crm/v3/properties/{OBJECT_TYPE_PLURAL[object_type]}"
 
-    for page in fetch_data(endpoint, api_key, refresh_token):
+    for page in fetch_data(endpoint, api_key, refresh_token, source_id=source_id):
         properties.extend([prop["name"] for prop in page])
 
     return properties

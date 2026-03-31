@@ -203,6 +203,7 @@ import {
     UserInterviewType,
     UserType,
     WebAnalyticsFilterPresetType,
+    WebhookInfo,
 } from '~/types'
 
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -518,12 +519,6 @@ export class ApiRequest {
 
     public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
-    }
-
-    // # Onboarding
-
-    public onboardingRecommendProducts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('onboarding').addPathComponent('recommend_products')
     }
 
     // # LLM Analytics
@@ -1994,22 +1989,6 @@ const api = {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
         },
     },
-    onboarding: {
-        recommendProducts(
-            params: {
-                description?: string
-                browsingHistory?: string[]
-            },
-            teamId?: TeamType['id']
-        ): Promise<{ products: string[]; reasoning: string }> {
-            return new ApiRequest().onboardingRecommendProducts(teamId).create({
-                data: {
-                    description: params.description,
-                    browsing_history: params.browsingHistory,
-                },
-            })
-        },
-    },
     llmAnalytics: {
         translate(params: {
             text: string
@@ -2150,20 +2129,14 @@ const api = {
             range_pairs: { column: string; variables: string[]; bucket_fn: string }[]
             aggregates: { expression: string; reaggregate_fn: string | null }[]
         }> {
-            const params: Record<string, any> = {}
+            const data: Record<string, any> = {}
             if (version !== undefined) {
-                params.version = version
+                data.version = version
             }
-            if (bucketOverrides) {
-                for (const [col, fn] of Object.entries(bucketOverrides)) {
-                    params[`bucket_overrides[${col}]`] = fn
-                }
+            if (bucketOverrides && Object.keys(bucketOverrides).length > 0) {
+                data.bucket_overrides = bucketOverrides
             }
-            let request = new ApiRequest().endpointDetail(name).withAction('materialization_preview')
-            if (Object.keys(params).length > 0) {
-                request = request.withQueryString(params)
-            }
-            return await request.get()
+            return await new ApiRequest().endpointDetail(name).withAction('materialization_preview').create({ data })
         },
         async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
@@ -2319,8 +2292,16 @@ const api = {
     },
 
     fileSystemShortcuts: {
-        async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystemShortcut().get()
+        async list(params?: {
+            limit?: number
+            offset?: number
+            ordering?: string
+        }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            const request = new ApiRequest().fileSystemShortcut()
+            if (params) {
+                request.withQueryString(params)
+            }
+            return await request.get()
         },
         async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemShortcut().create({ data })
@@ -2351,6 +2332,11 @@ const api = {
         },
         async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
             return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
+        },
+        async bulkUpdate(
+            items: { product_path: string; enabled: boolean }[]
+        ): Promise<{ results: UserProductListItem[] }> {
+            return await new ApiRequest().userProductList().withAction('bulk_update').update({ data: { items } })
         },
     },
 
@@ -3705,12 +3691,15 @@ const api = {
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
 
-            async update(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
-                return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
-            },
-
             async delete(id: ErrorTrackingSymbolSet['id']): Promise<void> {
                 return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+            },
+
+            async bulkDelete(ids: ErrorTrackingSymbolSet['id'][]): Promise<void> {
+                return await new ApiRequest()
+                    .errorTrackingSymbolSets()
+                    .withAction('bulk_delete')
+                    .create({ data: { ids } })
             },
         },
 
@@ -4842,6 +4831,9 @@ const api = {
         async reload(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
+        async getWebhookInfo(sourceId: ExternalDataSource['id']): Promise<WebhookInfo> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('webhook_info').get()
+        },
         async createWebhook(
             sourceId: ExternalDataSource['id']
         ): Promise<{ success: boolean; webhook_url: string; error?: string }> {
@@ -4855,6 +4847,11 @@ const api = {
                 .externalDataSource(sourceId)
                 .withAction('update_webhook_inputs')
                 .create({ data: { inputs } })
+        },
+        async deleteWebhook(
+            sourceId: ExternalDataSource['id']
+        ): Promise<{ success: boolean; external_deleted: boolean; error?: string | null }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()

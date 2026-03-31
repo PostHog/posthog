@@ -114,7 +114,7 @@ def get_schemas(
         database=database,
         user=user,
         password=password,
-        connect_timeout=5,
+        connect_timeout=10,
         ssl_ca=ssl_ca,
     )
 
@@ -189,7 +189,7 @@ def _get_rows_to_sync(
     cursor: Cursor, inner_query: str, inner_query_args: dict[str, Any], logger: FilteringBoundLogger
 ) -> int:
     try:
-        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+        query = f"SELECT /*+ MAX_EXECUTION_TIME(60000) */ COUNT(*) FROM ({inner_query}) as t"
 
         cursor.execute(query, inner_query_args)
         row = cursor.fetchone()
@@ -212,59 +212,75 @@ def _get_rows_to_sync(
 
 
 def _get_partition_settings(
-    cursor: Cursor, schema: str, table_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 ) -> PartitionSettings | None:
     """Get partition settings for given MySQL table.
 
-    To obtain partition settings, we look up `DATA_LENGTH` from
-    `INFORMATION_SCHEMA.TABLES`. Keep in mind that `DATA_LENGTH` only includes
-    size of values in clustered index. Notably, types like `TEXT` do not store
-    their values in the index, so the size will be underestimated if fields like
-    that are present. This could lead to larger than expected partitions.
+    To obtain partition settings, we look up `DATA_LENGTH` and `TABLE_ROWS`
+    from `INFORMATION_SCHEMA.TABLES`. Keep in mind that `DATA_LENGTH` only
+    includes size of values in clustered index. Notably, types like `TEXT` do
+    not store their values in the index, so the size will be underestimated
+    if fields like that are present. This could lead to larger than expected
+    partitions.
 
-    We obtain the row count by counting the table directly, as `TABLE_ROWS` can
-    be out of date by a large factor depending on how recently have table
-    statistics been computed.
+    `TABLE_ROWS` is an InnoDB estimate and can be imprecise, but it is
+    sufficient for partition sizing and avoids a potentially expensive
+    `COUNT(*)` full table scan that can cause connection timeouts on large
+    tables.
     """
-    query = """
-    SELECT
-        t.DATA_LENGTH AS table_size,
-        (SELECT COUNT(*) FROM `{schema_identifier}`.`{table_name_identifier}`) AS row_count
-    FROM
-        information_schema.TABLES AS t
-    WHERE
-        t.TABLE_SCHEMA = %(schema)s
-        AND t.TABLE_NAME = %(table_name)s
-    """.format(
-        schema_identifier=pymysql.converters.escape_string(schema),
-        table_name_identifier=pymysql.converters.escape_string(table_name),
-    )
+    try:
+        query = """
+        SELECT
+            t.DATA_LENGTH AS table_size,
+            t.TABLE_ROWS AS row_count
+        FROM
+            information_schema.TABLES AS t
+        WHERE
+            t.TABLE_SCHEMA = %(schema)s
+            AND t.TABLE_NAME = %(table_name)s
+        """
 
-    cursor.execute(
-        query,
-        {
-            "schema": schema,
-            "table_name": table_name,
-        },
-    )
-    result = cursor.fetchone()
-    if result is None:
+        logger.debug(f"_get_partition_settings: running query {query}")
+
+        cursor.execute(
+            query,
+            {
+                "schema": schema,
+                "table_name": table_name,
+            },
+        )
+        result = cursor.fetchone()
+        if result is None:
+            logger.debug("_get_partition_settings: no results returning None")
+            return None
+
+        table_size, row_count = result
+
+        if table_size is None or row_count is None or row_count == 0:
+            logger.debug(
+                "_get_partition_settings: table_size is None or row_count is None or row_count == 0. returning None"
+            )
+            return None
+
+        avg_row_size = table_size / row_count
+        # Partition must have at least one row
+        partition_size = max(round(partition_size_bytes / avg_row_size), 1)
+        partition_count = math.floor(row_count / partition_size)
+
+        if partition_count == 0:
+            logger.debug(f"_get_partition_settings: partition_count == 0, returning partition_size={partition_size}")
+            return PartitionSettings(partition_count=1, partition_size=partition_size)
+
+        logger.debug(f"_get_partition_settings: partition_count={partition_count}, partition_size={partition_size}")
+        return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
+    except Exception as e:
+        logger.debug(f"_get_partition_settings: Error: {e}. Returning None", exc_info=e)
+        capture_exception(e)
         return None
-
-    table_size, row_count = result
-
-    if table_size is None or row_count is None or row_count == 0:
-        return None
-
-    avg_row_size = table_size / row_count
-    # Partition must have at least one row
-    partition_size = max(round(partition_size_bytes / avg_row_size), 1)
-    partition_count = math.floor(row_count / partition_size)
-
-    if partition_count == 0:
-        return PartitionSettings(partition_count=1, partition_size=partition_size)
-
-    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
 def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str] | None:
@@ -560,7 +576,7 @@ def mysql_source(
             database=database,
             user=user,
             password=password,
-            connect_timeout=5,
+            connect_timeout=10,
             ssl_ca=ssl_ca,
             conv=_MYSQL_SAFE_CONVERSIONS,
         ) as connection:
@@ -589,7 +605,9 @@ def mysql_source(
                     logger,
                 )
                 partition_settings = (
-                    _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
+                    _get_partition_settings(cursor, schema, table_name, logger)
+                    if should_use_incremental_field
+                    else None
                 )
 
                 # Fallback on checking for an `id` field on the table
@@ -609,7 +627,7 @@ def mysql_source(
                 database=database,
                 user=user,
                 password=password,
-                connect_timeout=5,
+                connect_timeout=10,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
                 conv=_MYSQL_SAFE_CONVERSIONS,

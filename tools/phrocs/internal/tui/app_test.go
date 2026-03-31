@@ -600,3 +600,126 @@ func TestGotoTop_clearsAtBottom(t *testing.T) {
 		t.Error("home key should set atBottom=false")
 	}
 }
+
+// ── Sorting ──────────────────────────────────────────────────────────────────
+
+func serviceNames(m Model) []string {
+	names := make([]string, len(m.services))
+	for i, p := range m.services {
+		names[i] = p.Name
+	}
+	return names
+}
+
+func TestSort_defaultIsName(t *testing.T) {
+	m := readyModel(t, "frontend", "backend", "celery")
+	got := serviceNames(m)
+	want := []string{"backend", "celery", "frontend"}
+	for i, n := range got {
+		if n != want[i] {
+			t.Errorf("index %d: got %q, want %q (full: %v)", i, n, want[i], got)
+		}
+	}
+}
+
+func TestSort_cycleWithO(t *testing.T) {
+	m := readyModel(t, "backend", "frontend")
+	if m.sortMode != SortName {
+		t.Fatalf("initial sort mode: got %v, want SortName", m.sortMode)
+	}
+	m = update(m, keypress('o'))
+	if m.sortMode != SortCPU {
+		t.Errorf("after first o: got %v, want SortCPU", m.sortMode)
+	}
+	m = update(m, keypress('o'))
+	if m.sortMode != SortRAM {
+		t.Errorf("after second o: got %v, want SortRAM", m.sortMode)
+	}
+	m = update(m, keypress('o'))
+	if m.sortMode != SortStatus {
+		t.Errorf("after third o: got %v, want SortStatus", m.sortMode)
+	}
+	m = update(m, keypress('o'))
+	if m.sortMode != SortName {
+		t.Errorf("after fourth o: got %v, want SortName (wrap)", m.sortMode)
+	}
+}
+
+func TestSort_cursorPreservedAcrossModes(t *testing.T) {
+	m := readyModel(t, "alpha", "beta", "gamma")
+	// Select "gamma" (last in alphabetical order)
+	m = update(m, keypress('j'))
+	m = update(m, keypress('j'))
+	if m.services[m.servicesCursor].Name != "gamma" {
+		t.Fatalf("cursor should be on gamma, got %s", m.services[m.servicesCursor].Name)
+	}
+	// Cycle sort — cursor should stay on gamma
+	m = update(m, keypress('o'))
+	if m.services[m.servicesCursor].Name != "gamma" {
+		t.Errorf("after sort cycle, cursor should stay on gamma, got %s", m.services[m.servicesCursor].Name)
+	}
+}
+
+func TestSort_cursorPreservedOnStatusMsg(t *testing.T) {
+	m := readyModel(t, "alpha", "beta", "gamma")
+	// After init+sort, order is alphabetical: alpha, beta, gamma.
+	// Navigate to the last entry.
+	m = update(m, keypress('j'))
+	m = update(m, keypress('j'))
+	selected := m.services[m.servicesCursor].Name
+	if selected != "gamma" {
+		t.Fatalf("cursor should be on gamma, got %s (order: %v)", selected, serviceNames(m))
+	}
+	// StatusMsg re-fetches and re-sorts — cursor should stay on gamma
+	m = update(m, process.StatusMsg{Name: "alpha", Status: process.StatusRunning})
+	if m.services[m.servicesCursor].Name != "gamma" {
+		t.Errorf("after StatusMsg, cursor should stay on gamma, got %s", m.services[m.servicesCursor].Name)
+	}
+}
+
+func TestSort_statusOrder(t *testing.T) {
+	// All test processes start as StatusStopped since we don't call Start().
+	// With equal statuses, status sort falls back to alphabetical.
+	m := readyModel(t, "gamma", "alpha", "beta")
+	m.sortMode = SortStatus
+	m.sortServices()
+
+	got := serviceNames(m)
+	want := []string{"alpha", "beta", "gamma"}
+	for i, n := range got {
+		if n != want[i] {
+			t.Errorf("status sort index %d: got %q, want %q (full: %v)", i, n, want[i], got)
+		}
+	}
+}
+
+func TestSort_statusSortOrder(t *testing.T) {
+	// Verify the rank function directly
+	tests := []struct {
+		status process.Status
+		want   int
+	}{
+		{process.StatusRunning, 0},
+		{process.StatusPending, 1},
+		{process.StatusCrashed, 2},
+		{process.StatusStopped, 3},
+		{process.StatusDone, 4},
+	}
+	for i, tt := range tests {
+		got := statusSortOrder(tt.status)
+		if got != tt.want {
+			t.Errorf("statusSortOrder(%v): got %d, want %d (index %d)", tt.status, got, tt.want, i)
+		}
+	}
+}
+
+func TestSort_infoSortsAlphabetically(t *testing.T) {
+	m := readyModel(t, "info", "backend", "alpha")
+	got := serviceNames(m)
+	want := []string{"info", "alpha", "backend"}
+	for i, n := range got {
+		if n != want[i] {
+			t.Errorf("index %d: got %q, want %q (full: %v)", i, n, want[i], got)
+		}
+	}
+}
