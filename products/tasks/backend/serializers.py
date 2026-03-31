@@ -36,6 +36,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "repository",
             "github_integration",
             "json_schema",
+            "internal",
             "latest_run",
             "created_at",
             "updated_at",
@@ -289,6 +290,9 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    internal = serializers.BooleanField(
+        required=False, help_text="Filter by internal flag. Defaults to excluding internal tasks when not specified."
+    )
 
 
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
@@ -374,8 +378,7 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
-        allow_null=True,
-        help_text="ID of a SandboxEnvironment to use for network governance",
+        help_text="Optional sandbox environment to apply for this cloud run.",
     )
 
 

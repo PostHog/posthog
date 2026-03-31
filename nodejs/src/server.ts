@@ -17,6 +17,7 @@ import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/cons
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
+import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
@@ -223,6 +224,14 @@ export class PluginServer implements NodeServer {
                 const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!)
                 await worker.start()
                 return worker.service
+            })
+        }
+
+        if (capabilities.cdpHogflowScheduler) {
+            serviceLoaders.push(async () => {
+                const scheduler = new HogFlowScheduleService(this.config)
+                await scheduler.start()
+                return scheduler.service
             })
         }
 
