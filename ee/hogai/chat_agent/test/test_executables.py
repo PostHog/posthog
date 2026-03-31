@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 class TestChatAgentGatewayRouting(BaseTest):
@@ -26,8 +26,8 @@ class TestChatAgentGatewayRouting(BaseTest):
                     executable = ChatAgentExecutable(
                         team=self.team,
                         user=self.user,
-                        toolkit_manager_class=None,
-                        prompt_builder_class=None,
+                        toolkit_manager_class=MagicMock(),
+                        prompt_builder_class=MagicMock(),
                         node_path=(),
                     )
 
@@ -52,8 +52,8 @@ class TestChatAgentGatewayRouting(BaseTest):
         executable = ChatAgentExecutable(
             team=self.team,
             user=self.user,
-            toolkit_manager_class=None,
-            prompt_builder_class=None,
+            toolkit_manager_class=MagicMock(),
+            prompt_builder_class=MagicMock(),
             node_path=(),
         )
 
@@ -82,8 +82,8 @@ class TestChatAgentGatewayRouting(BaseTest):
             executable = ChatAgentExecutable(
                 team=self.team,
                 user=self.user,
-                toolkit_manager_class=None,
-                prompt_builder_class=None,
+                toolkit_manager_class=MagicMock(),
+                prompt_builder_class=MagicMock(),
                 node_path=(),
             )
 
