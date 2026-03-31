@@ -376,7 +376,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         """Return a list of available models across providers.
 
         If provider_key_id is specified, returns models available for that key.
-        Otherwise, returns the default static list of models.
+        Otherwise, returns only trial-eligible models (PostHog pays for these).
         """
         provider_key_id = request.query_params.get("provider_key_id")
 

@@ -161,11 +161,11 @@ class TestTrialModelAllowlist(TestCase):
                 f"{config.__name__}.TRIAL_MODELS contains models not in SUPPORTED_MODELS"
             )
 
-    def test_no_supported_only_model_leaks_into_trial(self) -> None:
-        supported_only = set()
+    def test_model_ids_unique_across_providers(self) -> None:
+        all_trial: list[str] = []
         for _, config in PROVIDERS:
-            supported_only |= set(config.SUPPORTED_MODELS) - set(config.TRIAL_MODELS)
-        assert TRIAL_MODEL_IDS.isdisjoint(supported_only)
+            all_trial.extend(config.TRIAL_MODELS)
+        assert len(all_trial) == len(set(all_trial)), "Duplicate model IDs found across providers"
 
     def test_get_trial_models_returns_only_trial_eligible(self) -> None:
         trial_ids = {m["id"] for m in get_trial_models()}
@@ -213,6 +213,27 @@ class TestTrialModelEnforcement(APIBaseTest):
             format="json",
         )
         assert response.status_code == 200
+        mock_client_cls.return_value.stream.assert_called_once()
+
+    @patch("products.llm_analytics.backend.api.proxy.Client")
+    def test_byok_key_bypasses_trial_allowlist(self, mock_client_cls) -> None:
+        mock_client_cls.return_value.stream.return_value = iter([])
+        byok_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="BYOK key",
+            encrypted_config={"api_key": "sk-test-key"},
+            created_by=self.user,
+        )
+        payload = self._completion_payload("o3-pro", "openai")
+        payload["provider_key_id"] = str(byok_key.id)
+        response = self.client.post(
+            "/api/llm_proxy/completion/",
+            data=payload,
+            format="json",
+        )
+        assert response.status_code == 200
+        mock_client_cls.return_value.stream.assert_called_once()
 
     def test_models_endpoint_returns_only_trial_models(self) -> None:
         response = self.client.get("/api/llm_proxy/models/")
