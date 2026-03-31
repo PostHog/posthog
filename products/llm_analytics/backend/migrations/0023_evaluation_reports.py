@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.uuid7,
+                        default=posthog.models.utils.UUIDT,
                         editable=False,
                         primary_key=True,
                         serialize=False,
@@ -95,14 +95,14 @@ class Migration(migrations.Migration):
             model_name="evaluationreport",
             index=models.Index(
                 fields=["team", "-created_at", "id"],
-                name="llm_analyti_team_id_eval_rpt_idx",
+                name="llm_analyti_team_id_b9ccef_idx",
             ),
         ),
         migrations.AddIndex(
             model_name="evaluationreport",
             index=models.Index(
                 fields=["next_delivery_date", "enabled", "deleted"],
-                name="llm_analyti_ndd_enabled_del_idx",
+                name="llm_analyti_next_de_a58933_idx",
             ),
         ),
         migrations.CreateModel(
@@ -111,7 +111,7 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.uuid7,
+                        default=posthog.models.utils.UUIDT,
                         editable=False,
                         primary_key=True,
                         serialize=False,
@@ -153,7 +153,7 @@ class Migration(migrations.Migration):
             model_name="evaluationreportrun",
             index=models.Index(
                 fields=["report", "-created_at"],
-                name="llm_analyti_rpt_run_created_idx",
+                name="llm_analyti_report__f6c41e_idx",
             ),
         ),
     ]
