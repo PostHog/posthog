@@ -672,11 +672,7 @@ def init_cache_from_master() -> None:
     _init_cache_cleanup(init_port, init_worktree)
 
     run(["git", "fetch", "origin", "--quiet"], capture=True)
-    # Use the PR branch for cache init if it exists (for testing before merge),
-    # otherwise fall back to master.
-    cache_branch = "origin/aspicer/sandbox-dev-environment-wip"
-    if run(["git", "rev-parse", "--verify", cache_branch], check=False, capture=True).returncode != 0:
-        cache_branch = "origin/master"
+    cache_branch = "origin/master"
     if (
         run(
             ["git", "worktree", "add", "--force", "--detach", init_worktree, cache_branch], check=False, capture=True
