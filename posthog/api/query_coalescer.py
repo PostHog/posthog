@@ -418,12 +418,17 @@ class QueryCoalescingMixin(_MixinBase):
         if coalesced is None:
             return super().dispatch(request, *args, **kwargs)
 
+        self.args = args
+        self.kwargs = kwargs
+        self.headers = self.default_response_headers
         request = self.initialize_request(request, *args, **kwargs)
         self.request = request
         try:
             self.initial(request, *args, **kwargs)
         except Exception as exc:
-            return self.handle_exception(exc)
+            response = self.handle_exception(exc)
+            self.response = self.finalize_response(request, response, *args, **kwargs)
+            return self.response
 
         return HttpResponse(
             coalesced["body"],
