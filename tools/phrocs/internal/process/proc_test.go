@@ -48,6 +48,16 @@ func TestNewProcess_fields(t *testing.T) {
 	}
 }
 
+func TestNewProcess_notReadyWithPattern(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "started"}, 1000)
+	if p.Status() == StatusRunning {
+		t.Error("process with ready_pattern should not start ready")
+	}
+	if p.readyPattern == nil {
+		t.Error("readyPattern should be compiled")
+	}
+}
+
 func TestNewProcess_compilesReadyPattern(t *testing.T) {
 	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "started"}, 1000)
 	if p.readyPattern == nil {

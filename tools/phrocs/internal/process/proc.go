@@ -99,15 +99,14 @@ type Process struct {
 	Cfg          config.ProcConfig
 	readyPattern *regexp.Regexp
 	maxLines     int
-	// ready     bool
-	status Status
-	cmd    *exec.Cmd
+	status       Status
+	cmd          *exec.Cmd
 
 	mu        sync.Mutex
-	lines     []string
+	lines     []string // scrollback buffer of recent output lines
 	ptmx      *os.File // pty master; nil when using pipes
 	stdinPipe *os.File // write end of stdin pipe; nil when using PTY
-	hasPrompt bool
+	hasPrompt bool     // true when the last output was a partial line without a trailing \n
 
 	startedAt time.Time
 	readyAt   time.Time
