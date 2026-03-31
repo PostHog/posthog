@@ -9,7 +9,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 
 import { hogqlQuery } from '~/queries/query'
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { escapeHogQLQualifiedIdentifier, hogql } from '~/queries/utils'
+import { hogql } from '~/queries/utils'
 import { DataWarehouseViewLink } from '~/types'
 
 import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
@@ -470,9 +470,7 @@ async function loadTablePreviewData(
     setDataAction: (data: Record<string, any>[]) => void
 ): Promise<void> {
     try {
-        const response = await hogqlQuery(
-            hogql`SELECT * FROM ${hogql.raw(escapeHogQLQualifiedIdentifier(tableName))} LIMIT 10`
-        )
+        const response = await hogqlQuery(hogql`SELECT * FROM ${hogql.qualifiedIdentifier(tableName)} LIMIT 10`)
         const transformedData = (response.results || []).map((row: any[]) =>
             Object.fromEntries((response.columns || []).map((column: string, index: number) => [column, row[index]]))
         )

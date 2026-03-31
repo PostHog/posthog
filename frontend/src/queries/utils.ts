@@ -755,6 +755,10 @@ function hogQLRaw(raw: string): HogQLRaw {
     }
 }
 
+function hogQLQualifiedIdentifier(identifier: string): HogQLRaw {
+    return hogQLRaw(escapeHogQLQualifiedIdentifier(identifier))
+}
+
 function isHogQLRaw(value: any): value is HogQLRaw {
     return !!value?.__hogql_raw
 }
@@ -814,6 +818,7 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQue
     ) as unknown as HogQLQueryString
 }
 hogql.identifier = hogQLIdentifier
+hogql.qualifiedIdentifier = hogQLQualifiedIdentifier
 hogql.raw = hogQLRaw
 
 /**

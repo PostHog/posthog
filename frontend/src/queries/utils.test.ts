@@ -29,6 +29,12 @@ describe('hogql tag', () => {
         )
     })
 
+    it('properly returns query with qualified identifier substitution', () => {
+        expect(hogql`SELECT * FROM ${hogql.qualifiedIdentifier('my schema.odd table')}`).toEqual(
+            'SELECT * FROM "my schema"."odd table"'
+        )
+    })
+
     it('properly returns query with string and number substitutions', () => {
         expect(hogql`SELECT * FROM events WHERE properties.foo = ${'bar'} AND properties.baz = ${3}`).toEqual(
             "SELECT * FROM events WHERE properties.foo = 'bar' AND properties.baz = 3"
