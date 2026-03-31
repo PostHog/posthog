@@ -40,6 +40,8 @@ hogli box
 ```
 
 Then use `hogli <command> --help` for command-specific options.
+If your template includes the Claude module, `hogli box:start` can prompt for a Claude OAuth token when the workspace is created.
+For an existing workspace, use `hogli box:claude --set-token` to sync the token, `hogli box:claude --check` to verify auth, or `hogli box:claude` to launch Claude in the workspace.
 
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli box:setup`, rerun setup on your laptop first.
@@ -49,5 +51,6 @@ If they fail with `Run hogli box:setup`, rerun setup on your laptop first.
 - Laptop to workspace access uses `coder ssh` and optional `coder config-ssh`
 - Git inside the workspace should use HTTPS via Coder external auth
 - Do not set up SSH Git inside the workspace
+- Claude auth for the workspace is passed through the `claude_oauth_token` Coder parameter, not AI Bridge
 
 `go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.hedgehog-kitefin.ts.net`.

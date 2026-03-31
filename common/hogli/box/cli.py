@@ -5,10 +5,13 @@ Provides hogli box:* commands for managing Coder-based remote dev environments.
 
 from __future__ import annotations
 
+import os
+
 import click
 from hogli.core.cli import cli
 
 from .coder import (
+    CLAUDE_OAUTH_PARAMETER,
     create_workspace,
     delete_workspace,
     ensure_coder_authenticated,
@@ -25,9 +28,12 @@ from .coder import (
     open_web_ide,
     port_forward_replace,
     print_setup_summary,
+    replace_with_workspace_command,
+    run_in_workspace,
     ssh_replace,
     start_workspace,
     stop_workspace,
+    update_workspace_parameters,
 )
 
 
@@ -38,10 +44,37 @@ def _print_connection_info(name: str) -> None:
     click.echo("  Open:     hogli box:open")
     click.echo("  VS Code:  hogli box:open --vscode")
     click.echo("  Web IDE:  hogli box:open --web")
+    click.echo("  Claude:   hogli box:claude")
     click.echo("  Forward:  hogli box:forward")
     click.echo("  Logs:     hogli box:logs -f")
     click.echo("  Status:   hogli box:status")
     click.echo("  Stop:     hogli box:stop")
+
+
+def _maybe_prompt_for_claude_oauth_token(configure_claude: bool | None) -> str | None:
+    """Prompt for a Claude token when the user wants workspace auth configured."""
+    if token := os.environ.get("HOGLI_BOX_CLAUDE_OAUTH_TOKEN"):
+        return token
+
+    if token := os.environ.get("CLAUDE_OAUTH_TOKEN"):
+        return token
+
+    if configure_claude is None:
+        configure_claude = click.confirm(
+            "Configure Claude Code in the workspace?",
+            default=True,
+        )
+
+    if not configure_claude:
+        return None
+
+    token = click.prompt(
+        "Claude OAuth token",
+        default="",
+        hide_input=True,
+        show_default=False,
+    ).strip()
+    return token or None
 
 
 @cli.command(name="box", help="Show available Coder workspace commands")
@@ -53,6 +86,7 @@ def box_help() -> None:
     click.echo("  hogli box:start       create or start your workspace")
     click.echo("  hogli box:ssh         open a shell in the workspace")
     click.echo("  hogli box:open        open the workspace in the browser")
+    click.echo("  hogli box:claude      verify and launch Claude in the workspace")
     click.echo("  hogli box:forward     forward the PostHog UI to localhost")
     click.echo("  hogli box:logs        stream workspace logs")
     click.echo("  hogli box:status      show current workspace status")
@@ -85,7 +119,17 @@ def box_setup(configure_ssh: bool | None) -> None:
     help="Disk size in GiB (default: 50)",
 )
 @click.option("--branch", default="master", help="Git branch to check out on the devbox")
-def box_start(disk: str, branch: str) -> None:
+@click.option(
+    "--configure-claude/--skip-configure-claude",
+    default=None,
+    help="Prompt for a Claude OAuth token when creating a new workspace",
+)
+@click.option(
+    "--claude-oauth-token",
+    envvar="HOGLI_BOX_CLAUDE_OAUTH_TOKEN",
+    hidden=True,
+)
+def box_start(disk: str, branch: str, configure_claude: bool | None, claude_oauth_token: str | None) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
     name = get_workspace_name()
@@ -115,8 +159,10 @@ def box_start(disk: str, branch: str) -> None:
         _print_connection_info(name)
         return
 
+    token = claude_oauth_token or _maybe_prompt_for_claude_oauth_token(configure_claude)
+
     click.echo(f"Creating devbox '{name}' (disk={disk}GiB, branch={branch})...")
-    create_workspace(name, int(disk), branch)
+    create_workspace(name, int(disk), branch, claude_oauth_token=token)
     click.echo("Created.")
     _print_connection_info(name)
 
@@ -179,6 +225,66 @@ def box_logs(follow: bool) -> None:
     ensure_runtime_ready()
     name = get_workspace_name()
     logs_replace(name, follow)
+
+
+@cli.command(name="box:claude", help="Verify and launch Claude Code in your devbox")
+@click.option("--check", is_flag=True, help="Check Claude readiness without launching it")
+@click.option("--set-token", is_flag=True, help="Prompt for a Claude OAuth token and sync it to the workspace")
+@click.option(
+    "--claude-oauth-token",
+    envvar="HOGLI_BOX_CLAUDE_OAUTH_TOKEN",
+    hidden=True,
+)
+def box_claude(check: bool, set_token: bool, claude_oauth_token: str | None) -> None:
+    """Sync Claude auth into the workspace or launch Claude there."""
+    if check and set_token:
+        raise click.UsageError("Choose either `--check` or `--set-token`.")
+
+    ensure_runtime_ready()
+    name = get_workspace_name()
+    workspace = get_workspace(name)
+
+    if workspace is None:
+        click.echo("No devbox found. Run 'hogli box:start' to create one.")
+        raise SystemExit(1)
+
+    status = get_workspace_status(workspace)
+    if status != "running":
+        click.echo(f"Devbox '{name}' is not running. Run 'hogli box:start' first.")
+        raise SystemExit(1)
+
+    if set_token:
+        token = claude_oauth_token or _maybe_prompt_for_claude_oauth_token(True)
+        if not token:
+            click.echo("No Claude OAuth token provided.")
+            raise SystemExit(1)
+
+        click.echo("Syncing Claude OAuth token to the workspace...")
+        click.echo("Coder may reprovision the workspace if the template requires it.")
+        update_workspace_parameters(name, {CLAUDE_OAUTH_PARAMETER: token})
+        click.echo("Claude OAuth token synced.")
+        return
+
+    check_result = run_in_workspace(
+        name,
+        [
+            "sh",
+            "-lc",
+            "command -v claude >/dev/null && claude auth status >/dev/null 2>&1",
+        ],
+        capture_output=True,
+    )
+    if check_result.returncode != 0:
+        click.echo("Claude Code is not ready in the workspace.")
+        click.echo("Run `hogli box:claude --set-token` to sync your Claude OAuth token.")
+        raise SystemExit(1)
+
+    if check:
+        click.echo("Claude Code is ready in the workspace.")
+        return
+
+    click.echo(f"Launching Claude Code in '{name}'...")
+    replace_with_workspace_command(name, ["claude"])
 
 
 @cli.command(name="box:destroy", help="Destroy your devbox and its data")

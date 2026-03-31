@@ -9,17 +9,20 @@ import os
 import sys
 import json
 import shutil
+import tempfile
 import subprocess
 import webbrowser
 from pathlib import Path
 from typing import Any
 
+import yaml
 import click
 from hogli.core.manifest import load_manifest
 
 TEMPLATE_NAME = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli box:setup`."
+CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 
 
 def _fail(message: str) -> None:
@@ -48,6 +51,19 @@ def get_coder_url() -> str:
 def _run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent text handling."""
     return subprocess.run(args, capture_output=capture_output, text=True)
+
+
+def _run_with_rich_parameters(args: list[str], parameters: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """Run a Coder command with sensitive parameters passed via a temp YAML file."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as parameter_file:
+        yaml.safe_dump(parameters, parameter_file)
+        file_path = Path(parameter_file.name)
+
+    try:
+        file_path.chmod(0o600)
+        return _run([*args, "--rich-parameter-file", str(file_path)])
+    finally:
+        file_path.unlink(missing_ok=True)
 
 
 def _tailscale_status() -> dict[str, Any] | None:
@@ -234,21 +250,24 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
-def create_workspace(name: str, disk_size: int, branch: str) -> None:
+def create_workspace(name: str, disk_size: int, branch: str, claude_oauth_token: str | None = None) -> None:
     """Create a new Coder workspace."""
+    parameters = {
+        "disk_size": str(disk_size),
+        "repo": branch,
+    }
+    if claude_oauth_token:
+        parameters[CLAUDE_OAUTH_PARAMETER] = claude_oauth_token
+
     args = [
         "coder",
         "create",
         name,
         "--template",
         TEMPLATE_NAME,
-        "--parameter",
-        f"disk_size={disk_size}",
-        "--parameter",
-        f"repo={branch}",
         "--yes",
     ]
-    result = _run(args)
+    result = _run_with_rich_parameters(args, parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -270,6 +289,13 @@ def stop_workspace(name: str) -> None:
 def delete_workspace(name: str) -> None:
     """Delete a workspace."""
     result = _run(["coder", "delete", name, "--yes"])
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
+    """Update mutable workspace parameters using a temp YAML file."""
+    result = _run_with_rich_parameters(["coder", "update", name], parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -299,6 +325,24 @@ def logs_replace(name: str, follow: bool) -> None:
     if follow:
         args.append("--follow")
 
+    coder_path = shutil.which("coder")
+    if coder_path:
+        os.execvp(coder_path, args)
+
+    sys.exit(_run(args).returncode)
+
+
+def run_in_workspace(
+    name: str, command: list[str], *, capture_output: bool = False
+) -> subprocess.CompletedProcess[str]:
+    """Run a command in the workspace via `coder ssh`."""
+    args = ["coder", "ssh", name, "--", *command]
+    return _run(args, capture_output=capture_output)
+
+
+def replace_with_workspace_command(name: str, command: list[str]) -> None:
+    """Run a workspace command and replace the current process."""
+    args = ["coder", "ssh", name, "--", *command]
     coder_path = shutil.which("coder")
     if coder_path:
         os.execvp(coder_path, args)

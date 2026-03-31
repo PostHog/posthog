@@ -80,6 +80,7 @@ class TestBoxCommands:
         assert result.exit_code == 0
         assert "hogli box:setup" in result.output
         assert "hogli box:start" in result.output
+        assert "hogli box:claude" in result.output
         assert "hogli box:destroy" in result.output
 
     def test_box_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -100,6 +101,40 @@ class TestBoxCommands:
         assert result.exit_code == 0
         assert calls == ["tailscale", "install", "login", "ssh:False", "summary"]
 
+    def test_box_start_prompts_for_claude_token_when_creating_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(box_cli, "get_workspace_name", lambda: "devbox-raul")
+        monkeypatch.setattr(box_cli, "get_workspace", lambda name: None)
+        monkeypatch.setattr(
+            box_cli,
+            "_maybe_prompt_for_claude_oauth_token",
+            lambda configure_claude: "oauth-token",
+        )
+        monkeypatch.setattr(
+            box_cli,
+            "create_workspace",
+            lambda name, disk_size, branch, claude_oauth_token=None: captured.update(
+                {
+                    "name": name,
+                    "disk_size": str(disk_size),
+                    "branch": branch,
+                    "claude_oauth_token": claude_oauth_token,
+                }
+            ),
+        )
+
+        result = runner.invoke(cli, ["box:start"])
+
+        assert result.exit_code == 0
+        assert captured == {
+            "name": "devbox-raul",
+            "disk_size": "50",
+            "branch": "master",
+            "claude_oauth_token": "oauth-token",
+        }
+
     def test_box_status_does_not_reference_missing_box_update(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(box_cli, "get_workspace_name", lambda: "devbox-raul")
@@ -114,3 +149,58 @@ class TestBoxCommands:
         assert result.exit_code == 0
         assert "box:update" not in result.output
         assert "Recreate the workspace" in result.output
+
+    def test_box_claude_check_reports_ready(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(box_cli, "get_workspace_name", lambda: "devbox-raul")
+        monkeypatch.setattr(box_cli, "get_workspace_status", lambda workspace: "running")
+        monkeypatch.setattr(box_cli, "get_workspace", lambda name: {"latest_build": {"status": "running"}})
+
+        class Result:
+            returncode = 0
+
+        monkeypatch.setattr(box_cli, "run_in_workspace", lambda name, command, capture_output=False: Result())
+
+        result = runner.invoke(cli, ["box:claude", "--check"])
+
+        assert result.exit_code == 0
+        assert "Claude Code is ready in the workspace." in result.output
+
+    def test_box_claude_check_reports_missing_auth(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(box_cli, "get_workspace_name", lambda: "devbox-raul")
+        monkeypatch.setattr(box_cli, "get_workspace_status", lambda workspace: "running")
+        monkeypatch.setattr(box_cli, "get_workspace", lambda name: {"latest_build": {"status": "running"}})
+
+        class Result:
+            returncode = 1
+
+        monkeypatch.setattr(box_cli, "run_in_workspace", lambda name, command, capture_output=False: Result())
+
+        result = runner.invoke(cli, ["box:claude", "--check"])
+
+        assert result.exit_code == 1
+        assert "Claude Code is not ready in the workspace." in result.output
+
+    def test_box_claude_set_token_updates_workspace_parameter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(box_cli, "get_workspace_name", lambda: "devbox-raul")
+        monkeypatch.setattr(box_cli, "get_workspace_status", lambda workspace: "running")
+        monkeypatch.setattr(box_cli, "get_workspace", lambda name: {"latest_build": {"status": "running"}})
+        monkeypatch.setattr(
+            box_cli,
+            "_maybe_prompt_for_claude_oauth_token",
+            lambda configure_claude: "oauth-token",
+        )
+        monkeypatch.setattr(
+            box_cli,
+            "update_workspace_parameters",
+            lambda name, parameters: captured.update({"name": name, "parameters": parameters}),
+        )
+
+        result = runner.invoke(cli, ["box:claude", "--set-token"])
+
+        assert result.exit_code == 0
+        assert captured == {"name": "devbox-raul", "parameters": {"claude_oauth_token": "oauth-token"}}
