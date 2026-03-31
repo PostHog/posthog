@@ -47,10 +47,14 @@ async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
     }
 
     match fetch_allowlist_from_db(&state.database_pools.non_persons_reader).await {
-        Ok(new_allowlist) => {
+        Ok(Some(new_allowlist)) => {
             state
                 .flag_definitions_limiter
                 .update_allowlist(new_allowlist);
+        }
+        Ok(None) => {
+            // Row not in DB — keep the env var default, just mark as refreshed
+            state.flag_definitions_limiter.mark_allowlist_refreshed();
         }
         Err(e) => {
             warn!(error = %e, "Failed to refresh rate limit allowlist from database, using cached value");
@@ -62,7 +66,9 @@ async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
 
 /// Query the posthog_instancesetting table for the rate limit allowlist.
 /// The key is stored with the constance prefix: "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS"
-pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<HashSet<TeamId>, String> {
+/// Returns None if the row doesn't exist (env var default should be kept),
+/// Some(set) if the row exists (overrides the env var).
+pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<TeamId>>, String> {
     let row: Option<(String,)> =
         sqlx::query_as("SELECT raw_value FROM posthog_instancesetting WHERE key = $1")
             .bind(CONSTANCE_KEY)
@@ -72,13 +78,13 @@ pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<HashSet<TeamId>, S
 
     let raw_value = match row {
         Some((val,)) => val,
-        None => return Ok(HashSet::new()),
+        None => return Ok(None),
     };
 
     // The value may be JSON-encoded (e.g. "\"23047,12345\"") or a bare string ("23047,12345")
     let value = raw_value.trim().trim_matches('"');
     if value.is_empty() {
-        return Ok(HashSet::new());
+        return Ok(Some(HashSet::new()));
     }
 
     let mut team_ids = HashSet::new();
@@ -92,7 +98,7 @@ pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<HashSet<TeamId>, S
         team_ids.insert(team_id);
     }
 
-    Ok(team_ids)
+    Ok(Some(team_ids))
 }
 
 /// Response for flag definitions endpoint
