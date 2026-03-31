@@ -155,5 +155,16 @@ describe('createValidateAiEventTokensStep', () => {
                 expect(result.warnings).toHaveLength(1)
             }
         })
+
+        it('does not add missing token properties to the event', async () => {
+            const input = createEvent('$ai_generation', { $ai_input_tokens: 100 })
+            const result = await step(input)
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.event.properties?.['$ai_input_tokens']).toBe(100)
+                expect('$ai_output_tokens' in (result.value.event.properties ?? {})).toBe(false)
+                expect('$ai_reasoning_tokens' in (result.value.event.properties ?? {})).toBe(false)
+            }
+        })
     })
 })

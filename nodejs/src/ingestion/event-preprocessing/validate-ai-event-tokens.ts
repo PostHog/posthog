@@ -71,6 +71,9 @@ export function createValidateAiEventTokensStep<T extends { event: PipelineEvent
         const warnings: PipelineWarning[] = []
 
         for (const prop of TOKEN_PROPERTIES) {
+            if (!(prop in properties)) {
+                continue
+            }
             const raw = properties[prop]
             const normalized = normalizeTokenValue(raw)
             properties[prop] = normalized
