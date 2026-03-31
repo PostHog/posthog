@@ -23,7 +23,8 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
-from posthog.tasks.alerts.trends import check_trends_alert, check_trends_alert_with_detector
+from posthog.tasks.alerts.detector import check_trends_alert_with_detector
+from posthog.tasks.alerts.trends import check_trends_alert
 from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
     AlertEvaluationResult,

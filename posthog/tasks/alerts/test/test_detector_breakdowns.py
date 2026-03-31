@@ -16,7 +16,7 @@ from posthog.schema import (
 
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.models import AlertConfiguration, Insight
-from posthog.tasks.alerts.trends import (
+from posthog.tasks.alerts.detector import (
     MAX_DETECTOR_BREAKDOWN_VALUES,
     check_trends_alert_with_detector,
     simulate_detector_on_insight,
@@ -81,7 +81,7 @@ ZSCORE_DETECTOR_CONFIG = {"type": "zscore", "threshold": 0.9, "window": 10}
 
 
 class TestCheckTrendsAlertWithDetectorBreakdowns:
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_fires_when_one_breakdown_is_anomalous(self, mock_calc: MagicMock) -> None:
         mock_calc.return_value = InsightResult(
             result=[
@@ -108,7 +108,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         # "staking" is at index 1 in the breakdown results
         assert result.triggered_metadata == {"series_index": 1}
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_does_not_fire_when_all_breakdowns_are_normal(self, mock_calc: MagicMock) -> None:
         mock_calc.return_value = InsightResult(
             result=[
@@ -133,7 +133,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         assert result.breaches == []
         assert result.value is None
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_caps_at_max_breakdown_values(self, mock_calc: MagicMock) -> None:
         # Create more than MAX_DETECTOR_BREAKDOWN_VALUES breakdown results
         # Put the anomaly in the last one (beyond the cap)
@@ -165,7 +165,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         # The anomalous breakdown is beyond the cap, so it should NOT fire
         assert result.breaches == []
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_skips_breakdown_with_insufficient_data(self, mock_calc: MagicMock) -> None:
         mock_calc.return_value = InsightResult(
             result=[
@@ -189,7 +189,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         # Should not error, and should not fire (stable data only)
         assert result.breaches == []
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_non_breakdown_still_works(self, mock_calc: MagicMock) -> None:
         mock_calc.return_value = InsightResult(
             result=[
@@ -214,7 +214,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         # Non-breakdown alerts should not set triggered_metadata
         assert result.triggered_metadata is None
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_breakdown_result_includes_anomaly_scores(self, mock_calc: MagicMock) -> None:
         mock_calc.return_value = InsightResult(
             result=[
@@ -240,8 +240,9 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
 
 
 class TestSimulateDetectorBreakdowns:
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
-    def test_returns_breakdown_results(self, mock_calc: MagicMock) -> None:
+    @patch("posthog.tasks.alerts.detector.upgrade_query")
+    @patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
+    def test_returns_breakdown_results(self, mock_calc: MagicMock, _mock_upgrade: MagicMock) -> None:
         mock_calc.return_value = InsightResult(
             result=[
                 _make_trend_result("swap", STABLE_DATA, "swap"),
@@ -271,8 +272,9 @@ class TestSimulateDetectorBreakdowns:
         # Aggregated totals (each series has 1 point dropped for the incomplete current interval)
         assert result["total_points"] == (len(STABLE_DATA) - 1) + (len(ANOMALOUS_DATA) - 1)
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
-    def test_non_breakdown_has_no_breakdown_results(self, mock_calc: MagicMock) -> None:
+    @patch("posthog.tasks.alerts.detector.upgrade_query")
+    @patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
+    def test_non_breakdown_has_no_breakdown_results(self, mock_calc: MagicMock, _mock_upgrade: MagicMock) -> None:
         mock_calc.return_value = InsightResult(
             result=[
                 _make_trend_result("signed_up", STABLE_DATA, ""),
@@ -296,8 +298,9 @@ class TestSimulateDetectorBreakdowns:
 
         assert "breakdown_results" not in result
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
-    def test_caps_breakdown_simulations(self, mock_calc: MagicMock) -> None:
+    @patch("posthog.tasks.alerts.detector.upgrade_query")
+    @patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
+    def test_caps_breakdown_simulations(self, mock_calc: MagicMock, _mock_upgrade: MagicMock) -> None:
         breakdown_results = [
             _make_trend_result(f"origin_{i}", STABLE_DATA, f"origin_{i}")
             for i in range(MAX_DETECTOR_BREAKDOWN_VALUES + 5)

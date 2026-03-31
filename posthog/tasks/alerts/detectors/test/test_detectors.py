@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 from parameterized import parameterized
 
+from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.copod import COPODDetector
@@ -20,7 +21,6 @@ from posthog.tasks.alerts.detectors.statistical.iqr import IQRDetector
 from posthog.tasks.alerts.detectors.statistical.mad import MADDetector
 from posthog.tasks.alerts.detectors.statistical.zscore import ZScoreDetector
 from posthog.tasks.alerts.detectors.threshold import ThresholdDetector
-from posthog.tasks.alerts.trends import _compute_min_samples_for_detector
 
 # Shared test data
 ANOMALY_DATA = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 100])

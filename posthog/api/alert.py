@@ -32,7 +32,7 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.tasks.alerts.trends import MAX_DETECTOR_BREAKDOWN_VALUES
+from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.utils import validate_alert_config
 from posthog.utils import relative_date_parse
 
@@ -664,7 +664,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
     def simulate(self, request, *args, **kwargs):
-        from posthog.tasks.alerts.trends import simulate_detector_on_insight
+        from posthog.tasks.alerts.detector import simulate_detector_on_insight
 
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
