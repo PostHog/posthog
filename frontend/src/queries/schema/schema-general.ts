@@ -2532,12 +2532,16 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
     CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
 
 /* Error Tracking */
+
+/** @title ErrorTrackingOrderBy */
+export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     /** Filter to a specific error tracking issue by ID. */
     issueId?: ErrorTrackingIssue['id']
     /** Field to sort results by. */
-    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    orderBy: ErrorTrackingOrderBy
     /** Sort direction. */
     orderDirection?: 'ASC' | 'DESC'
     /** Date range to filter results. */

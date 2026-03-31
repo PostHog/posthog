@@ -257,11 +257,6 @@ export const QueryWrapperToolConfigSchema = z
         /** Return JSON instead of TOON-encoded text. */
         response_format: z.enum(['json']).optional(),
         /**
-         * Values always merged into the query body, not exposed as tool params.
-         * These properties are also excluded from the generated Zod schema.
-         */
-        fixed_properties: z.record(z.string(), z.unknown()).optional(),
-        /**
          * Default values for properties that are required in the schema but should
          * be optional for the agent. The Zod schema gets `.default(value).optional()`.
          */
@@ -271,12 +266,6 @@ export const QueryWrapperToolConfigSchema = z
          * `{baseUrl}{url_prefix}` instead of the default `/insights/new?q=...`.
          */
         url_prefix: z.string().optional(),
-        /**
-         * Make optional schema fields required for this tool. Useful when a field
-         * is optional in the shared schema but mandatory for a specific tool
-         * (e.g., `issueId` is optional in ErrorTrackingQuery but required for error-details).
-         */
-        required_properties: z.array(z.string()).optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

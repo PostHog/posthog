@@ -1,6 +1,36 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "assignee": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "id": {
+                            "anyOf": [
+                                {
+                                    "maximum": 9007199254740991,
+                                    "minimum": -9007199254740991,
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "type": {
+                            "enum": ["user", "role"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["id", "type"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Filter by assignee."
+        },
         "dateRange": {
             "default": {
                 "date_from": "-7d"
@@ -53,8 +83,13 @@
             "description": "Filter to a specific error tracking issue by ID.",
             "type": "string"
         },
+        "kind": {
+            "const": "ErrorTrackingQuery",
+            "default": "ErrorTrackingQuery",
+            "type": "string"
+        },
         "limit": {
-            "default": 10,
+            "default": 50,
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -76,6 +111,10 @@
             "enum": ["ASC", "DESC"],
             "type": "string"
         },
+        "searchQuery": {
+            "description": "Free-text search across exception type, message, and stack frames.",
+            "type": "string"
+        },
         "status": {
             "anyOf": [
                 {
@@ -89,6 +128,13 @@
             ],
             "default": "active",
             "description": "Filter by issue status."
+        },
+        "volumeResolution": {
+            "default": 1,
+            "description": "Controls volume chart granularity. Use 1 for sparklines, 0 for counts only.",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
         }
     },
     "type": "object"

@@ -107,6 +107,15 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
 
 // --- Query wrapper schemas from schema.json ---
 
+const integer = z.coerce.number().int()
+
+const ErrorTrackingIssueAssigneeType = z.enum(['user', 'role'])
+
+const ErrorTrackingIssueAssignee = z.object({
+    id: z.union([integer, z.string()]),
+    type: ErrorTrackingIssueAssigneeType,
+})
+
 const DateRange = z.object({
     date_from: z
         .string()
@@ -130,64 +139,48 @@ const DateRange = z.object({
         .optional(),
 })
 
-const integer = z.coerce.number().int()
+const ErrorTrackingOrderBy = z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
 
 const ErrorTrackingIssueStatus = z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
 
 const ErrorTrackingQueryStatus = z.union([ErrorTrackingIssueStatus, z.literal('all')])
 
-const ErrorTrackingQuery = z.object({
-    dateRange: DateRange.describe('Date range to filter results.'),
+const AssistantErrorTrackingQuery = z.object({
+    assignee: z.union([ErrorTrackingIssueAssignee, z.null()]).describe('Filter by assignee.').optional(),
+    dateRange: DateRange.describe('Date range to filter results.').optional(),
     filterTestAccounts: z.coerce.boolean().describe('Whether to filter out test accounts.').optional(),
     issueId: z.string().describe('Filter to a specific error tracking issue by ID.').optional(),
+    kind: z.literal('ErrorTrackingQuery').default('ErrorTrackingQuery'),
     limit: integer.optional(),
     offset: integer.optional(),
-    orderBy: z
-        .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
-        .describe('Field to sort results by.'),
+    orderBy: ErrorTrackingOrderBy.describe('Field to sort results by.').optional(),
     orderDirection: z.enum(['ASC', 'DESC']).describe('Sort direction.').optional(),
+    searchQuery: z.string().describe('Free-text search across exception type, message, and stack frames.').optional(),
     status: ErrorTrackingQueryStatus.describe('Filter by issue status.').optional(),
+    volumeResolution: integer
+        .describe('Controls volume chart granularity. Use 1 for sparklines, 0 for counts only.')
+        .optional(),
 })
 
-const ListErrorsSchema = ErrorTrackingQuery.extend({
-    limit: ErrorTrackingQuery.shape.limit.default(10).optional(),
-    orderBy: ErrorTrackingQuery.shape.orderBy.default('occurrences').optional(),
-    dateRange: ErrorTrackingQuery.shape.dateRange.default({ date_from: '-7d' }).optional(),
-    filterTestAccounts: ErrorTrackingQuery.shape.filterTestAccounts.default(true).optional(),
-    status: ErrorTrackingQuery.shape.status.default('active').optional(),
-    orderDirection: ErrorTrackingQuery.shape.orderDirection.default('DESC').optional(),
-})
-
-const ErrorDetailsSchema = ErrorTrackingQuery.omit({
-    orderBy: true,
-    offset: true,
-    limit: true,
-    status: true,
-    filterTestAccounts: true,
-    orderDirection: true,
-}).extend({
-    dateRange: ErrorTrackingQuery.shape.dateRange.default({ date_from: '-7d' }).optional(),
-    issueId: ErrorTrackingQuery.shape.issueId.unwrap(),
+const QueryErrorTrackingIssuesSchema = AssistantErrorTrackingQuery.extend({
+    limit: AssistantErrorTrackingQuery.shape.limit.default(50).optional(),
+    orderBy: AssistantErrorTrackingQuery.shape.orderBy.default('occurrences').optional(),
+    volumeResolution: AssistantErrorTrackingQuery.shape.volumeResolution.default(1).optional(),
+    dateRange: AssistantErrorTrackingQuery.shape.dateRange.default({ date_from: '-7d' }).optional(),
+    filterTestAccounts: AssistantErrorTrackingQuery.shape.filterTestAccounts.default(true).optional(),
+    status: AssistantErrorTrackingQuery.shape.status.default('active').optional(),
+    orderDirection: AssistantErrorTrackingQuery.shape.orderDirection.default('DESC').optional(),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-list': errorTrackingIssuesList,
     'error-tracking-issues-retrieve': errorTrackingIssuesRetrieve,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
-    'list-errors': createQueryWrapper({
-        name: 'list-errors',
-        schema: ListErrorsSchema,
+    'query-error-tracking-issues': createQueryWrapper({
+        name: 'query-error-tracking-issues',
+        schema: QueryErrorTrackingIssuesSchema,
         kind: 'ErrorTrackingQuery',
         uiResourceUri: 'ui://posthog/error-issue-list.html',
-        fixedProperties: { volumeResolution: 1 },
-        urlPrefix: '/error_tracking',
-    }),
-    'error-details': createQueryWrapper({
-        name: 'error-details',
-        schema: ErrorDetailsSchema,
-        kind: 'ErrorTrackingQuery',
-        uiResourceUri: 'ui://posthog/error-details.html',
-        fixedProperties: { volumeResolution: 0, orderBy: 'occurrences' },
         urlPrefix: '/error_tracking',
     }),
 }

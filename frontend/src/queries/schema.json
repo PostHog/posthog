@@ -1197,6 +1197,67 @@
                 }
             ]
         },
+        "AssistantErrorTrackingQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by assignee."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range to filter results."
+                },
+                "filterTestAccounts": {
+                    "description": "Whether to filter out test accounts.",
+                    "type": "boolean"
+                },
+                "issueId": {
+                    "description": "Filter to a specific error tracking issue by ID.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ErrorTrackingQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
+                },
+                "orderDirection": {
+                    "description": "Sort direction.",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
+                },
+                "volumeResolution": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Controls volume chart granularity. Use 1 for sparklines, 0 for counts only."
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": [
                 "cohort",
@@ -14345,9 +14406,8 @@
                     "type": "array"
                 },
                 "orderBy": {
-                    "description": "Field to sort results by.",
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
                 },
                 "orderDirection": {
                     "description": "Sort direction.",
@@ -14388,6 +14448,11 @@
         "ErrorTrackingIssueStatus": {
             "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
             "title": "ErrorTrackingIssueStatus",
+            "type": "string"
+        },
+        "ErrorTrackingOrderBy": {
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+            "title": "ErrorTrackingOrderBy",
             "type": "string"
         },
         "ErrorTrackingQuery": {
@@ -14439,9 +14504,8 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "description": "Field to sort results by.",
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
                 },
                 "orderDirection": {
                     "description": "Sort direction.",

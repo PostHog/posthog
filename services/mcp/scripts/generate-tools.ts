@@ -824,10 +824,7 @@ function generateCategoryFile(
         const baseSchemaProps = new Map<string, Set<string>>()
 
         for (const [, wrapperConfig] of enabledWrappers) {
-            const excludeProps = [
-                ...(wrapperConfig.exclude_properties ?? []),
-                ...Object.keys(wrapperConfig.fixed_properties ?? {}),
-            ]
+            const excludeProps = [...(wrapperConfig.exclude_properties ?? [])]
             const zodCode = generateZodFromSchemaRef(querySchema, wrapperConfig.schema_ref, excludeProps)
             const lines = zodCode.split('\n\nconst ')
             for (let i = 0; i < lines.length; i++) {
@@ -850,29 +847,21 @@ function generateCategoryFile(
         }
 
         // Generate per-tool schemas when the tool needs to customize the base schema
-        // via property_defaults, required_properties, or omitting fixed_properties
-        // that survived deduplication in the shared base.
+        // via property_defaults or omitting exclude_properties that survived deduplication.
         const perToolSchemaNames = new Map<string, string>()
         for (const [name, wrapperConfig] of enabledWrappers) {
             const hasDefaults =
                 wrapperConfig.property_defaults && Object.keys(wrapperConfig.property_defaults).length > 0
-            const hasRequired = wrapperConfig.required_properties && wrapperConfig.required_properties.length > 0
             const baseVarName = getEntryVarName(wrapperConfig.schema_ref)
             const baseProps = baseSchemaProps.get(baseVarName) ?? new Set()
-            // Omit fixed_properties and exclude_properties that survived in the shared base.
             const keysToOmit = new Set<string>()
-            for (const k of Object.keys(wrapperConfig.fixed_properties ?? {})) {
-                if (baseProps.has(k)) {
-                    keysToOmit.add(k)
-                }
-            }
             for (const k of wrapperConfig.exclude_properties ?? []) {
                 if (baseProps.has(k)) {
                     keysToOmit.add(k)
                 }
             }
             const hasOmits = keysToOmit.size > 0
-            if (!hasDefaults && !hasRequired && !hasOmits) {
+            if (!hasDefaults && !hasOmits) {
                 continue
             }
             const toolSchemaName = `${toPascalCase(name)}Schema`
@@ -882,9 +871,6 @@ function generateCategoryFile(
                 overrides.push(
                     `    ${prop}: ${baseVarName}.shape.${prop}.default(${JSON.stringify(defaultValue)}).optional(),`
                 )
-            }
-            for (const prop of wrapperConfig.required_properties ?? []) {
-                overrides.push(`    ${prop}: ${baseVarName}.shape.${prop}.unwrap(),`)
             }
             const extendExpr = overrides.length > 0 ? `.extend({\n${overrides.join('\n')}\n})` : ''
             allZodBlocks.push(`const ${toolSchemaName} = ${baseVarName}${omitExpr}${extendExpr}`)
@@ -901,9 +887,6 @@ function generateCategoryFile(
                 const configParts = [`name: '${name}'`, `schema: ${schemaVarName}`, `kind: '${kind}'`]
                 if (wrapperConfig.ui_resource_uri) {
                     configParts.push(`uiResourceUri: '${wrapperConfig.ui_resource_uri}'`)
-                }
-                if (wrapperConfig.fixed_properties && Object.keys(wrapperConfig.fixed_properties).length > 0) {
-                    configParts.push(`fixedProperties: ${JSON.stringify(wrapperConfig.fixed_properties)}`)
                 }
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
@@ -1087,12 +1070,7 @@ function generateQueryWrapperFile(
     const emittedDefs = new Set<string>()
 
     for (const [, toolConfig] of enabledWrappers) {
-        // Merge exclude_properties with fixed_properties keys — fixed values are
-        // baked into the query body by the factory and shouldn't be exposed as params.
-        const excludeProps = [
-            ...(toolConfig.exclude_properties ?? []),
-            ...Object.keys(toolConfig.fixed_properties ?? {}),
-        ]
+        const excludeProps = [...(toolConfig.exclude_properties ?? [])]
         const zodCode = generateZodFromSchemaRef(querySchema, toolConfig.schema_ref, excludeProps)
         // Split into individual const declarations and only emit new ones
         const lines = zodCode.split('\n\nconst ')
@@ -1110,28 +1088,19 @@ function generateQueryWrapperFile(
     const perToolSchemaNames = new Map<string, string>()
     for (const [name, toolConfig] of enabledWrappers) {
         const hasDefaults = toolConfig.property_defaults && Object.keys(toolConfig.property_defaults).length > 0
-        const hasRequired = toolConfig.required_properties && toolConfig.required_properties.length > 0
-        const fixedKeysToOmit = Object.keys(toolConfig.fixed_properties ?? {}).filter(
-            (k) => !toolConfig.exclude_properties?.includes(k)
-        )
-        const hasOmits = fixedKeysToOmit.length > 0
-        if (!hasDefaults && !hasRequired && !hasOmits) {
+        if (!hasDefaults) {
             continue
         }
         const baseVarName = getEntryVarName(toolConfig.schema_ref)
         const toolSchemaName = `${toPascalCase(name)}Schema`
-        const omitExpr = hasOmits ? `.omit({ ${fixedKeysToOmit.map((k) => `${k}: true`).join(', ')} })` : ''
         const overrides: string[] = []
         for (const [prop, defaultValue] of Object.entries(toolConfig.property_defaults ?? {})) {
             overrides.push(
                 `    ${prop}: ${baseVarName}.shape.${prop}.default(${JSON.stringify(defaultValue)}).optional(),`
             )
         }
-        for (const prop of toolConfig.required_properties ?? []) {
-            overrides.push(`    ${prop}: ${baseVarName}.shape.${prop}.unwrap(),`)
-        }
-        const extendExpr = overrides.length > 0 ? `.extend({\n${overrides.join('\n')}\n})` : ''
-        allZodBlocks.push(`const ${toolSchemaName} = ${baseVarName}${omitExpr}${extendExpr}`)
+        const extendExpr = `.extend({\n${overrides.join('\n')}\n})`
+        allZodBlocks.push(`const ${toolSchemaName} = ${baseVarName}${extendExpr}`)
         perToolSchemaNames.set(name, toolSchemaName)
     }
 
