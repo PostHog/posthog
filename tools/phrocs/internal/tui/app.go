@@ -120,6 +120,9 @@ type Model struct {
 func New(mgr *process.Manager, cfg *config.Config, logger *log.Logger) Model {
 	keys := defaultKeyMap()
 
+	h := help.New()
+	h.Styles = helpStyles()
+
 	return Model{
 		mgr:              mgr,
 		services:         mgr.Procs(),
@@ -132,7 +135,7 @@ func New(mgr *process.Manager, cfg *config.Config, logger *log.Logger) Model {
 		hideHelp:         cfg.HideKeymapWindow,
 		procListWidth:    cfg.ProcListWidth,
 		keys:             keys,
-		help:             help.New(),
+		help:             h,
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		log:              logger,
 	}
@@ -168,7 +171,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.BackgroundColorMsg:
 		m.isDark = msg.IsDark()
-		m.help.Styles = helpStyles(m.isDark)
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -367,7 +369,7 @@ func (m Model) applySize() Model {
 	// Reduce the viewport width to account for borders
 	vpW := ptyW - horizontalBorderCount
 	if m.isFullScreen() {
-		vpW = m.width - horizontalBorderCount
+		vpW = m.width
 	}
 
 	if !m.ready {
