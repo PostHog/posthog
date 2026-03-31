@@ -38,6 +38,7 @@ import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
+import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
 
 /**
@@ -334,7 +335,7 @@ export class PluginServer implements NodeServer {
 
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
-        personRepository: PostgresPersonRepository
+        personRepository: PersonRepository
         groupRepository: GroupRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService

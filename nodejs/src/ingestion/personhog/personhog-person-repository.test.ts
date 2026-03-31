@@ -361,61 +361,6 @@ describe('PersonHogPersonRepository', () => {
         )
     })
 
-    describe('sticky routing decision within an event loop iteration', () => {
-        it('consecutive calls share the same routing decision', async () => {
-            mockPostgres.fetchPersonsByDistinctIds.mockResolvedValue([TEST_PERSON_WITH_DISTINCT_ID])
-            mockPostgres.fetchPersonsByPersonIds.mockResolvedValue([TEST_PERSON])
-            handlers.getPersonsByDistinctIds.mockReturnValue({
-                results: [
-                    {
-                        key: { teamId: BigInt(TEAM_ID), distinctId: 'user-123' },
-                        person: makeProtoPerson(),
-                    },
-                ],
-            })
-            handlers.getPersonsByUuids.mockReturnValue({
-                persons: [makeProtoPerson()],
-                missingIds: [],
-            })
-
-            jest.spyOn(Math, 'random').mockReturnValue(0.3) // 30 < 50 -> gRPC
-            const repo = createRepo(50)
-
-            await repo.fetchPersonsByDistinctIds([{ teamId: TEAM_ID, distinctId: 'user-123' }], true)
-            await repo.fetchPersonsByPersonIds([{ teamId: TEAM_ID, personId: TEST_PERSON.uuid }], true)
-
-            // Both should hit gRPC, not a mix
-            expect(handlers.getPersonsByDistinctIds).toHaveBeenCalled()
-            expect(handlers.getPersonsByUuids).toHaveBeenCalled()
-            expect(mockPostgres.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
-            expect(mockPostgres.fetchPersonsByPersonIds).not.toHaveBeenCalled()
-
-            jest.spyOn(Math, 'random').mockRestore()
-        })
-
-        it('decision resets after setImmediate fires', async () => {
-            mockPostgres.fetchPersonsByDistinctIds.mockResolvedValue([])
-            handlers.getPersonsByDistinctIds.mockReturnValue({ results: [] })
-
-            const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.3) // -> gRPC at 50%
-            const repo = createRepo(50)
-
-            await repo.fetchPersonsByDistinctIds([{ teamId: TEAM_ID, distinctId: 'user-123' }], true)
-            expect(handlers.getPersonsByDistinctIds).toHaveBeenCalledTimes(1)
-
-            // Let setImmediate fire to clear the cached decision
-            await new Promise((resolve) => setImmediate(resolve))
-
-            // Now change the random to force postgres
-            randomSpy.mockReturnValue(0.8) // 80 >= 50 -> postgres
-
-            await repo.fetchPersonsByDistinctIds([{ teamId: TEAM_ID, distinctId: 'user-123' }], true)
-            expect(mockPostgres.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
-
-            randomSpy.mockRestore()
-        })
-    })
-
     describe('write operations always delegate to postgres', () => {
         it('createPerson', async () => {
             const mockResult = { success: true as const, person: TEST_PERSON, messages: [], created: true as const }

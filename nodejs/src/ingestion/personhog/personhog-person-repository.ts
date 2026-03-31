@@ -23,8 +23,6 @@ import { PersonHogClient } from './client'
 import { personhogErrorsTotal, personhogLatencySeconds, personhogRequestsTotal } from './metrics'
 
 export class PersonHogPersonRepository implements PersonRepository {
-    private grpcDecision: boolean | undefined = undefined
-
     constructor(
         private postgres: PersonRepository,
         private grpcClient: PersonHogClient,
@@ -33,16 +31,7 @@ export class PersonHogPersonRepository implements PersonRepository {
     ) {}
 
     private shouldUseGrpc(): boolean {
-        if (this.grpcDecision === undefined) {
-            this.grpcDecision = Math.random() * 100 < this.grpcPercentage
-            // Clear on the next event loop iteration so consecutive calls within
-            // the same async chain share the same routing decision, but different
-            // event loop iterations get fresh decisions.
-            setImmediate(() => {
-                this.grpcDecision = undefined
-            })
-        }
-        return this.grpcDecision
+        return Math.random() * 100 < this.grpcPercentage
     }
 
     private async timedPostgres<T>(method: string, fn: () => Promise<T>): Promise<T> {

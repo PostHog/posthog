@@ -15,6 +15,11 @@ import type {
     GetGroupTypeMappingsByTeamIdsRequest,
     GetGroupsBatchRequest,
 } from '../../generated/personhog/personhog/types/v1/group_pb'
+import { PersonSchema } from '../../generated/personhog/personhog/types/v1/person_pb'
+import type {
+    GetPersonsByDistinctIdsRequest,
+    GetPersonsByUuidsRequest,
+} from '../../generated/personhog/personhog/types/v1/person_pb'
 import { PersonHogClient } from './client'
 
 const textEncoder = new TextEncoder()
@@ -81,6 +86,70 @@ function createClientWithHandlers(handlers: GroupHandlers = {}): PersonHogClient
             getPersonsByDistinctIds: () => ({ results: [] }),
             getDistinctIdsForPerson: () => ({ distinctIds: [] }),
             getDistinctIdsForPersons: () => ({ personDistinctIds: [] }),
+            getHashKeyOverrideContext: () => ({ results: [] }),
+            upsertHashKeyOverrides: () => ({}),
+            deleteHashKeyOverridesByTeams: () => ({}),
+            checkCohortMembership: () => ({ memberships: [] }),
+            updatePersonProperties: () => ({}),
+        })
+    })
+    return PersonHogClient.fromTransport(transport)
+}
+
+function makeProtoPerson(
+    overrides: Partial<{
+        id: bigint
+        uuid: string
+        teamId: bigint
+        properties: Uint8Array
+        propertiesLastUpdatedAt: Uint8Array
+        propertiesLastOperation: Uint8Array
+        createdAt: bigint
+        version: bigint
+        isIdentified: boolean
+        isUserId: boolean
+        lastSeenAt: bigint
+    }> = {}
+) {
+    return create(PersonSchema, {
+        id: 42n,
+        uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        teamId: 1n,
+        properties: jsonBytes({ name: 'Test User', email: 'test@example.com' }),
+        propertiesLastUpdatedAt: jsonBytes({ name: '2024-06-15T12:00:00Z' }),
+        propertiesLastOperation: jsonBytes({ name: 'set' }),
+        createdAt: CREATED_AT_MS,
+        version: 3n,
+        isIdentified: true,
+        ...overrides,
+    })
+}
+
+type PersonHandlers = {
+    getPersonsByDistinctIds?: (req: GetPersonsByDistinctIdsRequest) => any
+    getPersonsByUuids?: (req: GetPersonsByUuidsRequest) => any
+}
+
+function createPersonClientWithHandlers(handlers: PersonHandlers = {}): PersonHogClient {
+    const transport = createRouterTransport(({ service }) => {
+        service(PersonHogService, {
+            getPersonsByDistinctIds: handlers.getPersonsByDistinctIds ?? (() => ({ results: [] })),
+            getPersonsByUuids: handlers.getPersonsByUuids ?? (() => ({ persons: [] })),
+            // no-op defaults for RPCs we don't test here
+            getPerson: () => ({}),
+            getPersons: () => ({ persons: [] }),
+            getPersonByUuid: () => ({}),
+            getPersonByDistinctId: () => ({}),
+            getPersonsByDistinctIdsInTeam: () => ({ results: [] }),
+            getDistinctIdsForPerson: () => ({ distinctIds: [] }),
+            getDistinctIdsForPersons: () => ({ personDistinctIds: [] }),
+            getGroup: () => ({}),
+            getGroups: () => ({ groups: [], missingGroups: [] }),
+            getGroupsBatch: () => ({ results: [] }),
+            getGroupTypeMappingsByTeamId: () => ({ mappings: [] }),
+            getGroupTypeMappingsByTeamIds: () => ({ results: [] }),
+            getGroupTypeMappingsByProjectId: () => ({ mappings: [] }),
+            getGroupTypeMappingsByProjectIds: () => ({ results: [] }),
             getHashKeyOverrideContext: () => ({ results: [] }),
             upsertHashKeyOverrides: () => ({}),
             deleteHashKeyOverridesByTeams: () => ({}),
@@ -549,6 +618,253 @@ describe('PersonHogClient', () => {
 
             expect(result!.created_at.toMillis()).toBe(0)
             expect(result!.created_at.toISO()).toBe('1970-01-01T00:00:00.000Z')
+        })
+    })
+
+    describe('fetchPersonsByDistinctIds', () => {
+        it('converts proto person to domain person with distinct_id', async () => {
+            const client = createPersonClientWithHandlers({
+                getPersonsByDistinctIds: () => ({
+                    results: [
+                        {
+                            key: { teamId: 1n, distinctId: 'user-123' },
+                            person: makeProtoPerson(),
+                        },
+                    ],
+                }),
+            })
+
+            const result = await client.persons.fetchPersonsByDistinctIds([{ teamId: 1, distinctId: 'user-123' }])
+
+            expect(result).toEqual([
+                {
+                    id: '42',
+                    uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                    team_id: 1,
+                    properties: { name: 'Test User', email: 'test@example.com' },
+                    properties_last_updated_at: { name: '2024-06-15T12:00:00Z' },
+                    properties_last_operation: { name: 'set' },
+                    created_at: DateTime.fromISO('2024-06-15T12:00:00.000Z', { zone: 'utc' }),
+                    version: 3,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'user-123',
+                },
+            ])
+        })
+
+        it('skips results with missing person (not found)', async () => {
+            const client = createPersonClientWithHandlers({
+                getPersonsByDistinctIds: () => ({
+                    results: [
+                        {
+                            key: { teamId: 1n, distinctId: 'found' },
+                            person: makeProtoPerson(),
+                        },
+                        {
+                            key: { teamId: 1n, distinctId: 'missing' },
+                            // no person
+                        },
+                    ],
+                }),
+            })
+
+            const result = await client.persons.fetchPersonsByDistinctIds([
+                { teamId: 1, distinctId: 'found' },
+                { teamId: 1, distinctId: 'missing' },
+            ])
+
+            expect(result).toHaveLength(1)
+            expect(result[0].distinct_id).toBe('found')
+        })
+
+        it('returns empty array for empty input without calling gRPC', async () => {
+            const handler = jest.fn()
+            const client = createPersonClientWithHandlers({ getPersonsByDistinctIds: handler })
+
+            const result = await client.persons.fetchPersonsByDistinctIds([])
+
+            expect(result).toEqual([])
+            expect(handler).not.toHaveBeenCalled()
+        })
+
+        it('handles empty JSON bytes as defaults', async () => {
+            const client = createPersonClientWithHandlers({
+                getPersonsByDistinctIds: () => ({
+                    results: [
+                        {
+                            key: { teamId: 1n, distinctId: 'user' },
+                            person: makeProtoPerson({
+                                properties: new Uint8Array(0),
+                                propertiesLastUpdatedAt: new Uint8Array(0),
+                                propertiesLastOperation: new Uint8Array(0),
+                            }),
+                        },
+                    ],
+                }),
+            })
+
+            const result = await client.persons.fetchPersonsByDistinctIds([{ teamId: 1, distinctId: 'user' }])
+
+            expect(result[0].properties).toEqual({})
+            expect(result[0].properties_last_updated_at).toEqual({})
+            expect(result[0].properties_last_operation).toBeNull()
+        })
+
+        it('converts is_user_id correctly', async () => {
+            const clientTrue = createPersonClientWithHandlers({
+                getPersonsByDistinctIds: () => ({
+                    results: [
+                        {
+                            key: { teamId: 1n, distinctId: 'u' },
+                            person: makeProtoPerson({ isUserId: true }),
+                        },
+                    ],
+                }),
+            })
+            const clientFalse = createPersonClientWithHandlers({
+                getPersonsByDistinctIds: () => ({
+                    results: [
+                        {
+                            key: { teamId: 1n, distinctId: 'u' },
+                            person: makeProtoPerson({ isUserId: false }),
+                        },
+                    ],
+                }),
+            })
+
+            const resultTrue = await clientTrue.persons.fetchPersonsByDistinctIds([{ teamId: 1, distinctId: 'u' }])
+            const resultFalse = await clientFalse.persons.fetchPersonsByDistinctIds([{ teamId: 1, distinctId: 'u' }])
+
+            expect(resultTrue[0].is_user_id).toBe(1)
+            expect(resultFalse[0].is_user_id).toBe(0)
+        })
+
+        it('converts last_seen_at when present', async () => {
+            const lastSeenMs = BigInt(DateTime.fromISO('2024-12-25T10:30:00.000Z').toMillis())
+            const client = createPersonClientWithHandlers({
+                getPersonsByDistinctIds: () => ({
+                    results: [
+                        {
+                            key: { teamId: 1n, distinctId: 'u' },
+                            person: makeProtoPerson({ lastSeenAt: lastSeenMs }),
+                        },
+                    ],
+                }),
+            })
+
+            const result = await client.persons.fetchPersonsByDistinctIds([{ teamId: 1, distinctId: 'u' }])
+
+            expect(result[0].last_seen_at).toEqual(DateTime.fromISO('2024-12-25T10:30:00.000Z', { zone: 'utc' }))
+        })
+
+        it('propagates gRPC errors', async () => {
+            const client = createPersonClientWithHandlers({
+                getPersonsByDistinctIds: () => {
+                    throw new ConnectError('service unavailable', Code.Unavailable)
+                },
+            })
+
+            await expect(client.persons.fetchPersonsByDistinctIds([{ teamId: 1, distinctId: 'u' }])).rejects.toThrow(
+                ConnectError
+            )
+        })
+
+        it('sends correct request with BigInt teamId and eventual consistency', async () => {
+            let capturedRequest: GetPersonsByDistinctIdsRequest | undefined
+            const client = createPersonClientWithHandlers({
+                getPersonsByDistinctIds: (req) => {
+                    capturedRequest = req
+                    return { results: [] }
+                },
+            })
+
+            await client.persons.fetchPersonsByDistinctIds([
+                { teamId: 42, distinctId: 'user-a' },
+                { teamId: 99, distinctId: 'user-b' },
+            ])
+
+            expect(capturedRequest!.teamDistinctIds).toHaveLength(2)
+            expect(capturedRequest!.teamDistinctIds[0].teamId).toBe(42n)
+            expect(capturedRequest!.teamDistinctIds[0].distinctId).toBe('user-a')
+            expect(capturedRequest!.teamDistinctIds[1].teamId).toBe(99n)
+            expect(capturedRequest!.teamDistinctIds[1].distinctId).toBe('user-b')
+            expect(capturedRequest!.readOptions?.consistency).toBe(ConsistencyLevel.EVENTUAL)
+        })
+    })
+
+    describe('fetchPersonsByPersonIds', () => {
+        it('converts proto persons to domain persons', async () => {
+            const client = createPersonClientWithHandlers({
+                getPersonsByUuids: () => ({
+                    persons: [makeProtoPerson()],
+                }),
+            })
+
+            const result = await client.persons.fetchPersonsByPersonIds([
+                { teamId: 1, personId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+            ])
+
+            expect(result).toEqual([
+                {
+                    id: '42',
+                    uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                    team_id: 1,
+                    properties: { name: 'Test User', email: 'test@example.com' },
+                    properties_last_updated_at: { name: '2024-06-15T12:00:00Z' },
+                    properties_last_operation: { name: 'set' },
+                    created_at: DateTime.fromISO('2024-06-15T12:00:00.000Z', { zone: 'utc' }),
+                    version: 3,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                },
+            ])
+        })
+
+        it('returns empty array for empty input without calling gRPC', async () => {
+            const handler = jest.fn()
+            const client = createPersonClientWithHandlers({ getPersonsByUuids: handler })
+
+            const result = await client.persons.fetchPersonsByPersonIds([])
+
+            expect(result).toEqual([])
+            expect(handler).not.toHaveBeenCalled()
+        })
+
+        it('groups requests by team_id', async () => {
+            const capturedRequests: GetPersonsByUuidsRequest[] = []
+            const client = createPersonClientWithHandlers({
+                getPersonsByUuids: (req) => {
+                    capturedRequests.push(req)
+                    return { persons: [] }
+                },
+            })
+
+            await client.persons.fetchPersonsByPersonIds([
+                { teamId: 1, personId: 'uuid-a' },
+                { teamId: 2, personId: 'uuid-b' },
+                { teamId: 1, personId: 'uuid-c' },
+            ])
+
+            expect(capturedRequests).toHaveLength(2)
+            const team1Req = capturedRequests.find((r) => r.teamId === 1n)!
+            const team2Req = capturedRequests.find((r) => r.teamId === 2n)!
+            expect(team1Req.uuids).toEqual(['uuid-a', 'uuid-c'])
+            expect(team2Req.uuids).toEqual(['uuid-b'])
+        })
+
+        it('propagates gRPC errors', async () => {
+            const client = createPersonClientWithHandlers({
+                getPersonsByUuids: () => {
+                    throw new ConnectError('timeout', Code.DeadlineExceeded)
+                },
+            })
+
+            await expect(client.persons.fetchPersonsByPersonIds([{ teamId: 1, personId: 'uuid-a' }])).rejects.toThrow(
+                ConnectError
+            )
         })
     })
 })
