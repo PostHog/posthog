@@ -268,10 +268,11 @@ class TestBoxCommands:
         monkeypatch.setattr(box_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(box_cli, "get_default_git_identity", lambda: ("Coder User", "coder@example.com"))
 
+        # No Y/n gate -- prompts shown directly with coder profile defaults
         result = runner.invoke(
             cli,
             ["box:setup", "--skip-configure-ssh"],
-            input="y\n\n\n",
+            input="\n\n",
         )
 
         assert result.exit_code == 0
@@ -280,6 +281,24 @@ class TestBoxCommands:
             "git_name": "Coder User",
             "git_email": "coder@example.com",
         }
+
+    def test_box_setup_skips_git_identity_when_already_saved(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        box_config_path: Path,
+    ) -> None:
+        box_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
+
+        monkeypatch.setattr(box_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
+        monkeypatch.setattr(box_cli, "ensure_coder_installed", lambda: None)
+        monkeypatch.setattr(box_cli, "ensure_coder_authenticated", lambda: None)
+        monkeypatch.setattr(box_cli, "maybe_configure_ssh", lambda configure_ssh: None)
+        monkeypatch.setattr(box_cli, "print_setup_summary", lambda: None)
+
+        result = runner.invoke(cli, ["box:setup", "--skip-configure-ssh"])
+
+        assert result.exit_code == 0
+        assert "Using saved Git identity: Existing User <existing@example.com>" in result.output
 
     def test_box_start_creates_workspace_with_default_name(
         self,

@@ -182,13 +182,13 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     _fail(f"`tailscale` is not available. Start or install Tailscale, then {setup_hint}")
 
 
-def _ssh_configured() -> bool:
-    """Check if coder SSH config is present in ~/.ssh/config."""
-    ssh_config = Path.home() / ".ssh" / "config"
-    if not ssh_config.exists():
-        return False
-
-    return "# --- START CODER" in ssh_config.read_text()
+def _ssh_config_needs_update() -> bool:
+    """Check whether ``coder config-ssh`` would make changes."""
+    result = _run(["coder", "config-ssh", "--dry-run", "--yes"], capture_output=True)
+    if result.returncode != 0:
+        return True
+    combined = result.stdout + result.stderr
+    return "No changes to make" not in combined
 
 
 def coder_installed() -> bool:
@@ -261,8 +261,8 @@ def ensure_runtime_ready() -> None:
 
 def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
     """Optionally install Coder SSH config in an explicit setup step."""
-    if _ssh_configured():
-        click.echo("Coder SSH config is already present.")
+    if not _ssh_config_needs_update():
+        click.echo("Coder SSH config is up to date.")
         return
 
     if configure_ssh is None:
@@ -285,9 +285,7 @@ def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
 def print_setup_summary() -> None:
     """Print a short summary after setup completes."""
     click.echo()
-    click.echo("Setup complete.")
-    click.echo("Workspace access from this machine uses `coder ssh` and optional SSH host entries.")
-    click.echo("Git inside the workspace should use HTTPS via Coder external auth.")
+    click.echo("Setup complete. Run `hogli box:start` to create or start your devbox.")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:

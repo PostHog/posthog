@@ -204,30 +204,25 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     config = load_config()
     existing_git_name = config.get("git_name")
     existing_git_email = config.get("git_email")
-    coder_git_name, coder_git_email = get_default_git_identity()
 
+    if configure_git_identity is False:
+        if existing_git_name and existing_git_email:
+            click.echo(f"Using saved Git identity: {existing_git_name} <{existing_git_email}>")
+            click.echo("Run `hogli box:setup --configure-git-identity` to change.")
+        else:
+            click.echo("Skipping Git identity setup.")
+        return
+
+    # Already saved -- skip unless explicitly asked to reconfigure
+    if configure_git_identity is None and existing_git_name and existing_git_email:
+        click.echo(f"Using saved Git identity: {existing_git_name} <{existing_git_email}>")
+        click.echo("Run `hogli box:setup --configure-git-identity` to change.")
+        return
+
+    # Show prompts with best available defaults (saved > coder profile > empty)
+    coder_git_name, coder_git_email = get_default_git_identity()
     default_git_name = existing_git_name or coder_git_name or ""
     default_git_email = existing_git_email or coder_git_email or ""
-
-    if configure_git_identity is None:
-        prompt = (
-            "Update saved Git identity for new workspaces?"
-            if existing_git_name or existing_git_email
-            else "Save Git identity for new workspaces?"
-        )
-        configure_git_identity = click.confirm(
-            prompt,
-            default=not (existing_git_name or existing_git_email),
-        )
-
-    if not configure_git_identity:
-        if existing_git_name and existing_git_email:
-            click.echo(f"Keeping saved Git identity: {existing_git_name} <{existing_git_email}>")
-        elif coder_git_name or coder_git_email:
-            click.echo("Skipping saved Git identity setup. New workspaces will use your Coder profile defaults.")
-        else:
-            click.echo("Skipping saved Git identity setup.")
-        return
 
     git_name = click.prompt(
         "Git name",
