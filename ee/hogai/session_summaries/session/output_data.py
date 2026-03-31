@@ -4,6 +4,8 @@ from typing import Any
 import structlog
 from rest_framework import serializers
 
+from posthog.temporal.ai.session_summary.types.video import SENTIMENT_OUTCOME_TYPES, SENTIMENT_SIGNAL_TYPES
+
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import HALLUCINATED_EVENTS_MIN_RATIO
 from ee.hogai.session_summaries.utils import (
@@ -176,20 +178,7 @@ class IntermediateSessionSummarySerializer(RawSessionSummarySerializer):
 
 
 class SentimentSignalSerializer(serializers.Serializer):
-    signal_type = serializers.ChoiceField(
-        choices=[
-            "rage_click",
-            "repeated_error",
-            "backtracking",
-            "long_pause",
-            "abandonment",
-            "dead_click",
-            "confusion_loop",
-            "error_cascade",
-            "other",
-        ],
-        required=True,
-    )
+    signal_type = serializers.ChoiceField(choices=list(SENTIMENT_SIGNAL_TYPES), required=True)
     segment_index = serializers.IntegerField(min_value=0, required=True)
     description = serializers.CharField(max_length=10_000, required=True)
     intensity = serializers.FloatField(min_value=0, max_value=1, required=True)
@@ -197,7 +186,7 @@ class SentimentSignalSerializer(serializers.Serializer):
 
 class SessionSentimentSerializer(serializers.Serializer):
     frustration_score = serializers.FloatField(min_value=0, max_value=1, required=True)
-    outcome = serializers.ChoiceField(choices=["successful", "friction", "frustrated", "blocked"], required=True)
+    outcome = serializers.ChoiceField(choices=list(SENTIMENT_OUTCOME_TYPES), required=True)
     sentiment_signals = SentimentSignalSerializer(many=True, required=False, allow_empty=True)
 
 

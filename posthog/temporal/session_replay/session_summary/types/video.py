@@ -135,22 +135,41 @@ class VideoFixSuggestion(BaseModel):
     suggestion: str = Field(description="Actionable fix or improvement")
 
 
+SENTIMENT_SIGNAL_TYPES = (
+    "rage_click",
+    "repeated_error",
+    "backtracking",
+    "long_pause",
+    "abandonment",
+    "dead_click",
+    "confusion_loop",
+    "error_cascade",
+    "other",
+)
+
+SENTIMENT_OUTCOME_TYPES = ("successful", "friction", "frustrated", "blocked")
+
+SentimentSignalType = Literal[
+    "rage_click",
+    "repeated_error",
+    "backtracking",
+    "long_pause",
+    "abandonment",
+    "dead_click",
+    "confusion_loop",
+    "error_cascade",
+    "other",
+]
+
+SentimentOutcomeType = Literal["successful", "friction", "frustrated", "blocked"]
+
+
 class SentimentSignal(BaseModel):
     """A specific observation that contributed to the session frustration score."""
 
     model_config = ConfigDict(frozen=True)
 
-    signal_type: Literal[
-        "rage_click",
-        "repeated_error",
-        "backtracking",
-        "long_pause",
-        "abandonment",
-        "dead_click",
-        "confusion_loop",
-        "error_cascade",
-        "other",
-    ] = Field(description="Category of the observed frustration signal")
+    signal_type: SentimentSignalType = Field(description="Category of the observed frustration signal")
     segment_index: int = Field(description="Index of the segment where the signal was observed")
     description: str = Field(description="Brief description of the observed signal")
     intensity: float = Field(ge=0.0, le=1.0, description="How severe this signal is (0=mild, 1=extreme)")
@@ -164,7 +183,7 @@ class SessionSentiment(BaseModel):
     frustration_score: float = Field(
         ge=0.0, le=1.0, description="Overall frustration score (0.0=smooth session, 1.0=extremely frustrated)"
     )
-    outcome: Literal["successful", "friction", "frustrated", "blocked"] = Field(
+    outcome: SentimentOutcomeType = Field(
         description="How the session went: successful (no friction), friction (issues but recovered), frustrated (repeated issues, visible confusion), blocked (couldn't proceed)"
     )
     sentiment_signals: list[SentimentSignal] = Field(
