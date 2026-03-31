@@ -1280,12 +1280,10 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         # Collect flags for bulk update
         flags_to_update = []
 
-        # Get latest timestamp for checkpoint, fallback to current if all None
-        checkpoint_timestamp = max((row[2] for row in result if row[2]), default=current_sync_timestamp)
-        # Ensure timestamp is timezone-aware (ClickHouse returns naive datetimes)
-        checkpoint_timestamp = (
-            checkpoint_timestamp if checkpoint_timestamp.tzinfo else timezone.make_aware(checkpoint_timestamp)
-        )
+        # Use current_sync_timestamp as the checkpoint since the sync window
+        # is defined by inserted_at, not timestamp. Using max(timestamp) would
+        # mix timelines and cause gaps or reprocessing with late-arriving events.
+        checkpoint_timestamp = current_sync_timestamp
 
         # Build lookup map of (team_id, key) -> timestamp from ClickHouse results
         flag_updates = {(row[0], row[1]): row[2] for row in result}
