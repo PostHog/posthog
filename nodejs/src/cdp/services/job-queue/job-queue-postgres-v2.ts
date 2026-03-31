@@ -82,13 +82,7 @@ export class CyclotronJobQueuePostgresV2 {
 
             pendingJobsGauge.set(this.pendingJobs.size)
 
-            const { backgroundTask } = await consumeBatch(invocations)
-
-            // Await the background task to ensure job state updates (retry/ack/fail)
-            // complete before the next poll cycle. Without this, the janitor can reset
-            // stalled jobs before the retry call updates their state, causing workflows
-            // to restart from the beginning instead of resuming.
-            await backgroundTask
+            await consumeBatch(invocations)
 
             pendingJobsGauge.set(this.pendingJobs.size)
         })
