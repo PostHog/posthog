@@ -1085,11 +1085,17 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-            # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
-            # used in the feature flag property filter UI
+            # Hides behavioral cohorts that can't be used in feature flags from the flag property filter UI.
+            # When realtime cohort flag targeting is enabled, realtime cohorts that have been
+            # backfilled are allowed through.
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
+                from posthog.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
+
+                allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
                 all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
-                behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)
+                behavioral_cohort_ids = self._find_behavioral_cohorts(
+                    all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled
+                )
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
 
             # add additional filters provided by the client
@@ -1111,13 +1117,26 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .order_by("-created_at")
         )
 
-    def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
+    def _find_behavioral_cohorts(
+        self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
+    ) -> set[int]:
         """
         Find all cohorts that have behavioral filters or reference cohorts with behavioral filters
         using a graph-based approach.
+
+        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled are
+        excluded from the result because they can be evaluated via the cohort_membership table
+        during flag evaluation.
         """
         graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
-        affected_cohorts = set(behavioral_cohorts)
+
+        # When the feature is enabled, realtime+backfilled cohorts are flag-compatible
+        flag_compatible: set[int] = set()
+        if allow_realtime_backfilled:
+            flag_compatible = {
+                cid for cid in behavioral_cohorts if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
+            }
+        affected_cohorts = behavioral_cohorts - flag_compatible
 
         def find_affected_cohorts() -> None:
             changed = True

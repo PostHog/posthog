@@ -225,12 +225,13 @@ pub struct Config {
     #[envconfig(default = "")]
     pub behavioral_cohorts_read_database_url: String,
 
-    // Feature gate for realtime cohort evaluation. When false (default), the realtime
-    // cohort block in prepare_flag_evaluation_state is skipped entirely, even if the
-    // behavioral cohorts DB is configured and cohorts with CohortType::Realtime exist.
-    // Set to true to enable realtime cohort membership lookups on the hot path.
-    #[envconfig(from = "ENABLE_REALTIME_COHORT_EVALUATION", default = "false")]
-    pub enable_realtime_cohort_evaluation: bool,
+    // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
+    // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
+    // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
+    // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
+    // membership lookups on the hot path for those teams.
+    #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
+    pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
 
     // Cache TTL for realtime cohort membership lookups (seconds).
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
@@ -764,7 +765,7 @@ impl Config {
                 .to_string(),
             behavioral_cohorts_read_database_url:
                 "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
-            enable_realtime_cohort_evaluation: false,
+            realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             max_concurrency: 1000,
@@ -906,6 +907,14 @@ impl Config {
 
     pub fn is_team_excluded(&self, team_id: i32, teams_to_exclude: &TeamIdCollection) -> bool {
         match teams_to_exclude {
+            TeamIdCollection::All => true,
+            TeamIdCollection::None => false,
+            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
+        }
+    }
+
+    pub fn is_team_included(&self, team_id: i32, teams_to_include: &TeamIdCollection) -> bool {
+        match teams_to_include {
             TeamIdCollection::All => true,
             TeamIdCollection::None => false,
             TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),

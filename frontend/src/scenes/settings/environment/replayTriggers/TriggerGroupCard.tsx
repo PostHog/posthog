@@ -1,37 +1,175 @@
 import { IconTrash, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, LemonSnack } from '@posthog/lemon-ui'
+
+import { IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
 
 export interface TriggerGroupCardProps {
     group: SessionRecordingTriggerGroup
+    onEdit?: () => void
+    onDelete?: (id: string) => void
 }
 
-export function TriggerGroupCard({ group }: TriggerGroupCardProps): JSX.Element {
-    const { id, name, sampleRate, minDurationMs, conditions } = group
+interface ConditionRowProps {
+    type: 'events' | 'urls' | 'flag'
+    values: string[]
+    matchType: 'any' | 'all'
+}
 
-    // TODO: Format conditions for display
-    const conditionsSummary = `${conditions.matchType.toUpperCase()} match`
+function ConditionRow({ type, values, matchType, isFirst }: ConditionRowProps & { isFirst: boolean }): JSX.Element {
+    const labels = {
+        events: 'Event',
+        urls: 'URL matches pattern',
+        flag: 'Feature flag',
+    }
+
+    const actions = {
+        events: 'occurred',
+        urls: '',
+        flag: 'is enabled',
+    }
+
+    // For "any" match type, always use arrow. For "all", use & after first row
+    const showArrow = matchType === 'any' || isFirst
 
     return (
-        <div className="border rounded p-4">
-            <div className="flex items-start justify-between">
+        <div className="flex items-center gap-1.5 flex-wrap text-sm">
+            {showArrow ? (
+                <LemonButton icon={<IconSubArrowRight className="arrow-right" />} size="small" noPadding />
+            ) : (
+                <LemonButton icon={<span className="text-xs font-medium">&</span>} size="small" noPadding />
+            )}
+            <span className="text-muted">{labels[type]}</span>
+            {values.map((value, idx) => (
+                <span key={value} className="contents">
+                    {idx > 0 && <span className="text-muted text-xs">or</span>}
+                    <LemonSnack>{value}</LemonSnack>
+                </span>
+            ))}
+            <span className="text-muted">{actions[type]}</span>
+        </div>
+    )
+}
+
+export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardProps): JSX.Element {
+    const { id, name, sampleRate, minDurationMs, conditions } = group
+
+    // Format display name
+    const displayName = name || `Trigger group ${id.slice(0, 8)}`
+
+    // Build condition rows - group same types together
+    const conditionRows: ConditionRowProps[] = []
+
+    if (conditions.events && conditions.events.length > 0) {
+        conditionRows.push({
+            type: 'events',
+            values: conditions.events,
+            matchType: conditions.matchType,
+        })
+    }
+
+    if (conditions.urls && conditions.urls.length > 0) {
+        conditionRows.push({
+            type: 'urls',
+            values: conditions.urls.map((urlConfig) => urlConfig.url),
+            matchType: conditions.matchType,
+        })
+    }
+
+    if (conditions.flag) {
+        const flagKey = typeof conditions.flag === 'string' ? conditions.flag : conditions.flag.key
+        conditionRows.push({
+            type: 'flag',
+            values: [flagKey],
+            matchType: conditions.matchType,
+        })
+    }
+
+    const hasConditions = conditionRows.length > 0
+    const matchType = conditions.matchType === 'any' ? 'any' : 'all'
+
+    return (
+        <div className="border rounded p-4 bg-surface-primary">
+            {/* Header row: Name and actions */}
+            <div className="flex items-center justify-between gap-4 mb-2">
                 <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                        <h4 className="font-semibold">{name || `Group ${id.slice(0, 8)}`}</h4>
-                        <LemonTag type="default">{Math.round(sampleRate * 100)}% sampled</LemonTag>
-                        {minDurationMs !== undefined && <LemonTag type="muted">min {minDurationMs / 1000}s</LemonTag>}
-                    </div>
-                    <p className="text-sm text-muted">{conditionsSummary}</p>
-                    {/* TODO: Show detailed conditions */}
+                    <LemonSnack>{displayName}</LemonSnack>
                 </div>
-                <div className="flex gap-2">
-                    <LemonButton size="small" icon={<IconPencil />} disabled>
-                        Edit
-                    </LemonButton>
-                    <LemonButton size="small" icon={<IconTrash />} status="danger" disabled>
-                        Delete
-                    </LemonButton>
+                <div className="flex items-center gap-4">
+                    <div className="flex gap-2">
+                        <LemonButton size="small" icon={<IconPencil />} onClick={onEdit}>
+                            Edit
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            icon={<IconTrash />}
+                            status="danger"
+                            onClick={() => {
+                                if (!onDelete) {
+                                    return
+                                }
+                                LemonDialog.open({
+                                    title: 'Delete trigger group?',
+                                    description: `Are you sure you want to delete "${displayName}"? This cannot be undone.`,
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        onClick: () => onDelete(id),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                            }}
+                            disabledReason={!onDelete ? 'Delete not yet implemented' : undefined}
+                        >
+                            Delete
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
+            <div className="flex flex-row items-center">
+                {/* Match type description */}
+                <div className="flex flex-col w-full">
+                    <div className="mb-3">
+                        <span className="text-sm">
+                            {hasConditions ? (
+                                <>
+                                    Match <b>sessions</b> against{' '}
+                                    <LemonTag type="success" className="uppercase">
+                                        {matchType}
+                                    </LemonTag>{' '}
+                                    criteria
+                                </>
+                            ) : (
+                                <>
+                                    Trigger group will match <b>all sessions</b>
+                                </>
+                            )}
+                        </span>
+                    </div>
+
+                    {/* Conditions */}
+                    {hasConditions && (
+                        <div className="flex flex-col gap-1 mb-3">
+                            {conditionRows.map((row, idx) => (
+                                <ConditionRow key={idx} {...row} isFirst={idx === 0} />
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Minimum duration */}
+                    {minDurationMs !== undefined && minDurationMs > 0 && (
+                        <div className="text-sm text-muted">
+                            Minimum duration: <b>{minDurationMs / 1000}</b> seconds
+                        </div>
+                    )}
+                </div>
+                <div className="text-right flex-col w-100">
+                    <div className="text-2xl font-semibold leading-none">{Math.round(sampleRate * 100)}%</div>
+                    <div className="text-xs text-muted">matching sessions recorded</div>
                 </div>
             </div>
         </div>
