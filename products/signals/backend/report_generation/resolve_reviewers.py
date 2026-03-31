@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +17,7 @@ from posthog.models.team.team import Team
 logger = logging.getLogger(__name__)
 
 MAX_SUGGESTED_REVIEWERS = 3
+MAX_COMMIT_LOOKUPS = 15
 
 
 @dataclass
@@ -50,23 +52,33 @@ def resolve_suggested_reviewers(
         )
         return []
 
+    # Cap lookups — we only need 3 reviewers, so diminishing returns past ~15 commits.
+    items = list(commit_hashes_with_reasons.items())[:MAX_COMMIT_LOOKUPS]
+    total = len(items)
+
+    # Fetch all commit author info in parallel (IO-bound GitHub API calls)
+    author_results: dict[int, Any] = {}
+    with ThreadPoolExecutor(max_workers=min(total, 5)) as pool:
+        future_to_idx = {
+            pool.submit(github.get_commit_author_info, repository, sha): i for i, (sha, _reason) in enumerate(items)
+        }
+        for future in as_completed(future_to_idx):
+            author_results[future_to_idx[future]] = future.result()
+
     # Weight earlier commits more heavily (position-based weighting)
     login_weights: Counter[str] = Counter()
     login_commits: dict[str, list[RelevantCommit]] = {}
     login_names: dict[str, str | None] = {}
-    total = len(commit_hashes_with_reasons)
 
-    for i, (sha, reason) in enumerate(commit_hashes_with_reasons.items()):
-        author_info = github.get_commit_author_info(repository, sha)
+    for i, (sha, reason) in enumerate(items):
+        author_info = author_results.get(i)
         if author_info:
             login = author_info.login
-            # Earlier commits get higher weight
             weight = total - i
             login_weights[login] += weight
             login_commits.setdefault(login, []).append(
                 RelevantCommit(sha=sha, url=author_info.commit_url, reason=reason)
             )
-            # Keep the first name we see (from highest-weight commit)
             if login not in login_names:
                 login_names[login] = author_info.name
 

@@ -6,7 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When, Exists, OuterRef
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Value, When
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -308,9 +308,9 @@ class SignalReportViewSet(
         github_login = self._get_github_login(self.request.user)
         if github_login:
             # github_login comes from our own UserSocialAuth DB, not user input.
-            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra
             qs = qs.annotate(
                 is_suggested_reviewer=Exists(
+                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
                     SignalReportArtefact.objects.filter(
                         report_id=OuterRef("id"),
                         type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
@@ -359,6 +359,7 @@ class SignalReportViewSet(
         if not has_id:
             clauses = [*clauses, "id"]
         return queryset.order_by(*clauses)
+
     @staticmethod
     def _get_github_login(user) -> str | None:
         """Resolve the GitHub login for a PostHog user via social auth."""
