@@ -85,8 +85,15 @@ pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<Tea
         None => return Ok(None),
     };
 
-    // The value may be JSON-encoded (e.g. "\"23047,12345\"") or a bare string ("23047,12345")
-    let value = raw_value.trim().trim_matches('"');
+    // Match Django's InstanceSetting.value: try json.loads first, fall back to raw string.
+    // Handles JSON strings ("\"23047,12345\""), null, and bare strings ("23047,12345").
+    let value = match serde_json::from_str::<serde_json::Value>(&raw_value) {
+        Ok(serde_json::Value::String(s)) => s,
+        Ok(serde_json::Value::Null) => return Ok(Some(HashSet::new())),
+        Ok(_) => raw_value.clone(), // non-string JSON (unlikely), treat as raw
+        Err(_) => raw_value.clone(), // not valid JSON, treat as bare string (like Django)
+    };
+    let value = value.trim();
     if value.is_empty() {
         return Ok(Some(HashSet::new()));
     }
