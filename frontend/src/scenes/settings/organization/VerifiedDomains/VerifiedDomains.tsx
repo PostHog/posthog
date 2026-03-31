@@ -19,6 +19,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'
@@ -137,8 +138,11 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function SSOEnforcement(_, { sso_enforcement, id, has_saml }) {
                 if (!isSSOEnforcementAvailable) {
                     return (
-                        <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock className="text-warning ml-1" /> Upgrade to enable
+                        <Link
+                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
+                            className="flex items-center gap-1"
+                        >
+                            <IconLock className="text-warning text-lg" /> Upgrade to enable
                         </Link>
                     )
                 }
@@ -159,22 +163,25 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function SAML(_, { saml_acs_url, saml_entity_id, saml_x509_cert, has_saml }) {
                 if (!isSAMLAvailable) {
                     return (
-                        <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock className="text-warning ml-1" /> Upgrade to enable
+                        <Link
+                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
+                            className="flex items-center gap-1"
+                        >
+                            <IconLock className="text-warning text-lg" /> Upgrade to enable
                         </Link>
                     )
                 }
                 return has_saml ? (
-                    <div className="flex items-center text-success">
-                        <IconCheckCircle className="mr-1 text-lg pt-0.5" /> SAML enabled
+                    <div className="flex items-center gap-1 text-success">
+                        <IconCheckCircle className="text-lg pt-0.5" /> SAML enabled
                     </div>
                 ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
-                    <div className="flex items-center text-warning">
-                        <IconWarning className="mr-1 text-lg pt-0.5" /> SAML partially configured
+                    <div className="flex items-center gap-1 text-warning">
+                        <IconWarning className="text-lg pt-0.5" /> SAML partially configured
                     </div>
                 ) : (
-                    <div className="flex items-center">
-                        <IconOffline className="mr-1 text-lg pt-0.5" /> SAML not set up
+                    <div className="flex items-center gap-1">
+                        <IconOffline className="text-lg" /> SAML not set up
                     </div>
                 )
             },
@@ -185,18 +192,21 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function SCIM(_, { scim_enabled }) {
                 if (!isSCIMAvailable) {
                     return (
-                        <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock className="text-warning ml-1" /> Upgrade to enable
+                        <Link
+                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
+                            className="flex items-center gap-1"
+                        >
+                            <IconLock className="text-warning text-lg" /> Upgrade to enable
                         </Link>
                     )
                 }
                 return scim_enabled ? (
-                    <div className="flex items-center text-success">
-                        <IconCheckCircle className="mr-1 text-lg pt-0.5" /> SCIM enabled
+                    <div className="flex items-center gap-1 text-success">
+                        <IconCheckCircle className="text-lg pt-0.5" /> SCIM enabled
                     </div>
                 ) : (
-                    <div className="flex items-center">
-                        <IconOffline className="mr-1 text-lg pt-0.5" /> SCIM not set up
+                    <div className="flex items-center gap-1">
+                        <IconOffline className="text-lg" /> SCIM not set up
                     </div>
                 )
             },
@@ -284,12 +294,12 @@ function VerifiedDomainsTable(): JSX.Element {
                       title: 'Status',
                       render: function Verified(_, { verified_at }) {
                           return verified_at ? (
-                              <div className="flex items-center text-danger">
-                                  <IconExclamation className="mr-1 text-lg pt-0.5" /> Verification expired
+                              <div className="flex items-center gap-1 text-danger">
+                                  <IconExclamation className="text-lg" /> Verification expired
                               </div>
                           ) : (
-                              <div className="flex items-center text-warning">
-                                  <IconWarning className="mr-1 text-lg pt-0.5" /> Pending verification
+                              <div className="flex items-center gap-1 text-warning">
+                                  <IconWarning className="text-lg" /> Pending verification
                               </div>
                           )
                       },
