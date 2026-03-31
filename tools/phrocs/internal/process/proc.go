@@ -61,6 +61,7 @@ type OutputMsg struct {
 	Evicted int
 }
 
+// Metrics holds the most recent sampled resource usage for a process tree.
 type Metrics struct {
 	MemRSSMB   float64   `json:"mem_rss_mb"`
 	PeakMemMB  float64   `json:"peak_mem_rss_mb"`
@@ -80,6 +81,7 @@ type Snapshot struct {
 	Ready    bool   `json:"ready"`
 	ExitCode *int   `json:"exit_code"`
 
+	// Nil until the first metrics sample arrives (~5s after start).
 	StartedAt        time.Time  `json:"started_at"`
 	ReadyAt          *time.Time `json:"ready_at,omitempty"`
 	StartupDurationS *float64   `json:"startup_duration_s,omitempty"`
@@ -94,6 +96,7 @@ type Snapshot struct {
 	LastSampledAt     *time.Time `json:"last_sampled_at"`
 }
 
+// Represents a single managed subprocess
 type Process struct {
 	Name         string
 	Cfg          config.ProcConfig
@@ -135,6 +138,7 @@ func (p *Process) Status() Status {
 	return p.status
 }
 
+// CPUPercent returns the most recently sampled CPU usage, or 0 if not yet sampled.
 func (p *Process) CPUPercent() float64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -144,6 +148,7 @@ func (p *Process) CPUPercent() float64 {
 	return p.metrics.CPUPercent
 }
 
+// MemRSSMB returns the most recently sampled RSS in MB, or 0 if not yet sampled.
 func (p *Process) MemRSSMB() float64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -153,7 +158,8 @@ func (p *Process) MemRSSMB() float64 {
 	return p.metrics.MemRSSMB
 }
 
-// HasPrompt returns true when the last output was a partial line (no trailing \n).
+// HasPrompt returns true when the last output was a partial line (no trailing \n),
+// indicating the process is likely waiting for input.
 func (p *Process) HasPrompt() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -173,7 +179,7 @@ func (p *Process) AppendLine(line string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if len(p.lines) >= p.maxLines {
-		p.lines[0] = ""
+		p.lines[0] = "" // allow GC of evicted string data
 		p.lines = p.lines[1:]
 	}
 	p.lines = append(p.lines, line)
@@ -181,6 +187,7 @@ func (p *Process) AppendLine(line string) {
 
 func ptr[T any](v T) *T { return &v }
 
+// Returns a consistent point-in-time view of the process
 func (p *Process) Snapshot() Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -212,6 +219,7 @@ func (p *Process) Snapshot() Snapshot {
 	return snap
 }
 
+// buildEnv constructs the environment for the child process.
 func (p *Process) buildEnv() []string {
 	env := os.Environ()
 	for k, v := range p.Cfg.Env {
@@ -220,6 +228,7 @@ func (p *Process) buildEnv() []string {
 	return env
 }
 
+// buildCmd creates the exec.Cmd from either the shell or cmd config.
 func (p *Process) buildCmd() *exec.Cmd {
 	if len(p.Cfg.Cmd) > 0 {
 		return exec.Command(p.Cfg.Cmd[0], p.Cfg.Cmd[1:]...)
@@ -227,6 +236,7 @@ func (p *Process) buildCmd() *exec.Cmd {
 	return exec.Command("/bin/bash", "-c", p.Cfg.Shell)
 }
 
+// It's safe to call Start concurrently as running process is a no-op
 func (p *Process) Start(send func(tea.Msg)) error {
 	p.mu.Lock()
 	if p.status == StatusRunning {
@@ -239,6 +249,10 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.exitCode = nil
 	p.startedAt = time.Now()
 	p.readyAt = time.Time{}
+	if p.stdinPipe != nil {
+		_ = p.stdinPipe.Close()
+		p.stdinPipe = nil
+	}
 	p.mu.Unlock()
 
 	cmd := p.buildCmd()
@@ -269,11 +283,13 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		return nil
 	}
 
+	// Only set to running if proc has no ready pattern
 	if p.readyPattern == nil {
 		p.status = StatusRunning
 	}
 	currentStatus := p.status
 	p.mu.Unlock()
+	// Send initial status message
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
 	go p.startMetricsSampler(cmd.Process.Pid)
@@ -303,6 +319,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		}
 		p.mu.Unlock()
 
+		// Wait for readLoop to drain all buffered output before updating status
 		<-readDone
 		close(outChannel)
 		p.handleExit(cmd, exitErr, send)
@@ -471,10 +488,11 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 	}
 }
 
+// bufferLine adds a line to the scrollback buffer, evicting old lines if needed.
 func (p *Process) bufferLine(line string) (evicted bool, becameReady bool) {
 	p.mu.Lock()
 	if len(p.lines) >= p.maxLines {
-		p.lines[0] = ""
+		p.lines[0] = "" // allow GC of evicted string data
 		p.lines = p.lines[1:]
 		evicted = true
 	}
@@ -490,6 +508,7 @@ func (p *Process) bufferLine(line string) (evicted bool, becameReady bool) {
 	return evicted, becameReady
 }
 
+// Sampling CPU/mem/threads every metricsSampleInterval for the process tree
 func (p *Process) startMetricsSampler(pid int) {
 	ps, err := gops.NewProcess(int32(pid))
 	if err != nil {
@@ -511,6 +530,7 @@ func (p *Process) startMetricsSampler(pid int) {
 		p.mu.Unlock()
 
 		if (st != StatusRunning && st != StatusPending) || (currentPID != 0 && currentPID != origPID) {
+			// Process has been restarted with a new PID
 			return
 		}
 
@@ -557,6 +577,7 @@ func (p *Process) startMetricsSampler(pid int) {
 	}
 }
 
+// collectProcessTree returns ps and all its descendants via a depth-first walk.
 func collectProcessTree(ps *gops.Process) []*gops.Process {
 	all := []*gops.Process{ps}
 	children, err := ps.Children()
@@ -569,6 +590,8 @@ func collectProcessTree(ps *gops.Process) []*gops.Process {
 	return all
 }
 
+// stopSignal returns the syscall signal to use when stopping the process,
+// based on the stop config. Defaults to SIGTERM.
 func (p *Process) stopSignal() syscall.Signal {
 	switch p.Cfg.Stop {
 	case "SIGINT":
@@ -586,6 +609,7 @@ func (p *Process) killProcessGroup() {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return
 	}
+	// If the tracked command has already exited, avoid signaling based on a potentially reused PID.
 	if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
 		return
 	}
@@ -595,6 +619,8 @@ func (p *Process) killProcessGroup() {
 	if err := syscall.Kill(-pid, sig); err != nil {
 		_ = p.cmd.Process.Signal(sig)
 	}
+	// Walk the full process tree to catch any descendants that escaped the
+	// process group (e.g. pnpm spawns node as a detached child).
 	if ps, err := gops.NewProcess(int32(pid)); err == nil {
 		for _, proc := range collectProcessTree(ps) {
 			_ = proc.SendSignal(sig)
@@ -639,12 +665,14 @@ func (p *Process) Stop() {
 	time.Sleep(200 * time.Millisecond)
 }
 
+// Stops the process, clears its output buffer, and starts it again
 func (p *Process) Restart(send func(tea.Msg)) {
 	p.Stop()
 	send(StatusMsg{Name: p.Name, Status: StatusStopped})
 	_ = p.Start(send)
 }
 
+// PID returns the OS PID of the running process, or 0 if not started.
 func (p *Process) PID() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -654,6 +682,7 @@ func (p *Process) PID() int {
 	return 0
 }
 
+// WriteInput writes data to the process's stdin via the PTY.
 func (p *Process) WriteInput(data []byte) error {
 	p.mu.Lock()
 	ptmx := p.ptmx
@@ -672,6 +701,7 @@ func (p *Process) WriteInput(data []byte) error {
 	return fmt.Errorf("process %s has no PTY or stdin pipe", p.Name)
 }
 
+// Updates the pty window size to keep output correctly reflowed
 func (p *Process) Resize(cols, rows uint16) {
 	p.mu.Lock()
 	ptmx := p.ptmx
