@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+from typing import ClassVar
 
 from unittest.mock import patch
 
@@ -29,6 +30,12 @@ def generate_github_signature(payload: bytes, secret: str) -> str:
 
 
 class TestGitHubPRWebhook(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")

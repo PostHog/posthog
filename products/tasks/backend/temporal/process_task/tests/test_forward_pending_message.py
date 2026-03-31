@@ -1,5 +1,6 @@
 import importlib
 from types import SimpleNamespace
+from typing import ClassVar
 
 from unittest.mock import patch
 
@@ -11,7 +12,10 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.models import Task, TaskRun
+
 _module = importlib.import_module("products.tasks.backend.temporal.process_task.activities.forward_pending_message")
+
 forward_pending_user_message = _module.forward_pending_user_message
 
 
@@ -22,10 +26,14 @@ def _command_result(**kwargs):
 
 
 class TestForwardPendingUserMessage(TestCase):
+    org: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    slack_integration: ClassVar[Integration]
+
     @classmethod
     def setUpTestData(cls):
-        Task = apps.get_model("tasks", "Task")
-        cls.TaskRun = apps.get_model("tasks", "TaskRun")
         cls.org = Organization.objects.create(name="TestOrg")
         cls.team = Team.objects.create(organization=cls.org, name="TestTeam")
         cls.user = User.objects.create(email="alice@test.com")
@@ -45,10 +53,10 @@ class TestForwardPendingUserMessage(TestCase):
         )
 
     def _make_run(self, state=None):
-        return self.TaskRun.objects.create(
+        return TaskRun.objects.create(
             task=self.task,
             team=self.team,
-            status=self.TaskRun.Status.IN_PROGRESS,
+            status=TaskRun.Status.IN_PROGRESS,
             state=state or {},
         )
 

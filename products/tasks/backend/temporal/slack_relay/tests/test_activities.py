@@ -1,6 +1,7 @@
+from typing import ClassVar
+
 from unittest.mock import patch
 
-from django.apps import apps
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -10,6 +11,8 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     RelaySlackMessageInput,
     _markdown_to_slack_mrkdwn,
@@ -18,11 +21,15 @@ from products.tasks.backend.temporal.slack_relay.activities import (
 
 
 class TestRelaySlackMessage(TestCase):
+    org: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    integration: ClassVar[Integration]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
     @classmethod
     def setUpTestData(cls):
-        Task = apps.get_model("tasks", "Task")
-        TaskRun = apps.get_model("tasks", "TaskRun")
-        SlackThreadTaskMapping = apps.get_model("slack_app", "SlackThreadTaskMapping")
         cls.org = Organization.objects.create(name="TestOrg")
         cls.team = Team.objects.create(organization=cls.org, name="TestTeam")
         cls.user = User.objects.create(email="alice@test.com")

@@ -1,6 +1,7 @@
 import json
 import uuid
 import secrets
+from typing import ClassVar
 
 from unittest.mock import patch
 
@@ -19,6 +20,9 @@ from products.tasks.backend.models import CodeInvite, SandboxEnvironment, Sandbo
 
 
 class TestTask(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
@@ -204,6 +208,9 @@ class TestTask(TestCase):
 
 
 class TestTaskSlug(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
@@ -290,6 +297,10 @@ class TestTaskSlug(TestCase):
 
 
 class TestTaskRun(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    task: ClassVar[Task]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
@@ -604,6 +615,10 @@ class TestTaskRun(TestCase):
 
 
 class TestSandboxSnapshot(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    integration: ClassVar[Integration]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
@@ -853,6 +868,10 @@ class TestSandboxSnapshot(TestCase):
 
 
 class TestSandboxEnvironment(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
@@ -1009,6 +1028,14 @@ class TestSandboxEnvironment(TestCase):
 
 
 class TestTaskRunGetSandboxEnvironment(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    other_team: ClassVar[Team]
+    user: ClassVar[User]
+    other_user: ClassVar[User]
+    integration: ClassVar[Integration]
+    task: ClassVar[Task]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")

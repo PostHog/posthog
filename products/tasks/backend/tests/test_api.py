@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
@@ -51,10 +52,12 @@ vbMnD1ZQKgL8LHgb02cbTsc=
 
 
 class BaseTaskAPITest(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
     feature_flag_patcher: MagicMock
     mock_feature_flag: MagicMock
     client: APIClient
-    user: User
 
     @classmethod
     def setUpTestData(cls):
