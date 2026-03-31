@@ -133,41 +133,55 @@ def generate_config_yaml(*, enable_ptrace: bool = True, full_trace: bool = True)
     return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
 
-def generate_policy_yaml(allowed_domains: list[str]) -> str:
-    merged_domains = list(allowed_domains)
-    for domain in _get_infrastructure_domains():
-        if domain not in merged_domains:
-            merged_domains.append(domain)
+def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
+    """Generate agentsh policy YAML.
 
-    allowed_ports = [443, 80, 22]
-    if getattr(settings, "DEBUG", False):
-        allowed_ports.extend([8000, 8010])
+    When allowed_domains is set, only those domains (plus infrastructure) are
+    reachable and everything else is denied.  When None, all network traffic
+    is allowed (audit-only mode).
+    """
+    if allowed_domains is not None:
+        merged_domains = list(allowed_domains)
+        for domain in _get_infrastructure_domains():
+            if domain not in merged_domains:
+                merged_domains.append(domain)
 
-    policy: dict = {
-        "version": 1,
-        "name": "default",
-        "description": "Agent sandbox policy with domain allowlisting",
-        "network_rules": [
+        allowed_ports = [443, 80, 22]
+        if getattr(settings, "DEBUG", False):
+            allowed_ports.extend([8000, 8010])
+
+        network_rules: list[dict] = [
             {
                 "name": "allow-localhost",
-                "description": "Allow localhost connections (includes Docker DNS at 127.0.0.11)",
                 "cidrs": ["127.0.0.0/8", "::1/128"],
                 "decision": "allow",
             },
             {
                 "name": "allow-domains",
-                "description": "Allowed domains for this sandbox",
                 "domains": merged_domains,
                 "ports": allowed_ports,
                 "decision": "allow",
             },
             {
                 "name": "default-deny-network",
-                "description": "Deny all other network connections",
                 "domains": ["*"],
                 "decision": "deny",
             },
-        ],
+        ]
+    else:
+        network_rules = [
+            {
+                "name": "allow-all-network",
+                "domains": ["*"],
+                "decision": "allow",
+            },
+        ]
+
+    policy: dict = {
+        "version": 1,
+        "name": "default",
+        "description": "Agent sandbox policy",
+        "network_rules": network_rules,
         "command_rules": [
             {
                 "name": "allow-all-commands",

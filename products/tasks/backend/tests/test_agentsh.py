@@ -109,6 +109,18 @@ class TestGeneratePolicyYaml(TestCase):
         self.assertIn(8000, allow_rule["ports"])
         self.assertIn(8010, allow_rule["ports"])
 
+    def test_allow_all_policy_when_no_domains(self):
+        policy = yaml.safe_load(generate_policy_yaml(None))
+        rules = policy["network_rules"]
+        self.assertEqual(len(rules), 1)
+        self.assertEqual(rules[0]["name"], "allow-all-network")
+        self.assertEqual(rules[0]["decision"], "allow")
+
+    def test_allow_all_policy_has_no_deny_rules(self):
+        policy = yaml.safe_load(generate_policy_yaml(None))
+        deny_rules = [r for r in policy["network_rules"] if r["decision"] == "deny"]
+        self.assertEqual(len(deny_rules), 0)
+
 
 class TestEnvWrapper(TestCase):
     def test_wrapper_restores_environment_dump(self):
@@ -150,7 +162,7 @@ class TestBuildExecPrefix(TestCase):
 
 @override_settings(DEBUG=True, SANDBOX_PROVIDER="modal")
 class TestModalSandboxAgentShWrapping(TestCase):
-    def test_command_wrapped_with_agentsh_exec(self):
+    def test_command_always_wrapped_with_agentsh_exec(self):
         from products.tasks.backend.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
@@ -159,24 +171,10 @@ class TestModalSandboxAgentShWrapping(TestCase):
             task_id="test-task",
             run_id="test-run",
             mode="background",
-            wrap_with_agentsh=True,
         )
         self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
         self.assertIn("env -0 > /tmp/agent-env", cmd)
         self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
-
-    def test_command_not_wrapped_without_flag(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
-
-        sandbox = ModalSandbox.__new__(ModalSandbox)
-        cmd = sandbox._build_agent_server_command(
-            repo_path="/tmp/workspace/repos/org/repo",
-            task_id="test-task",
-            run_id="test-run",
-            mode="background",
-            wrap_with_agentsh=False,
-        )
-        self.assertNotIn("agentsh exec", cmd)
 
     def test_command_includes_allowed_domains(self):
         from products.tasks.backend.services.modal_sandbox import ModalSandbox

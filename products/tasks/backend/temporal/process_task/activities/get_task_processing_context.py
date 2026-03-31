@@ -117,10 +117,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     if sandbox_environment_id:
         sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
         if sandbox_environment is None:
-            emit_agent_log(
-                run_id,
-                "debug",
-                f"Sandbox environment {sandbox_environment_id} was not found; continuing without agentsh policy",
+            raise TaskInvalidStateError(
+                f"Sandbox environment {sandbox_environment_id} not found for team {task.team_id}",
+                {"sandbox_environment_id": sandbox_environment_id, "team_id": task.team_id},
+                cause=RuntimeError(f"Sandbox environment {sandbox_environment_id} does not exist"),
             )
         else:
             sandbox_environment_name = sandbox_environment.name

@@ -203,12 +203,13 @@ class TestDockerSandboxUnit:
         sandbox._host_port = 12345
 
         with patch.object(sandbox, "is_running", return_value=True):
-            with patch.object(sandbox, "execute") as mock_execute:
-                mock_execute.return_value = MagicMock(exit_code=0)
-                with patch.object(sandbox, "_wait_for_health_check", return_value=True):
-                    sandbox.start_agent_server(repository, task_id, run_id, mode)
+            with patch.object(sandbox, "_setup_agentsh"):
+                with patch.object(sandbox, "execute") as mock_execute:
+                    mock_execute.return_value = MagicMock(exit_code=0)
+                    with patch.object(sandbox, "_wait_for_health_check", return_value=True):
+                        sandbox.start_agent_server(repository, task_id, run_id, mode)
 
-                command = mock_execute.call_args_list[0][0][0]
+                    command = mock_execute.call_args_list[0][0][0]
 
                 org, repo = repository.lower().split("/")
                 repo_path = f"/tmp/workspace/repos/{org}/{repo}"
@@ -218,7 +219,35 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(run_id) in command
                 assert shlex.quote(mode) in command
 
-    def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self):
+    def test_start_agent_server_always_wraps_with_agentsh(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.side_effect = [
+                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+                ]
+                with patch.object(sandbox, "_setup_agentsh") as mock_setup_agentsh:
+                    sandbox.start_agent_server(
+                        "posthog/posthog",
+                        "task-123",
+                        "run-456",
+                        "background",
+                    )
+
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", None)
+        command = mock_execute.call_args_list[0][0][0]
+        assert "agentsh exec --client-timeout 2h --timeout 2h" in command
+        assert "env -0 > /tmp/agent-env" in command
+        assert "/tmp/agentsh-env-wrapper.sh" in command
+        assert "./node_modules/.bin/agent-server" in command
+
+    def test_start_agent_server_passes_allowed_domains(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -240,15 +269,9 @@ class TestDockerSandboxUnit:
                         allowed_domains=["example.com"],
                     )
 
-        mock_setup_agentsh.assert_called_once_with(
-            "/tmp/workspace",
-            ["example.com"],
-        )
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
         command = mock_execute.call_args_list[0][0][0]
-        assert "agentsh exec --client-timeout 2h --timeout 2h" in command
-        assert "env -0 > /tmp/agent-env" in command
-        assert "/tmp/agentsh-env-wrapper.sh" in command
-        assert "./node_modules/.bin/agent-server" in command
+        assert "--allowedDomains" in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

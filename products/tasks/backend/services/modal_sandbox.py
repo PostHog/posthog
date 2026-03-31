@@ -22,6 +22,18 @@ import requests
 from posthog.exceptions_capture import capture_exception
 
 from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.services.agentsh import (
+    ENV_FILE,
+    ENV_WRAPPER_SCRIPT,
+    SESSION_ID_FILE,
+    build_exec_prefix,
+    build_setup_script,
+    generate_config_yaml,
+    generate_env_wrapper,
+    generate_policy_yaml,
+)
+from products.tasks.backend.services.local_packages import overlay_local_packages
+from products.tasks.backend.services.sandbox import wait_for_health_check
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -163,8 +175,6 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         _populate_local_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH)
 
         # Overlay local agent packages when LOCAL_POSTHOG_CODE_MONOREPO_ROOT is set
-        from products.tasks.backend.services.local_packages import overlay_local_packages
-
         overlay_local_packages(context_dir, destination_dockerfile_path)
 
     return str(destination_dockerfile_path), str(context_dir)
@@ -507,7 +517,6 @@ class ModalSandbox:
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_servers_arg: str = "",
-        wrap_with_agentsh: bool = False,
         allowed_domains: list[str] | None = None,
     ) -> str:
         env_prefix = (
@@ -522,18 +531,11 @@ class ModalSandbox:
             f"{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
 
-        if wrap_with_agentsh:
-            from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
-
-            # agentsh exec enforces network policy via ptrace but strips the process
-            # environment.  We dump env before exec and the wrapper restores it.
-            inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
-            return (
-                f"cd /scripts && env -0 > {ENV_FILE} && "
-                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
-            )
-
-        return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+        inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
+        return (
+            f"cd /scripts && env -0 > {ENV_FILE} && "
+            f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
+        )
 
     def _launch_and_check(self, command: str) -> bool:
         result = self.execute(command, timeout_seconds=30)
@@ -567,8 +569,7 @@ class ModalSandbox:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        if allowed_domains:
-            self._setup_agentsh(WORKING_DIR, allowed_domains)
+        self._setup_agentsh(WORKING_DIR, allowed_domains)
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -583,7 +584,6 @@ class ModalSandbox:
             interaction_origin,
             branch,
             mcp_servers_arg,
-            wrap_with_agentsh=bool(allowed_domains),
             allowed_domains=allowed_domains,
         )
 
@@ -598,21 +598,11 @@ class ModalSandbox:
 
         logger.info(f"Agent-server started in sandbox {self.id}")
 
-    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str]) -> None:
-        from products.tasks.backend.services.agentsh import (
-            ENV_WRAPPER_SCRIPT,
-            SESSION_ID_FILE,
-            build_setup_script,
-            generate_config_yaml,
-            generate_env_wrapper,
-            generate_policy_yaml,
-        )
-
-        logger.info(
-            "Configuring agentsh in sandbox %s for %d allowed domain(s)",
-            self.id,
-            len(allowed_domains),
-        )
+    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
+        if allowed_domains:
+            logger.info("Configuring agentsh in sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains))
+        else:
+            logger.info("Configuring agentsh in sandbox %s (allow-all mode)", self.id)
 
         config_yaml = generate_config_yaml(enable_ptrace=True, full_trace=True)
         policy_yaml = generate_policy_yaml(allowed_domains)
@@ -656,8 +646,6 @@ class ModalSandbox:
 
     def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
-        from products.tasks.backend.services.sandbox import wait_for_health_check
-
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
 
     def create_snapshot(self) -> str:
