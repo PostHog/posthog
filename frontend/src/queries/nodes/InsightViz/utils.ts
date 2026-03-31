@@ -113,11 +113,6 @@ export function getQueryFromInsightLike(insight: {
     return query
 }
 
-export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: filtersToQueryNode(filters, { source: 'insight_viz_query_from_filters' }),
-})
-
 export const queryFromKind = (
     kind: ProductAnalyticsInsightNodeKind,
     filterTestAccountsDefault: boolean

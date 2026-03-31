@@ -15,7 +15,6 @@ import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
-import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -39,6 +38,18 @@ const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
     events: [{ id: 3 }],
     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' } as any as AnyPropertyFilter],
+}
+
+const API_QUERY = {
+    kind: NodeKind.InsightVizNode,
+    source: {
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: 3, math: 'total' }],
+        properties: {
+            type: 'AND',
+            values: [{ type: 'AND', values: [{ key: 'a', type: 'a', value: 'a', operator: PropertyOperator.Exact }] }],
+        },
+    },
 }
 
 const Insight12 = '12' as InsightShortId
@@ -92,7 +103,7 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         id: 42,
         short_id: Insight42,
         result: ['result 42'],
-        query: queryFromFilters(API_FILTERS),
+        query: API_QUERY,
         dashboards: [],
         dashboard_tiles: [],
         saved: true,
@@ -360,13 +371,29 @@ describe('insightLogic', () => {
             it('does not make a query', async () => {
                 const insight: Partial<QueryBasedInsightModel> = {
                     short_id: Insight42,
-                    query: queryFromFilters({
-                        insight: InsightType.TRENDS,
-                        events: [{ id: 3, throw: true }],
-                        properties: [
-                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
-                        ],
-                    }),
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [{ kind: NodeKind.EventsNode, event: 3, throw: true, math: 'total' }],
+                            properties: {
+                                type: 'AND',
+                                values: [
+                                    {
+                                        type: 'AND',
+                                        values: [
+                                            {
+                                                value: 'a',
+                                                operator: PropertyOperator.Exact,
+                                                key: 'a',
+                                                type: PropertyFilterType.Person,
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                    },
                 }
                 logic = insightLogic({
                     dashboardItemId: Insight42,
@@ -461,7 +488,7 @@ describe('insightLogic', () => {
     test('keeps saved name, description, tags', async () => {
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
-            cachedInsight: { ...createEmptyInsight(Insight43), id: 123, query: queryFromFilters(API_FILTERS) },
+            cachedInsight: { ...createEmptyInsight(Insight43), id: 123, query: API_QUERY },
         }
 
         logic = insightLogic(insightProps)
@@ -980,7 +1007,7 @@ describe('insightLogic', () => {
         ])('is %s → %s', (_label, propsOverride, expected) => {
             logic = insightLogic({
                 dashboardItemId: Insight42,
-                cachedInsight: { ...partialInsight42, query: queryFromFilters(API_FILTERS) },
+                cachedInsight: { ...partialInsight42, query: API_QUERY },
                 ...propsOverride,
             })
             logic.mount()
@@ -996,7 +1023,7 @@ describe('insightLogic', () => {
         ])('returns correct value when %s', (_label, propsOverride, expected) => {
             logic = insightLogic({
                 dashboardItemId: Insight42,
-                cachedInsight: { ...partialInsight42, query: queryFromFilters(API_FILTERS) },
+                cachedInsight: { ...partialInsight42, query: API_QUERY },
                 ...propsOverride,
             })
             logic.mount()
@@ -1014,7 +1041,7 @@ describe('insightLogic', () => {
                 dashboardItemId: Insight42,
                 cachedInsight: {
                     ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
+                    query: API_QUERY,
                     user_access_level: accessLevel,
                 },
             })
@@ -1030,7 +1057,7 @@ describe('insightLogic', () => {
                 dashboardItemId: Insight43,
                 cachedInsight: {
                     ...partialInsight43,
-                    query: queryFromFilters(API_FILTERS),
+                    query: API_QUERY,
                     name: 'Original 43',
                     description: 'Original description',
                     tags: [],
@@ -1091,7 +1118,7 @@ describe('insightLogic', () => {
                 dashboardItemId: Insight43,
                 cachedInsight: {
                     ...partialInsight43,
-                    query: queryFromFilters(API_FILTERS),
+                    query: API_QUERY,
                     name: 'Foobar 43',
                     description: 'Lorem ipsum.',
                     tags: ['good'],
