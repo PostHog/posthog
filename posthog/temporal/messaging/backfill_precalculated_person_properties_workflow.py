@@ -335,7 +335,6 @@ async def backfill_precalculated_person_properties_activity(
               AND id <= %(end_person_id)s
               AND is_deleted = 0
             ORDER BY id
-            LIMIT %(batch_size)s
             FORMAT JSONEachRow
         """
 
@@ -343,7 +342,6 @@ async def backfill_precalculated_person_properties_activity(
             "team_id": inputs.team_id,
             "start_person_id": inputs.start_person_id,
             "end_person_id": inputs.end_person_id,
-            "batch_size": inputs.batch_size,
         }
 
         last_person_id = inputs.start_person_id
