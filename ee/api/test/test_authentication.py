@@ -1008,6 +1008,16 @@ class TestSSOLoginSessionHandling(APILicensedTest):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.session.session_key, old_session_key)
 
+    def test_sso_login_flushes_session_when_reauth_but_not_authenticated(self):
+        self.client.force_login(self.user)
+        old_session_key = self.client.session.session_key
+        self.client.logout()
+
+        response = self.client.get("/login/google-oauth2/?reauth=true")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotEqual(self.client.session.session_key, old_session_key)
+
 
 class TestSSOEnforcement(APILicensedTest):
     """Test SSO enforcement across different auth methods"""
