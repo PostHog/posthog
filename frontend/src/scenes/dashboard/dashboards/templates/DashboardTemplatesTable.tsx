@@ -95,10 +95,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 }
                 const { id, scope } = record
                 const builtInOfficial = isBuiltInOfficialTemplate(record)
-                const makePrivateDisabledReason =
-                    scope === 'global' && builtInOfficial
-                        ? 'Built-in official templates cannot be made team-only'
-                        : undefined
+                const makePrivateDisabledReason = builtInOfficial
+                    ? 'Built-in official templates cannot be made team-only'
+                    : undefined
 
                 return (
                     <More
