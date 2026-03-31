@@ -73,7 +73,7 @@ Defined in `backend/temporal/buffer.py`.
 
 - New signals arrive via `@workflow.signal` (`submit_signal`), sent by `SignalEmitterWorkflow` instances.
 - Exposes `@workflow.query` (`get_buffer_size`) so emitters can implement backpressure by polling buffer occupancy before sending.
-- The main loop waits for signals, then waits until either the buffer reaches `BUFFER_MAX_SIZE` (20) or `BUFFER_FLUSH_TIMEOUT_SECONDS` (60s) elapses since the first signal arrived.
+- The main loop waits for signals, then waits until either the buffer reaches `BUFFER_MAX_SIZE` (20) or `BUFFER_FLUSH_TIMEOUT_SECONDS` (5s) elapses since the first signal arrived.
 - On flush: drains the buffer, runs the **safety filter** on all signals in parallel via `safety_filter_activity` (drops signals classified as unsafe — prompt injection, data exfiltration, etc.), then writes the safe signals to S3 at `signals/signal_batches/<uuid>` via `flush_signals_to_s3_activity`, then sends the object key to the grouping v2 workflow via `signal_with_start_grouping_v2_activity` (which creates the grouping workflow if not already running). If the entire batch is unsafe, the flush and grouping steps are skipped.
 - If the buffer is already full again after flushing (signals arrived during the flush activities), loops immediately to flush again rather than `continue_as_new` (avoids losing throughput to workflow restart).
 - Otherwise calls `continue_as_new`, carrying over any signals that arrived between drain and now via `BufferSignalsInput.pending_signals`.
@@ -526,8 +526,8 @@ Signal {index}:
 | `MAX_RESPONSE_TOKENS`          | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget) |
 | Embedding model                | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                     |
 | Task queue                     | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                              |
-| `BUFFER_MAX_SIZE`              | `100`                         | Max signals buffered in memory before flush to S3                                  |
-| `BUFFER_FLUSH_TIMEOUT_SECONDS` | `60`                          | Max seconds to wait for buffer to fill before flushing                             |
+| `BUFFER_MAX_SIZE`              | `20`                          | Max signals buffered in memory before flush to S3                                  |
+| `BUFFER_FLUSH_TIMEOUT_SECONDS` | `5`                           | Max seconds to wait for buffer to fill before flushing                             |
 | S3 prefix                      | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)   |
 
 ---

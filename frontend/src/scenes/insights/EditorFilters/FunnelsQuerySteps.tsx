@@ -5,9 +5,7 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -32,10 +30,6 @@ export const FUNNEL_STEP_COUNT_LIMIT = 30
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_SUPPORT]
-    const isFunnelDwhStepPopoverVariant =
-        supportsDwhFunnels && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_STEP_UI] === 'popover'
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
@@ -101,11 +95,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                         ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                         ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                         TaxonomicFilterGroupType.AutocaptureEvents,
-                        ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
+                        TaxonomicFilterGroupType.DataWarehouse,
                     ]}
-                    definitionPopoverRenderer={
-                        isFunnelDwhStepPopoverVariant ? FunnelDataWarehouseStepDefinitionPopover : undefined
-                    }
+                    definitionPopoverRenderer={FunnelDataWarehouseStepDefinitionPopover}
                     dataWarehousePopoverFields={[
                         {
                             key: 'id_field',

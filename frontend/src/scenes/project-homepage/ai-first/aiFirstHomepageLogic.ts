@@ -1,8 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -10,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
@@ -82,14 +81,16 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['homepage'],
             dashboardsModel,
             ['pinnedDashboards', 'dashboardsLoading'],
+            recentItemsModel,
+            ['recents as cachedRecents', 'recentsLoading'],
+            projectTreeDataLogic,
+            ['shortcutData as cachedStarred'],
         ],
         actions: [
             maxLogic({ tabId: HOMEPAGE_TAB_ID }),
             ['openConversation', 'startNewConversation', 'setQuestion'],
             sceneLogic,
             ['setHomepage'],
-            projectTreeDataLogic,
-            ['deleteShortcutSuccess', 'addShortcutItemSuccess'],
         ],
     })),
 
@@ -101,31 +102,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         returnToIdle: true,
         setPreviousHomepage: (tab: SceneTab | null) => ({ tab }),
         revertToPreviousHomepage: true,
-    }),
-
-    loaders({
-        recentItems: [
-            [] as FileSystemEntry[],
-            {
-                loadRecentItems: async () => {
-                    const response = await api.fileSystem.list({
-                        limit: GRID_LIMIT,
-                        orderBy: '-last_viewed_at',
-                        notType: 'folder',
-                    })
-                    return response.results
-                },
-            },
-        ],
-        starredItems: [
-            [] as FileSystemEntry[],
-            {
-                loadStarredItems: async () => {
-                    const response = await api.fileSystemShortcuts.list()
-                    return response.results.filter((entry) => entry.type !== 'folder').slice(0, GRID_LIMIT)
-                },
-            },
-        ],
     }),
 
     reducers({
@@ -176,6 +152,16 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     }),
 
     selectors({
+        recentItems: [
+            (s) => [s.cachedRecents],
+            (cachedRecents): FileSystemEntry[] => cachedRecents.slice(0, GRID_LIMIT),
+        ],
+        recentItemsLoading: [(s) => [s.recentsLoading], (recentsLoading): boolean => recentsLoading],
+        starredItems: [
+            (s) => [s.cachedStarred],
+            (cachedStarred): FileSystemEntry[] => cachedStarred.filter((e) => e.type !== 'folder').slice(0, GRID_LIMIT),
+        ],
+        starredItemsLoading: [() => [], (): boolean => false],
         mode: [(s) => [s.layoutState], (layoutState): HomepageMode => layoutState.mode],
         animationPhase: [(s) => [s.layoutState], (layoutState): AnimationPhase => layoutState.animationPhase],
         pinnedDashboardItems: [
@@ -216,12 +202,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        deleteShortcutSuccess: () => {
-            actions.loadStarredItems()
-        },
-        addShortcutItemSuccess: () => {
-            actions.loadStarredItems()
-        },
         submitQuery: async ({ mode }, breakpoint) => {
             if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
@@ -307,10 +287,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        // Load grid data (pinnedDashboards comes from dashboardsModel, loaded automatically)
-        actions.loadRecentItems()
-        actions.loadStarredItems()
-
         // Capture the previous homepage on first visit so we can revert later
         const stored = loadPreviousHomepage()
         if (stored) {
