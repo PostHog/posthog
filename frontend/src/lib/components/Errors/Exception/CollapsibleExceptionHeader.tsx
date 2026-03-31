@@ -29,18 +29,6 @@ export function CollapsibleExceptionHeader({
     const type = useMemo(() => formatType(exception), [exception])
     const { value } = exception
 
-    const formattedValue = useMemo(() => {
-        if (!value) {
-            return null
-        }
-        return value.split('\n').map((line, index) => (
-            <span key={index}>
-                {index > 0 && <br />}
-                {line}
-            </span>
-        ))
-    }, [value])
-
     return (
         <div className="pb-1">
             <div className="flex gap-2 items-center min-w-0">
@@ -58,11 +46,11 @@ export function CollapsibleExceptionHeader({
             </div>
             {(loading || value) && (
                 <div
-                    className={cn('text-[var(--gray-8)] leading-6', {
+                    className={cn('text-[var(--gray-8)] leading-6 whitespace-pre-wrap', {
                         'line-clamp-1': truncate,
                     })}
                 >
-                    {loading ? <LemonSkeleton className="w-[50%] h-2" /> : formattedValue}
+                    {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value}
                 </div>
             )}
         </div>

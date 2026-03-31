@@ -66,8 +66,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     apt-get install -y gh && \
     rm -rf /var/lib/apt/lists/*
 
-# Install agentsh (runtime security governance for ptrace-based domain filtering)
-ARG AGENTSH_TAG=v0.16.4
+# Install agentsh for runtime egress policy enforcement
+ARG AGENTSH_TAG=v0.16.7
 RUN set -eux; \
     version="${AGENTSH_TAG#v}"; \
     arch="$(dpkg --print-architecture)"; \

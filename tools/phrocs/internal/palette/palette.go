@@ -13,10 +13,15 @@ var (
 	ColorBlack    = lipgloss.Color("#151515")
 	ColorMidGrey  = lipgloss.Color("#555860") // focused-border accent
 
-	// Subtle background tint for CPU usage bars (htop-style)
+	// Subtle background tint for CPU usage bars (htop-style, dark terminals)
 	ColorBarLow  = lipgloss.Color("#1A3A1A") // green tint, low CPU
 	ColorBarMid  = lipgloss.Color("#3A3A1A") // yellow tint, moderate CPU
 	ColorBarHigh = lipgloss.Color("#3A1A1A") // red tint, high CPU
+
+	// Subtle background tint for CPU usage bars (htop-style, light terminals)
+	ColorBarLowLight  = lipgloss.Color("#C8F0C8") // green tint, low CPU
+	ColorBarMidLight  = lipgloss.Color("#F0ECC8") // yellow tint, moderate CPU
+	ColorBarHighLight = lipgloss.Color("#F0C8C8") // red tint, high CPU
 )
 
 const (
