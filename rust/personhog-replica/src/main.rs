@@ -6,6 +6,7 @@ use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -14,7 +15,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_common::{spawn_pool_monitor, GrpcMetricsLayer, MonitoredPool};
+use personhog_common::{spawn_pool_monitor, MonitoredPool};
 use personhog_replica::config::Config;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
@@ -29,7 +30,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 max_connections: config.max_pg_connections,
                 acquire_timeout: config.acquire_timeout(),
                 idle_timeout: config.idle_timeout(),
-                test_before_acquire: true,
+                test_before_acquire: false,
                 statement_timeout_ms: config.statement_timeout(),
                 pool_name: Some("primary".to_string()),
             };
@@ -171,15 +172,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let service = PersonHogReplicaService::new(storage);
     let grpc_addr = config.grpc_address;
+    let keepalive_interval = config.grpc_keepalive_interval();
+    let keepalive_timeout = config.grpc_keepalive_timeout();
+    let max_send = config.grpc_max_send_message_size;
+    let max_recv = config.grpc_max_recv_message_size;
 
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
     tokio::spawn(async move {
         let _guard = grpc_handle.process_scope();
+        let listener = match tokio::net::TcpListener::bind(grpc_addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                grpc_handle.signal_failure(format!("Failed to bind gRPC port: {e}"));
+                return;
+            }
+        };
+        let incoming = tracked_tcp_incoming(listener);
         if let Err(e) = Server::builder()
+            .http2_keepalive_interval(keepalive_interval)
+            .http2_keepalive_timeout(keepalive_timeout)
             .layer(GrpcMetricsLayer)
-            .add_service(PersonHogReplicaServer::new(service))
-            .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
+            .add_service(
+                PersonHogReplicaServer::new(service)
+                    .max_encoding_message_size(max_send)
+                    .max_decoding_message_size(max_recv),
+            )
+            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -37,7 +39,8 @@ class TestLogsAlertAPI(APIBaseTest):
 
     # --- CRUD ---
 
-    def test_create(self):
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_create(self, mock_report):
         data = self._create_via_api()
         assert data["name"] == "High error rate"
         assert data["threshold_count"] == 10
@@ -45,6 +48,11 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["enabled"] is True
         assert data["created_by"]["id"] == self.user.pk
         assert data["filters"] == {"severityLevels": ["error"]}
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert created"
+        assert mock_report.call_args[0][2]["name"] == "High error rate"
+        assert mock_report.call_args[0][2]["threshold_count"] == 10
 
     def test_list(self):
         self._create_via_api(name="Alert 1")
@@ -75,8 +83,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Renamed"
 
-    def test_partial_update(self):
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_partial_update(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
 
         response = self.client.patch(
             f"{self.base_url}{created['id']}/",
@@ -86,12 +96,22 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Patched"
 
-    def test_delete(self):
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert updated"
+        assert mock_report.call_args[0][2]["name"] == "Patched"
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_delete(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
 
         response = self.client.delete(f"{self.base_url}{created['id']}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not LogsAlertConfiguration.objects.filter(pk=created["id"]).exists()
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert deleted"
+        assert mock_report.call_args[0][2]["name"] == "High error rate"
 
     # --- Team isolation ---
 
@@ -317,3 +337,147 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["state"] == "not_firing"
         assert response.json()["enabled"] is False
+
+    # --- Edit behavior: recheck and state reset ---
+
+    def test_threshold_change_resets_state_and_clears_next_check(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="firing",
+            next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"threshold_count": 50},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+        assert response.json()["next_check_at"] is None
+
+    def test_filter_change_resets_state(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"filters": {"severityLevels": ["warn"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+
+    def test_window_change_preserves_state_and_clears_next_check(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="firing",
+            next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"window_minutes": 10},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "firing"
+        assert response.json()["next_check_at"] is None
+
+    def test_name_change_preserves_state_and_next_check(self):
+        next_check = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="firing",
+            next_check_at=next_check,
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"name": "Renamed"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "firing"
+        assert response.json()["next_check_at"] is not None
+
+    # --- Snooze ---
+
+    def test_snooze_sets_snoozed_state(self):
+        created = self._create_via_api()
+        snooze_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": snooze_time},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "snoozed"
+        assert response.json()["snooze_until"] is not None
+
+    def test_unsnooze_sets_not_firing_state(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="snoozed",
+            snooze_until=datetime.now(UTC) + timedelta(hours=1),
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": None},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+        assert response.json()["snooze_until"] is None
+
+    def test_snooze_rejects_past_datetime(self):
+        created = self._create_via_api()
+        past_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": past_time},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_snooze_with_threshold_change_preserves_snoozed_state(self):
+        created = self._create_via_api()
+        snooze_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": snooze_time, "threshold_count": 100},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["state"] == "snoozed"
+        assert data["snooze_until"] is not None
+        assert data["threshold_count"] == 100
+
+    def test_already_snoozed_threshold_change_preserves_snooze(self):
+        created = self._create_via_api()
+        snooze_time = datetime.now(UTC) + timedelta(hours=1)
+
+        # First snooze the alert
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": snooze_time.isoformat()},
+            format="json",
+        )
+        assert response.json()["state"] == "snoozed"
+
+        # Now change threshold without touching snooze_until
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"threshold_count": 200},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["state"] == "snoozed"
+        assert data["snooze_until"] is not None
+        assert data["threshold_count"] == 200

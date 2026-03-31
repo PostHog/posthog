@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
+import { IconArrowRight, IconCheckCircle, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCard, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -103,7 +103,15 @@ export function AddSourceStep({ onContinue, hasSources }: AddSourceStepProps): J
                 {/* External Sources */}
                 {externalSources.length > 0 && (
                     <div>
-                        <div className="text-xs font-medium text-muted mb-1.5">Data warehouse</div>
+                        <div className="text-xs font-medium text-muted mb-1.5 flex items-center gap-1">
+                            Data warehouse
+                            <Tooltip
+                                title="Import marketing data you already have in a data warehouse like BigQuery."
+                                delayMs={0}
+                            >
+                                <IconInfo className="w-3 h-3 cursor-help" />
+                            </Tooltip>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                             {externalSources.map((source) => (
                                 <SourceChip key={source.id} source={source} onSelect={handleSourceSelect} />
@@ -115,7 +123,15 @@ export function AddSourceStep({ onContinue, hasSources }: AddSourceStepProps): J
                 {/* Self-managed Sources */}
                 {selfManagedSources.length > 0 && (
                     <div>
-                        <div className="text-xs font-medium text-muted mb-1.5">Self-managed</div>
+                        <div className="text-xs font-medium text-muted mb-1.5 flex items-center gap-1">
+                            Self-managed
+                            <Tooltip
+                                title="Connect your own data source (e.g. S3, GCS) where you already store marketing data."
+                                delayMs={0}
+                            >
+                                <IconInfo className="w-3 h-3 cursor-help" />
+                            </Tooltip>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                             {selfManagedSources.map((source) => (
                                 <SourceChip key={source.id} source={source} onSelect={handleSourceSelect} />

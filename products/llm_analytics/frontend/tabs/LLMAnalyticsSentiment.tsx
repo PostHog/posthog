@@ -1,33 +1,35 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { urls } from 'scenes/urls'
 
 import { MessageSentimentBar, SENTIMENT_BAR_COLOR } from '../components/SentimentTag'
-import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { extractContentText, formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
-import { normalizeMessages } from '../utils'
-import type { SentimentCard, SentimentFeedbackLabel } from './llmAnalyticsSentimentLogic'
-import { llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
+import { getTraceTimestamp, normalizeMessages } from '../utils'
+import type {
+    GroupedSentimentCard,
+    SentimentCard,
+    SentimentCategory,
+    SentimentFeedbackLabel,
+} from './llmAnalyticsSentimentLogic'
+import { CLASSIFIER_WINDOW, llmAnalyticsSentimentLogic } from './llmAnalyticsSentimentLogic'
 
 /**
- * Truncates text to show the tail (last `displayChars` characters), mirroring the backend
- * sentiment classifier which uses the last 2000 chars of each message.
+ * Truncates long text to show start + end with an ellipsis in the middle.
+ * Shows the head and tail so users can identify the message at a glance.
  */
-function truncateToClassifierWindow(text: string, displayChars: number = 200): string {
-    if (text.length <= displayChars) {
+function truncateMiddle(text: string, maxChars: number = 500): string {
+    if (text.length <= maxChars) {
         return text
     }
-    return '…' + text.slice(-displayChars)
+    const half = Math.floor(maxChars / 2)
+    return text.slice(0, half) + ' … ' + text.slice(-half)
 }
 
 /**
@@ -75,7 +77,7 @@ function ContextMessage({ aiInput, index }: { aiInput: unknown; index: number })
     }
     const role = message.role === 'user' ? 'User' : message.role === 'assistant' ? 'Assistant' : message.role
     const fullText = getTextContent(message)
-    const displayText = truncateToClassifierWindow(fullText, 150)
+    const displayText = truncateMiddle(fullText, 150)
     return (
         <div className="flex gap-2 text-xs text-muted py-1.5">
             <span className="shrink-0 font-medium w-16">{role}</span>
@@ -144,14 +146,24 @@ function SentimentFeedbackButtons({ card }: { card: SentimentCard }): JSX.Elemen
     )
 }
 
-function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: boolean }): JSX.Element {
+function SentimentCardRow({
+    card,
+    expanded,
+    traceCount,
+}: {
+    card: SentimentCard
+    expanded: boolean
+    traceCount: number
+}): JSX.Element {
     const { generation, messageIndex, sentiment } = card
-    const { uuid, traceId, aiInput, timestamp } = generation
-    const { toggleCardExpanded } = useActions(llmAnalyticsSentimentLogic)
+    const { uuid, traceId, aiInput, timestamp, createdAt } = generation
+    const { toggleCardExpanded, trackTraceClicked } = useActions(llmAnalyticsSentimentLogic)
 
     const targetMessage = getMessageAtIndex(aiInput, messageIndex)
     const fullText = targetMessage ? getTextContent(targetMessage) : ''
-    const messageText = truncateToClassifierWindow(fullText)
+    // The classifier only sees the last CLASSIFIER_WINDOW chars — show that slice
+    const classifierText = fullText.slice(-CLASSIFIER_WINDOW)
+    const collapsedText = truncateMiddle(classifierText)
     const accentColor = SENTIMENT_BAR_COLOR[sentiment.label as SentimentLabel] ?? 'bg-border'
 
     return (
@@ -169,13 +181,18 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
                     </div>
                 )}
 
-                <div className="flex items-center gap-2">
-                    <Tooltip title={fullText}>
-                        <p className="flex-1 min-w-0 text-sm text-default m-0 break-words leading-relaxed">
-                            {messageText}
-                        </p>
-                    </Tooltip>
+                <div className="flex items-start gap-2">
+                    <p className="flex-1 min-w-0 text-sm text-default m-0 break-words leading-relaxed">
+                        {expanded ? classifierText : collapsedText}
+                    </p>
                     <div className="shrink-0 flex items-center gap-1">
+                        {traceCount > 1 && (
+                            <Tooltip title={`${traceCount} traces contain this same message`}>
+                                <span className="inline-flex items-center text-xs font-medium text-muted bg-surface-tertiary rounded px-1.5 py-0.5 tabular-nums">
+                                    {traceCount}x
+                                </span>
+                            </Tooltip>
+                        )}
                         <SentimentFeedbackButtons card={card} />
                         <MessageSentimentBar sentiment={sentiment} />
                         <span className="text-xs text-muted whitespace-nowrap tabular-nums">
@@ -188,12 +205,15 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
                             <Link
                                 to={urls.llmAnalyticsTrace(traceId, {
                                     event: uuid,
-                                    timestamp,
+                                    timestamp: getTraceTimestamp(createdAt),
                                     msg: String(messageIndex),
                                 })}
                                 className="text-xs ml-1"
                                 data-attr="llma-sentiment-trace-link"
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    trackTraceClicked(card)
+                                }}
                             >
                                 View trace
                             </Link>
@@ -214,23 +234,66 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
     )
 }
 
-function SentimentFilters(): JSX.Element {
-    const { dateFilter, shouldFilterTestAccounts, propertyFilters } = useValues(llmAnalyticsSharedLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
-    const { taxonomicGroupTypes, generationsLoading } = useValues(llmAnalyticsSentimentLogic)
-    const { loadGenerations } = useActions(llmAnalyticsSentimentLogic)
+const CATEGORY_CONFIG: { value: SentimentCategory; label: string; activeClass: string }[] = [
+    { value: 'positive', label: 'Positive', activeClass: 'bg-success/20 border-success' },
+    { value: 'negative', label: 'Negative', activeClass: 'bg-danger/20 border-danger' },
+    { value: 'neutral', label: 'Neutral', activeClass: 'bg-border/20 border-border' },
+]
+
+function SentimentControls(): JSX.Element {
+    const { activeFilters, intensityThreshold, sentimentSummary, stillAnalyzing, generationsLoading } =
+        useValues(llmAnalyticsSentimentLogic)
+    const { toggleSentimentCategory, setIntensityThreshold, loadGenerations } = useActions(llmAnalyticsSentimentLogic)
+    const total = sentimentSummary.positive + sentimentSummary.negative + sentimentSummary.neutral
 
     return (
-        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap pb-3 mb-3 border-b">
-            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-            <PropertyFilters
-                propertyFilters={propertyFilters}
-                taxonomicGroupTypes={taxonomicGroupTypes}
-                onChange={setPropertyFilters}
-                pageKey="llm-analytics-sentiment"
-            />
+        <div className="flex items-center gap-4 flex-wrap mb-3" data-attr="llma-sentiment-controls">
+            <div className="flex items-center gap-2">
+                <Tooltip title="Filter by sentiment polarity. Each user message is classified as positive, negative, or neutral.">
+                    <span className="text-sm font-medium">Show:</span>
+                </Tooltip>
+                <div className="flex items-center gap-1" data-attr="llma-sentiment-filter">
+                    {CATEGORY_CONFIG.map(({ value, label, activeClass }) => {
+                        const isActive = activeFilters.has(value)
+                        const count = sentimentSummary[value]
+                        return (
+                            <LemonButton
+                                key={value}
+                                size="small"
+                                type="secondary"
+                                className={isActive ? activeClass : 'opacity-50'}
+                                onClick={() => toggleSentimentCategory(value)}
+                                data-attr={`llma-sentiment-filter-${value}`}
+                            >
+                                {label}
+                                {count > 0 && <span className="text-xs text-muted ml-1 tabular-nums">({count})</span>}
+                            </LemonButton>
+                        )
+                    })}
+                </div>
+                {total > 0 && !stillAnalyzing && (
+                    <Tooltip
+                        title={`${sentimentSummary.positive} positive, ${sentimentSummary.negative} negative, ${sentimentSummary.neutral} neutral messages across all analyzed generations`}
+                    >
+                        <span className="text-xs text-muted tabular-nums ml-1">{total} total</span>
+                    </Tooltip>
+                )}
+            </div>
+            <div className="flex items-center gap-2">
+                <Tooltip title="Only show messages with a sentiment confidence score at or above this threshold. Higher values surface stronger signals. Does not apply to neutral messages.">
+                    <span className="text-sm font-medium whitespace-nowrap">Min intensity:</span>
+                </Tooltip>
+                <LemonSlider
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={intensityThreshold}
+                    onChange={setIntensityThreshold}
+                    className="w-24"
+                />
+                <span className="text-xs text-muted w-8 tabular-nums">{formatScore(intensityThreshold)}</span>
+            </div>
             <div className="flex-1" />
-            <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
             <LemonButton
                 icon={<IconRefresh />}
                 size="small"
@@ -245,54 +308,20 @@ function SentimentFilters(): JSX.Element {
     )
 }
 
-function SentimentControls(): JSX.Element {
-    const { sentimentFilter, intensityThreshold } = useValues(llmAnalyticsSentimentLogic)
-    const { setSentimentFilter, setIntensityThreshold } = useActions(llmAnalyticsSentimentLogic)
-
-    return (
-        <div className="flex items-center gap-4 flex-wrap mb-3" data-attr="llma-sentiment-controls">
-            <div className="flex items-center gap-2">
-                <Tooltip title="Filter by sentiment polarity. Each user message is classified as positive, negative, or neutral.">
-                    <span className="text-sm font-medium">Show:</span>
-                </Tooltip>
-                <LemonSegmentedButton
-                    size="small"
-                    value={sentimentFilter}
-                    onChange={(value) => setSentimentFilter(value as SentimentFilterLabel)}
-                    options={[
-                        { value: 'positive', label: 'Positive' },
-                        { value: 'negative', label: 'Negative' },
-                        { value: 'both', label: 'Both' },
-                    ]}
-                    data-attr="llma-sentiment-filter"
-                />
-            </div>
-            <div className="flex items-center gap-2">
-                <Tooltip title="Only show messages with a sentiment confidence score at or above this threshold. Higher values surface stronger signals.">
-                    <span className="text-sm font-medium whitespace-nowrap">Min intensity:</span>
-                </Tooltip>
-                <LemonSlider
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={intensityThreshold}
-                    onChange={setIntensityThreshold}
-                    className="w-24"
-                />
-                <span className="text-xs text-muted w-8 tabular-nums">{formatScore(intensityThreshold)}</span>
-            </div>
-        </div>
-    )
-}
-
 export function LLMAnalyticsSentiment(): JSX.Element {
-    const { generations, generationsLoading, sentimentCards, stillAnalyzing, expandedCardIds, hasMore } =
-        useValues(llmAnalyticsSentimentLogic)
+    const {
+        generations,
+        generationsLoading,
+        groupedSentimentCards,
+        sentimentCards,
+        stillAnalyzing,
+        expandedCardIds,
+        hasMore,
+    } = useValues(llmAnalyticsSentimentLogic)
     const { loadMoreGenerations } = useActions(llmAnalyticsSentimentLogic)
 
     return (
         <div data-attr="llma-sentiment-tab">
-            <SentimentFilters />
             <SentimentControls />
 
             {generationsLoading && generations.length === 0 ? (
@@ -306,13 +335,16 @@ export function LLMAnalyticsSentiment(): JSX.Element {
                 </div>
             ) : (
                 <>
-                    {sentimentCards.length > 0 && (
+                    {groupedSentimentCards.length > 0 && (
                         <div className="space-y-2">
-                            {sentimentCards.map((card: SentimentCard) => (
+                            {groupedSentimentCards.map((group: GroupedSentimentCard) => (
                                 <SentimentCardRow
-                                    key={`${card.generation.uuid}:${card.messageIndex}`}
-                                    card={card}
-                                    expanded={expandedCardIds.has(`${card.generation.uuid}:${card.messageIndex}`)}
+                                    key={`${group.card.generation.uuid}:${group.card.messageIndex}`}
+                                    card={group.card}
+                                    expanded={expandedCardIds.has(
+                                        `${group.card.generation.uuid}:${group.card.messageIndex}`
+                                    )}
+                                    traceCount={group.traceCount}
                                 />
                             ))}
                         </div>

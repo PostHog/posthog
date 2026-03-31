@@ -1,1 +1,1 @@
-0024_ticket_channel_detail
+0029_ticket_email_config_index

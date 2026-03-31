@@ -104,6 +104,7 @@ export function InsightTooltip({
     interval,
     dateRange,
     showShiftKeyHint,
+    formatCompareLabel,
 }: InsightTooltipProps): JSX.Element {
     // Display entities as columns if multiple exist (e.g., pageview + autocapture, or multiple formulas)
     // and the insight has a breakdown or compare option enabled. This gives us space for labels
@@ -134,7 +135,7 @@ export function InsightTooltip({
 
     if (itemizeEntitiesAsColumns) {
         hideColorCol = true
-        const dataSource = invertDataSource(seriesData, breakdownFilter)
+        const dataSource = invertDataSource(seriesData, breakdownFilter, formatCompareLabel)
         const columns: LemonTableColumns<InvertedSeriesDatum> = [
             {
                 key: 'datum',
@@ -258,11 +259,20 @@ export function InsightTooltip({
         title: <span className="whitespace-nowrap">{rightTitle ?? undefined}</span>,
         align: 'right',
         render: function renderDatum(_, datum) {
-            return renderDatumToTableCell(
-                datum.action?.math_property,
-                datum.count,
-                formatPropertyValueForDisplay,
-                renderCount
+            return (
+                <div>
+                    {renderDatumToTableCell(
+                        datum.action?.math_property,
+                        datum.count,
+                        formatPropertyValueForDisplay,
+                        renderCount
+                    )}
+                    {datum.anomalyScore != null && (
+                        <span className="ml-1 text-xs font-semibold text-danger whitespace-nowrap">
+                            Anomaly: {Math.round(datum.anomalyScore * 100)}%
+                        </span>
+                    )}
+                </div>
             )
         },
     })

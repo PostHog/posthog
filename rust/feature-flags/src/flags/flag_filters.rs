@@ -5,8 +5,24 @@ use serde_json::Value;
 use crate::flags::flag_models::FlagFilters;
 
 impl FlagFilters {
-    pub fn requires_db_properties(&self, overrides: &HashMap<String, Value>) -> bool {
+    /// Returns the person property key used for early access feature enrollment.
+    pub fn enrollment_key(flag_key: &str) -> String {
+        format!("$feature_enrollment/{}", flag_key)
+    }
+
+    pub fn requires_db_properties(
+        &self,
+        overrides: &HashMap<String, Value>,
+        flag_key: &str,
+    ) -> bool {
         self.aggregation_group_type_index.is_some()
+            || (self.feature_enrollment == Some(true) && {
+                !overrides.contains_key(&Self::enrollment_key(flag_key))
+            })
+            || self
+                .groups
+                .iter()
+                .any(|group| matches!(group.aggregation_group_type_index, Some(Some(_))))
             || self
                 .super_groups
                 .as_ref()
@@ -29,12 +45,9 @@ mod tests {
     use rstest::rstest;
 
     use crate::{
-        flags::{
-            flag_models::FlagPropertyGroup,
-            test_helpers::{
-                create_simple_flag_filters, create_simple_flag_property_group,
-                create_simple_property_filter,
-            },
+        flags::test_helpers::{
+            create_simple_flag_filters, create_simple_flag_property_group,
+            create_simple_property_filter,
         },
         properties::property_models::{OperatorType, PropertyType},
     };
@@ -99,7 +112,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(filters.requires_db_properties(&overrides));
+            assert!(filters.requires_db_properties(&overrides, "test-flag"));
         }
 
         {
@@ -116,7 +129,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(!filters.requires_db_properties(&overrides));
+            assert!(!filters.requires_db_properties(&overrides, "test-flag"));
         }
     }
 
@@ -135,19 +148,13 @@ mod tests {
     }
 
     #[test]
-    fn test_holdout_groups_do_not_require_cohorts() {
+    fn test_holdout_does_not_require_cohorts() {
+        use crate::flags::flag_models::Holdout;
         let mut filters = create_simple_flag_filters(vec![]);
-        filters.holdout_groups = Some(vec![FlagPropertyGroup {
-            // Illegal cohort filter, but we want to make sure our code is resilient.
-            properties: Some(vec![create_simple_property_filter(
-                "some_key",
-                PropertyType::Cohort,
-                OperatorType::Exact,
-            )]),
-            variant: Some("holdout-1".to_string()),
-            rollout_percentage: Some(10.0),
-            ..Default::default()
-        }]);
+        filters.holdout = Some(Holdout {
+            id: 1,
+            exclusion_percentage: 10.0,
+        });
 
         assert!(!filters.requires_cohort_filters());
     }
@@ -159,7 +166,7 @@ mod tests {
 
         // Even though there are no properties, we still need to evaluate the DB properties
         // because the group type index is set.
-        assert!(filters.requires_db_properties(&HashMap::new()));
+        assert!(filters.requires_db_properties(&HashMap::new(), "test-flag"));
     }
 
     #[test]
@@ -176,7 +183,7 @@ mod tests {
 
         {
             // Without overrides, DB lookup is required
-            assert!(filters.requires_db_properties(&HashMap::new()));
+            assert!(filters.requires_db_properties(&HashMap::new(), "test-flag"));
         }
 
         {
@@ -185,8 +192,28 @@ mod tests {
                 "$feature_enrollment/feature-flags-flag-dependency".to_string(),
                 Value::String("value".to_string()),
             )]);
-            assert!(!filters.requires_db_properties(&overrides));
+            assert!(!filters.requires_db_properties(&overrides, "test-flag"));
         }
+    }
+
+    #[test]
+    fn test_feature_enrollment_requires_db_properties_when_override_missing() {
+        let mut filters = create_simple_flag_filters(vec![]);
+        filters.feature_enrollment = Some(true);
+
+        assert!(filters.requires_db_properties(&HashMap::new(), "my-flag"));
+    }
+
+    #[test]
+    fn test_feature_enrollment_skips_db_when_override_present() {
+        let mut filters = create_simple_flag_filters(vec![]);
+        filters.feature_enrollment = Some(true);
+
+        let overrides = HashMap::from([(
+            FlagFilters::enrollment_key("my-flag"),
+            Value::String("true".to_string()),
+        )]);
+        assert!(!filters.requires_db_properties(&overrides, "my-flag"));
     }
 
     #[test]
@@ -195,28 +222,20 @@ mod tests {
         filters.super_groups = Some(vec![]);
 
         // Empty super_groups don't require DB properties
-        assert!(!filters.requires_db_properties(&HashMap::new()));
+        assert!(!filters.requires_db_properties(&HashMap::new(), "test-flag"));
     }
 
     #[test]
-    fn test_does_not_require_db_properties_when_holdout_groups_set() {
+    fn test_does_not_require_db_properties_when_holdout_set() {
+        use crate::flags::flag_models::Holdout;
         let mut filters = create_simple_flag_filters(vec![]);
-        filters.holdout_groups = Some(vec![FlagPropertyGroup {
-            properties: Some(vec![
-                // This is not valid for a holdout group, but we want to make sure our code is resilient.
-                create_simple_property_filter(
-                    "some_key",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
-            ]),
-            variant: Some("holdout-1".to_string()),
-            rollout_percentage: Some(10.0),
-            ..Default::default()
-        }]);
+        filters.holdout = Some(Holdout {
+            id: 1,
+            exclusion_percentage: 10.0,
+        });
 
-        // Holdout groups don't require DB properties.
-        assert!(!filters.requires_db_properties(&HashMap::new()));
+        // Holdouts don't require DB properties.
+        assert!(!filters.requires_db_properties(&HashMap::new(), "test-flag"));
     }
 
     #[test]
@@ -240,7 +259,7 @@ mod tests {
         {
             let overrides =
                 HashMap::from([("some_key".to_string(), Value::String("value".to_string()))]);
-            assert!(filters.requires_db_properties(&overrides));
+            assert!(filters.requires_db_properties(&overrides, "test-flag"));
         }
 
         {
@@ -255,7 +274,7 @@ mod tests {
                     Value::String("value".to_string()),
                 ),
             ]);
-            assert!(!filters.requires_db_properties(&overrides));
+            assert!(!filters.requires_db_properties(&overrides, "test-flag"));
         }
     }
 
@@ -297,7 +316,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(filters.requires_db_properties(&overrides));
+            assert!(filters.requires_db_properties(&overrides, "test-flag"));
         }
 
         {
@@ -314,7 +333,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(!filters.requires_db_properties(&overrides));
+            assert!(!filters.requires_db_properties(&overrides, "test-flag"));
         }
     }
 }

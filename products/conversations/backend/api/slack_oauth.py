@@ -2,7 +2,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from django.conf import settings
 from django.core import signing
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -19,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
+from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.support_slack import clear_supporthog_slack_token, save_supporthog_slack_token
 
 STATE_SALT = "conversations.supporthog.slack.oauth"
@@ -28,10 +29,12 @@ SUPPORTHOG_SLACK_SCOPE = ",".join(
         "channels:history",
         "channels:read",
         "chat:write",
+        "chat:write.customize",
         "groups:history",
         "groups:read",
         "reactions:read",
         "users:read",
+        "users:read.email",
     ]
 )
 
@@ -66,7 +69,7 @@ def _error_response(next_path: str | None, error_message: str, status_code: int)
 
 
 class SupportSlackAuthorizeView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def get(self, request: Request, *args, **kwargs) -> Response:
         support_settings = get_instance_settings(["SUPPORT_SLACK_APP_CLIENT_ID"])
@@ -103,7 +106,7 @@ class SupportSlackAuthorizeView(APIView):
 
 
 class SupportSlackDisconnectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         user = request.user
@@ -194,23 +197,26 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
     if not OrganizationMembership.objects.filter(user_id=user.id, organization_id=team.organization_id).exists():
         return _error_response(next_path, "forbidden_team_access", 403)
 
-    with transaction.atomic():
-        conflicting_config = (
-            TeamConversationsSlackConfig.objects.select_for_update()
-            .filter(slack_team_id=slack_team_id)
-            .exclude(team_id=team.id)
-            .first()
-        )
-        if conflicting_config:
-            return _error_response(next_path, "slack_workspace_already_connected", 409)
+    try:
+        with transaction.atomic():
+            conflicting_config = (
+                TeamConversationsSlackConfig.objects.select_for_update()
+                .filter(slack_team_id=slack_team_id)
+                .exclude(team_id=team.id)
+                .first()
+            )
+            if conflicting_config:
+                return _error_response(next_path, "slack_workspace_already_connected", 409)
 
-        save_supporthog_slack_token(
-            team=team,
-            user=user,
-            is_impersonated_session=is_impersonated_session(request),
-            bot_token=bot_token,
-            slack_team_id=slack_team_id,
-        )
+            save_supporthog_slack_token(
+                team=team,
+                user=user,
+                is_impersonated_session=is_impersonated_session(request),
+                bot_token=bot_token,
+                slack_team_id=slack_team_id,
+            )
+    except IntegrityError:
+        return _error_response(next_path, "slack_workspace_already_connected", 409)
 
     redirect_url = _append_query(
         urljoin(settings.SITE_URL.rstrip("/") + "/", _safe_next_path(team.id, next_path).lstrip("/")),

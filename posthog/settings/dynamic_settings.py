@@ -160,6 +160,21 @@ CONSTANCE_CONFIG = {
         "Used to validate incoming webhook events for the Support Slack bot.",
         str,
     ),
+    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN": (
+        get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", default=""),
+        "Mailgun receiving domain for inbound email routing, e.g. mg.posthog.com.",
+        str,
+    ),
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY": (
+        get_from_env("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY", default=""),
+        "HMAC signing key for validating inbound Mailgun webhook authenticity.",
+        str,
+    ),
+    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY": (
+        get_from_env("CONVERSATIONS_EMAIL_MAILGUN_API_KEY", default=""),
+        "Mailgun API key for domain management (add/verify/delete sending domains).",
+        str,
+    ),
     "GITHUB_WEBHOOK_SECRET": (
         get_from_env("GITHUB_WEBHOOK_SECRET", default=""),
         "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
@@ -217,7 +232,7 @@ CONSTANCE_CONFIG = {
     ),
     "CLICKHOUSE_ENABLE_ANALYZER_TEAMS": (
         get_from_env("CLICKHOUSE_ENABLE_ANALYZER_TEAMS", default=[], type_cast=list[int]),
-        "Comma-separated list of team IDs for which ClickHouse allow_experimental_analyzer is enabled",
+        "Comma-separated list of team IDs for which ClickHouse enable_analyzer is enabled",
         list[int],
     ),
 }
@@ -251,6 +266,9 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
+    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
+    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
@@ -272,5 +290,7 @@ SECRET_SETTINGS = [
     "SLACK_APP_SIGNING_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
+    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",
 ]

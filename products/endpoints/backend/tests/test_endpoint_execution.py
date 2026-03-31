@@ -804,6 +804,74 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("greaterorequals", query_sql)
             self.assertIn("less(", query_sql)
 
+    def test_materialized_count_with_range_variables_reaggregates(self):
+        """When range variables exist, read-time SQL should re-aggregate with sum()."""
+        start_var = InsightVariable.objects.create(
+            team=self.team,
+            name="Start Timestamp",
+            code_name="start_ts",
+            type=InsightVariable.Type.STRING,
+            default_value="2026-01-01",
+        )
+        end_var = InsightVariable.objects.create(
+            team=self.team,
+            name="End Timestamp",
+            code_name="end_ts",
+            type=InsightVariable.Type.STRING,
+            default_value="2026-01-10",
+        )
+        host_var = InsightVariable.objects.create(
+            team=self.team,
+            name="Host",
+            code_name="host",
+            type=InsightVariable.Type.STRING,
+            default_value="example.com",
+        )
+
+        endpoint = create_endpoint_with_version(
+            name="mat_reaggregate",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} AND properties.$host = {variables.host}",
+                "variables": {
+                    str(start_var.id): {
+                        "variableId": str(start_var.id),
+                        "code_name": "start_ts",
+                        "value": "2026-01-01",
+                    },
+                    str(end_var.id): {
+                        "variableId": str(end_var.id),
+                        "code_name": "end_ts",
+                        "value": "2026-01-10",
+                    },
+                    str(host_var.id): {
+                        "variableId": str(host_var.id),
+                        "code_name": "host",
+                        "value": "example.com",
+                    },
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"variables": {"start_ts": "2026-01-05", "end_ts": "2026-01-08", "host": "example.com"}},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_exec.assert_called()
+            query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
+            # Re-aggregation: count() column should be wrapped with sum()
+            self.assertIn("sum(", query_sql)
+            # Range variable values should be wrapped with toStartOfDay
+            self.assertIn("tostartofday", query_sql)
+
     # =========================================================================
     # MATERIALIZED INSIGHT ENDPOINTS
     # =========================================================================

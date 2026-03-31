@@ -115,6 +115,63 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [(2, "random event")])
 
+    def test_cte_with_unaliased_expression_and_outer_star(self):
+        response = execute_hogql_query(
+            """
+            WITH blah AS (
+                SELECT
+                    1 AS customer_id,
+                    dateTrunc('month', toDate('2026-08-03')) AS month,
+                    toDate('2026-08-03'),
+                    '2026-08-03' AS period_end
+            )
+            SELECT *, toDate(period_end)
+            FROM blah
+            WHERE month < '2027-01-01'
+            LIMIT 1000
+            """,
+            self.team,
+            pretty=False,
+        )
+
+        self.assertEqual(
+            response.columns,
+            ["customer_id", "month", "toDate('2026-08-03')", "period_end", "toDate(period_end)"],
+        )
+        self.assertEqual(
+            response.results,
+            [(1, datetime.date(2026, 8, 1), datetime.date(2026, 8, 3), "2026-08-03", datetime.date(2026, 8, 3))],
+        )
+
+    def test_cte_with_duplicate_unaliased_expression_names(self):
+        response = execute_hogql_query(
+            """
+            WITH blah AS (
+                SELECT
+                    1 AS customer_id,
+                    dateTrunc('month', toDate(period_end)) AS month,
+                    toDate(period_end),
+                    period_end
+                FROM (SELECT '2026-08-03' AS period_end)
+            )
+            SELECT *, toDate(period_end)
+            FROM blah
+            WHERE month < '2027-01-01'
+            LIMIT 1000
+            """,
+            self.team,
+            pretty=False,
+        )
+
+        self.assertEqual(
+            response.columns,
+            ["customer_id", "month", "toDate(period_end)", "period_end", "toDate(period_end)"],
+        )
+        self.assertEqual(
+            response.results,
+            [(1, datetime.date(2026, 8, 1), datetime.date(2026, 8, 3), "2026-08-03", datetime.date(2026, 8, 3))],
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_distinct(self):
         with freeze_time("2020-01-10"):

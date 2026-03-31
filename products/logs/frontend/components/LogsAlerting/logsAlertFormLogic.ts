@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -17,6 +17,7 @@ import {
 
 import type { logsAlertFormLogicType } from './logsAlertFormLogicType'
 import { logsAlertingLogic } from './logsAlertingLogic'
+import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 
 const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
@@ -77,34 +78,56 @@ function hasAnyFilter(severityLevels: string[], serviceNames: string[], filterGr
     return severityLevels.length > 0 || serviceNames.length > 0 || filterGroup.values.length > 0
 }
 
+function buildFormDefaults(alert: LogsAlertConfigurationApi | null): LogsAlertFormType {
+    return {
+        name: alert?.name ?? '',
+        severityLevels:
+            ((alert?.filters as Record<string, unknown>)?.severityLevels as LogMessage['severity_text'][]) ?? [],
+        serviceNames: ((alert?.filters as Record<string, unknown>)?.serviceNames as string[]) ?? [],
+        filterGroup: extractFilterGroup(alert),
+        thresholdOperator: alert?.threshold_operator ?? ThresholdOperatorEnumApi.Above,
+        thresholdCount: alert?.threshold_count ?? 100,
+        windowMinutes: alert?.window_minutes ?? 10,
+        evaluationPeriods: alert?.evaluation_periods ?? 1,
+        datapointsToAlarm: alert?.datapoints_to_alarm ?? 1,
+        cooldownMinutes: alert?.cooldown_minutes ?? 0,
+    }
+}
+
 export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsAlerting', 'logsAlertFormLogic']),
     props({} as LogsAlertFormLogicProps),
     key(({ alert }) => alert?.id ?? 'new'),
 
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-        actions: [logsAlertingLogic, ['loadAlerts', 'setEditingAlert', 'setIsCreating']],
-    }),
+    connect(({ alert }: LogsAlertFormLogicProps) => ({
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            logsAlertNotificationLogic({ alertId: alert?.id }),
+            ['pendingNotifications'],
+        ],
+        actions: [
+            logsAlertingLogic,
+            ['loadAlerts', 'setEditingAlert', 'setIsCreating'],
+            logsAlertNotificationLogic({ alertId: alert?.id }),
+            ['createPendingHogFunctions'],
+        ],
+    })),
 
     selectors({
         isEditing: [() => [(_, props) => props.alert], (alert: LogsAlertConfigurationApi | null) => alert !== null],
     }),
 
+    afterMount(({ actions, props }) => {
+        // Pass values explicitly to reset — kea caches logic instances by key,
+        // so defaults from a previous mount may be stale
+        actions.resetAlertForm(buildFormDefaults(props.alert))
+    }),
+
     forms(({ props, actions, values }) => ({
         alertForm: {
-            defaults: {
-                name: props.alert?.name ?? '',
-                severityLevels: ((props.alert?.filters as Record<string, unknown>)?.severityLevels as string[]) ?? [],
-                serviceNames: ((props.alert?.filters as Record<string, unknown>)?.serviceNames as string[]) ?? [],
-                filterGroup: extractFilterGroup(props.alert),
-                thresholdOperator: props.alert?.threshold_operator ?? ThresholdOperatorEnumApi.Above,
-                thresholdCount: props.alert?.threshold_count ?? 100,
-                windowMinutes: props.alert?.window_minutes ?? 10,
-                evaluationPeriods: props.alert?.evaluation_periods ?? 1,
-                datapointsToAlarm: props.alert?.datapoints_to_alarm ?? 1,
-                cooldownMinutes: props.alert?.cooldown_minutes ?? 0,
-            } as LogsAlertFormType,
+            // Provides typed shape for kea-forms; afterMount resets with fresh values on every remount
+            defaults: buildFormDefaults(props.alert),
             errors: ({ name }) => ({
                 name: !name?.trim() ? 'Name is required' : undefined,
             }),
@@ -126,14 +149,23 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                 }
 
                 try {
+                    let savedAlertId: string
                     if (props.alert) {
                         const patch: PatchedLogsAlertConfigurationApi = { ...payload }
                         await logsAlertsPartialUpdate(projectId, props.alert.id, patch)
+                        savedAlertId = props.alert.id
                         lemonToast.success('Alert updated')
                     } else {
-                        await logsAlertsCreate(projectId, payload)
+                        const created = await logsAlertsCreate(projectId, payload)
+                        savedAlertId = created.id
                         lemonToast.success('Alert created')
                     }
+
+                    if (values.pendingNotifications.length > 0) {
+                        const notifLogic = logsAlertNotificationLogic({ alertId: props.alert?.id })
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, form.name)
+                    }
+
                     actions.setEditingAlert(null)
                     actions.setIsCreating(false)
                     actions.loadAlerts()

@@ -16,6 +16,7 @@ export const KAFKA_PERSON_DISTINCT_ID2 = `${prefix}clickhouse_person_distinct_id
 export const KAFKA_EVENTS_PLUGIN_INGESTION = `${prefix}events_plugin_ingestion${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_DLQ = `${prefix}events_plugin_ingestion_dlq${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW = `${prefix}events_plugin_ingestion_overflow${suffix}`
+export const KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC = `${prefix}events_plugin_ingestion_async${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL = `${prefix}events_plugin_ingestion_historical${suffix}`
 export const KAFKA_PLUGIN_LOG_ENTRIES = `${prefix}plugin_log_entries${suffix}`
 export const KAFKA_EVENTS_DEAD_LETTER_QUEUE = `${prefix}events_dead_letter_queue${suffix}`
@@ -56,6 +57,9 @@ export const KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER = `${prefix}cohort_membersh
 export const KAFKA_CDP_BATCH_HOGFLOW_REQUESTS = `${prefix}cdp_batch_hogflow_requests${suffix}`
 
 // Error tracking topics
+export const KAFKA_ERROR_TRACKING_INGESTION = `${prefix}ingestion-errortracking-main${suffix}` // Partition count varies by env
+export const KAFKA_ERROR_TRACKING_INGESTION_DLQ = `${prefix}ingestion-errortracking-main-dlq${suffix}`
+export const KAFKA_ERROR_TRACKING_INGESTION_OVERFLOW = `${prefix}ingestion-errortracking-overflow${suffix}` // Partition count varies by env
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = `${prefix}clickhouse_error_tracking_issue_fingerprint${suffix}`
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = `${prefix}clickhouse_error_tracking_issue_fingerprint_overrides${suffix}`
 

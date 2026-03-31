@@ -11,18 +11,21 @@
 #define METHOD_PARSE_NODE_JSON(PASCAL_CASE, CAMEL_CASE, SNAKE_CASE)                                          \
   static PyObject* method_parse_##SNAKE_CASE##_json(PyObject* self, PyObject* args, PyObject* kwargs) {      \
     parser_state* state = get_module_state(self);                                                            \
-    const char* str;                                                                                         \
+    PyObject* str_obj;                                                                                       \
     int internal = 0;                                                                                        \
     static const char* kwlist[] = {"input", "is_internal", NULL};                                            \
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|p", (char**)kwlist, &str, &internal)) {                \
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|p", (char**)kwlist, &str_obj, &internal)) {            \
       return NULL;                                                                                           \
     }                                                                                                        \
-    auto input_stream = new antlr4::ANTLRInputStream(str, strnlen(str, 65536));                              \
+    Py_ssize_t str_len;                                                                                      \
+    const char* str = PyUnicode_AsUTF8AndSize(str_obj, &str_len);                                           \
+    if (!str) return NULL;                                                                                   \
+    auto input_stream = new antlr4::ANTLRInputStream(str, (size_t)str_len);                                  \
     auto lexer = new HogQLLexer(input_stream);                                                               \
     auto stream = new antlr4::CommonTokenStream(lexer);                                                      \
     auto parser = new HogQLParser(stream);                                                                   \
     parser->removeErrorListeners();                                                                          \
-    auto error_listener = new HogQLErrorListener(str);                                                       \
+    auto error_listener = new HogQLErrorListener(string(str, (size_t)str_len));                              \
     parser->addErrorListener(error_listener);                                                                \
     HogQLParser::PASCAL_CASE##Context* parse_tree;                                                           \
     try {                                                                                                    \

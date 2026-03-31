@@ -39,6 +39,67 @@ from ee.models.scim_request_log import SCIMRequestLog
 
 logger = structlog.get_logger(__name__)
 
+MAX_ITEMS_PER_PAGE = 200
+
+
+class SCIMPaginationError(Exception):
+    """Raised when SCIM pagination query parameters are invalid"""
+
+    def __init__(self, detail: str):
+        self.detail = detail
+        super().__init__(detail)
+
+
+def _parse_scim_pagination(request: Request) -> tuple[int, int]:
+    """Parse startIndex and count from SCIM query params.
+
+    Returns (start_index, count) following django-scim2 conventions.
+    Raises SCIMPaginationError for invalid values.
+    """
+    try:
+        start_index = int(request.query_params.get("startIndex", 1))
+    except (ValueError, TypeError):
+        raise SCIMPaginationError("Invalid startIndex value")
+
+    try:
+        count = int(request.query_params.get("count", MAX_ITEMS_PER_PAGE))
+    except (ValueError, TypeError):
+        raise SCIMPaginationError("Invalid count value")
+
+    if start_index < 1:
+        raise SCIMPaginationError("Invalid startIndex (must be >= 1)")
+
+    if count < 0:
+        raise SCIMPaginationError("Invalid count (must be >= 0)")
+
+    count = min(count, MAX_ITEMS_PER_PAGE)
+    return start_index, count
+
+
+def _build_scim_list_response(
+    queryset: QuerySet,
+    start_index: int,
+    count: int,
+    adapter_cls: type[PostHogSCIMUser] | type[PostHogSCIMGroup],
+    organization_domain: "OrganizationDomain",
+) -> dict:
+    total_results = queryset.count()
+
+    if count == 0:
+        resources: list[dict] = []
+    else:
+        offset = start_index - 1
+        page = queryset[offset : offset + count]
+        resources = [adapter_cls(obj, organization_domain).to_dict() for obj in page]
+
+    return {
+        "schemas": [constants.SchemaURI.LIST_RESPONSE],
+        "totalResults": total_results,
+        "startIndex": start_index,
+        "itemsPerPage": len(resources),
+        "Resources": resources,
+    }
+
 
 @dataclasses.dataclass(frozen=True)
 class SCIMContext(ActivityContextBase):
@@ -221,14 +282,14 @@ class PostHogUserFilterQuery(UserFilterQuery):
                 q_obj,
                 organization_domain=org_domain,
             ).values_list("user_id", flat=True)
-            return User.objects.filter(id__in=scim_user_ids)
+            return User.objects.filter(id__in=scim_user_ids).order_by("id")
 
         raw_queryset = super().search(filter_query, request)
         user_ids = [user.id for user in raw_queryset]
         return User.objects.filter(
             id__in=user_ids,
             organization_membership__organization=org_domain.organization,
-        )
+        ).order_by("id")
 
 
 class PostHogGroupFilterQuery(GroupFilterQuery):
@@ -243,7 +304,7 @@ class PostHogGroupFilterQuery(GroupFilterQuery):
         return Role.objects.filter(
             id__in=role_ids,
             organization=org_domain.organization,
-        )
+        ).order_by("id")
 
 
 class SCIMUsersView(SCIMBaseView):
@@ -251,10 +312,17 @@ class SCIMUsersView(SCIMBaseView):
         organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
 
+        try:
+            start_index, count = _parse_scim_pagination(request)
+        except SCIMPaginationError as e:
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": e.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if filter_param:
             try:
                 queryset = PostHogUserFilterQuery.search(filter_param, request)
-                users = [PostHogSCIMUser(u, organization_domain) for u in queryset]
             except Exception as e:
                 capture_exception(
                     e,
@@ -265,19 +333,11 @@ class SCIMUsersView(SCIMBaseView):
                         "organization_id": organization_domain.organization.id,
                     },
                 )
-                users = []
+                queryset = User.objects.none()
         else:
-            users = PostHogSCIMUser.get_for_organization(organization_domain)
+            queryset = PostHogSCIMUser.get_queryset_for_organization(organization_domain)
 
-        return Response(
-            {
-                "schemas": [constants.SchemaURI.LIST_RESPONSE],
-                "totalResults": len(users),
-                "startIndex": 1,
-                "itemsPerPage": len(users),
-                "Resources": [user.to_dict() for user in users],
-            }
-        )
+        return Response(_build_scim_list_response(queryset, start_index, count, PostHogSCIMUser, organization_domain))
 
     def post(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
@@ -418,10 +478,17 @@ class SCIMGroupsView(SCIMBaseView):
         organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
 
+        try:
+            start_index, count = _parse_scim_pagination(request)
+        except SCIMPaginationError as e:
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": e.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if filter_param:
             try:
                 queryset = PostHogGroupFilterQuery.search(filter_param, request)
-                groups = [PostHogSCIMGroup(role, organization_domain) for role in queryset]
             except Exception as e:
                 capture_exception(
                     e,
@@ -432,19 +499,11 @@ class SCIMGroupsView(SCIMBaseView):
                         "organization_id": organization_domain.organization.id,
                     },
                 )
-                groups = []
+                queryset = Role.objects.none()
         else:
-            groups = PostHogSCIMGroup.get_for_organization(organization_domain)
+            queryset = PostHogSCIMGroup.get_queryset_for_organization(organization_domain)
 
-        return Response(
-            {
-                "schemas": [constants.SchemaURI.LIST_RESPONSE],
-                "totalResults": len(groups),
-                "startIndex": 1,
-                "itemsPerPage": len(groups),
-                "Resources": [group.to_dict() for group in groups],
-            }
-        )
+        return Response(_build_scim_list_response(queryset, start_index, count, PostHogSCIMGroup, organization_domain))
 
     def post(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
@@ -572,7 +631,7 @@ class SCIMServiceProviderConfigView(SCIMBaseView):
                 "documentationUri": "https://posthog.com/docs/scim",
                 "patch": {"supported": True},
                 "bulk": {"supported": False, "maxOperations": 0, "maxPayloadSize": 0},
-                "filter": {"supported": True, "maxResults": 200},
+                "filter": {"supported": True, "maxResults": MAX_ITEMS_PER_PAGE},
                 "changePassword": {"supported": False},
                 "sort": {"supported": False},
                 "etag": {"supported": False},

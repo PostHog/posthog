@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUUIDLike } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
@@ -27,6 +28,9 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerJourneys', 'customerJourneysLogic']),
     props({} as CustomerJourneysLogicProps),
     key((props) => props.key ?? 'default'),
+    connect(() => ({
+        actions: [eventUsageLogic, ['reportCustomerJourneyViewed']],
+    })),
     actions({
         setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
         selectFirstJourneyIfNeeded: (journeys: CustomerJourneyApi[]) => ({ journeys }),
@@ -48,6 +52,19 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 description?: string
             }): Promise<CustomerJourneyApi[]> => {
                 await api.customerJourneys.create({ insight: insightId, name, description })
+                const response = await api.customerJourneys.list()
+                return response.results
+            },
+            updateJourney: async ({
+                journeyId,
+                name,
+                description,
+            }: {
+                journeyId: string
+                name: string
+                description?: string
+            }): Promise<CustomerJourneyApi[]> => {
+                await api.customerJourneys.update(journeyId, { name, description })
                 const response = await api.customerJourneys.list()
                 return response.results
             },
@@ -87,6 +104,14 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
             posthog.captureException(error)
             lemonToast.error(error || 'Failed to create customer journey')
         },
+        updateJourneySuccess: ({ journeys }) => {
+            lemonToast.success('Customer journey updated')
+            actions.selectFirstJourneyIfNeeded(journeys)
+        },
+        updateJourneyFailure: ({ error }) => {
+            posthog.captureException(error)
+            lemonToast.error(error || 'Failed to update customer journey')
+        },
         deleteJourneySuccess: ({ journeys }) => {
             lemonToast.success('Customer journey deleted')
             actions.selectFirstJourneyIfNeeded(journeys)
@@ -108,6 +133,15 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         },
         setActiveJourneyId: () => {
             actions.loadActiveInsight()
+        },
+        loadActiveInsightSuccess: () => {
+            const journey = values.activeJourney
+            const insight = values.activeInsight
+            if (journey && insight) {
+                const stepCount =
+                    (insight.query as InsightVizNode<FunnelsQuery> | undefined)?.source?.series?.length ?? 0
+                actions.reportCustomerJourneyViewed(journey.id, journey.name, stepCount)
+            }
         },
     })),
     selectors({

@@ -1,5 +1,6 @@
 import json
 
+import unittest
 from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import ANY, patch
 
@@ -13,6 +14,43 @@ from posthog.models import FeatureFlag, Person
 from posthog.models.team.team_caching import set_team_in_cache
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+
+
+class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
+    def test_site_app_template_escapes_user_controlled_fields(self):
+        import re
+
+        from posthog.cdp.templates._siteapps.template_early_access_features import template
+
+        code = template.code
+
+        assert "escapeHTML" in code, "escapeHTML function must be defined in the template"
+
+        for field in ["item.name", "item.description"]:
+            raw_pattern = re.compile(r"\$\{" + re.escape(field) + r"\}")
+            escaped_pattern = re.compile(r"\$\{escapeHTML\(" + re.escape(field) + r"\)\}")
+
+            raw_count = len(raw_pattern.findall(code))
+            escaped_count = len(escaped_pattern.findall(code))
+
+            assert raw_count == 0, f"Found {raw_count} unescaped interpolation(s) of {field}"
+            assert escaped_count > 0, f"No escaped interpolation of {field} found"
+
+    def test_site_app_template_uses_safe_url_for_documentation_url_href(self):
+        """safeUrl validates the protocol (http/https only) and encodes the URL,
+        unlike raw encodeURI which would allow javascript: URLs through."""
+        import re
+
+        from posthog.cdp.templates._siteapps.template_early_access_features import template
+
+        code = template.code
+
+        raw_pattern = re.compile(r"\$\{item\.documentationUrl\}")
+        safe_url_pattern = re.compile(r"\$\{safeUrl\(item\.documentationUrl\)\}")
+
+        assert "safeUrl" in code, "safeUrl function must be defined in the template"
+        assert len(raw_pattern.findall(code)) == 0, "Found unescaped interpolation of item.documentationUrl"
+        assert len(safe_url_pattern.findall(code)) > 0, "item.documentationUrl must be wrapped in safeUrl"
 
 
 class TestEarlyAccessFeature(APIBaseTest):
@@ -39,8 +77,9 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "concept"
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
-        # CONCEPT stage should NOT have super_groups - users can opt-in but flag won't be enabled
+        # CONCEPT stage should NOT have super_groups or feature_enrollment
         assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
@@ -60,9 +99,10 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["stage"] == "alpha"
-        # ALPHA stage should have super_groups - flag is enabled for opted-in users
+        # ALPHA stage should have super_groups and feature_enrollment - flag is enabled for opted-in users
         assert response_data["feature_flag"]["filters"].get("super_groups", None)
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
     @parameterized.expand(
         [
@@ -86,6 +126,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
 
         feature_id = response_data["id"]
 
@@ -101,10 +142,16 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["stage"] == target_stage
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
     @parameterized.expand(
         [
-            ("with_rollout_to_all", True, False, [{"properties": [], "rollout_percentage": 100}]),
+            (
+                "with_rollout_to_all",
+                True,
+                False,
+                [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}],
+            ),
             ("without_rollout_to_all", False, True, None),
         ]
     )
@@ -117,6 +164,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
 
@@ -135,8 +183,10 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY
         if expect_super_groups:
             assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+            assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
         else:
             assert not response_data["feature_flag"]["filters"].get("super_groups")
+            assert not response_data["feature_flag"]["filters"].get("feature_enrollment")
             assert response_data["feature_flag"]["filters"]["groups"] == expected_groups
 
     def test_demote_alpha_to_concept_removes_super_groups(self):
@@ -154,6 +204,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
 
@@ -168,8 +219,9 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["stage"] == EarlyAccessFeature.Stage.CONCEPT
-        # CONCEPT should not have super_groups
+        # CONCEPT should not have super_groups or feature_enrollment
         assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
 
     def test_archive(self):
         response = self.client.post(
@@ -185,6 +237,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
 
@@ -200,6 +253,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["stage"] == EarlyAccessFeature.Stage.ARCHIVED
         assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
 
     def test_update_doesnt_remove_super_condition(self):
         response = self.client.post(
@@ -215,6 +269,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
 
@@ -231,6 +286,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == EarlyAccessFeature.Stage.BETA
         assert response_data["description"] == "Something else!"
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
     def test_we_dont_delete_existing_flag_information_when_creating_early_access_feature(self):
         flag = FeatureFlag.objects.create(
@@ -272,6 +328,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                     {
                         "properties": [{"key": "xyz", "value": "ok", "type": "person"}],
                         "rollout_percentage": None,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "payloads": {"true": '"Hick bondoogling? ????"'},
@@ -288,6 +345,8 @@ class TestEarlyAccessFeature(APIBaseTest):
                         "rollout_percentage": 100,
                     }
                 ],
+                "aggregation_group_type_index": None,
+                "feature_enrollment": True,
             },
         )
 
@@ -348,6 +407,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
@@ -396,9 +456,12 @@ class TestEarlyAccessFeature(APIBaseTest):
                     {
                         "properties": [{"key": "xyz", "value": "ok", "type": "person"}],
                         "rollout_percentage": None,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "super_groups": None,
+                "aggregation_group_type_index": None,
+                "feature_enrollment": None,
             },
         )
 
@@ -1085,6 +1148,33 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                 response.json()["detail"],
                 "Project token not provided. You can find your project token in PostHog project settings.",
             )
+
+    def test_early_access_features_preserves_documentation_url(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Feature Flag for Docs Test",
+            key="docs-test",
+            created_by=self.user,
+        )
+        documentation_url = "https://docs.example.com/features/sprocket?version=2&lang=en#getting-started"
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Docs Feature",
+            description="Feature with docs link.",
+            stage="beta",
+            feature_flag=feature_flag,
+            documentation_url=documentation_url,
+        )
+
+        self.client.logout()
+
+        response = self._get_features()
+        self.assertEqual(response.status_code, 200)
+        feature_data = response.json()["earlyAccessFeatures"][0]
+        self.assertEqual(
+            feature_data["documentationUrl"],
+            documentation_url,
+        )
 
     @snapshot_postgres_queries
     def test_early_access_features_includes_payload_in_preview(self):

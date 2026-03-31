@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet } from 'lib/utils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -10,6 +9,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery, LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
@@ -32,30 +32,17 @@ export function TrendsSeries(): JSX.Element | null {
         insightVizDataLogic(insightProps)
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const supportsDwhLifecycle = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_LIFECYCLE_SUPPORT]
-
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
-    const propertiesTaxonomicGroupTypes = [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.EventFeatureFlags,
-        TaxonomicFilterGroupType.EventMetadata,
-        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
-        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
-        TaxonomicFilterGroupType.EmailAddresses,
-        ...groupsTaxonomicTypes,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.Elements,
-        TaxonomicFilterGroupType.SessionProperties,
-        TaxonomicFilterGroupType.HogQLExpression,
-        TaxonomicFilterGroupType.DataWarehouseProperties,
-        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-    ]
+    const propertiesTaxonomicGroupTypes = getInsightPropertyFilterGroupTypes({
+        groupsTaxonomicTypes,
+        hasPageview,
+        hasScreen,
+        includeDataWarehouseProperties: true,
+    })
 
     if (!isInsightQueryNode(querySource)) {
         return null
@@ -128,7 +115,7 @@ export function TrendsSeries(): JSX.Element | null {
                     ...((isTrends &&
                         display !== ChartDisplayType.CalendarHeatmap &&
                         display !== ChartDisplayType.BoxPlot) ||
-                    (supportsDwhLifecycle && isLifecycle)
+                    isLifecycle
                         ? [TaxonomicFilterGroupType.DataWarehouse]
                         : []),
                 ]}

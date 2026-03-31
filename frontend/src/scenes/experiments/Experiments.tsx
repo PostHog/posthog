@@ -337,7 +337,16 @@ const ExperimentsTable = ({
                                 <LemonButton to={urls.experiment(`${experiment.id}`)} size="small" fullWidth>
                                     View
                                 </LemonButton>
-                                <LemonButton onClick={() => openDuplicateModal(experiment)} size="small" fullWidth>
+                                <LemonButton
+                                    onClick={() => openDuplicateModal(experiment)}
+                                    size="small"
+                                    fullWidth
+                                    disabledReason={
+                                        isLegacyExperiment(experiment)
+                                            ? 'Not supported for experiments using legacy metrics. Please recreate the experiment manually.'
+                                            : undefined
+                                    }
+                                >
                                     Duplicate
                                 </LemonButton>
                                 <ExperimentSurveyButton

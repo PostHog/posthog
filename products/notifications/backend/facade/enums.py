@@ -16,7 +16,7 @@ class NotificationType(str, Enum):
 
 class Priority(str, Enum):
     NORMAL = "normal"
-    URGENT = "urgent"
+    CRITICAL = "critical"
 
 
 class TargetType(str, Enum):

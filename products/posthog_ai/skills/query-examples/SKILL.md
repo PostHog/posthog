@@ -11,15 +11,16 @@ If the MCP server haven't provided instructions on querying data in PostHog, rea
 
 Schema reference for PostHog's core system models, organized by domain:
 
+- [Activity logs](./references/models-activity-logs.md)
 - [Actions](./references/models-actions.md)
 - [Alerts](./references/models-alerts.md)
 - [Annotations](./references/models-annotations.md)
+- [Early Access Features](./references/models-early-access-features.md)
 - [Cohorts & Persons](./references/models-cohorts.md)
 - [Dashboards, Tiles & Insights](./references/models-dashboards-insights.md)
 - [Data Warehouse](./references/models-data-warehouse.md)
 - [Error Tracking](./references/models-error-tracking.md)
 - [Flags & Experiments](./references/models-flags-experiments.md)
-- [Groups](./references/models-groups.md)
 - [Hog Flows](./references/models-hog-flows.md)
 - [Hog Functions](./references/models-hog-functions.md)
 - [Notebooks](./references/models-notebooks.md)

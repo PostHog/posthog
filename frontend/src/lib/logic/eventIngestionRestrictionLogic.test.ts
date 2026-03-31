@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -29,7 +31,7 @@ describe('eventIngestionRestrictionLogic', () => {
         logic.values.eventIngestionRestrictions
         await delay(1)
         const hasMatchingCall = (api.get as jest.Mock).mock.calls.some(
-            (call) => call[0] === 'api/environments/@current/event_ingestion_restrictions/'
+            (call) => call[0] === `api/environments/${MOCK_TEAM_ID}/event_ingestion_restrictions/`
         )
         expect(hasMatchingCall).toBe(true)
 

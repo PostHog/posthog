@@ -163,7 +163,7 @@ class Command(BaseCommand):
         logger.info(f"Found {len(orgs_with_feature_flag_roles)} organizations with feature flag roles")
 
         # Find organizations with dashboards that have restriction level 37
-        from posthog.models.dashboard import Dashboard
+        from products.dashboards.backend.models.dashboard import Dashboard
 
         orgs_with_restricted_dashboards = (
             Organization.objects.filter(

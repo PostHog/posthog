@@ -39,12 +39,11 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
     )
     const showDebugLogs = user?.is_staff || user?.is_impersonated
 
-    const schemaOptions = (source?.schemas ?? [])
-        .map((schema) => schema.name)
-        .sort()
-        .map((schemaName) => ({
-            key: schemaName,
-            label: schemaName,
+    const schemaOptions = [...(source?.schemas ?? [])]
+        .sort((a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name))
+        .map((schema) => ({
+            key: schema.name,
+            label: schema.label ?? schema.name,
         }))
 
     return (
@@ -78,7 +77,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                     {
                         title: 'Schema',
                         render: (_, job) => {
-                            return job.schema.name
+                            return job.schema.label ?? job.schema.name
                         },
                     },
                     {

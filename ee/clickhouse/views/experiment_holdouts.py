@@ -11,7 +11,8 @@ from rest_framework.response import Response
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.experiment import ExperimentHoldout, holdout_filters_for_flag
+
+from products.experiments.backend.models.experiment import ExperimentHoldout, holdout_filters_for_flag
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):

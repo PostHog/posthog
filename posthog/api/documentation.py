@@ -409,6 +409,11 @@ class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Variant key override for multivariate flags.",
     )
+    aggregation_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Group type index for this condition set. None means person-level aggregation.",
+    )
 
 
 class FeatureFlagMultivariateVariantSchemaSerializer(serializers.Serializer):
@@ -453,6 +458,11 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Additional super condition groups used by experiments.",
+    )
+    feature_enrollment = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.",
     )
 
 

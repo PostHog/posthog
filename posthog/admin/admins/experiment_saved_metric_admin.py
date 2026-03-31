@@ -4,8 +4,9 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from posthog.models import ExperimentSavedMetric
 from posthog.models.utils import convert_legacy_metric
+
+from products.experiments.backend.models.experiment import ExperimentSavedMetric
 
 
 class ExperimentSavedMetricAdmin(admin.ModelAdmin):
