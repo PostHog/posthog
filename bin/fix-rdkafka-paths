@@ -29,8 +29,12 @@ cd "$ROOT_DIR"
 
 # Find node-rdkafka build directory
 candidates=(node_modules/.pnpm/node-rdkafka@*/node_modules/node-rdkafka/build)
-if [[ ${#candidates[@]} -ne 1 || ! -d "${candidates[0]}" ]]; then
-    # No match or multiple versions — nothing to fix
+if [[ ${#candidates[@]} -eq 0 || ! -d "${candidates[0]}" ]]; then
+    # No match — nothing to fix
+    exit 0
+fi
+if [[ ${#candidates[@]} -ne 1 ]]; then
+    print_color yellow "Warning: multiple node-rdkafka versions found; skipping dylib path fix. Run pnpm install to deduplicate."
     exit 0
 fi
 build_dir="${candidates[0]}"

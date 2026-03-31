@@ -743,5 +743,5 @@ environment:
         hidden: true
     fix:rdkafka:paths:
         bin_script: fix-rdkafka-paths
-        description: 'TODO: add description for fix-rdkafka-paths'
+        description: 'Rewrite node-rdkafka dylib paths to use @loader_path on macOS for worktree portability'
         hidden: true
