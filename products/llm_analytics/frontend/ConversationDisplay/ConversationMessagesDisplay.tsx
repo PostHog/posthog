@@ -501,8 +501,13 @@ function extractMinimalPreview(content: string | { type: string; content: string
                 if (typeof item === 'string') {
                     return item
                 }
-                if (item && typeof item === 'object' && 'text' in item && typeof item.text === 'string') {
-                    return item.text
+                if (item && typeof item === 'object') {
+                    if ('text' in item && typeof item.text === 'string') {
+                        return item.text
+                    }
+                    if ('transcript' in item && typeof item.transcript === 'string') {
+                        return item.transcript
+                    }
                 }
                 return ''
             })
