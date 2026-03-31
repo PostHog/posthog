@@ -332,6 +332,23 @@ export const dataModelingJobsRunningRetrieve = async (
 }
 
 /**
+ * Check if a database name is available.
+ */
+export const getDataWarehouseCheckDatabaseNameRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/check-database-name/`
+}
+
+export const dataWarehouseCheckDatabaseNameRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDataWarehouseCheckDatabaseNameRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Returns completed/non-running activities (jobs with status 'Completed').
 Supports pagination and cutoff time filtering.
  */
