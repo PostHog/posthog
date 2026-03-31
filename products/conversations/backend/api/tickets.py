@@ -90,6 +90,7 @@ class TicketPersonSerializer(serializers.Serializer):
 class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
+    email_to = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
@@ -120,6 +121,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_team_id",
             "email_subject",
             "email_from",
+            "email_to",
             "person",
             "tags",
         ]
@@ -143,8 +145,15 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_team_id",
             "email_subject",
             "email_from",
+            "email_to",
             "person",
         ]
+
+    def get_email_to(self, obj: Ticket) -> str | None:
+        config = getattr(obj, "email_config", None)
+        if config is not None:
+            return config.from_email
+        return None
 
 
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -160,7 +169,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
-        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role")
+        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role", "email_config")
 
         status_param = self.request.query_params.get("status")
         if status_param:

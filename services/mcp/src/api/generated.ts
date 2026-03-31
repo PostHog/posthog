@@ -20929,6 +20929,8 @@ export namespace Schemas {
       readonly email_subject: string | null;
       /** @nullable */
       readonly email_from: string | null;
+      /** @nullable */
+      readonly email_to: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -24972,6 +24974,8 @@ export namespace Schemas {
       readonly email_subject?: string | null;
       /** @nullable */
       readonly email_from?: string | null;
+      /** @nullable */
+      readonly email_to?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }

@@ -22,6 +22,7 @@ export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
     local_cdp = 'local-cdp',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
+    // TODO: Remove once charts deploy with mode=recordings-blob-ingestion-v2 for overflow pods
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',

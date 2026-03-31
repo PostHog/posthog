@@ -16,7 +16,9 @@ from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
+from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -82,6 +84,8 @@ class Task(DeletedMetaFields, models.Model):
         return self.title
 
     def save(self, *args, **kwargs):
+        is_new = self._state.adding
+
         if self.repository:
             parts = self.repository.split("/")
             if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -93,6 +97,39 @@ class Task(DeletedMetaFields, models.Model):
             self._assign_task_number()
 
         super().save(*args, **kwargs)
+
+        if is_new:
+            self._track_task_created()
+
+    def capture_event(self, event: str, properties: dict | None = None) -> None:
+        try:
+            distinct_id = (
+                str(self.created_by.distinct_id) if self.created_by_id and self.created_by else str(self.team.uuid)
+            )
+            all_properties = {
+                "task_id": str(self.id),
+                "team_id": self.team_id,
+                "title": self.title,
+                "description": self.description[:500] if self.description else "",
+                "origin_product": self.origin_product,
+                "repository": self.repository,
+            }
+            if properties:
+                all_properties.update(properties)
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event=event,
+                properties=all_properties,
+                groups=groups(team=self.team),
+            )
+        except Exception as e:
+            logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
+
+    def _track_task_created(self) -> None:
+        self.capture_event(
+            "task_created",
+            {"has_json_schema": self.json_schema is not None},
+        )
 
     @staticmethod
     def generate_team_prefix(team_name: str) -> str:
@@ -132,19 +169,36 @@ class Task(DeletedMetaFields, models.Model):
         state: dict = {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
-        return TaskRun.objects.create(
+        is_resume = bool((extra_state or {}).get("resume_from_run_id"))
+        has_pending = bool((extra_state or {}).get("pending_message"))
+        task_run = TaskRun.objects.create(
             task=self,
             team=self.team,
             status=TaskRun.Status.QUEUED,
-            environment=environment or TaskRun.Environment.CLOUD,
+            **({"environment": environment} if environment else {}),
             state=state,
             branch=branch,
         )
+        self.capture_event(
+            "task_run_created",
+            {
+                "run_id": str(task_run.id),
+                "mode": mode,
+                "environment": task_run.environment,
+                "is_resume": is_resume,
+                "has_pending_message": has_pending,
+            },
+        )
+        return task_run
 
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save()
+        self.capture_event(
+            "task_deleted",
+            {"duration_seconds": round((timezone.now() - self.created_at).total_seconds(), 1)},
+        )
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
@@ -388,11 +442,46 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def capture_event(self, event: str, properties: dict | None = None) -> None:
+        try:
+            distinct_id = (
+                str(self.task.created_by.distinct_id)
+                if self.task.created_by_id and self.task.created_by
+                else str(self.team.uuid)
+            )
+            all_properties: dict = {
+                "task_id": str(self.task_id),
+                "run_id": str(self.id),
+                "team_id": self.team_id,
+                "repository": self.task.repository,
+                "environment": self.environment,
+                "mode": self.mode,
+            }
+            if properties:
+                all_properties.update(properties)
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event=event,
+                properties=all_properties,
+                groups=groups(team=self.team),
+            )
+        except Exception as e:
+            logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
+
+    def _duration_seconds(self) -> float:
+        if self.completed_at and self.created_at:
+            return round((self.completed_at - self.created_at).total_seconds(), 1)
+        return 0.0
+
     def mark_completed(self):
         """Mark the progress as completed."""
         self.status = self.Status.COMPLETED
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "completed_at"])
+        self.capture_event(
+            "task_run_completed",
+            {"duration_seconds": self._duration_seconds()},
+        )
 
     def mark_failed(self, error: str):
         """Mark the progress as failed with an error message."""
@@ -400,6 +489,13 @@ class TaskRun(models.Model):
         self.error_message = error
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
+        self.capture_event(
+            "task_run_failed",
+            {
+                "error_message": error[:500],
+                "duration_seconds": self._duration_seconds(),
+            },
+        )
 
     def emit_console_event(self, level: LogLevel, message: str) -> None:
         """Emit a console-style log event in ACP notification format."""
