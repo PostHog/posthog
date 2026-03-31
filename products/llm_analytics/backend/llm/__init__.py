@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from products.llm_analytics.backend.llm.client import Client
 from products.llm_analytics.backend.llm.errors import LLMError, ProviderMismatchError, UnsupportedProviderError
@@ -22,7 +22,7 @@ class ModelInfo(TypedDict):
 
 # Single registry of providers. Add new providers here and everything else
 # (model lists, trial models, ID sets) derives from it automatically.
-PROVIDERS: list[tuple[str, type[OpenAIConfig] | type[AnthropicConfig] | type[GeminiConfig]]] = [
+PROVIDERS: list[tuple[str, Any]] = [
     ("OpenAI", OpenAIConfig),
     ("Anthropic", AnthropicConfig),
     ("Gemini", GeminiConfig),
