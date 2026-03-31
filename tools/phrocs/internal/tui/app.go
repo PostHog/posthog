@@ -56,6 +56,8 @@ type Model struct {
 	// Center viewport with output of the active process
 	viewport         viewport.Model
 	viewportAtBottom bool
+	activeContent    string
+	activeLineCount  int
 
 	// Copy mode: keyboard-driven line selection within the output pane
 	copyMode   bool
@@ -81,6 +83,9 @@ type Model struct {
 	containerLines     []string
 	containerLogStream *docker.ContainerLogStream
 	composeArgs        docker.ComposeArgs
+
+	// Buffered text for PTY input when the output pane is focused
+	inputBuffer string
 
 	// Info mode: replaces the output viewport with process stats
 	infoMode bool
@@ -174,19 +179,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
-		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
+		if p := m.activeProc(); m.ready && p != nil && p.Name == msg.Name {
 			// In docker mode the viewport shows the status table or container logs,
 			// not the process's combined output
 			if m.isDockerMode() || m.infoMode {
 				break
 			}
-			m.viewport.SetContent(m.buildContent())
+			m.applyOutputDelta(msg)
 			// Don't auto-scroll while the user is selecting text in copy mode
 			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
 				m.viewport.GotoBottom()
-			}
-			if m.searchQuery != "" {
-				m.recomputeSearch()
 			}
 		}
 
@@ -404,6 +406,7 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 
 	m.copyMode = false
 	m.searchMode = false
+	m.inputBuffer = ""
 	m.viewport.StyleLineFunc = nil
 
 	// Resize viewport to account for container sidebar appearing/disappearing
@@ -420,6 +423,8 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchCursor = 0
+		m.activeContent = ""
+		m.activeLineCount = 0
 		m.keys.LazyDocker.SetEnabled(true)
 		m.keys.ProcViewer.SetEnabled(false)
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
@@ -429,7 +434,13 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.containers = nil
 		m.keys.LazyDocker.SetEnabled(false)
 		m.keys.ProcViewer.SetEnabled(true)
-		m.viewport.SetContent(m.buildContent())
+		m.activeContent = m.buildContent()
+		if m.activeContent == "" {
+			m.activeLineCount = 0
+		} else {
+			m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
+		}
+		m.viewport.SetContent(m.activeContent)
 	}
 
 	if m.viewportAtBottom {
@@ -449,6 +460,39 @@ func (m Model) buildContent() string {
 		return ""
 	}
 	return strings.Join(p.Lines(), "\n")
+}
+
+// applyOutputDelta incrementally updates the viewport content using the
+// batch metadata in OutputMsg. Falls back to a full rebuild on eviction.
+func (m *Model) applyOutputDelta(msg process.OutputMsg) {
+	if msg.Evicted > 0 || len(msg.Added) == 0 {
+		m.activeContent = m.buildContent()
+		if m.activeContent == "" {
+			m.activeLineCount = 0
+		} else {
+			m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
+		}
+		m.viewport.SetContent(m.activeContent)
+		if m.searchQuery != "" {
+			m.recomputeSearch()
+		}
+		return
+	}
+
+	if m.activeLineCount == 0 || m.activeContent == "" {
+		m.activeContent = strings.Join(msg.Added, "\n")
+	} else {
+		m.activeContent += "\n" + strings.Join(msg.Added, "\n")
+	}
+	m.activeLineCount += len(msg.Added)
+	m.viewport.SetContent(m.activeContent)
+
+	if m.searchQuery != "" {
+		startIdx := m.activeLineCount - len(msg.Added)
+		for i, line := range msg.Added {
+			m.updateSearchForLine(line, startIdx+i, false)
+		}
+	}
 }
 
 // statusSortOrder returns a numeric rank for sorting by status.

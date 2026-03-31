@@ -1,10 +1,19 @@
 import {
+    KAFKA_APP_METRICS_2,
     KAFKA_ERROR_TRACKING_INGESTION_DLQ,
     KAFKA_ERROR_TRACKING_INGESTION_OVERFLOW,
     KAFKA_EVENTS_JSON,
     KAFKA_INGESTION_WARNINGS,
+    KAFKA_LOG_ENTRIES,
 } from '../../../config/kafka-topics'
-import { DLQ_OUTPUT, EVENTS_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../../common/outputs'
+import {
+    APP_METRICS_OUTPUT,
+    DLQ_OUTPUT,
+    EVENTS_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
+    OVERFLOW_OUTPUT,
+} from '../../common/outputs'
 import { IngestionOutputDefinition } from '../../outputs/resolver'
 import { DEFAULT_PRODUCER, ProducerName } from './producers'
 
@@ -33,5 +42,17 @@ export const ERROR_TRACKING_OUTPUT_DEFINITIONS: Record<string, IngestionOutputDe
         defaultProducerName: DEFAULT_PRODUCER,
         producerOverrideEnvVar: 'ERROR_TRACKING_OUTPUT_OVERFLOW_PRODUCER',
         topicOverrideEnvVar: 'ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC',
+    },
+    [APP_METRICS_OUTPUT]: {
+        defaultTopic: KAFKA_APP_METRICS_2,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'ERROR_TRACKING_OUTPUT_APP_METRICS_PRODUCER',
+        topicOverrideEnvVar: 'ERROR_TRACKING_OUTPUT_APP_METRICS_TOPIC',
+    },
+    [LOG_ENTRIES_OUTPUT]: {
+        defaultTopic: KAFKA_LOG_ENTRIES,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'ERROR_TRACKING_OUTPUT_LOG_ENTRIES_PRODUCER',
+        topicOverrideEnvVar: 'ERROR_TRACKING_OUTPUT_LOG_ENTRIES_TOPIC',
     },
 }

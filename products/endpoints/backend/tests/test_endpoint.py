@@ -1096,8 +1096,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
     def test_preview_returns_transform(self):
         self._create_endpoint_with_variables()
 
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/endpoints/range-endpoint/materialization_preview/"
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/range-endpoint/materialization_preview/",
+            {},
+            format="json",
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -1113,9 +1115,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
     def test_preview_with_bucket_override(self):
         self._create_endpoint_with_variables()
 
-        response = self.client.get(
+        response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/range-endpoint/materialization_preview/",
-            {"bucket_overrides[timestamp]": "hour"},
+            {"bucket_overrides": {"timestamp": "hour"}},
+            format="json",
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -1133,8 +1136,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/endpoints/simple-endpoint/materialization_preview/"
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/simple-endpoint/materialization_preview/",
+            {},
+            format="json",
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -1185,9 +1190,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
     def test_invalid_bucket_override_returns_400(self):
         self._create_endpoint_with_variables("invalid-bucket")
 
-        response = self.client.get(
+        response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/invalid-bucket/materialization_preview/",
-            {"bucket_overrides[timestamp]": "invalid_fn"},
+            {"bucket_overrides": {"timestamp": "invalid_fn"}},
+            format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 

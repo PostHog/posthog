@@ -958,6 +958,121 @@ class TestSandboxEnvironment(TestCase):
         for expected in expected_contains:
             self.assertIn(expected, domains)
 
+    def test_full_access_returns_empty_list(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Full Access",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+        )
+        self.assertEqual(env.get_effective_domains(), [])
+
+    def test_custom_with_defaults_does_not_duplicate(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Custom + Defaults",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=["github.com", "custom.io"],
+            include_default_domains=True,
+        )
+        domains = env.get_effective_domains()
+        self.assertEqual(domains.count("github.com"), 1)
+        self.assertIn("custom.io", domains)
+
+    def test_custom_without_defaults_returns_only_custom(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Custom Only",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=["only-this.com"],
+            include_default_domains=False,
+        )
+        self.assertEqual(env.get_effective_domains(), ["only-this.com"])
+
+    def test_trusted_includes_all_default_domains(self):
+        from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Trusted",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.TRUSTED,
+        )
+        self.assertEqual(env.get_effective_domains(), DEFAULT_TRUSTED_DOMAINS)
+
+
+class TestTaskRunGetSandboxEnvironment(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        self.user = User.objects.create(email="creator@posthog.com")
+        self.other_user = User.objects.create(email="other@posthog.com")
+        self.integration = Integration.objects.create(team=self.team, kind="github")
+        self.task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            github_integration=self.integration,
+            repository="org/repo",
+        )
+
+    def _create_run(self, sandbox_environment_id=None):
+        state = {}
+        if sandbox_environment_id:
+            state["sandbox_environment_id"] = str(sandbox_environment_id)
+        return TaskRun.objects.create(task=self.task, team=self.team, state=state)
+
+    def test_returns_none_when_no_environment_id(self):
+        run = self._create_run()
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_public_environment_on_same_team(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="Public", private=False, created_by=self.other_user
+        )
+        run = self._create_run(env.id)
+        self.assertEqual(run.get_sandbox_environment(), env)
+
+    def test_returns_none_for_environment_on_different_team(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.other_team, name="Other Team Env", private=False, created_by=self.other_user
+        )
+        run = self._create_run(env.id)
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_private_environment_when_creator_matches(self):
+        env = SandboxEnvironment.objects.create(team=self.team, name="My Private", private=True, created_by=self.user)
+        run = self._create_run(env.id)
+        self.assertEqual(run.get_sandbox_environment(), env)
+
+    def test_returns_none_for_private_environment_when_creator_differs(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="Others Private", private=True, created_by=self.other_user
+        )
+        run = self._create_run(env.id)
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_none_for_private_environment_when_task_creator_is_null(self):
+        self.task.created_by = None
+        self.task.save()
+        env = SandboxEnvironment.objects.create(team=self.team, name="Private", private=True, created_by=self.user)
+        run = self._create_run(env.id)
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_none_for_private_environment_when_env_creator_is_null(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="Private No Creator", private=True, created_by=None
+        )
+        run = self._create_run(env.id)
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_none_for_nonexistent_environment_id(self):
+        run = self._create_run(uuid.uuid4())
+        self.assertIsNone(run.get_sandbox_environment())
+
 
 class TestCodeInvite(TestCase):
     def test_auto_generates_code_on_save(self):

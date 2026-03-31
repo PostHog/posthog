@@ -75,6 +75,17 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             scopes=scopes,
         )
 
+        sandbox_env = ctx.get_sandbox_environment()
+        allowed_domains = sandbox_env.get_effective_domains() if sandbox_env else None
+
+        if allowed_domains:
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Network restrictions enabled — allowed domains: {', '.join(allowed_domains[:10])}"
+                + (f" (+{len(allowed_domains) - 10} more)" if len(allowed_domains) > 10 else ""),
+            )
+
         try:
             sandbox.start_agent_server(
                 repository=ctx.repository,
@@ -84,7 +95,20 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 interaction_origin=ctx.interaction_origin,
                 branch=ctx.branch,
                 mcp_configs=mcp_configs or None,
+                allowed_domains=allowed_domains or None,
             )
+
+            # emit agentsh logs
+            if allowed_domains:
+                try:
+                    agentsh_result = sandbox.execute(
+                        "cat /var/log/agentsh/agentsh.log 2>/dev/null || true",
+                        timeout_seconds=5,
+                    )
+                    if agentsh_result.stdout.strip():
+                        emit_agent_log(ctx.run_id, "debug", f"agentsh logs:\n{agentsh_result.stdout.strip()[:2000]}")
+                except Exception:
+                    pass
         except Exception as e:
             raise SandboxExecutionError(
                 "Failed to start agent server in sandbox",

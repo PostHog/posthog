@@ -18,47 +18,16 @@ export interface ErrorResponseApi {
 }
 
 /**
- * Serializer for extracted tasks
+ * * `trusted` - Trusted
+ * `full` - Full
+ * `custom` - Custom
  */
-export interface TaskApi {
-    title: string
-    description?: string
-    /** @nullable */
-    assignee?: string | null
-}
+export type NetworkAccessLevelEnumApi = (typeof NetworkAccessLevelEnumApi)[keyof typeof NetworkAccessLevelEnumApi]
 
-export interface PaginatedTaskListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskApi[]
-}
-
-/**
- * Latest run details for this task
- * @nullable
- */
-export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
-
-/**
- * * `error_tracking` - Error Tracking
- * `eval_clusters` - Eval Clusters
- * `user_created` - User Created
- * `slack` - Slack
- * `support_queue` - Support Queue
- * `session_summaries` - Session Summaries
- */
-export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
-
-export const OriginProductEnumApi = {
-    ErrorTracking: 'error_tracking',
-    EvalClusters: 'eval_clusters',
-    UserCreated: 'user_created',
-    Slack: 'slack',
-    SupportQueue: 'support_queue',
-    SessionSummaries: 'session_summaries',
+export const NetworkAccessLevelEnumApi = {
+    Trusted: 'trusted',
+    Full: 'full',
+    Custom: 'custom',
 } as const
 
 /**
@@ -119,6 +88,99 @@ export interface UserBasicApi {
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
+
+export interface SandboxEnvironmentListApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    network_access_level?: NetworkAccessLevelEnumApi
+    /** List of allowed domains for custom network access */
+    allowed_domains?: string[]
+    /** List of repositories this environment applies to (format: org/repo) */
+    repositories?: string[]
+    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+    private?: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedSandboxEnvironmentListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SandboxEnvironmentListApi[]
+}
+
+export interface SandboxEnvironmentApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    network_access_level?: NetworkAccessLevelEnumApi
+    /** List of allowed domains for custom network access */
+    allowed_domains?: string[]
+    /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+    include_default_domains?: boolean
+    /** List of repositories this environment applies to (format: org/repo) */
+    repositories?: string[]
+    /** Encrypted environment variables (write-only, never returned in responses) */
+    environment_variables?: unknown
+    /** Whether this environment has any environment variables set */
+    readonly has_environment_variables: boolean
+    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+    private?: boolean
+    /** Computed domain allowlist based on network_access_level and allowed_domains */
+    readonly effective_domains: readonly string[]
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+/**
+ * Serializer for extracted tasks
+ */
+export interface TaskApi {
+    title: string
+    description?: string
+    /** @nullable */
+    assignee?: string | null
+}
+
+export interface PaginatedTaskListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskApi[]
+}
+
+/**
+ * Latest run details for this task
+ * @nullable
+ */
+export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
+
+/**
+ * * `error_tracking` - Error Tracking
+ * `eval_clusters` - Eval Clusters
+ * `user_created` - User Created
+ * `slack` - Slack
+ * `support_queue` - Support Queue
+ * `session_summaries` - Session Summaries
+ */
+export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
+
+export const OriginProductEnumApi = {
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    UserCreated: 'user_created',
+    Slack: 'slack',
+    SupportQueue: 'support_queue',
+    SessionSummaries: 'session_summaries',
+} as const
 
 export interface PatchedTaskApi {
     readonly id?: string
@@ -183,6 +245,11 @@ export interface TaskRunCreateRequestApi {
     resume_from_run_id?: string
     /** Follow-up user message to include in the resumed run's prompt. */
     pending_user_message?: string
+    /**
+     * ID of a SandboxEnvironment to use for network governance
+     * @nullable
+     */
+    sandbox_environment_id?: string | null
 }
 
 /**
@@ -580,6 +647,17 @@ export interface RepositoryReadinessResponseApi {
     cacheAgeSeconds: number
     /** Scan evidence details */
     scan?: ScanEvidenceApi
+}
+
+export type SandboxListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type TasksListParams = {

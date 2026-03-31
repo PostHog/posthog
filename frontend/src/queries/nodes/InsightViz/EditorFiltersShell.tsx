@@ -11,7 +11,9 @@ import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
 import {
@@ -65,6 +67,8 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
                                 | AssistantTrendsQuery
                                 | AssistantFunnelsQuery
                                 | AssistantRetentionQuery
+                                | AssistantStickinessQuery
+                                | AssistantPathsQuery
                                 | AssistantHogQLQuery
                         ) => {
                             const source = castAssistantQuery(toolOutput)

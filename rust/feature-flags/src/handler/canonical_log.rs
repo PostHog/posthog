@@ -251,10 +251,9 @@ pub struct FlagsCanonicalLogLine {
     pub rate_limit_warned: bool,
 
     // Transit time
-    /// Client-to-server transit time in milliseconds (server_now - sent_at).
-    /// None when sent_at is missing or delta is outside [0, 5min) (negative = client clock
-    /// ahead, >= 5min = stale/garbage timestamp).
-    pub sent_at_delta_ms: Option<i64>,
+    /// Proxy-to-app queue time in milliseconds (server_now - X-Request-Start).
+    /// None when the header is missing or the computed delta is negative.
+    pub queue_time_ms: Option<i64>,
 
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
@@ -302,7 +301,7 @@ impl Default for FlagsCanonicalLogLine {
             evaluation_type: None,
             rate_limited: false,
             rate_limit_warned: false,
-            sent_at_delta_ms: None,
+            queue_time_ms: None,
             team_cache_source: None,
             http_status: 200,
             error_code: None,
@@ -367,7 +366,7 @@ impl FlagsCanonicalLogLine {
             evaluation_type = self.evaluation_type.map(|t| t.as_str()),
             rate_limited = self.rate_limited,
             rate_limit_warned = self.rate_limit_warned,
-            sent_at_delta_ms = self.sent_at_delta_ms,
+            queue_time_ms = self.queue_time_ms,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             "canonical_log_line"
@@ -507,6 +506,7 @@ mod tests {
         assert!(log.team_cache_source.is_none());
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
+        assert!(log.queue_time_ms.is_none());
     }
 
     #[test]
@@ -540,6 +540,7 @@ mod tests {
         log.rate_limited = false;
         log.team_cache_source = Some("redis");
         log.http_status = 200;
+        log.queue_time_ms = Some(15);
         log.emit();
     }
 
