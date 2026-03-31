@@ -17,13 +17,9 @@ def _revenue_view_name(table_prefix: str) -> str:
 
 
 def database_operations(team_id: int, table_prefix: str) -> None:
-    common = {
-        "team_id": team_id,
-        "deleted": False,
-    }
-
     DataWarehouseJoin.objects.get_or_create(
-        **common,
+        team_id=team_id,
+        deleted=False,
         source_table_name="persons",
         source_table_key="properties.email",
         joining_table_name=f"{table_prefix}stripe_customer",
@@ -32,7 +28,8 @@ def database_operations(team_id: int, table_prefix: str) -> None:
     )
 
     DataWarehouseJoin.objects.get_or_create(
-        **common,
+        team_id=team_id,
+        deleted=False,
         source_table_name="persons",
         source_table_key="properties.email",
         joining_table_name=f"{table_prefix}stripe_invoice",
@@ -41,7 +38,8 @@ def database_operations(team_id: int, table_prefix: str) -> None:
     )
 
     DataWarehouseJoin.objects.get_or_create(
-        **common,
+        team_id=team_id,
+        deleted=False,
         source_table_name=_revenue_view_name(table_prefix),
         source_table_key="JSONExtractString(metadata, 'posthog_person_distinct_id')",
         joining_table_name="persons",
