@@ -315,6 +315,37 @@ class TestBoxCommands:
         assert result.exit_code == 0
         assert captured == {"name": "devbox-raul", "parameters": {"claude_oauth_token": "oauth-token"}}
 
+    def test_box_forward_forwards_when_local_port_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-raul")
+        monkeypatch.setattr(box_cli, "_local_port_is_available", lambda port: True)
+        monkeypatch.setattr(
+            box_cli,
+            "port_forward_replace",
+            lambda name, local_port, remote_port: captured.update(
+                {"name": name, "local_port": local_port, "remote_port": remote_port}
+            ),
+        )
+
+        result = runner.invoke(cli, ["box:forward"])
+
+        assert result.exit_code == 0
+        assert "Forwarding devbox-raul:8010 -> localhost:8010" in result.output
+        assert captured == {"name": "devbox-raul", "local_port": 8010, "remote_port": 8010}
+
+    def test_box_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-raul")
+        monkeypatch.setattr(box_cli, "_local_port_is_available", lambda port: False)
+
+        result = runner.invoke(cli, ["box:forward", "--port", "8010"])
+
+        assert result.exit_code == 1
+        assert "Local port 8010 is already in use." in result.output
+        assert "hogli box:forward --port 8011" in result.output
+
 
 class TestBoxList:
     """Test the box:list command."""
