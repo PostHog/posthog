@@ -5,9 +5,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { CommonConfig } from '../common/config'
-import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
-import { KafkaProducerWrapper } from '../kafka/producer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -43,7 +41,7 @@ import {
     PersonDistinctIdsOutput,
     PersonsOutput,
 } from './analytics/outputs'
-import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from './common/outputs'
+import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput, TophogOutput } from './common/outputs'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
@@ -61,8 +59,6 @@ export type IngestionConsumerFullConfig = IngestionConsumerConfig &
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
-    kafkaProducer: KafkaProducerWrapper
-    kafkaMetricsProducer: KafkaProducerWrapper
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
@@ -74,6 +70,7 @@ export interface IngestionConsumerDeps {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | TophogOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
@@ -97,8 +94,6 @@ export class IngestionConsumer {
     protected topic: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
-    protected kafkaProducer?: KafkaProducerWrapper
-    protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
@@ -200,12 +195,8 @@ export class IngestionConsumer {
             topic: this.topic,
         })
 
-        // Use the kafka producer from deps
-        this.kafkaProducer = this.deps.kafkaProducer
-
         this.topHog = new TopHog({
-            kafkaProducer: this.deps.kafkaMetricsProducer,
-            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            outputs: this.deps.outputs,
             pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
             lane: this.config.INGESTION_LANE ?? 'unknown',
         })
@@ -220,13 +211,7 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
-        await Promise.all([
-            this.hogTransformer.start(),
-            // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CONSUMER').then((producer) => {
-                this.kafkaOverflowProducer = producer
-            }),
-        ])
+        await this.hogTransformer.start()
 
         this.topHog.start()
 
@@ -297,9 +282,6 @@ export class IngestionConsumer {
         await this.kafkaConsumer?.disconnect()
         logger.info('🔁', `${this.name} - stopping tophog`)
         await this.topHog.stop()
-        // NOTE: Don't disconnect kafkaProducer here as it's shared from deps and managed by the server
-        logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
-        await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
         logger.info('👍', `${this.name} - stopped!`)
