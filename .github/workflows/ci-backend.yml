@@ -829,9 +829,6 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
-                  git fetch origin master
-                  # Check migration safety using old SQL-based checker (still uses stdin from git diff)
-                  echo "$MIGRATIONS_FILES" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |

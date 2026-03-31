@@ -176,7 +176,7 @@ rules:
                               |Tag
                               |Task
                               |TaskRun
-                              |TeamConversationsEmailConfig
+                              |EmailChannel
                               |Text
                               |Threshold
                               |Ticket
@@ -359,7 +359,7 @@ rules:
                         |Tag
                         |Task
                         |TaskRun
-                        |TeamConversationsEmailConfig
+                        |EmailChannel
                         |Text
                         |Threshold
                         |Ticket

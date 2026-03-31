@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 import json
 import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
+
+if TYPE_CHECKING:
+    from temporalio.client import WorkflowHandle
 
 logger = logging.getLogger(__name__)
 
@@ -118,22 +124,26 @@ async def _poll_for_turn(
     printed_lines: int = 0,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    workflow_handle: WorkflowHandle | None = None,
 ) -> tuple[str, str | None, int, int]:
-    """Poll S3 logs until the agent finishes a turn.
-
-    Returns (last_message, full_log, new_skip_lines, new_printed_lines).
-    Raises RuntimeError on timeout or terminal status without a message.
-    """
+    """Poll S3 logs until the agent finishes a turn."""
     from posthog.storage.object_storage import ObjectStorageError
 
     from products.tasks.backend.models import TaskRun
 
     elapsed = 0
     consecutive_storage_errors = 0
+    last_new_lines_at = 0  # elapsed time when we last saw new log lines
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
-
+        # Send heartbeat signals to the ProcessTaskWorkflow on each poll cycle to prevent
+        # the workflow's inactivity timeout from firing while the agent is still working
+        if workflow_handle is not None:
+            try:
+                await workflow_handle.signal("heartbeat")
+            except Exception:
+                logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
             finished, last_message, full_log, total_lines = await sync_to_async(_check_logs)(task_run, skip_lines)
         except ObjectStorageError:
@@ -149,6 +159,17 @@ async def _poll_for_turn(
             continue
         consecutive_storage_errors = 0
 
+        if total_lines > skip_lines:
+            last_new_lines_at = elapsed
+        stale_seconds = elapsed - last_new_lines_at
+        if stale_seconds >= 60 and stale_seconds % 60 < POLL_INTERVAL_SECONDS:
+            logger.warning(
+                "custom_prompt - poll_for_turn: no new S3 log lines for %ds, run=%s, total_lines=%d",
+                stale_seconds,
+                task_run.id,
+                total_lines,
+            )
+
         printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         if finished and last_message:
             return last_message, full_log, total_lines, printed_lines
@@ -160,6 +181,16 @@ async def _poll_for_turn(
             TaskRun.Status.FAILED,
             TaskRun.Status.CANCELLED,
         }:
+            logger.warning(
+                "custom_prompt - poll_for_turn: TaskRun reached terminal status=%s, error_message=%s, "
+                "run=%s, elapsed=%ds, stale_for=%ds, total_lines=%d",
+                refreshed.status,
+                refreshed.error_message,
+                task_run.id,
+                elapsed,
+                elapsed - last_new_lines_at,
+                total_lines,
+            )
             # Terminal status — one final log read with retries.
             final_message = None
             final_log = None

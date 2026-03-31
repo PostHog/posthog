@@ -28,7 +28,25 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .agentsh import (
+    ENV_FILE,
+    ENV_WRAPPER_SCRIPT,
+    SESSION_ID_FILE,
+    build_exec_prefix,
+    build_setup_script,
+    generate_config_yaml,
+    generate_env_wrapper,
+    generate_policy_yaml,
+)
+from .sandbox import (
+    AgentServerResult,
+    ExecutionResult,
+    ExecutionStream,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    wait_for_health_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -264,10 +282,6 @@ class DockerSandbox:
                 "host.docker.internal:host-gateway",
                 "--cap-add",
                 "SYS_PTRACE",
-                "--cap-add",
-                "NET_ADMIN",
-                "--security-opt",
-                "apparmor=unconfined",
                 "-w",
                 WORKING_DIR,
                 f"--memory={config.memory_gb}g",
@@ -571,29 +585,25 @@ class DockerSandbox:
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_servers_arg: str = "",
-        wrap_with_agentsh: bool = False,
+        allowed_domains: list[str] | None = None,
     ) -> str:
         env_prefix = (
             f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         )
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
-        server_binary = (
-            "/scripts/node_modules/.bin/agent-server" if wrap_with_agentsh else "./node_modules/.bin/agent-server"
-        )
+        domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         server_cmd = (
-            f"{env_prefix}{server_binary} --port {AGENT_SERVER_PORT}{repo_flag} "
+            f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_servers_arg}"
+            f"{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
 
-        if wrap_with_agentsh:
-            from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
-
-            server_cmd_with_log = f"bash -c {shlex.quote(server_cmd + ' > /tmp/agent-server.log 2>&1')}"
-            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {build_exec_prefix()} {ENV_WRAPPER_SCRIPT} {server_cmd_with_log} &"
-
-        return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+        inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
+        return (
+            f"cd /scripts && env -0 > {ENV_FILE} && "
+            f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
+        )
 
     def _launch_and_check(self, command: str) -> bool:
         """Execute the agent-server command and wait for the health check.
@@ -633,10 +643,7 @@ class DockerSandbox:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        wrap_with_agentsh = bool(allowed_domains)
-        if wrap_with_agentsh and repo_path and allowed_domains:
-            logger.info(f"Setting up agentsh network restrictions in sandbox {self.id} (domains: {allowed_domains})")
-            self._setup_agentsh(repo_path, allowed_domains)
+        self._setup_agentsh(WORKING_DIR, allowed_domains)
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -651,7 +658,7 @@ class DockerSandbox:
             interaction_origin,
             branch,
             mcp_servers_arg,
-            wrap_with_agentsh=wrap_with_agentsh,
+            allowed_domains=allowed_domains,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -678,7 +685,7 @@ class DockerSandbox:
                 interaction_origin,
                 branch=None,
                 mcp_servers_arg=mcp_servers_arg,
-                wrap_with_agentsh=wrap_with_agentsh,
+                allowed_domains=allowed_domains,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
@@ -693,25 +700,18 @@ class DockerSandbox:
             cause=RuntimeError("Health check failed after retries"),
         )
 
-    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str]) -> None:
-        from products.tasks.backend.services.agentsh import (
-            ENV_WRAPPER_SCRIPT,
-            SESSION_ID_FILE,
-            build_setup_script,
-            generate_config_yaml,
-            generate_env_wrapper,
-            generate_policy_yaml,
-        )
+    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
+        if allowed_domains:
+            logger.info(
+                "Configuring agentsh in Docker sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains)
+            )
+        else:
+            logger.info("Configuring agentsh in Docker sandbox %s (allow-all mode)", self.id)
 
-        # Docker Desktop's VM doesn't reliably support ptrace network tracing —
-        # traced processes randomly hang in stopped state. Network enforcement
-        # only works in production (Modal) where ptrace operates on real Linux.
         config_yaml = generate_config_yaml()
         policy_yaml = generate_policy_yaml(allowed_domains)
 
-        # Kill any leftover agentsh daemon from a previous attempt
         self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
-
         self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
         self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
         self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
@@ -721,25 +721,35 @@ class DockerSandbox:
         setup_script = build_setup_script(workspace_path)
         result = self.execute(setup_script, timeout_seconds=30)
         if result.exit_code != 0:
+            agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
             raise SandboxExecutionError(
                 "Failed to start agentsh daemon",
-                {"sandbox_id": self.id, "stderr": result.stderr, "stdout": result.stdout},
+                {
+                    "sandbox_id": self.id,
+                    "stderr": result.stderr,
+                    "stdout": result.stdout,
+                    "agentsh_log": agentsh_log.stdout,
+                },
                 cause=RuntimeError(result.stderr),
             )
 
         session_check = self.execute(f"cat {SESSION_ID_FILE}", timeout_seconds=5)
         if session_check.exit_code != 0 or not session_check.stdout.strip():
+            agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
             raise SandboxExecutionError(
                 "Failed to create agentsh session",
-                {"sandbox_id": self.id, "stderr": session_check.stderr},
+                {
+                    "sandbox_id": self.id,
+                    "stderr": session_check.stderr,
+                    "agentsh_log": agentsh_log.stdout,
+                },
                 cause=RuntimeError("agentsh session create failed"),
             )
 
-        logger.info(f"agentsh daemon started and session created in sandbox {self.id}")
+        logger.info("agentsh daemon started and session created in Docker sandbox %s", self.id)
 
-    def _wait_for_health_check(self, max_attempts: int = 20, poll_interval: float = 0.3) -> bool:
+    def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
-        from products.tasks.backend.services.sandbox import wait_for_health_check
 
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
 
