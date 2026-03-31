@@ -548,7 +548,7 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     breakdown_results = BreakdownSimulationResultSerializer(
         many=True,
         required=False,
-        help_text="Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 10 values).",
+        help_text="Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values).",
     )
 
 
