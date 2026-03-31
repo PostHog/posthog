@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import os
 import socket
-from typing import Any
+from collections.abc import Callable
+from typing import Any, NoReturn
 
 import click
 from hogli.core.cli import cli
@@ -78,7 +79,7 @@ def resolve_workspace_name(label: str | None) -> str:
     return ""  # unreachable
 
 
-def _fail(message: str) -> None:
+def _fail(message: str) -> NoReturn:
     """Print a short actionable error and exit."""
     click.echo(click.style(message, fg="red"))
     raise SystemExit(1)
@@ -97,7 +98,7 @@ def _local_port_is_available(port: int) -> bool:
     return True
 
 
-def workspace_name_option(fn):  # type: ignore[no-untyped-def]
+def workspace_name_option(fn: Callable[..., Any]) -> Callable[..., Any]:
     """Shared Click decorator adding ``--name`` / ``-n`` for workspace selection."""
     return click.option(
         "--name",
