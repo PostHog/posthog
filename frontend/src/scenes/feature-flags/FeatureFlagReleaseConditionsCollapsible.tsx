@@ -481,13 +481,14 @@ const ConditionContent = ({
                                 totalUsers={totalUsers}
                                 affectedGroupCount={group.sort_key ? affectedGroups[group.sort_key] : undefined}
                                 aggregationTargetName={aggregationTargetName}
-                                groupTargetName={
-                                    releaseFilters.aggregation_group_type_index != null
-                                        ? aggregationLabel(
-                                              releaseFilters.aggregation_group_type_index as GroupTypeIndex
-                                          ).plural
+                                groupTargetName={(() => {
+                                    const effectiveIndex =
+                                        group.aggregation_group_type_index ??
+                                        releaseFilters.aggregation_group_type_index
+                                    return effectiveIndex != null
+                                        ? aggregationLabel(effectiveIndex as GroupTypeIndex).plural
                                         : null
-                                }
+                                })()}
                                 onDuplicate={onDuplicate}
                                 onRemove={onRemove}
                             />
@@ -624,15 +625,17 @@ const ConditionContent = ({
                                                         (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
                                                     )
 
+                                                    const effectiveGroupTypeIndex =
+                                                        group.aggregation_group_type_index ??
+                                                        releaseFilters.aggregation_group_type_index
                                                     const hasGroupData =
                                                         affectedGroupCount !== undefined &&
                                                         affectedGroupCount >= 0 &&
                                                         totalGroupCount !== undefined &&
-                                                        releaseFilters.aggregation_group_type_index != null
+                                                        effectiveGroupTypeIndex != null
                                                     const groupName = hasGroupData
-                                                        ? aggregationLabel(
-                                                              releaseFilters.aggregation_group_type_index as GroupTypeIndex
-                                                          ).plural
+                                                        ? aggregationLabel(effectiveGroupTypeIndex as GroupTypeIndex)
+                                                              .plural
                                                         : null
                                                     const groupsReceivingFlag = hasGroupData
                                                         ? Math.floor(
