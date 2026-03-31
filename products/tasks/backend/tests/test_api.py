@@ -413,6 +413,74 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertIn(expected_id, task_ids)
 
 
+class TestTaskInternalFilterAPI(BaseTaskAPITest):
+    def setUp(self):
+        super().setUp()
+        self.external_task = self.create_task("External Task")
+        self.internal_task = Task.objects.create(
+            team=self.team,
+            title="Internal Task",
+            description="Internal Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+
+    def test_list_excludes_internal_tasks_by_default(self):
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_true_shows_only_internal_tasks(self):
+        response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertNotIn(str(self.external_task.id), task_ids)
+        self.assertIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_false_excludes_internal_tasks(self):
+        response = self.client.get("/api/projects/@current/tasks/?internal=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_internal_field_in_response(self):
+        response = self.client.get(f"/api/projects/@current/tasks/{self.external_task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["internal"])
+
+    def test_retrieve_internal_task_by_id(self):
+        response = self.client.get(f"/api/projects/@current/tasks/{self.internal_task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["internal"])
+
+    def test_internal_field_is_settable_on_create(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Internal Task via API", "description": "Created as internal", "internal": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["internal"])
+
+    def test_internal_field_defaults_to_false_on_create(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Normal Task", "description": "No internal flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["internal"])
+
+
 class TestTaskRunAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):

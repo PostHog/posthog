@@ -201,6 +201,40 @@ class TestQueryCoalescer(TestCase):
         after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
         self.assertEqual(after, before + 1)
 
+    def test_new_leader_preserves_done_key_from_previous_round(self):
+        """A new leader acquiring the lock must not delete the
+        done_key stored by the previous leader, otherwise followers of the
+        previous round will see no data."""
+        leader_a = QueryCoalescer(self.key)
+        leader_a.try_acquire()
+        leader_a.store_success_response(200, b'{"ok": true}', "application/json")
+        leader_a.cleanup()
+
+        # Leader B acquires the same key (simulates a new identical request)
+        leader_b = QueryCoalescer(self.key)
+        leader_b.try_acquire()
+
+        # A lingering follower from round A should still be able to read the done_key
+        follower_a = QueryCoalescer(self.key)
+        result = follower_a.get_success_response()
+        assert result is not None, "done_key was deleted by new leader"
+        self.assertEqual(result["status"], 200)
+        leader_b.cleanup()
+
+    def test_signal_error_stores_error_key_for_polling(self):
+        """signal_error() must store an error marker in Redis so that
+        late-subscribing followers can detect it via polling instead of
+        hitting the crash timeout."""
+        leader = QueryCoalescer(self.key)
+        leader.try_acquire()
+        leader.signal_error()
+        leader.cleanup()
+
+        follower = QueryCoalescer(self.key)
+        error_value = self.redis.get(f"{ERROR_KEY_PREFIX}:{self.key}")
+        assert error_value is not None, "signal_error did not store error_key"
+        self.assertIsNone(follower.get_success_response())
+
     # -- Redis failure --
 
     def test_redis_failure_on_acquire_raises(self):

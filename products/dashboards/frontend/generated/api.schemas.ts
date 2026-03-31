@@ -484,6 +484,10 @@ export interface PatchedDataColorThemeApi {
 
 export type DashboardTemplatesListParams = {
     /**
+     * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
+     */
+    is_featured?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
