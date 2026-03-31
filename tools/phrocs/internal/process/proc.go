@@ -106,10 +106,11 @@ type Process struct {
 	cmd          *exec.Cmd
 
 	mu        sync.Mutex
-	lines     []string // scrollback buffer of recent output lines
-	ptmx      *os.File // pty master; nil when using pipes
-	stdinPipe *os.File // write end of stdin pipe; nil when using PTY
-	hasPrompt bool     // true when the last output was a partial line without a trailing \n
+	lines     []string      // scrollback buffer of recent output lines
+	ptmx      *os.File      // pty master; nil when using pipes
+	stdinPipe *os.File      // write end of stdin pipe; nil when using PTY
+	hasPrompt bool          // true when the last output was a partial line without a trailing \n
+	waitDone  chan struct{} // closed by the goroutine that calls cmd.Wait()
 
 	startedAt time.Time
 	readyAt   time.Time
@@ -260,16 +261,16 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		p.mu.Lock()
-		p.status = StatusCrashed
-		p.mu.Unlock()
-		send(StatusMsg{Name: p.Name, Status: StatusCrashed})
-		return fmt.Errorf("pty.Start %s: %w", p.Name, err)
+		// Use combined stdout/stderr pipe when PTY allocation fails
+		return p.startWithPipe(cmd, send)
 	}
+
+	waitDone := make(chan struct{})
 
 	p.mu.Lock()
 	p.cmd = cmd
 	p.ptmx = ptmx
+	p.waitDone = waitDone
 
 	// Stop() was called while pty.Start was in progress
 	if p.status == StatusStopped {
@@ -310,6 +311,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 	go func() {
 		exitErr := cmd.Wait()
+		close(waitDone)
 
 		// Close the pty master to unblock readLoop
 		p.mu.Lock()
@@ -320,6 +322,94 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		p.mu.Unlock()
 
 		// Wait for readLoop to drain all buffered output before updating status
+		<-readDone
+		close(outChannel)
+		p.handleExit(cmd, exitErr, send)
+	}()
+
+	return nil
+}
+
+// startWithPipe is the fallback when PTY allocation fails. It uses a combined
+// stdout/stderr pipe instead.
+func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("stdin pipe: %w", err)
+	}
+	cmd.Stdin = stdinR
+
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		stdinR.Close()
+		stdinW.Close()
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stdoutW
+
+	if err := cmd.Start(); err != nil {
+		stdinR.Close()
+		stdinW.Close()
+		stdoutR.Close()
+		stdoutW.Close()
+		return fmt.Errorf("start: %w", err)
+	}
+
+	// Close write ends in the parent so reads get EOF when the child exits.
+	stdinR.Close()
+	stdoutW.Close()
+
+	waitDone := make(chan struct{})
+
+	p.mu.Lock()
+	p.cmd = cmd
+	p.ptmx = nil
+	p.stdinPipe = stdinW
+	p.waitDone = waitDone
+
+	if p.status == StatusStopped {
+		p.killProcessGroup()
+		_ = stdinW.Close()
+		p.stdinPipe = nil
+		p.mu.Unlock()
+		stdoutR.Close()
+		send(StatusMsg{Name: p.Name, Status: StatusStopped})
+		return nil
+	}
+
+	if p.readyPattern == nil {
+		p.status = StatusRunning
+	}
+	currentStatus := p.status
+	p.mu.Unlock()
+
+	send(StatusMsg{Name: p.Name, Status: currentStatus})
+
+	go p.startMetricsSampler(cmd.Process.Pid)
+
+	outChannel := make(chan tea.Msg, 256)
+
+	go func() {
+		for msg := range outChannel {
+			send(msg)
+		}
+	}()
+
+	readDone := make(chan struct{})
+	go func() {
+		p.readLoop(stdoutR, outChannel)
+		close(readDone)
+	}()
+
+	go func() {
+		exitErr := cmd.Wait()
+		close(waitDone)
+
+		stdoutR.Close()
+
 		<-readDone
 		close(outChannel)
 		p.handleExit(cmd, exitErr, send)
@@ -394,22 +484,31 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 	flushTicker := time.NewTicker(flushInterval)
 	defer flushTicker.Stop()
 
+	becameReady := false
+
 	// addLine buffers a line in scrollback and adds it to the current batch.
-	// If the line matches the ready pattern, sends StatusRunning to the TUI.
 	addLine := func(s string) {
 		ev, ready := p.bufferLine(s)
 		if ev {
 			evicted++
 		}
 		if ready {
-			outChannel <- StatusMsg{Name: p.Name, Status: StatusRunning}
+			becameReady = true
 		}
 		batch = append(batch, s)
 	}
 
 	// trySend delivers the batch to outChannel without blocking. If the TUI event
 	// loop is busy (channel full), the batch keeps growing until next tick.
+	// A pending "became ready" status is sent first (also non-blocking).
 	trySend := func() {
+		if becameReady {
+			select {
+			case outChannel <- StatusMsg{Name: p.Name, Status: StatusRunning}:
+				becameReady = false
+			default:
+			}
+		}
 		if len(batch) == 0 {
 			return
 		}
@@ -429,6 +528,9 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 				// EOF — flush remaining partial + batch
 				if len(partial) > 0 {
 					addLine(string(partial))
+				}
+				if becameReady {
+					outChannel <- StatusMsg{Name: p.Name, Status: StatusRunning}
 				}
 				if len(batch) > 0 {
 					outChannel <- OutputMsg{Name: p.Name, Added: batch, Evicted: evicted}
@@ -610,8 +712,12 @@ func (p *Process) killProcessGroup() {
 		return
 	}
 	// If the tracked command has already exited, avoid signaling based on a potentially reused PID.
-	if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
-		return
+	if p.waitDone != nil {
+		select {
+		case <-p.waitDone:
+			return
+		default:
+		}
 	}
 
 	sig := p.stopSignal()
@@ -642,6 +748,7 @@ func (p *Process) Stop() {
 	}
 	p.status = StatusStopped
 	cmd := p.cmd
+	waitDone := p.waitDone
 	p.mu.Unlock()
 
 	if cmd == nil || cmd.Process == nil {
@@ -649,26 +756,30 @@ func (p *Process) Stop() {
 	}
 
 	// Wait for graceful exit, then escalate to SIGKILL
-	deadline := time.Now().Add(stopGracePeriod)
-	for time.Now().Before(deadline) {
-		if cmd.ProcessState != nil {
+	if waitDone != nil {
+		select {
+		case <-waitDone:
 			return
+		case <-time.After(stopGracePeriod):
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
 
-	p.mu.Lock()
-	if cmd.ProcessState == nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		pid := cmd.Process.Pid
+		if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+			_ = cmd.Process.Kill()
+		}
+
+		// Give the kernel a moment to reap after SIGKILL
+		select {
+		case <-waitDone:
+		case <-time.After(200 * time.Millisecond):
+		}
 	}
-	p.mu.Unlock()
-	time.Sleep(200 * time.Millisecond)
 }
 
 // Stops the process, clears its output buffer, and starts it again
 func (p *Process) Restart(send func(tea.Msg)) {
 	p.Stop()
-	send(StatusMsg{Name: p.Name, Status: StatusStopped})
+	send(StatusMsg{Name: p.Name, Status: StatusPending})
 	_ = p.Start(send)
 }
 
