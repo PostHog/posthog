@@ -423,6 +423,8 @@ export const maxLogic = kea<maxLogicType>([
         // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
+                // Start a new conversation so the prompt doesn't get added to an existing session
+                actions.startNewConversation()
                 handleCommandString(options, actions)
             }
         },
