@@ -233,6 +233,62 @@ describe('InsightPageHeader', () => {
         })
     })
 
+    describe('insight context for PostHog AI', () => {
+        it('provides context with insight name when viewing a saved insight', () => {
+            const insight = makeInsight({
+                name: 'My Test Insight',
+                user_access_level: AccessControlLevel.Editor,
+            })
+            renderHeader({
+                insightMode: ItemMode.View,
+                dashboardItemId: SAVED_INSIGHT_ID,
+                insight,
+            })
+
+            const readDataCall = mockUseMaxTool.mock.calls.find(
+                (call: Record<string, unknown>[]) => call[0]?.identifier === 'read_data'
+            )
+            expect(readDataCall).not.toBeUndefined()
+            expect(readDataCall![0].active).toBe(true)
+            expect(readDataCall![0].contextDescription).toMatchObject({
+                text: 'My Test Insight',
+            })
+        })
+
+        it('does not provide context for unsaved insights', () => {
+            renderHeader({
+                insightMode: ItemMode.Edit,
+                dashboardItemId: 'new',
+            })
+
+            const readDataCall = mockUseMaxTool.mock.calls.find(
+                (call: Record<string, unknown>[]) => call[0]?.identifier === 'read_data'
+            )
+            // For new insights, maxToolProps is undefined so useMaxTool is called with active: false
+            expect(readDataCall).not.toBeUndefined()
+            expect(readDataCall![0].active).toBe(false)
+        })
+
+        it('uses derived name when insight has no explicit name', () => {
+            const insight = makeInsight({
+                name: undefined,
+                derived_name: 'Pageview count',
+                user_access_level: AccessControlLevel.Editor,
+            })
+            renderHeader({
+                insightMode: ItemMode.View,
+                dashboardItemId: SAVED_INSIGHT_ID,
+                insight,
+            })
+
+            const readDataCall = mockUseMaxTool.mock.calls.find(
+                (call: Record<string, unknown>[]) => call[0]?.identifier === 'read_data'
+            )
+            expect(readDataCall).not.toBeUndefined()
+            expect(readDataCall![0].contextDescription.text).toBe('Pageview count')
+        })
+    })
+
     describe('forceEdit', () => {
         it('shows the editable name input in Edit mode', () => {
             renderHeader({
