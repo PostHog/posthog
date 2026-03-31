@@ -11,9 +11,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     EndExperimentApi,
     ExperimentApi,
+    ExperimentHoldoutApi,
+    ExperimentHoldoutsListParams,
+    ExperimentSavedMetricApi,
+    ExperimentSavedMetricsListParams,
     ExperimentsListParams,
+    PaginatedExperimentHoldoutListApi,
     PaginatedExperimentListApi,
+    PaginatedExperimentSavedMetricListApi,
     PatchedExperimentApi,
+    PatchedExperimentHoldoutApi,
+    PatchedExperimentSavedMetricApi,
     ShipVariantApi,
 } from './api.schemas'
 
@@ -33,6 +41,226 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getExperimentHoldoutsListUrl = (projectId: string, params?: ExperimentHoldoutsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiment_holdouts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiment_holdouts/`
+}
+
+export const experimentHoldoutsList = async (
+    projectId: string,
+    params?: ExperimentHoldoutsListParams,
+    options?: RequestInit
+): Promise<PaginatedExperimentHoldoutListApi> => {
+    return apiMutator<PaginatedExperimentHoldoutListApi>(getExperimentHoldoutsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExperimentHoldoutsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiment_holdouts/`
+}
+
+export const experimentHoldoutsCreate = async (
+    projectId: string,
+    experimentHoldoutApi: NonReadonly<ExperimentHoldoutApi>,
+    options?: RequestInit
+): Promise<ExperimentHoldoutApi> => {
+    return apiMutator<ExperimentHoldoutApi>(getExperimentHoldoutsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentHoldoutApi),
+    })
+}
+
+export const getExperimentHoldoutsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_holdouts/${id}/`
+}
+
+export const experimentHoldoutsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentHoldoutApi> => {
+    return apiMutator<ExperimentHoldoutApi>(getExperimentHoldoutsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExperimentHoldoutsUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_holdouts/${id}/`
+}
+
+export const experimentHoldoutsUpdate = async (
+    projectId: string,
+    id: number,
+    experimentHoldoutApi: NonReadonly<ExperimentHoldoutApi>,
+    options?: RequestInit
+): Promise<ExperimentHoldoutApi> => {
+    return apiMutator<ExperimentHoldoutApi>(getExperimentHoldoutsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentHoldoutApi),
+    })
+}
+
+export const getExperimentHoldoutsPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_holdouts/${id}/`
+}
+
+export const experimentHoldoutsPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedExperimentHoldoutApi: NonReadonly<PatchedExperimentHoldoutApi>,
+    options?: RequestInit
+): Promise<ExperimentHoldoutApi> => {
+    return apiMutator<ExperimentHoldoutApi>(getExperimentHoldoutsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedExperimentHoldoutApi),
+    })
+}
+
+export const getExperimentHoldoutsDestroyUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_holdouts/${id}/`
+}
+
+export const experimentHoldoutsDestroy = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExperimentHoldoutsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExperimentSavedMetricsListUrl = (projectId: string, params?: ExperimentSavedMetricsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiment_saved_metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiment_saved_metrics/`
+}
+
+export const experimentSavedMetricsList = async (
+    projectId: string,
+    params?: ExperimentSavedMetricsListParams,
+    options?: RequestInit
+): Promise<PaginatedExperimentSavedMetricListApi> => {
+    return apiMutator<PaginatedExperimentSavedMetricListApi>(getExperimentSavedMetricsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExperimentSavedMetricsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/`
+}
+
+export const experimentSavedMetricsCreate = async (
+    projectId: string,
+    experimentSavedMetricApi: NonReadonly<ExperimentSavedMetricApi>,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSavedMetricApi),
+    })
+}
+
+export const getExperimentSavedMetricsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExperimentSavedMetricsUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsUpdate = async (
+    projectId: string,
+    id: number,
+    experimentSavedMetricApi: NonReadonly<ExperimentSavedMetricApi>,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSavedMetricApi),
+    })
+}
+
+export const getExperimentSavedMetricsPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedExperimentSavedMetricApi: NonReadonly<PatchedExperimentSavedMetricApi>,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedExperimentSavedMetricApi),
+    })
+}
+
+export const getExperimentSavedMetricsDestroyUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsDestroy = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExperimentSavedMetricsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
