@@ -349,6 +349,159 @@ describe('LLM Analytics utils', () => {
         })
     })
 
+    describe('OpenAI Responses API', () => {
+        it('parses a function_call item as an assistant tool call', () => {
+            const message = {
+                type: 'function_call',
+                call_id: 'call_tLji37A7lp7Buy7hcqUPMUXE',
+                name: 'search_category',
+                arguments: '{"dimensions":[],"list_all":true}',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_tLji37A7lp7Buy7hcqUPMUXE',
+                            function: {
+                                name: 'search_category',
+                                arguments: { dimensions: [], list_all: true },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('parses a function_call_output item as a tool result', () => {
+            const message = {
+                type: 'function_call_output',
+                call_id: 'call_tLji37A7lp7Buy7hcqUPMUXE',
+                output: '{"categories":[{"id":"149288","name":"Asheville Cloud Shaker"}]}',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: '{"categories":[{"id":"149288","name":"Asheville Cloud Shaker"}]}',
+                    tool_call_id: 'call_tLji37A7lp7Buy7hcqUPMUXE',
+                },
+            ])
+        })
+
+        it('parses a reasoning item as assistant thinking', () => {
+            const message = {
+                type: 'reasoning',
+                id: 'rs_123',
+                summary: [
+                    { type: 'summary_text', text: 'Thinking about the query...' },
+                    { type: 'summary_text', text: 'Deciding on a response.' },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (thinking)',
+                    content: 'Thinking about the query...\nDeciding on a response.',
+                },
+            ])
+        })
+
+        it('handles reasoning with no summary', () => {
+            const message = {
+                type: 'reasoning',
+                id: 'rs_456',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (thinking)',
+                    content: '',
+                },
+            ])
+        })
+
+        it('parses web_search_call as an assistant tool call', () => {
+            const message = {
+                type: 'web_search_call',
+                id: 'ws_123',
+                status: 'completed',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: JSON.stringify(message),
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'ws_123',
+                            function: {
+                                name: 'web_search_call',
+                                arguments: {},
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('parses code_interpreter_call as an assistant tool call', () => {
+            const message = {
+                type: 'code_interpreter_call',
+                id: 'ci_123',
+                status: 'completed',
+                code: 'print("hello")',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: JSON.stringify(message),
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'ci_123',
+                            function: {
+                                name: 'code_interpreter_call',
+                                arguments: {},
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles function_call with unparseable arguments', () => {
+            const message = {
+                type: 'function_call',
+                call_id: 'call_abc',
+                name: 'my_func',
+                arguments: '{invalid json',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_abc',
+                            function: {
+                                name: 'my_func',
+                                arguments: '{invalid json',
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+    })
+
     it('normalizeMessage: handles new array-based content format', () => {
         const message = {
             role: 'assistant',
