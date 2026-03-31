@@ -22,6 +22,10 @@ export function epochMsToDateTime(epochMs: bigint): DateTime {
     return DateTime.fromMillis(Number(epochMs), { zone: 'utc' })
 }
 
+export function shouldUseGrpc(percentage: number): boolean {
+    return Math.random() * 100 < percentage
+}
+
 export function eventualReadOptions() {
     return create(ReadOptionsSchema, { consistency: ConsistencyLevel.EVENTUAL })
 }

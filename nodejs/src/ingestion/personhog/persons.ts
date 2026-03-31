@@ -53,10 +53,9 @@ export class PersonHogPersonOperations {
         const results: InternalPersonWithDistinctId[] = []
         for (const result of response.results) {
             if (result.person && result.key) {
-                results.push({
-                    ...protoPersonToDomain(result.person),
-                    distinct_id: result.key.distinctId,
-                })
+                const person = protoPersonToDomain(result.person) as InternalPersonWithDistinctId
+                person.distinct_id = result.key.distinctId
+                results.push(person)
             }
         }
         return results

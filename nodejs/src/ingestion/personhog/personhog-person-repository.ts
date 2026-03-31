@@ -19,8 +19,8 @@ import {
     PersonRepository,
 } from '../../worker/ingestion/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '../../worker/ingestion/persons/repositories/person-repository-transaction'
-import { PersonHogClient } from './client'
-import { personhogErrorsTotal, personhogLatencySeconds, personhogRequestsTotal } from './metrics'
+import { PersonHogClient, shouldUseGrpc } from './client'
+import { timedGrpc, timedPostgres } from './metrics'
 
 export class PersonHogPersonRepository implements PersonRepository {
     constructor(
@@ -30,34 +30,6 @@ export class PersonHogPersonRepository implements PersonRepository {
         private clientLabel: string
     ) {}
 
-    private shouldUseGrpc(): boolean {
-        return Math.random() * 100 < this.grpcPercentage
-    }
-
-    private async timedPostgres<T>(method: string, fn: () => Promise<T>): Promise<T> {
-        const end = personhogLatencySeconds.startTimer({ method, source: 'postgres', client: this.clientLabel })
-        try {
-            return await fn()
-        } finally {
-            end()
-            personhogRequestsTotal.inc({ method, source: 'postgres', client: this.clientLabel })
-        }
-    }
-
-    private async timedGrpc<T>(method: string, fn: () => Promise<T>): Promise<T> {
-        const end = personhogLatencySeconds.startTimer({ method, source: 'grpc', client: this.clientLabel })
-        try {
-            const result = await fn()
-            return result
-        } catch (error) {
-            personhogErrorsTotal.inc({ method, client: this.clientLabel })
-            throw error
-        } finally {
-            end()
-            personhogRequestsTotal.inc({ method, source: 'grpc', client: this.clientLabel })
-        }
-    }
-
     // Read operations — route to gRPC based on percentage
 
     async fetchPerson(
@@ -66,26 +38,28 @@ export class PersonHogPersonRepository implements PersonRepository {
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<InternalPerson | undefined> {
         // Only route to gRPC for eventually-consistent replica reads
-        if (options?.forUpdate || !options?.useReadReplica || !this.shouldUseGrpc()) {
-            return this.timedPostgres('fetchPerson', () => this.postgres.fetchPerson(teamId, distinctId, options))
+        if (options?.forUpdate || !options?.useReadReplica || !shouldUseGrpc(this.grpcPercentage)) {
+            return timedPostgres(this.clientLabel, 'fetchPerson', () =>
+                this.postgres.fetchPerson(teamId, distinctId, options)
+            )
         }
 
         try {
-            const results = await this.timedGrpc('fetchPerson', () =>
+            const results = await timedGrpc(this.clientLabel, 'fetchPerson', () =>
                 this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }])
             )
             if (results.length === 0) {
                 return undefined
             }
-            // Strip distinct_id from the result since fetchPerson returns InternalPerson
-            const { distinct_id: _, ...person } = results[0]
-            return person
+            return results[0]
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchPerson failed, falling back to Postgres', {
                 teamId,
                 error: String(error),
             })
-            return this.timedPostgres('fetchPerson', () => this.postgres.fetchPerson(teamId, distinctId, options))
+            return timedPostgres(this.clientLabel, 'fetchPerson', () =>
+                this.postgres.fetchPerson(teamId, distinctId, options)
+            )
         }
     }
 
@@ -94,14 +68,14 @@ export class PersonHogPersonRepository implements PersonRepository {
         useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]> {
         // Default matches PostgresPersonRepository (useReadReplica=true)
-        if (useReadReplica === false || !this.shouldUseGrpc()) {
-            return this.timedPostgres('fetchPersonsByDistinctIds', () =>
+        if (useReadReplica === false || !shouldUseGrpc(this.grpcPercentage)) {
+            return timedPostgres(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
                 this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
             )
         }
 
         try {
-            return await this.timedGrpc('fetchPersonsByDistinctIds', () =>
+            return await timedGrpc(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
                 this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons)
             )
         } catch (error) {
@@ -109,7 +83,7 @@ export class PersonHogPersonRepository implements PersonRepository {
                 count: teamPersons.length,
                 error: String(error),
             })
-            return this.timedPostgres('fetchPersonsByDistinctIds', () =>
+            return timedPostgres(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
                 this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
             )
         }
@@ -120,14 +94,14 @@ export class PersonHogPersonRepository implements PersonRepository {
         useReadReplica?: boolean
     ): Promise<InternalPerson[]> {
         // Default matches PostgresPersonRepository (useReadReplica=true)
-        if (useReadReplica === false || !this.shouldUseGrpc()) {
-            return this.timedPostgres('fetchPersonsByPersonIds', () =>
+        if (useReadReplica === false || !shouldUseGrpc(this.grpcPercentage)) {
+            return timedPostgres(this.clientLabel, 'fetchPersonsByPersonIds', () =>
                 this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica)
             )
         }
 
         try {
-            return await this.timedGrpc('fetchPersonsByPersonIds', () =>
+            return await timedGrpc(this.clientLabel, 'fetchPersonsByPersonIds', () =>
                 this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons)
             )
         } catch (error) {
@@ -135,7 +109,7 @@ export class PersonHogPersonRepository implements PersonRepository {
                 count: teamPersons.length,
                 error: String(error),
             })
-            return this.timedPostgres('fetchPersonsByPersonIds', () =>
+            return timedPostgres(this.clientLabel, 'fetchPersonsByPersonIds', () =>
                 this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica)
             )
         }

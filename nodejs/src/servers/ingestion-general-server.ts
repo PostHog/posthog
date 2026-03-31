@@ -23,6 +23,7 @@ import {
     IngestionConsumerConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
+    PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
@@ -64,6 +65,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
+    PersonHogConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -71,30 +73,6 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'CLOUD_DEPLOYMENT'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
-        // Shared between ingestion and CDP
-        | 'CDP_HOG_WATCHER_SAMPLE_RATE'
-        // Consumer
-        | 'CONSUMER_BATCH_SIZE'
-        | 'CONSUMER_MAX_HEARTBEAT_INTERVAL_MS'
-        | 'CONSUMER_LOOP_STALL_THRESHOLD_MS'
-        | 'CONSUMER_LOG_STATS_LEVEL'
-        | 'CONSUMER_LOOP_BASED_HEALTH_CHECK'
-        | 'CONSUMER_MAX_BACKGROUND_TASKS'
-        | 'CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE'
-        | 'CONSUMER_AUTO_CREATE_TOPICS'
-        // PersonHog gRPC
-        | 'PERSONHOG_ENABLED'
-        | 'PERSONHOG_ADDR'
-        | 'PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE'
-        | 'PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE'
-        | 'PERSONHOG_TLS'
-        | 'PERSONHOG_TIMEOUT_MS'
-        | 'PERSONHOG_READ_MAX_BYTES'
-        | 'PERSONHOG_WRITE_MAX_BYTES'
-        | 'PERSONHOG_PING_INTERVAL_MS'
-        | 'PERSONHOG_PING_TIMEOUT_MS'
-        | 'PERSONHOG_PING_IDLE_CONNECTION'
-        // Misc
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
         | 'TASKS_PER_WORKER'
