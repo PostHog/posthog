@@ -129,6 +129,21 @@ impl FeatureFlagMatch {
     }
 }
 
+/// Tracks whether person properties were fetched from the database or intentionally skipped.
+///
+/// When request overrides cover all needed property keys, DB prep is skipped and `person_properties`
+/// stays `None`. This enum lets downstream code distinguish that expected case from an unexpected miss.
+#[derive(Clone, Debug, Default)]
+pub(crate) enum PersonPropertyFetchStatus {
+    /// DB prep has not yet run (initial state)
+    #[default]
+    Pending,
+    /// DB prep was skipped because request overrides covered all needed property keys
+    Skipped,
+    /// DB prep ran and populated person_properties
+    Fetched,
+}
+
 /// This struct maintains evaluation state by caching database-sourced data during feature flag evaluation.
 /// It stores person IDs, properties, group properties, and cohort matches that are fetched from the database,
 /// allowing them to be reused across multiple flag evaluations within the same request without additional DB lookups.
@@ -142,6 +157,8 @@ pub struct FlagEvaluationState {
     person_uuid: Option<Uuid>,
     /// Properties associated with the person, fetched from the database
     pub(crate) person_properties: Option<HashMap<String, Value>>,
+    /// Whether person properties were fetched, skipped, or not yet attempted
+    pub(crate) person_property_fetch_status: PersonPropertyFetchStatus,
     /// Properties for each group type involved in flag evaluation
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
     /// Cohorts for the current request
@@ -185,6 +202,7 @@ impl FlagEvaluationState {
 
     pub fn set_person_properties(&mut self, properties: HashMap<String, Value>) {
         self.person_properties = Some(properties);
+        self.person_property_fetch_status = PersonPropertyFetchStatus::Fetched;
     }
 
     pub fn set_cohorts(&mut self, cohorts: Vec<Cohort>) {
@@ -785,6 +803,8 @@ impl FeatureFlagMatcher {
         );
 
         if flags_requiring_db_preparation.is_empty() {
+            self.flag_evaluation_state.person_property_fetch_status =
+                PersonPropertyFetchStatus::Skipped;
             return false;
         }
 
@@ -2129,23 +2149,45 @@ impl FeatureFlagMatcher {
             result.clone_from(properties);
             Ok(result)
         } else {
-            inc(
-                PROPERTY_CACHE_MISSES_COUNTER,
-                &[("type".to_string(), "person_properties".to_string())],
-                1,
-            );
-            with_canonical_log(|log| {
-                log.eval.property_cache_misses += 1;
-                log.eval.person_properties_not_cached = true;
-            });
-            // Return empty HashMap instead of error - no properties is a valid state
-            // TODO probably worth error modeling empty cache vs error.
-            // Maybe an error is fine?  Idk.  I feel like the idea is that there's no matching properties,
-            // so it's not an error, it's just an empty result.
-            // i just want to be able to differentiate between no properties because we fetched no properties,
-            // and no properties because we failed to fetch
-            // maybe I need a fetch indicator in the cache?
-            tracing::warn!("Person properties not found in evaluation state cache");
+            match self.flag_evaluation_state.person_property_fetch_status {
+                PersonPropertyFetchStatus::Skipped => {
+                    tracing::debug!(
+                        "Person properties not in cache — DB prep was skipped (overrides cover all needed keys)"
+                    );
+                }
+                PersonPropertyFetchStatus::Fetched => {
+                    inc(
+                        PROPERTY_CACHE_MISSES_COUNTER,
+                        &[
+                            ("type".to_string(), "person_properties".to_string()),
+                            ("reason".to_string(), "fetched_but_missing".to_string()),
+                        ],
+                        1,
+                    );
+                    with_canonical_log(|log| {
+                        log.eval.property_cache_misses += 1;
+                        log.eval.person_properties_not_cached = true;
+                    });
+                    tracing::warn!(
+                        "Person properties not found in evaluation state cache despite DB prep running"
+                    );
+                }
+                PersonPropertyFetchStatus::Pending => {
+                    inc(
+                        PROPERTY_CACHE_MISSES_COUNTER,
+                        &[
+                            ("type".to_string(), "person_properties".to_string()),
+                            ("reason".to_string(), "db_prep_never_ran".to_string()),
+                        ],
+                        1,
+                    );
+                    with_canonical_log(|log| {
+                        log.eval.property_cache_misses += 1;
+                        log.eval.person_properties_not_cached = true;
+                    });
+                    tracing::error!("Person properties not found — DB prep never ran");
+                }
+            }
             Err(FlagError::PersonNotFound)
         }
     }
