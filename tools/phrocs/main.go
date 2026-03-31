@@ -24,8 +24,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/term"
 	"github.com/posthog/posthog/phrocs/internal/config"
 	"github.com/posthog/posthog/phrocs/internal/ipc"
 	"github.com/posthog/posthog/phrocs/internal/process"
@@ -79,7 +82,32 @@ func main() {
 
 	mgr := process.NewManager(cfg)
 	m := tui.New(mgr, cfg, logger)
-	p := tea.NewProgram(m)
+
+	// If stdout isn't a TTY (e.g. Zed task runner, wrapped launches), open
+	// /dev/tty directly so Bubble Tea can query terminal size and render.
+	var opts []tea.ProgramOption
+	if !term.IsTerminal(os.Stdout.Fd()) {
+		ttyIn, ttyOut, err := tea.OpenTTY()
+		if err == nil {
+			opts = append(opts, tea.WithInput(ttyIn), tea.WithOutput(ttyOut))
+			defer func() {
+				_ = ttyIn.Close()
+				_ = ttyOut.Close()
+			}()
+		}
+	}
+	p := tea.NewProgram(m, opts...)
+
+	// Catch SIGTERM/SIGHUP so child processes are cleaned up even if phrocs
+	// is killed externally (e.g. by the OS or another process manager).
+	// Bubble Tea handles SIGINT (Ctrl+C) via the TUI's quit handler.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		<-sigCh
+		mgr.StopAll()
+		p.Kill()
+	}()
 
 	// StartAll is launched in a goroutine so it doesn't block: p.Send() inside
 	// Start() will block briefly on the Bubble Tea channel until p.Run() starts

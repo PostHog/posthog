@@ -182,6 +182,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if created_by:
             qs = qs.filter(created_by_id=created_by)
 
+        # Only filter by internal on list — retrieve should always work if you have the ID
+        if self.action == "list":
+            internal_param = getattr(self.request, "validated_query_data", {}).get("internal")
+            if internal_param is True:
+                qs = qs.filter(internal=True)
+            else:
+                qs = qs.filter(internal=False)
+
         # Prefetch runs to avoid N+1 queries when fetching latest_run
         qs = qs.prefetch_related("runs")
 

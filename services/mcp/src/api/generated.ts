@@ -23300,6 +23300,20 @@ export namespace Schemas {
       readonly scim_bearer_token?: string | null;
     }
 
+    /**
+     * Serializer for organization-level integrations.
+     */
+    export interface PatchedOrganizationIntegration {
+      readonly id?: string;
+      readonly kind?: OrganizationIntegrationKindEnum;
+      /** @nullable */
+      readonly integration_id?: string | null;
+      readonly config?: unknown;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      readonly created_by?: UserBasic;
+    }
+
     export interface PatchedOrganizationMember {
       readonly id?: string;
       readonly user?: UserBasic;
@@ -24641,6 +24655,8 @@ export namespace Schemas {
       github_integration?: number | null;
       /** JSON schema for the task. This is used to validate the output of the task. */
       json_schema?: unknown | null;
+      /** If true, this task is for internal use and should not be exposed to end users. */
+      internal?: boolean;
       /**
        * Latest run details for this task
        * @nullable
@@ -30782,6 +30798,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type EnvironmentsPersonsBatchByUuidsCreateParams = {
+    format?: EnvironmentsPersonsBatchByUuidsCreateFormat;
+    };
+
+    export type EnvironmentsPersonsBatchByUuidsCreateFormat = typeof EnvironmentsPersonsBatchByUuidsCreateFormat[keyof typeof EnvironmentsPersonsBatchByUuidsCreateFormat];
+
+
+    export const EnvironmentsPersonsBatchByUuidsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type EnvironmentsPersonsBulkDeleteCreateParams = {
     format?: EnvironmentsPersonsBulkDeleteCreateFormat;
     };
@@ -33822,6 +33850,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type PersonsBatchByUuidsCreateParams = {
+    format?: PersonsBatchByUuidsCreateFormat;
+    };
+
+    export type PersonsBatchByUuidsCreateFormat = typeof PersonsBatchByUuidsCreateFormat[keyof typeof PersonsBatchByUuidsCreateFormat];
+
+
+    export const PersonsBatchByUuidsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type PersonsBulkDeleteCreateParams = {
     format?: PersonsBulkDeleteCreateFormat;
     };
@@ -34291,6 +34331,10 @@ export namespace Schemas {
      * Filter by creator user ID
      */
     created_by?: number;
+    /**
+     * Filter by internal flag. Defaults to excluding internal tasks when not specified.
+     */
+    internal?: boolean;
     /**
      * Number of results to return per page.
      */
