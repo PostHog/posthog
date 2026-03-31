@@ -167,7 +167,7 @@ class TestRunOperations:
         assert len(uploads) == 1
         assert uploads[0]["content_hash"] == "new"
 
-    def test_create_run_with_baselines(self, repo):
+    def test_create_run_with_baselines(self, repo, mocker):
         baseline_artifact, _ = logic.get_or_create_artifact(
             repo_id=repo.id, content_hash="baseline_hash", storage_path="p/baseline"
         )
@@ -183,12 +183,20 @@ class TestRunOperations:
             baseline_hashes={"Button": "baseline_hash"},
         )
 
+        # Classification happens at complete_run time, not create_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"Button": "baseline_hash"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
         snapshot = run.snapshots.first()
         assert snapshot is not None
         assert snapshot.baseline_artifact_id == baseline_artifact.id
         assert snapshot.result == SnapshotResult.CHANGED
 
-    def test_create_run_snapshot_results(self, repo):
+    def test_create_run_snapshot_results(self, repo, mocker):
         baseline_artifact, _ = logic.get_or_create_artifact(
             repo_id=repo.id, content_hash="same_hash", storage_path="p/same"
         )
@@ -210,6 +218,14 @@ class TestRunOperations:
                 "changed": "old_hash",
             },
         )
+
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"unchanged": "same_hash", "changed": "old_hash"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
 
         snapshots = {s.identifier: s for s in run.snapshots.all()}
         assert snapshots["unchanged"].result == SnapshotResult.UNCHANGED
@@ -402,7 +418,7 @@ class TestRunOperations:
 
         assert updated.status == RunStatus.PROCESSING
 
-    def test_mark_run_completed_success(self, repo):
+    def test_mark_run_completed_success(self, repo, mocker):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -417,6 +433,16 @@ class TestRunOperations:
             baseline_hashes={"changed1": "old"},
         )
 
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"changed1": "old"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
+        # complete_run leaves the run in PROCESSING when there are changes;
+        # mark_run_completed finalizes it
         updated = logic.mark_run_completed(run.id)
 
         assert updated.status == RunStatus.COMPLETED
@@ -449,7 +475,7 @@ class TestApproveRun:
     def repo(self, team):
         return logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
-    def test_approve_run(self, repo, user):
+    def test_approve_run(self, repo, user, mocker):
         current_artifact, _ = logic.get_or_create_artifact(
             repo_id=repo.id, content_hash="new_hash", storage_path="p/new"
         )
@@ -463,6 +489,15 @@ class TestApproveRun:
             snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
             baseline_hashes={"Button": "old_hash"},
         )
+
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"Button": "old_hash"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.mark_run_completed(run.id)
 
         updated = logic.approve_run(
             run_id=run.id,
@@ -544,7 +579,7 @@ class TestCommitStatusChecks:
         assert check["context"] == "PostHog Visual Review / storybook"
         assert f"/visual_review/runs/{run.id}" in check["target_url"]
 
-    def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api):
+    def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api, mocker):
         run, _ = logic.create_run(
             repo_id=github_repo.id,
             team_id=github_repo.team_id,
@@ -556,13 +591,17 @@ class TestCommitStatusChecks:
             baseline_hashes={"snap": "same"},
         )
 
-        logic.mark_run_completed(run.id)
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"snap": "same"},
+        )
+        logic.complete_run(run.id)
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
         assert "No visual changes" in statuses[-1]["description"]
 
-    def test_complete_run_posts_failure_when_changes_detected(self, github_repo, mock_github_api):
+    def test_complete_run_posts_failure_when_changes_detected(self, github_repo, mock_github_api, mocker):
         run, _ = logic.create_run(
             repo_id=github_repo.id,
             team_id=github_repo.team_id,
@@ -577,6 +616,12 @@ class TestCommitStatusChecks:
             baseline_hashes={"changed": "old_h"},
         )
 
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"changed": "old_h"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
         logic.mark_run_completed(run.id)
 
         statuses = mock_github_api.status_checks
@@ -800,7 +845,7 @@ class TestRunSupersession:
         clean = list(logic.list_runs_for_team(team.id, review_state="clean"))
         assert any(r.id == first.id for r in clean)
 
-    def test_clean_run_superseded_but_stays_clean(self, repo, team):
+    def test_clean_run_superseded_but_stays_clean(self, repo, team, mocker):
         clean_run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -811,7 +856,13 @@ class TestRunSupersession:
             snapshots=[{"identifier": "snap", "content_hash": "same"}],
             baseline_hashes={"snap": "same"},
         )
-        logic.mark_run_completed(clean_run.id)
+
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"snap": "same"},
+        )
+        logic.complete_run(clean_run.id)
 
         self._create_run(repo, commit_sha="next")
 

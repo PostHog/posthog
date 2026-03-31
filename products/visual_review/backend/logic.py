@@ -557,7 +557,9 @@ def complete_run(run_id: UUID) -> Run:
 
     # Transition to PROCESSING early so late add_snapshots calls are rejected.
     # Atomic update with condition prevents race with concurrent complete calls.
-    updated = Run.objects.filter(id=run_id, status=RunStatus.PENDING).update(status=RunStatus.PROCESSING)
+    updated = Run.objects.filter(id=run_id, team_id=run.repo.team_id, status=RunStatus.PENDING).update(
+        status=RunStatus.PROCESSING
+    )
     if not updated:
         # Another complete_run got here first, or status changed
         return get_run(run_id)
