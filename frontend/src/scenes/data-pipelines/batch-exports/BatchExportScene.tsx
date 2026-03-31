@@ -15,6 +15,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -28,7 +29,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
+import { ActivityScope, BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
 import { BatchExportConfigFormLogicProps, batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
@@ -41,7 +42,7 @@ import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
 import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
 
-const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'runs', 'backfills'] as const
+const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'runs', 'backfills', 'history'] as const
 export type BatchExportSceneTab = (typeof BATCH_EXPORT_SCENE_TABS)[number]
 
 export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
@@ -265,6 +266,13 @@ function BatchExportSceneContentInner({
                   label: 'Backfills',
                   key: 'backfills',
                   content: <BatchExportBackfills id={id} />,
+              }
+            : null,
+        id
+            ? {
+                  label: 'History',
+                  key: 'history',
+                  content: <ActivityLog id={id} scope={ActivityScope.BATCH_EXPORT} />,
               }
             : null,
     ]

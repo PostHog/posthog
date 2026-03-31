@@ -3617,13 +3617,21 @@ snapshots:
     scenes-app-batchexports--create-export--light:
         hash: v1.k794b7964.f1fa222d4d4ba1df49e139bed528e03f2c8a492bf5e9853aeddb1151ffc8b5f4.0I45yB7NKtjYWmuKVgFuPrS1e9JHUtW9ZzAsDdK9OKY
     scenes-app-batchexports--existing-big-query-export--dark:
-        hash: v1.k794b7964.67bbb1bad89705b275af7d6d962c8ebe35558791752e68483563ab688700738d.MhfMp6YizsyRHrP7l0XfaOzomeKOQ8YP-VojXVbCd08
+        hash: v1.k794b7964.5a2fda343405a843236153a192ab22ba3613ea7590464b97ef24b5a272295c63.4KGbOMQI5P3ksqvsVFv38LBg09rCKAgaV4F719Wxcio
     scenes-app-batchexports--existing-big-query-export--light:
         hash: v1.k794b7964.30ec356919af3213fec83a0baa49302ba25d138c61ed6f99138f21ef8faed8f3.cFiXEzU4Uiho9Y5yS_Sf7w55yFuWnrhKRX39enFIEig
     scenes-app-batchexports--exports--dark:
         hash: v1.k794b7964.72522a97aa0c15653b19071a705b73e7bc9cbc462c08228cf3086f8952c5985f.-_AwTchp91R7L61JQC_nz8v2IzsQv6zt5OiM0KrE7cU
     scenes-app-batchexports--exports--light:
         hash: v1.k794b7964.b8132961a07049399718389857df81b6b600ee94702200f99a5173b0285eedcc.I3bziWTwIqi-cPzrqZ4lLKDkjYqzKLCiXRlwmNIQCgU
+    scenes-app-batchexports--history-empty--dark:
+        hash: v1.k794b7964.b659bc573c4c00729195cebe7a39c50e5800b8af350179488c36e769f31f5dd4.9oq9KVDBElKlK9vbjCYZwgvbJg-Xda9sMx33sM4Y6kg
+    scenes-app-batchexports--history-empty--light:
+        hash: v1.k794b7964.c1a21366abb70bcc35c8bda1280bb42605f7975e89831bf32ec31270f85987f4.e1o3eYSAOla9fQ0U-LE3g4wxEXBeqr7qlgVCX2aKx_g
+    scenes-app-batchexports--history-with-activity--dark:
+        hash: v1.k794b7964.018c15cfc96b59507a225c819f4abeb6a0933d68686995fb81b0e85671bfb727.08z_k8cUddQzpCbnvJJhrbOtOmKC4l--RATynPo1YuU
+    scenes-app-batchexports--history-with-activity--light:
+        hash: v1.k794b7964.011cdfd74225ad3689755c2f489f9ff6b0710a17cb65d781d87399b16b5200c8.1K31OFBO4PeY0imbVEvrg5zblHYBAii5hEAW7lQgnGE
     scenes-app-batchexports--logs--dark:
         hash: v1.k794b7964.d526b04c347618206f627e1e4c07d8883c634a106c2bd4178a0ae1f1f6c4897b.W5SfyVLSr3JJ5USTQSu_zF_1BskM85VkTORu_cf4hY8
     scenes-app-batchexports--logs--light:
