@@ -1,7 +1,8 @@
 import { ReactNode } from 'react'
 
-import { useSvgResizeObserver } from '../../hooks/useSvgResizeObserver'
-import { valueToXCoordinate } from '../../MetricsView/shared/utils'
+import { useSvgResizeObserver } from '~/scenes/experiments/MetricsView/hooks/useSvgResizeObserver'
+import { valueToXCoordinate } from '~/scenes/experiments/MetricsView/shared/utils'
+
 import { TickPanel } from './TickPanel'
 
 interface MetricsChartLayoutProps {

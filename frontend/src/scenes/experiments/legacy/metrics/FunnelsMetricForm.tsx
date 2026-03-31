@@ -16,15 +16,14 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { AnyEntityNode, ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { BreakdownAttributionType, FilterType } from '~/types'
-
-import { experimentLogic } from '../../experimentLogic'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import {
     FunnelAggregationSelect,
     FunnelAttributionSelect,
     FunnelConversionWindowFilter,
     commonActionFilterProps,
-} from './Selectors'
+} from '~/scenes/experiments/Metrics/Selectors'
+import { BreakdownAttributionType, FilterType } from '~/types'
 
 export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

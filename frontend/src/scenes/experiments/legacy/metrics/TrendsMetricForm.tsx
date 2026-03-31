@@ -15,12 +15,12 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { AnyEntityNode, ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
+import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
 import { SelectableCard } from '../../components/SelectableCard'
 import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../../constants'
 import { experimentLogic } from '../../experimentLogic'
-import { commonActionFilterProps } from './Selectors'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, isExperimentLaunched, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =

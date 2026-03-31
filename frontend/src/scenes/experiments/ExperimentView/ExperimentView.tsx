@@ -11,7 +11,12 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
+import {
+    LegacyExperimentInfo,
+    LegacyExperimentHeader,
+    MetricsViewLegacy,
+    VariantDeltaTimeseries,
+} from '~/scenes/experiments/legacy'
 import { ActivityScope } from '~/types'
 
 import {
@@ -28,8 +33,6 @@ import { ExperimentImplementationDetails } from '../ExperimentImplementationDeta
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { MetricsViewLegacy } from '../legacy/metricsView/MetricsViewLegacy'
-import { VariantDeltaTimeseries } from '../legacy/metricsView/VariantDeltaTimeseries'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
@@ -52,7 +55,6 @@ import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
-import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
