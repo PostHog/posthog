@@ -761,6 +761,7 @@ describe('dashboardLogic', () => {
                     expect(logic.values.refreshStatus[insight1.short_id]?.refreshed).toBe(true)
                     expect(logic.values.refreshStatus[insight2.short_id]?.refreshed).toBe(true)
                 } finally {
+                    releaseBarrier!()
                     getInsightWithRetrySpy.mockRestore()
                 }
             })
