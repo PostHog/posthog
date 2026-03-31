@@ -2576,7 +2576,7 @@ const api = {
 
     tracing: {
         async listSpans(query: {
-            dateRange?: { date_from?: string; date_to?: string }
+            dateRange?: { date_from?: string | null; date_to?: string | null }
             serviceNames?: string[]
             statusCodes?: number[]
             filterGroup?: PropertyGroupFilter
@@ -2589,7 +2589,7 @@ const api = {
         },
         async getTrace(
             traceId: string,
-            dateRange?: { date_from?: string; date_to?: string }
+            dateRange?: { date_from?: string | null; date_to?: string | null }
         ): Promise<{ results: Record<string, any>[] }> {
             return new ApiRequest()
                 .tracingSpans()
@@ -2597,7 +2597,7 @@ const api = {
                 .create({ data: { dateRange: dateRange ?? { date_from: '-24h' } } })
         },
         async sparkline(query: {
-            dateRange?: { date_from?: string; date_to?: string }
+            dateRange?: { date_from?: string | null; date_to?: string | null }
             serviceNames?: string[]
             statusCodes?: number[]
             filterGroup?: PropertyGroupFilter

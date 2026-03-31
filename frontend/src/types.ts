@@ -1064,7 +1064,10 @@ export interface LogPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-export type SpanPropertyFilterType = PropertyFilterType.SpanAttribute | PropertyFilterType.SpanResourceAttribute
+export type SpanPropertyFilterType =
+    | PropertyFilterType.Span
+    | PropertyFilterType.SpanAttribute
+    | PropertyFilterType.SpanResourceAttribute
 
 export interface SpanPropertyFilter extends BasePropertyFilter {
     type: SpanPropertyFilterType
