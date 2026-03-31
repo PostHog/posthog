@@ -11,6 +11,8 @@ import sys
 import json
 import shutil
 import tempfile
+import itertools
+import threading
 import subprocess
 import webbrowser
 from pathlib import Path
@@ -80,9 +82,6 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
     build step. In verbose mode, streams all output including Terraform
     internals. On failure the full captured output is always printed.
     """
-    import itertools
-    import threading
-
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     captured: list[str] = []
     assert proc.stdout is not None
