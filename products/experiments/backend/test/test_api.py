@@ -134,8 +134,8 @@ class TestCreateExperiment(BaseTest):
 
     def test_create_experiment_is_transactional(self):
         """Test that experiment creation is transactional."""
-        # Mock the experiment service to fail after flag creation
-        with patch("products.experiments.backend.facade.api.ExperimentService.create_experiment") as mock_create:
+        # Patch Experiment.objects.create to fail after flag creation
+        with patch("products.experiments.backend.models.experiment.Experiment.objects.create") as mock_create:
             mock_create.side_effect = Exception("Experiment creation failed")
 
             input_dto = CreateExperimentInput(
@@ -150,7 +150,7 @@ class TestCreateExperiment(BaseTest):
             with pytest.raises(Exception, match="Experiment creation failed"):
                 create_experiment(team=self.team, user=self.user, input_dto=input_dto)
 
-            # Verify rollback - flag should not exist
+            # Verify rollback - flag should not exist despite being created first
             assert not FeatureFlagModel.objects.filter(key="transaction-flag").exists()
             assert not ExperimentModel.objects.filter(name="Transactional Test").exists()
 

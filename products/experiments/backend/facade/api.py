@@ -5,8 +5,6 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
-from django.db import transaction
-
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -18,10 +16,12 @@ from .contracts import CreateExperimentInput, Experiment
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
     """
-    Create a new experiment with transactional safety.
+    Create a new experiment.
 
     Supports both old format (parameters.feature_flag_variants)
     and new format (feature_flag_filters).
+
+    Transactional safety is provided by ExperimentService.create_experiment.
 
     Args:
         team: Team creating the experiment
@@ -41,47 +41,46 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
     if has_old_format and has_new_format:
         raise ValueError("Cannot provide both 'parameters.feature_flag_variants' and 'feature_flag_filters'")
 
-    # Use transaction to ensure rollback on failure
-    with transaction.atomic():
-        # Prepare parameters for service call
-        parameters = None
-        if has_old_format:
-            parameters = input_dto.parameters
-        elif has_new_format:
-            # Convert CreateFeatureFlagInput to parameters dict format
-            flag_filters = input_dto.feature_flag_filters
-            assert flag_filters is not None  # Type guard: has_new_format guarantees this
+    # Prepare parameters for service call
+    # Start with any provided parameters (e.g., minimum_detectable_effect)
+    parameters_dict = dict(input_dto.parameters) if input_dto.parameters else {}
 
-            parameters = {
-                "feature_flag_variants": [
-                    {
-                        "key": variant.key,
-                        "name": variant.name,
-                        "rollout_percentage": variant.rollout_percentage,
-                    }
-                    for variant in flag_filters.variants
-                ],
+    if has_new_format:
+        # Convert CreateFeatureFlagInput to parameters dict format
+        flag_filters = input_dto.feature_flag_filters
+        assert flag_filters is not None  # Type guard: has_new_format guarantees this
+
+        parameters_dict["feature_flag_variants"] = [
+            {
+                "key": variant.key,
+                "name": variant.name,
+                "rollout_percentage": variant.rollout_percentage,
             }
+            for variant in flag_filters.variants
+        ]
 
-            # Add optional fields
-            if flag_filters.rollout_percentage is not None:
-                parameters["rollout_percentage"] = flag_filters.rollout_percentage
-            if flag_filters.aggregation_group_type_index is not None:
-                parameters["aggregation_group_type_index"] = flag_filters.aggregation_group_type_index
-            if flag_filters.ensure_experience_continuity is not None:
-                parameters["ensure_experience_continuity"] = flag_filters.ensure_experience_continuity
+        # Add optional fields
+        if flag_filters.rollout_percentage is not None:
+            parameters_dict["rollout_percentage"] = flag_filters.rollout_percentage
+        if flag_filters.aggregation_group_type_index is not None:
+            parameters_dict["aggregation_group_type_index"] = flag_filters.aggregation_group_type_index
+        if flag_filters.ensure_experience_continuity is not None:
+            parameters_dict["ensure_experience_continuity"] = flag_filters.ensure_experience_continuity
 
-        # Call existing service
-        service = ExperimentService(team=team, user=user)
-        experiment_model = service.create_experiment(
-            name=input_dto.name,
-            feature_flag_key=input_dto.feature_flag_key,
-            description=input_dto.description,
-            parameters=parameters,
-        )
+    # Pass None if dict is empty to maintain service contract
+    parameters = parameters_dict or None
 
-        # Convert model to DTO
-        return _experiment_model_to_dto(experiment_model)
+    # Call existing service (already @transaction.atomic)
+    service = ExperimentService(team=team, user=user)
+    experiment_model = service.create_experiment(
+        name=input_dto.name,
+        feature_flag_key=input_dto.feature_flag_key,
+        description=input_dto.description,
+        parameters=parameters,
+    )
+
+    # Convert model to DTO
+    return _experiment_model_to_dto(experiment_model)
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:
