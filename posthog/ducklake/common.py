@@ -359,7 +359,9 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
             else:
                 raise
         except (duckdb.NotImplementedException, duckdb.InvalidInputException) as exc:
-            if not (is_dev_mode() and is_version_mismatch(exc)):
+            if not is_dev_mode():
+                raise
+            if not is_version_mismatch(exc):
                 raise
             logger.warning("DuckLake version mismatch detected, resetting catalog: %s", exc)
             conn.close()
