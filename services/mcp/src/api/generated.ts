@@ -13579,6 +13579,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       exposure_preaggregation_enabled?: boolean;
+      only_count_matured_users?: boolean;
       readonly status: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
@@ -13938,8 +13939,6 @@ export namespace Schemas {
       /** @nullable */
       name?: string | null;
       /** @nullable */
-      only_count_matured_users?: boolean | null;
-      /** @nullable */
       response?: ExperimentFunnelMetricResponse;
       series: (EventsNode | ActionsNode)[];
       /** @nullable */
@@ -13990,8 +13989,6 @@ export namespace Schemas {
       metric_type?: ExperimentMeanMetricMetricType;
       /** @nullable */
       name?: string | null;
-      /** @nullable */
-      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentMeanMetricResponse;
       /** @nullable */
@@ -14051,8 +14048,6 @@ export namespace Schemas {
       name?: string | null;
       numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
       /** @nullable */
-      only_count_matured_users?: boolean | null;
-      /** @nullable */
       response?: ExperimentRatioMetricResponse;
       /** @nullable */
       sharedMetricId?: number | null;
@@ -14107,8 +14102,6 @@ export namespace Schemas {
       metric_type?: ExperimentRetentionMetricMetricType;
       /** @nullable */
       name?: string | null;
-      /** @nullable */
-      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentRetentionMetricResponse;
       retention_window_end: number;
@@ -22398,6 +22391,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       exposure_preaggregation_enabled?: boolean;
+      only_count_matured_users?: boolean;
       readonly status?: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
