@@ -64,6 +64,13 @@ class Ticket(UUIDTModel):
     slack_team_id = models.CharField(max_length=64, null=True, blank=True)  # Slack workspace/team ID
 
     # Email channel fields (only set for channel_source="email")
+    email_config = models.ForeignKey(
+        "conversations.EmailChannel",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tickets",
+    )
     email_subject = models.CharField(max_length=500, null=True, blank=True)
     email_from = models.EmailField(null=True, blank=True)
 

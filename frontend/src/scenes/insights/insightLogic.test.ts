@@ -128,6 +128,9 @@ describe('insightLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/tags': [],
+                '/api/environments/:team_id/quick_filters/': {
+                    results: [],
+                },
                 '/api/environments/:team_id/insights/trend/': async (req) => {
                     const clientQueryId = req.url.searchParams.get('client_query_id')
                     if (clientQueryId !== null) {

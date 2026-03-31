@@ -93,7 +93,7 @@ func (m Model) renderSidebar() string {
 
 		name := truncate(p.Name, innerW-3)
 		cpuPct := p.CPUPercent()
-		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, cpuPct, innerW))
+		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, cpuPct, innerW, m.isDark))
 	}
 
 	if canScrollDown {

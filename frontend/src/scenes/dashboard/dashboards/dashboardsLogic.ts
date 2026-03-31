@@ -44,6 +44,11 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
 
 export type DashboardFuse = Fuse<DashboardBasicType> // This is exported for kea-typegen
 
+/** Router may coerce numeric-looking query values to numbers; search text must stay a string. */
+function urlSearchParamToString(value: unknown): string {
+    return `${value ?? ''}`
+}
+
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
     tabAwareScene(),
@@ -189,7 +194,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         },
         setSearch: ({ search }) => {
             const nextSearch = search ?? ''
-            const currentSearch = (router.values.searchParams['search'] as string | undefined) ?? ''
+            const currentSearch = urlSearchParamToString(router.values.searchParams['search'])
 
             if (nextSearch === currentSearch) {
                 return
@@ -211,7 +216,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
             actions.setCurrentTab(tab)
 
-            const search = typeof searchParams['search'] === 'string' ? searchParams['search'] : ''
+            const search = urlSearchParamToString(searchParams['search'])
             actions.setFilters({ search })
         },
     })),

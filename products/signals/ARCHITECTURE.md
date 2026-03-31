@@ -73,7 +73,7 @@ Defined in `backend/temporal/buffer.py`.
 
 - New signals arrive via `@workflow.signal` (`submit_signal`), sent by `SignalEmitterWorkflow` instances.
 - Exposes `@workflow.query` (`get_buffer_size`) so emitters can implement backpressure by polling buffer occupancy before sending.
-- The main loop waits for signals, then waits until either the buffer reaches `BUFFER_MAX_SIZE` (20) or `BUFFER_FLUSH_TIMEOUT_SECONDS` (60s) elapses since the first signal arrived.
+- The main loop waits for signals, then waits until either the buffer reaches `BUFFER_MAX_SIZE` (20) or `BUFFER_FLUSH_TIMEOUT_SECONDS` (5s) elapses since the first signal arrived.
 - On flush: drains the buffer, runs the **safety filter** on all signals in parallel via `safety_filter_activity` (drops signals classified as unsafe — prompt injection, data exfiltration, etc.), then writes the safe signals to S3 at `signals/signal_batches/<uuid>` via `flush_signals_to_s3_activity`, then sends the object key to the grouping v2 workflow via `signal_with_start_grouping_v2_activity` (which creates the grouping workflow if not already running). If the entire batch is unsafe, the flush and grouping steps are skipped.
 - If the buffer is already full again after flushing (signals arrived during the flush activities), loops immediately to flush again rather than `continue_as_new` (avoids losing throughput to workflow restart).
 - Otherwise calls `continue_as_new`, carrying over any signals that arrived between drain and now via `BufferSignalsInput.pending_signals`.
@@ -393,7 +393,7 @@ Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission`
 
 | Method | Path                              | Description                                                                                                                                                                                                                                                                   |
 | ------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/signal_reports/`                | List reports (excludes `deleted` always, excludes `suppressed` by default), filterable by `?status=` query param, ordered by `-signal_count` by default                                                                                                                       |
+| GET    | `/signal_reports/`                | List reports (excludes `deleted` always, excludes `suppressed` by default), filterable by `?status=` query param (comma-separated), searchable via `?search=`, ordered by `status,-updated_at` by default                                                                     |
 | GET    | `/signal_reports/{id}/`           | Retrieve a single report                                                                                                                                                                                                                                                      |
 | DELETE | `/signal_reports/{id}/`           | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow` and returns `202 Accepted`.                                                                                                                                                                       |
 | POST   | `/signal_reports/{id}/state/`     | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Validates transitions via `SignalReport.transition_to()`. Returns 409 on invalid transition, 400 on bad arguments. |
@@ -401,12 +401,12 @@ Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission`
 | GET    | `/signal_reports/{id}/artefacts/` | List video segment artefacts for a report                                                                                                                                                                                                                                     |
 | GET    | `/signal_reports/{id}/signals/`   | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                       |
 
-**Ordering:** Configurable via query params. Supported fields: `signal_count`, `total_weight`, `created_at`, `updated_at`. Default: `-signal_count`.
+**Ordering:** Configurable via `?ordering=` query param with comma-separated fields (e.g., `?ordering=status,-updated_at`). Supported fields: `status`, `signal_count`, `total_weight`, `created_at`, `updated_at`, `id`. The `status` field uses semantic pipeline stage ranking (ready=0, pending_input=1, in_progress=2, candidate=3, potential=4, failed=5, suppressed=6, deleted=7). Default: `status,-updated_at`.
 
 ### Serializers (`backend/serializers.py`)
 
 - **`SignalSourceConfigSerializer`** — Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`. Validates that `recording_filters` in config is a dict when `source_product` is `session_replay`.
-- **`SignalReportSerializer`** — Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`.
+- **`SignalReportSerializer`** — Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`, `priority`. The `priority` field (read-only) extracts P0–P4 from the latest `PRIORITY_JUDGMENT` artefact when present, otherwise returns `null`.
 - **`SignalReportArtefactSerializer`** — Exposes `id`, `type`, `content` (parsed from JSON text), `created_at`.
 
 ---
@@ -526,8 +526,8 @@ Signal {index}:
 | `MAX_RESPONSE_TOKENS`          | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget) |
 | Embedding model                | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                     |
 | Task queue                     | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                              |
-| `BUFFER_MAX_SIZE`              | `100`                         | Max signals buffered in memory before flush to S3                                  |
-| `BUFFER_FLUSH_TIMEOUT_SECONDS` | `60`                          | Max seconds to wait for buffer to fill before flushing                             |
+| `BUFFER_MAX_SIZE`              | `20`                          | Max signals buffered in memory before flush to S3                                  |
+| `BUFFER_FLUSH_TIMEOUT_SECONDS` | `5`                           | Max seconds to wait for buffer to fill before flushing                             |
 | S3 prefix                      | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)   |
 
 ---

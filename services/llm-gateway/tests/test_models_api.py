@@ -153,6 +153,8 @@ class TestListModelsEndpoint:
         assert data["object"] == "list"
         assert isinstance(data["data"], list)
         assert len(data["data"]) > 0
+        # codex-acp compatibility: `models` mirrors `data`
+        assert data["models"] == data["data"]
 
     def test_model_object_has_required_fields(self, client: TestClient):
         response = client.get("/v1/models")
