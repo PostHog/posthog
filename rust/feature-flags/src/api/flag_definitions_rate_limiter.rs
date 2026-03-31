@@ -211,18 +211,15 @@ where
     /// Replace the allowlist with a new set of keys and mark it as freshly refreshed.
     /// Called by the request handler when the cached DB value is stale.
     pub fn update_allowlist(&self, new_allowlist: HashSet<K>) {
-        let mut allowlist = self.allowlist.write().unwrap();
-        let old_count = allowlist.len();
-        *allowlist = new_allowlist;
-        let new_count = allowlist.len();
+        let (old_count, new_count) = {
+            let mut allowlist = self.allowlist.write().unwrap();
+            let old_count = allowlist.len();
+            *allowlist = new_allowlist;
+            (old_count, allowlist.len())
+        }; // allowlist lock dropped here
         if old_count != new_count {
-            info!(
-                old_count = old_count,
-                new_count = new_count,
-                "Rate limit allowlist updated"
-            );
+            info!(old_count, new_count, "Rate limit allowlist updated");
         }
-        // Mark as refreshed
         *self.allowlist_last_refreshed.write().unwrap() = Instant::now();
     }
 
