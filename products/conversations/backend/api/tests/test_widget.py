@@ -552,7 +552,7 @@ class TestWidgetIdentityVerification(BaseTest):
             "/api/conversations/v1/widget/tickets",
             {
                 "identity_distinct_id": self.distinct_id,
-                "identity_hash": "bad_hash",
+                "identity_hash": "0" * 64,
             },
             **self._get_headers(),
         )
@@ -644,7 +644,7 @@ class TestWidgetIdentityVerification(BaseTest):
             "/api/conversations/v1/widget/message",
             {
                 "identity_distinct_id": self.distinct_id,
-                "identity_hash": "bad_hash",
+                "identity_hash": "0" * 64,
                 "message": "Should be rejected",
             },
             **self._get_headers(),
@@ -697,7 +697,7 @@ class TestWidgetIdentityVerification(BaseTest):
             f"/api/conversations/v1/widget/messages/{ticket.id}",
             {
                 "identity_distinct_id": self.distinct_id,
-                "identity_hash": "bad_hash",
+                "identity_hash": "0" * 64,
             },
             **self._get_headers(),
         )
@@ -743,7 +743,7 @@ class TestWidgetIdentityVerification(BaseTest):
             f"/api/conversations/v1/widget/messages/{ticket.id}/read",
             {
                 "identity_distinct_id": self.distinct_id,
-                "identity_hash": "bad_hash",
+                "identity_hash": "0" * 64,
             },
             **self._get_headers(),
         )
@@ -754,7 +754,7 @@ class TestWidgetIdentityVerification(BaseTest):
             "/api/conversations/v1/widget/message",
             {
                 "identity_distinct_id": self.distinct_id,
-                "identity_hash": "bad_hash",
+                "identity_hash": "0" * 64,
                 "widget_session_id": self.widget_session_id,
                 "distinct_id": self.distinct_id,
                 "message": "Should use session fallback",
