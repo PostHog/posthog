@@ -5,12 +5,10 @@ import { IconComment, IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { funnelCorrelationFeedbackLogic } from 'scenes/funnels/funnelCorrelationFeedbackLogic'
-import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
-    const { loadedEventCorrelationsTableOnce } = useValues(funnelCorrelationLogic(insightProps))
     const { correlationFeedbackHidden, correlationDetailedFeedbackVisible, correlationFeedbackRating } = useValues(
         funnelCorrelationFeedbackLogic(insightProps)
     )
@@ -23,7 +21,7 @@ export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
 
     const detailedFeedbackRef = useRef<HTMLTextAreaElement>(null)
 
-    if (correlationFeedbackHidden || !loadedEventCorrelationsTableOnce) {
+    if (correlationFeedbackHidden) {
         return null
     }
 
