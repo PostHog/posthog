@@ -1163,11 +1163,8 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(
-    r"tracing/spans",
-    TracingSpansViewSet,
-    "project_tracing_spans",
-    ["project_id"],
+register_grandfathered_environment_nested_viewset(
+    r"tracing/spans", TracingSpansViewSet, "environment_tracing_spans", ["team_id"]
 )
 
 environments_router.register(

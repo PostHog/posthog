@@ -3458,6 +3458,8 @@ class PropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
     LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
+    SPAN_ATTRIBUTE = "span_attribute"
+    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
     WORKFLOW_VARIABLE = "workflow_variable"
     EMPTY = "empty"
 
@@ -4131,6 +4133,11 @@ class SourceMap(BaseModel):
     source: str | None = None
 
 
+class SpanPropertyFilterType(StrEnum):
+    SPAN_ATTRIBUTE = "span_attribute"
+    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
+
+
 class StepOrderValue(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"
@@ -4339,6 +4346,9 @@ class TaxonomicFilterGroupType(StrEnum):
     LOGS = "logs"
     LOG_ATTRIBUTES = "log_attributes"
     LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
+    SPANS = "spans"
+    SPAN_ATTRIBUTES = "span_attributes"
+    SPAN_RESOURCE_ATTRIBUTES = "span_resource_attributes"
     REPLAY = "replay"
     REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
@@ -7416,6 +7426,17 @@ class SourceFieldInputConfig(BaseModel):
     placeholder: str
     required: bool
     type: SourceFieldInputConfigType
+
+
+class SpanPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: SpanPropertyFilterType
+    value: list[str | float | bool] | str | float | bool | None = None
 
 
 class StickinessCriteria(BaseModel):
@@ -11213,6 +11234,7 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11261,6 +11283,7 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11296,6 +11319,7 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11343,6 +11367,7 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11380,6 +11405,7 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11428,6 +11454,7 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11466,6 +11493,7 @@ class DashboardFilter(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12094,6 +12122,7 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12142,6 +12171,7 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12377,6 +12407,7 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12423,6 +12454,7 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12512,6 +12544,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12647,6 +12680,7 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12695,6 +12729,7 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12783,6 +12818,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12829,6 +12865,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12863,6 +12900,7 @@ class ExperimentEventExposureConfig(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
     ]
     response: dict[str, Any] | None = None
@@ -12894,6 +12932,7 @@ class FeatureFlagGroupType(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12959,6 +12998,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13008,6 +13048,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13041,6 +13082,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13091,6 +13133,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13125,6 +13168,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13173,6 +13217,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13306,6 +13351,7 @@ class HogQLFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13475,6 +13521,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13522,6 +13569,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13906,6 +13954,7 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13936,6 +13985,7 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13980,6 +14030,7 @@ class PropertyGroupFilterValue(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
     ]
 
@@ -15983,6 +16034,7 @@ class RetentionEntity(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16365,6 +16417,7 @@ class TileFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16399,6 +16452,7 @@ class TraceNeighborsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16436,6 +16490,7 @@ class TraceQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16443,27 +16498,6 @@ class TraceQuery(BaseModel):
     response: TraceQueryResponse | None = None
     tags: QueryLogTags | None = None
     traceId: str
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class TraceSpansQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    dateRange: DateRange
-    kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    orderBy: OrderBy3 | None = None
-    response: TraceSpansQueryResponse | None = None
-    rootSpans: bool | None = None
-    searchTerm: str | None = None
-    serviceNames: list[str] | None = None
-    statusCodes: list[int] | None = None
-    tags: QueryLogTags | None = None
-    traceId: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -16500,6 +16534,7 @@ class TracesQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16902,6 +16937,7 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16949,6 +16985,7 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -18146,6 +18183,7 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -18187,6 +18225,7 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -18238,6 +18277,7 @@ class RetentionQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18290,6 +18330,7 @@ class StickinessQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18315,6 +18356,31 @@ class TeamTaxonomyQuery(BaseModel):
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     response: TeamTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class TraceSpansQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    dateRange: DateRange
+    filterGroup: PropertyGroupFilter | None = None
+    kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    orderBy: OrderBy3 | None = None
+    prefetchSpans: int | None = Field(
+        default=None,
+        description=("Prefetch up to this many spans per trace and include them in results"),
+    )
+    response: TraceSpansQueryResponse | None = None
+    rootSpans: bool | None = None
+    serviceNames: list[str] | None = None
+    statusCodes: list[int] | None = None
+    tags: QueryLogTags | None = None
+    traceId: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -18493,6 +18559,7 @@ class CalendarHeatmapQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18830,6 +18897,7 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -18882,6 +18950,7 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -18922,6 +18991,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18965,6 +19035,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19008,6 +19079,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19051,6 +19123,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19094,6 +19167,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19137,6 +19211,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19210,6 +19285,7 @@ class LifecycleQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19360,6 +19436,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -19389,6 +19466,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -19421,6 +19499,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -19491,6 +19570,7 @@ class TrendsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19741,6 +19821,7 @@ class FunnelsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -20235,6 +20316,7 @@ class PathsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -20526,6 +20608,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -20614,6 +20697,7 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -20650,6 +20734,7 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -20744,6 +20829,7 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -20776,6 +20862,7 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None

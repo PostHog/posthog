@@ -171,6 +171,7 @@ import {
     ProductTourStep,
     ProjectType,
     PropertyDefinition,
+    PropertyGroupFilter,
     PropertyDefinitionType,
     QueryBasedInsightModel,
     QueryTabState,
@@ -2578,10 +2579,11 @@ const api = {
             dateRange?: { date_from?: string; date_to?: string }
             serviceNames?: string[]
             statusCodes?: number[]
-            searchTerm?: string
+            filterGroup?: PropertyGroupFilter
             orderBy?: 'latest' | 'earliest'
             limit?: number
             after?: string
+            prefetchSpans?: number
         }): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextCursor?: string }> {
             return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
         },
@@ -2593,6 +2595,26 @@ const api = {
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({ data: { dateRange: dateRange ?? { date_from: '-24h' } } })
+        },
+        async sparkline(query: {
+            dateRange?: { date_from?: string; date_to?: string }
+            serviceNames?: string[]
+            statusCodes?: number[]
+            filterGroup?: PropertyGroupFilter
+        }): Promise<{ results: { time: string; service: string; count: number }[] }> {
+            return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
+        },
+        async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
+            return new ApiRequest()
+                .tracingSpans()
+                .withAction('service-names')
+                .withQueryString(
+                    Object.entries(params)
+                        .filter(([, v]) => v !== undefined && v !== '')
+                        .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`)
+                        .join('&')
+                )
+                .get()
         },
     },
 
