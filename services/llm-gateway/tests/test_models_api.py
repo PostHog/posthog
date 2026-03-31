@@ -79,31 +79,7 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "us.anthropic.claude-opus-4-5-20251101-v1:0": {
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 200000,
-        "supports_vision": True,
-        "mode": "chat",
-    },
-    "us.anthropic.claude-opus-4-6-v1": {
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 200000,
-        "supports_vision": True,
-        "mode": "chat",
-    },
     "us.anthropic.claude-sonnet-4-5-20250929-v1:0": {
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 200000,
-        "supports_vision": True,
-        "mode": "chat",
-    },
-    "us.anthropic.claude-sonnet-4-6": {
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 200000,
-        "supports_vision": True,
-        "mode": "chat",
-    },
-    "us.anthropic.claude-haiku-4-5-20251001-v1:0": {
         "litellm_provider": "bedrock",
         "max_input_tokens": 200000,
         "supports_vision": True,
