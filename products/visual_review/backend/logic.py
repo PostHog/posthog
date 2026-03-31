@@ -99,10 +99,13 @@ def update_repo(
     repo_id: UUID,
     team_id: int,
     baseline_file_paths: dict[str, str] | None = None,
+    enable_pr_comments: bool | None = None,
 ) -> Repo:
     repo = get_repo(repo_id, team_id)
     if baseline_file_paths is not None:
         repo.baseline_file_paths = baseline_file_paths
+    if enable_pr_comments is not None:
+        repo.enable_pr_comments = enable_pr_comments
     repo.save()
     return repo
 
@@ -393,7 +396,7 @@ def _create_run_inner(
     # requires the slot to be free before the insert. A new CI push always
     # replaces the previous run — approved and clean runs still show up in
     # their respective UI filters via REVIEW_STATE_FILTERS.
-    supersede_filter = Run.objects.filter(
+    supersede_filter = Run.objects.using(WRITER_DB).filter(
         repo_id=repo.id,
         branch=branch,
         run_type=run_type,
@@ -404,7 +407,7 @@ def _create_run_inner(
     if superseded_ids:
         from django.db.models import F
 
-        Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=F("id"))
+        Run.objects.using(WRITER_DB).filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=F("id"))
 
     run = Run.objects.create(
         repo=repo,
@@ -420,10 +423,10 @@ def _create_run_inner(
 
     # Fix up the sentinel pointers to reference the actual new run
     if superseded_ids:
-        Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
+        Run.objects.using(WRITER_DB).filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
 
     _added, uploads = _register_snapshots(run, repo, snapshots)
-    _update_run_counts(run)
+    _update_run_counts(run, using=WRITER_DB)
 
     transaction.on_commit(
         lambda: _post_commit_status(run, repo, "pending", "Visual review in progress"), using=WRITER_DB
@@ -487,15 +490,16 @@ def _register_snapshots(
     return added_count, uploads
 
 
-def _update_run_counts(run: Run) -> None:
+def _update_run_counts(run: Run, using: str | None = None) -> None:
     """Recalculate result counts from RunSnapshot rows."""
-    counts = run.snapshots.values("result").annotate(n=Count("id"))
+    db_alias = using or WRITER_DB
+    counts = RunSnapshot.objects.using(db_alias).filter(run_id=run.id).values("result").annotate(n=Count("id"))
     by_result = {row["result"]: row["n"] for row in counts}
 
     run.changed_count = by_result.get(SnapshotResult.CHANGED, 0)
     run.new_count = by_result.get(SnapshotResult.NEW, 0)
     run.removed_count = by_result.get(SnapshotResult.REMOVED, 0)
-    run.save(update_fields=["changed_count", "new_count", "removed_count"])
+    run.save(using=db_alias, update_fields=["changed_count", "new_count", "removed_count"])
 
 
 def add_snapshots_to_run(
@@ -525,8 +529,8 @@ def _add_snapshots_inner(run, run_id, team_id, repo, snapshots):
     added, uploads = _register_snapshots(run, repo, snapshots)
 
     # Atomically increment total (safe for concurrent shards)
-    Run.objects.filter(id=run_id, team_id=team_id).update(total_snapshots=F("total_snapshots") + added)
-    _update_run_counts(run)
+    Run.objects.using(WRITER_DB).filter(id=run_id, team_id=team_id).update(total_snapshots=F("total_snapshots") + added)
+    _update_run_counts(run, using=WRITER_DB)
 
     return added, uploads
 
@@ -570,7 +574,7 @@ def complete_run(run_id: UUID) -> Run:
     baseline = _resolve_baselines(repo, run.run_type, run.branch)
 
     # Classify existing snapshots against baseline
-    for snapshot in run.snapshots.all():
+    for snapshot in run.snapshots.using(WRITER_DB).all():
         baseline_hash = baseline.get(snapshot.identifier)
         baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
 
@@ -585,16 +589,16 @@ def complete_run(run_id: UUID) -> Run:
         snapshot.baseline_hash = baseline_hash or ""
         snapshot.baseline_artifact = baseline_artifact
         snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
-        snapshot.save(update_fields=["result", "baseline_hash", "baseline_artifact", "current_artifact"])
+        snapshot.save(using=WRITER_DB, update_fields=["result", "baseline_hash", "baseline_artifact", "current_artifact"])
 
     # Detect removed: baseline identifiers with no RunSnapshot row
     if baseline:
-        produced = set(run.snapshots.values_list("identifier", flat=True))
+        produced = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
         for identifier in baseline:
             if identifier not in produced:
                 b_hash = baseline[identifier]
                 b_artifact = get_artifact(repo.id, b_hash) if b_hash else None
-                RunSnapshot.objects.get_or_create(
+                RunSnapshot.objects.using(WRITER_DB).get_or_create(
                     run=run,
                     team_id=repo.team_id,
                     identifier=identifier,
@@ -608,9 +612,9 @@ def complete_run(run_id: UUID) -> Run:
                 )
 
     # Update total and counts from actual RunSnapshot rows
-    run.total_snapshots = run.snapshots.count()
-    run.save(update_fields=["total_snapshots"])
-    _update_run_counts(run)
+    run.total_snapshots = run.snapshots.using(WRITER_DB).count()
+    run.save(using=WRITER_DB, update_fields=["total_snapshots"])
+    _update_run_counts(run, using=WRITER_DB)
 
     verify_uploads_and_create_artifacts(run_id)
 
@@ -715,6 +719,7 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
         # During migration VR is observational — always green so drift doesn't block PRs.
         # Flip to "failure" when VR becomes the gate.
         _post_commit_status(run, repo, "success", f"Visual changes detected: {', '.join(parts)}")
+        _post_review_prompt_comment(run, repo)
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
 
@@ -1042,6 +1047,94 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
         raise GitHubCommitError(f"Failed to commit baseline: {result.get('error')}")
 
     return result
+
+
+def _find_existing_comment_id(repo: Repo, pr_number: int, exclude_run_id: UUID) -> int | None:
+    """Find the GitHub comment ID from a previous run on the same PR."""
+    previous_run = (
+        Run.objects.filter(repo=repo, pr_number=pr_number, metadata__has_key="github_comment_id")
+        .exclude(id=exclude_run_id)
+        .order_by("-created_at")
+        .first()
+    )
+    if previous_run:
+        return previous_run.metadata.get("github_comment_id")
+    return None
+
+
+def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
+    """
+    Post or update a PR comment prompting reviewers to approve visual changes.
+
+    One comment per PR — subsequent runs update the existing comment in place.
+    Skips non-actionable runs (observe-only, stale/superseded, already commented).
+    Best-effort and never raises.
+    """
+    if not repo.enable_pr_comments:
+        return
+
+    if not repo.repo_full_name or run.pr_number is None:
+        return
+
+    if run.purpose == RunPurpose.OBSERVE or is_run_stale(run):
+        return
+
+    if run.metadata.get("github_comment_id"):
+        return
+
+    from django.conf import settings
+
+    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    comment_body = (
+        f"👋 **Visual changes detected** for this PR.\n\n"
+        f"[Review and approve in PostHog Visual Review]({run_url})\n\n"
+        f"If these changes are unexpected, they may be caused by a flaky test or a "
+        f"broken snapshot on master. Don't approve — rerun the job or wait for a fix."
+    )
+
+    try:
+        existing_comment_id = _find_existing_comment_id(repo, run.pr_number, exclude_run_id=run.id)
+        if existing_comment_id:
+            response = _github_api_request(
+                method="PATCH",
+                repo=repo,
+                path=f"issues/comments/{existing_comment_id}",
+                json={"body": comment_body},
+                timeout=10,
+            )
+            if response.status_code == 200:
+                run.metadata["github_comment_id"] = existing_comment_id
+                run.save(update_fields=["metadata"])
+                return
+            # Comment was deleted or inaccessible — fall through to create new one
+            logger.info(
+                "visual_review.pr_comment_update_failed_will_create",
+                run_id=str(run.id),
+                comment_id=existing_comment_id,
+                status_code=response.status_code,
+            )
+
+        response = _github_api_request(
+            method="POST",
+            repo=repo,
+            path=f"issues/{run.pr_number}/comments",
+            json={"body": comment_body},
+            timeout=10,
+        )
+        if response.status_code == 201:
+            comment_id = response.json().get("id")
+            run.metadata["github_comment_id"] = comment_id
+            run.save(update_fields=["metadata"])
+        else:
+            logger.warning(
+                "visual_review.pr_comment_failed",
+                run_id=str(run.id),
+                pr_number=run.pr_number,
+                status_code=response.status_code,
+                response=response.text[:200],
+            )
+    except Exception:
+        logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
 def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:

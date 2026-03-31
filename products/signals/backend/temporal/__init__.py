@@ -1,4 +1,9 @@
 from products.signals.backend.temporal.actionability_judge import actionability_judge_activity
+from products.signals.backend.temporal.agentic.report import (
+    run_agentic_report_activity,
+    signals_legacy_report_gate_activity,
+)
+from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
 from products.signals.backend.temporal.buffer import (
     BufferSignalsWorkflow,
     flush_signals_to_s3_activity,
@@ -72,9 +77,12 @@ ACTIVITIES = [
     mark_report_ready_activity,
     reingest_signals_activity,
     reset_report_to_potential_activity,
+    run_agentic_report_activity,
     run_signal_semantic_search_activity,
     report_safety_judge_activity,
     safety_filter_activity,
+    select_repository_activity,
+    signals_legacy_report_gate_activity,
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,

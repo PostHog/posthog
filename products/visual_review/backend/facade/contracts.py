@@ -192,6 +192,7 @@ class UpdateRepoRequestInput:
     """Request body for updating a repo. repo_id comes from URL."""
 
     baseline_file_paths: dict[str, str] | None = None
+    enable_pr_comments: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -200,6 +201,7 @@ class UpdateRepoInput:
 
     repo_id: UUID
     baseline_file_paths: dict[str, str] | None = None
+    enable_pr_comments: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -222,4 +224,5 @@ class Repo:
     repo_external_id: int
     repo_full_name: str
     baseline_file_paths: dict[str, str]
+    enable_pr_comments: bool
     created_at: datetime

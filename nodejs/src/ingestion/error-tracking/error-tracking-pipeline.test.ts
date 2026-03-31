@@ -12,6 +12,7 @@ import { UUIDT } from '~/utils/utils'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
+import { TophogOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { TopHog } from '../tophog'
@@ -278,6 +279,7 @@ describe('ErrorTrackingPipeline', () => {
                 ingestion_warnings: { topic: 'clickhouse_ingestion_warnings_test', producer: mockKafkaProducer },
                 dlq: { topic: 'error_tracking_dlq', producer: mockKafkaProducer },
                 overflow: { topic: 'error_tracking_overflow', producer: mockKafkaProducer },
+                tophog: { topic: 'clickhouse_tophog_test', producer: mockKafkaProducer },
             }),
             groupId: 'error-tracking-test',
             promiseScheduler,
@@ -906,31 +908,26 @@ describe('ErrorTrackingPipeline', () => {
     })
 
     describe('TopHog metrics', () => {
-        let topHogKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+        let mockTophogQueueMessages: jest.Mock
         let topHog: TopHog
 
         beforeEach(() => {
-            topHogKafkaProducer = {
-                produce: jest.fn().mockResolvedValue(undefined),
-                queueMessages: jest.fn().mockResolvedValue(undefined),
-            } as unknown as jest.Mocked<KafkaProducerWrapper>
+            mockTophogQueueMessages = jest.fn().mockResolvedValue(undefined)
+            const tophogOutputs = {
+                queueMessages: mockTophogQueueMessages,
+            } as unknown as IngestionOutputs<TophogOutput>
 
             topHog = new TopHog({
-                kafkaProducer: topHogKafkaProducer,
-                topic: 'clickhouse_tophog_test',
+                outputs: tophogOutputs,
                 pipeline: 'error_tracking',
                 lane: 'main',
             })
         })
 
         const getTopHogMessages = (): any[] => {
-            return topHogKafkaProducer.queueMessages.mock.calls.flatMap((call) => {
-                const arg = call[0]
-                const topicMessages = Array.isArray(arg) ? arg : [arg]
-                return topicMessages
-                    .filter((tm: any) => tm.topic === 'clickhouse_tophog_test')
-                    .flatMap((tm: any) => tm.messages.map((m: { value: string }) => parseJSON(m.value)))
-            })
+            return mockTophogQueueMessages.mock.calls.flatMap((call: any) =>
+                call[1].map((m: any) => parseJSON(m.value.toString()))
+            )
         }
 
         it('records resolved_teams metric when team is resolved', async () => {

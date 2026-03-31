@@ -33,9 +33,12 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     try:
         task_run = TaskRun.objects.select_related("task__created_by").get(id=input.run_id)
     except TaskRun.DoesNotExist:
+        error_msg = "Task run not found"
         logger.warning("send_followup_run_not_found", run_id=input.run_id)
-        _write_error_and_complete(input.run_id, "Task run not found")
-        return
+        _write_error_and_complete(input.run_id, error_msg)
+        # Raise so the workflow can mark the run as failed. Without this,
+        # background-mode runs hang until the inactivity timeout because
+        raise RuntimeError(f"send_followup failed: {error_msg}")
 
     auth_token = None
     created_by = task_run.task.created_by
@@ -55,7 +58,10 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
             error=result.error,
             status_code=result.status_code,
         )
-        _write_error_and_complete(input.run_id, result.error or "Failed to send message to sandbox")
+        error_msg = result.error or "Failed to send message to sandbox"
+        _write_error_and_complete(input.run_id, error_msg)
+        # Propagate failure to the workflow.
+        raise RuntimeError(f"send_followup failed: {error_msg}")
 
 
 def _write_turn_complete(run_id: str) -> None:

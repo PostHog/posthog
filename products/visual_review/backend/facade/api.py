@@ -99,6 +99,7 @@ def _to_repo(repo) -> contracts.Repo:
         repo_external_id=repo.repo_external_id,
         repo_full_name=repo.repo_full_name,
         baseline_file_paths=repo.baseline_file_paths,
+        enable_pr_comments=repo.enable_pr_comments,
         created_at=repo.created_at,
     )
 
@@ -126,6 +127,7 @@ def update_repo(input: contracts.UpdateRepoInput, team_id: int) -> contracts.Rep
         repo_id=input.repo_id,
         team_id=team_id,
         baseline_file_paths=input.baseline_file_paths,
+        enable_pr_comments=input.enable_pr_comments,
     )
     return _to_repo(repo)
 

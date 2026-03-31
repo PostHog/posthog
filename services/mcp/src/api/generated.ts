@@ -4336,6 +4336,7 @@ export namespace Schemas {
       readonly triggered_dates: unknown | null;
       /** @nullable */
       readonly interval: string | null;
+      readonly triggered_metadata: unknown | null;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
@@ -4804,6 +4805,29 @@ export namespace Schemas {
 
     export type AlertSimulateResponseSubDetectorScoresItem = {[key: string]: unknown};
 
+    export type BreakdownSimulationResultSubDetectorScoresItem = {[key: string]: unknown};
+
+    export interface BreakdownSimulationResult {
+      /** Breakdown value label. */
+      label: string;
+      /** Data values for each point. */
+      data: number[];
+      /** Date labels for each point. */
+      dates: string[];
+      /** Anomaly score for each point. */
+      scores: (number | null)[];
+      /** Indices of points flagged as anomalies. */
+      triggered_indices: number[];
+      /** Dates of points flagged as anomalies. */
+      triggered_dates: string[];
+      /** Total number of data points analyzed. */
+      total_points: number;
+      /** Number of anomalies detected. */
+      anomaly_count: number;
+      /** Per-sub-detector scores for ensemble detectors. */
+      sub_detector_scores?: BreakdownSimulationResultSubDetectorScoresItem[];
+    }
+
     export interface AlertSimulateResponse {
       /** Data values for each point. */
       data: number[];
@@ -4826,6 +4850,8 @@ export namespace Schemas {
       anomaly_count: number;
       /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
       sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
+      /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
+      breakdown_results?: BreakdownSimulationResult[];
     }
 
     /**
@@ -13571,6 +13597,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       exposure_preaggregation_enabled?: boolean;
+      only_count_matured_users?: boolean;
       readonly status: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
@@ -18027,6 +18054,21 @@ export namespace Schemas {
     }
 
     /**
+     * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+     * @nullable
+     */
+    export type MaterializationPreviewRequestBucketOverrides = {[key: string]: string} | null | null;
+
+    export interface MaterializationPreviewRequest {
+      version?: number;
+      /**
+       * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+       * @nullable
+       */
+      bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
+    }
+
+    /**
      * * `1` - event
     * `2` - person
     * `3` - group
@@ -18252,6 +18294,20 @@ export namespace Schemas {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
     }
+
+    /**
+     * * `trusted` - Trusted
+    * `full` - Full
+    * `custom` - Custom
+     */
+    export type NetworkAccessLevelEnum = typeof NetworkAccessLevelEnum[keyof typeof NetworkAccessLevelEnum];
+
+
+    export const NetworkAccessLevelEnum = {
+      Trusted: 'trusted',
+      Full: 'full',
+      Custom: 'custom',
+    } as const;
 
     /**
      * * `table` - Table
@@ -19738,6 +19794,7 @@ export namespace Schemas {
       repo_external_id: number;
       repo_full_name: string;
       baseline_file_paths: RepoBaselineFilePaths;
+      enable_pr_comments: boolean;
       created_at: string;
     }
 
@@ -19848,6 +19905,31 @@ export namespace Schemas {
       results: Run[];
     }
 
+    export interface SandboxEnvironmentList {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      network_access_level?: NetworkAccessLevelEnum;
+      /** List of allowed domains for custom network access */
+      allowed_domains?: string[];
+      /** List of repositories this environment applies to (format: org/repo) */
+      repositories?: string[];
+      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      private?: boolean;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSandboxEnvironmentListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SandboxEnvironmentList[];
+    }
+
     /**
      * * `daily` - daily
     * `weekly` - weekly
@@ -19899,6 +19981,11 @@ export namespace Schemas {
     * `monthly` - monthly
     * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at: string | null;
       /**
@@ -20853,6 +20940,8 @@ export namespace Schemas {
       readonly email_subject: string | null;
       /** @nullable */
       readonly email_from: string | null;
+      /** @nullable */
+      readonly email_to: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -22320,6 +22409,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       exposure_preaggregation_enabled?: boolean;
+      only_count_matured_users?: boolean;
       readonly status?: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
@@ -23228,6 +23318,20 @@ export namespace Schemas {
       readonly scim_bearer_token?: string | null;
     }
 
+    /**
+     * Serializer for organization-level integrations.
+     */
+    export interface PatchedOrganizationIntegration {
+      readonly id?: string;
+      readonly kind?: OrganizationIntegrationKindEnum;
+      /** @nullable */
+      readonly integration_id?: string | null;
+      readonly config?: unknown;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      readonly created_by?: UserBasic;
+    }
+
     export interface PatchedOrganizationMember {
       readonly id?: string;
       readonly user?: UserBasic;
@@ -23583,6 +23687,30 @@ export namespace Schemas {
       readonly is_default?: boolean;
     }
 
+    export interface PatchedSandboxEnvironment {
+      readonly id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      network_access_level?: NetworkAccessLevelEnum;
+      /** List of allowed domains for custom network access */
+      allowed_domains?: string[];
+      /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+      include_default_domains?: boolean;
+      /** List of repositories this environment applies to (format: org/repo) */
+      repositories?: string[];
+      /** Encrypted environment variables (write-only, never returned in responses) */
+      environment_variables?: unknown;
+      /** Whether this environment has any environment variables set */
+      readonly has_environment_variables?: boolean;
+      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      private?: boolean;
+      /** Computed domain allowlist based on network_access_level and allowed_domains */
+      readonly effective_domains?: readonly string[];
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedScheduledChange {
       readonly id?: number;
       readonly team_id?: number;
@@ -23618,6 +23746,11 @@ export namespace Schemas {
     * `monthly` - monthly
     * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at?: string | null;
       /**
@@ -24540,6 +24673,8 @@ export namespace Schemas {
       github_integration?: number | null;
       /** JSON schema for the task. This is used to validate the output of the task. */
       json_schema?: unknown | null;
+      /** If true, this task is for internal use and should not be exposed to end users. */
+      internal?: boolean;
       /**
        * Latest run details for this task
        * @nullable
@@ -24867,6 +25002,8 @@ export namespace Schemas {
       readonly email_subject?: string | null;
       /** @nullable */
       readonly email_from?: string | null;
+      /** @nullable */
+      readonly email_to?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -24926,6 +25063,8 @@ export namespace Schemas {
     export interface PatchedUpdateRepoRequestInput {
       /** @nullable */
       baseline_file_paths?: PatchedUpdateRepoRequestInputBaselineFilePaths;
+      /** @nullable */
+      enable_pr_comments?: boolean | null;
     }
 
     export type PatchedUserNotificationSettings = {[key: string]: unknown};
@@ -28395,6 +28534,30 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface SandboxEnvironment {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      network_access_level?: NetworkAccessLevelEnum;
+      /** List of allowed domains for custom network access */
+      allowed_domains?: string[];
+      /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+      include_default_domains?: boolean;
+      /** List of repositories this environment applies to (format: org/repo) */
+      repositories?: string[];
+      /** Encrypted environment variables (write-only, never returned in responses) */
+      environment_variables?: unknown;
+      /** Whether this environment has any environment variables set */
+      readonly has_environment_variables: boolean;
+      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      private?: boolean;
+      /** Computed domain allowlist based on network_access_level and allowed_domains */
+      readonly effective_domains: readonly string[];
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface ScoreDefinitionCreate {
       /**
        * Human-readable scorer name.
@@ -28592,6 +28755,23 @@ export namespace Schemas {
       text_repr: string;
       /** Metadata about the summarization */
       metadata?: unknown;
+    }
+
+    /**
+     * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+     */
+    export type SurveyGlobalStatsResponseStats = {[key: string]: unknown};
+
+    /**
+     * Calculated response and dismissal rates.
+     */
+    export type SurveyGlobalStatsResponseRates = {[key: string]: unknown};
+
+    export interface SurveyGlobalStatsResponse {
+      /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+      stats: SurveyGlobalStatsResponseStats;
+      /** Calculated response and dismissal rates. */
+      rates: SurveyGlobalStatsResponseRates;
     }
 
     export interface SurveySerializerCreateUpdateOnly {
@@ -29021,6 +29201,35 @@ export namespace Schemas {
       form_content?: unknown | null;
     }
 
+    /**
+     * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+     */
+    export type SurveyStatsResponseStats = {[key: string]: unknown};
+
+    /**
+     * Calculated response and dismissal rates.
+     */
+    export type SurveyStatsResponseRates = {[key: string]: unknown};
+
+    export interface SurveyStatsResponse {
+      /** The survey ID these stats belong to. */
+      survey_id: string;
+      /**
+       * When the survey started collecting responses.
+       * @nullable
+       */
+      start_date: string | null;
+      /**
+       * When the survey stopped collecting responses.
+       * @nullable
+       */
+      end_date: string | null;
+      /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+      stats: SurveyStatsResponseStats;
+      /** Calculated response and dismissal rates. */
+      rates: SurveyStatsResponseRates;
+    }
+
     export type TaskRunAppendLogRequestEntriesItem = {[key: string]: unknown};
 
     export interface TaskRunAppendLogRequest {
@@ -29177,6 +29386,8 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Follow-up user message to include in the resumed run's prompt. */
       pending_user_message?: string;
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -30601,6 +30812,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsPersonsBatchByDistinctIdsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type EnvironmentsPersonsBatchByUuidsCreateParams = {
+    format?: EnvironmentsPersonsBatchByUuidsCreateFormat;
+    };
+
+    export type EnvironmentsPersonsBatchByUuidsCreateFormat = typeof EnvironmentsPersonsBatchByUuidsCreateFormat[keyof typeof EnvironmentsPersonsBatchByUuidsCreateFormat];
+
+
+    export const EnvironmentsPersonsBatchByUuidsCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -32161,6 +32384,10 @@ export namespace Schemas {
 
     export type DashboardTemplatesListParams = {
     /**
+     * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
+     */
+    is_featured?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -32168,6 +32395,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Sort templates by name when not using `search`. Omit for database default order. Ignored when `search` is set (results stay relevance-ranked). Use `template_name` for A–Z or `-template_name` for Z–A.
+     */
+    ordering?: string;
     };
 
     export type DashboardsListParams = {
@@ -33637,6 +33868,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type PersonsBatchByUuidsCreateParams = {
+    format?: PersonsBatchByUuidsCreateFormat;
+    };
+
+    export type PersonsBatchByUuidsCreateFormat = typeof PersonsBatchByUuidsCreateFormat[keyof typeof PersonsBatchByUuidsCreateFormat];
+
+
+    export const PersonsBatchByUuidsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type PersonsBulkDeleteCreateParams = {
     format?: PersonsBulkDeleteCreateFormat;
     };
@@ -33943,6 +34186,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SandboxListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type SavedListParams = {
     /**
      * Number of results to return per page.
@@ -34095,6 +34349,10 @@ export namespace Schemas {
      * Filter by creator user ID
      */
     created_by?: number;
+    /**
+     * Filter by internal flag. Defaults to excluding internal tasks when not specified.
+     */
+    internal?: boolean;
     /**
      * Number of results to return per page.
      */

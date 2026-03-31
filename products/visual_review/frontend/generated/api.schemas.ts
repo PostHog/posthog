@@ -15,6 +15,7 @@ export interface RepoApi {
     repo_external_id: number
     repo_full_name: string
     baseline_file_paths: RepoApiBaselineFilePaths
+    enable_pr_comments: boolean
     created_at: string
 }
 
@@ -41,6 +42,8 @@ export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]:
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
     baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
+    /** @nullable */
+    enable_pr_comments?: boolean | null
 }
 
 export interface RunSummaryApi {
