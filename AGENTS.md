@@ -109,7 +109,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 
 ## Agent automation
 
-Prefer the most enforceable approach that fits the problem:
+When automating a convention, try these in order — only fall back to the next if the previous isn't suitable:
 
 1. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement, always paired with CI
 2. **lint-staged / husky** — file-level validation or warnings at commit time
