@@ -96,7 +96,11 @@ async def evaluate_person_against_all_filters(person_id, parsed_properties, filt
             )
             matches = False
         else:
-            matches = bool(result.result) if hasattr(result, "result") and result else False
+            matches = (
+                bool(result.result)
+                if hasattr(result, "result") and result and not isinstance(result, BaseException)
+                else False
+            )
 
         # Create event for this filter result
         event = {

@@ -37,7 +37,7 @@ class TestFlushKafkaBatchAsync:
         logger = Mock()
 
         # Create mock futures that resolve successfully
-        mock_futures = [asyncio.Future() for _ in range(3)]
+        mock_futures: list[asyncio.Future[None]] = [asyncio.Future() for _ in range(3)]
         for future in mock_futures:
             future.set_result(None)  # Successful result
 
@@ -59,10 +59,10 @@ class TestFlushKafkaBatchAsync:
         logger = Mock()
 
         # Create mix of successful and failed futures
-        successful_future = asyncio.Future()
+        successful_future: asyncio.Future[None] = asyncio.Future()
         successful_future.set_result(None)
 
-        failed_future = asyncio.Future()
+        failed_future: asyncio.Future[None] = asyncio.Future()
         failed_future.set_exception(Exception("Test error"))
 
         mock_futures = [successful_future, failed_future, successful_future]
