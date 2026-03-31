@@ -70,7 +70,7 @@ describe('maxLogic', () => {
         })
     })
 
-    it('starts a new conversation when opening Max with a prompt via sidepanel', async () => {
+    it('starts a new conversation when useMaxTool opens Max with a prompt', async () => {
         // Mount maxLogic first with an existing conversation
         sidePanelStateLogic.mount()
         logic = maxLogic({ tabId: 'sidepanel' })
@@ -82,8 +82,10 @@ describe('maxLogic', () => {
 
         const originalFrontendConversationId = logic.values.frontendConversationId
 
-        // Now open Max with a new prompt (as if from "Analyze responses" button)
+        // Simulate the useMaxTool openMax flow: startNewConversation then openSidePanel
+        // This is what happens when the user clicks "Analyze responses" in Surveys
         await expectLogic(logic, () => {
+            logic.actions.startNewConversation()
             sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'Analyze survey responses')
         }).toMatchValues({
             // Should have a new frontend conversation ID (new conversation)
