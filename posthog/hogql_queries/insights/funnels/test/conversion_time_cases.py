@@ -3,14 +3,7 @@ from typing import Optional
 
 from posthog.test.base import APIBaseTest
 
-from posthog.schema import (
-    BreakdownFilter,
-    DateRange,
-    EventsNode,
-    FunnelConversionWindowTimeUnit,
-    FunnelsFilter,
-    FunnelsQuery,
-)
+from posthog.schema import DateRange, EventsNode, FunnelConversionWindowTimeUnit, FunnelsFilter, FunnelsQuery
 
 from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -36,7 +29,6 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
 
         def test_funnel_with_multiple_incomplete_tries(self):
             query = FunnelsQuery(
-                breakdownFilter=BreakdownFilter(),
                 dateRange=DateRange(
                     date_from="2021-05-01 00:00:00",
                     date_to="2021-05-14 00:00:00",
@@ -104,7 +96,6 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
 
         def test_funnel_step_conversion_times(self):
             query = FunnelsQuery(
-                breakdownFilter=BreakdownFilter(),
                 dateRange=DateRange(
                     date_from="2020-01-01",
                     date_to="2020-01-08",
@@ -160,7 +151,6 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
 
         def test_funnel_times_with_different_conversion_windows(self):
             query = FunnelsQuery(
-                breakdownFilter=BreakdownFilter(),
                 dateRange=DateRange(
                     date_from="2020-01-01",
                     date_to="2020-01-14",
@@ -234,7 +224,6 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
             )
 
             query = FunnelsQuery(
-                breakdownFilter=BreakdownFilter(),
                 dateRange=DateRange(
                     date_from="2020-01-01",
                     date_to="2020-01-14",
