@@ -117,7 +117,7 @@ class TestBackfillPrecalculatedPersonPropertiesCoordinatorWorkflow:
         mock_workflow_info.workflow_id = "test-coordinator-no-ranges"
 
         # Mock empty ranges
-        mock_ranges = []
+        mock_ranges: list[tuple[str, str]] = []
 
         workflow = BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow()
 
