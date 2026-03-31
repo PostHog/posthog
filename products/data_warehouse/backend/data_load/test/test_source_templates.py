@@ -32,7 +32,7 @@ class TestDatabaseOperations(BaseTest):
         assert joins.count() == 3
 
         revenue_join = joins.get(source_table_name="stripe.customer_revenue_view")
-        assert revenue_join.source_table_key == "metadata.posthog_person_distinct_id"
+        assert revenue_join.source_table_key == "JSONExtractString(metadata, 'posthog_person_distinct_id')"
         assert revenue_join.joining_table_name == "persons"
         assert revenue_join.joining_table_key == "pdi.distinct_id"
         assert revenue_join.field_name == "person"
