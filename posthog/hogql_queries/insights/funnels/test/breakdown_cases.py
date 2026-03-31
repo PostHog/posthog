@@ -21,9 +21,9 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
-    DataWarehouseNode,
     DateRange,
     EventsNode,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
 )
@@ -35,7 +35,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -1291,6 +1291,337 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 [people["person1"].uuid],
             )
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, cohort.pk), [])
+
+        def test_funnel_cohort_breakdown_shows_not_in_cohort(self):
+            _create_person(
+                distinct_ids=["person_in_cohort"],
+                team_id=self.team.pk,
+                properties={"key": "value"},
+            )
+            _create_person(
+                distinct_ids=["person_outside_cohort"],
+                team_id=self.team.pk,
+                properties={"key": "other"},
+            )
+            journeys_for(
+                {
+                    "person_in_cohort": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 2, 13)},
+                    ],
+                    "person_outside_cohort": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 3, 12)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 3, 13)},
+                    ],
+                },
+                self.team,
+                create_people=False,
+            )
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="test_cohort",
+                groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch(pending_version=0)
+
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "cohort",
+                "breakdown": [cohort.pk],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            assert len(results) == 2
+
+            breakdown_labels = {r[0]["breakdown"] for r in results}
+            assert "test_cohort" in breakdown_labels
+            assert "Not in test_cohort" in breakdown_labels
+
+            cohort_results = next(r for r in results if r[0]["breakdown"] == "test_cohort")
+            not_in_cohort_results = next(r for r in results if r[0]["breakdown"] == "Not in test_cohort")
+
+            assert cohort_results[0]["count"] == 1
+            assert cohort_results[1]["count"] == 1
+
+            assert not_in_cohort_results[0]["count"] == 1
+            assert not_in_cohort_results[1]["count"] == 1
+            assert not_in_cohort_results[0]["breakdown_value"] == NOT_IN_COHORT_ID
+
+        def test_funnel_cohort_breakdown_shows_empty_not_in_cohort_when_all_in_cohort(self):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"key": "value"},
+            )
+            _create_person(
+                distinct_ids=["person2"],
+                team_id=self.team.pk,
+                properties={"key": "value"},
+            )
+            journeys_for(
+                {
+                    "person1": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 2, 13)},
+                    ],
+                    "person2": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 3, 12)},
+                    ],
+                },
+                self.team,
+                create_people=False,
+            )
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="test_cohort",
+                groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch(pending_version=0)
+
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "cohort",
+                "breakdown": [cohort.pk],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            assert len(results) == 2
+
+            breakdown_labels = {r[0]["breakdown"] for r in results}
+            assert "test_cohort" in breakdown_labels
+            assert "Not in test_cohort" in breakdown_labels
+
+            cohort_results = next(r for r in results if r[0]["breakdown"] == "test_cohort")
+            not_in_cohort_results = next(r for r in results if r[0]["breakdown"] == "Not in test_cohort")
+
+            assert cohort_results[0]["count"] == 2
+            assert cohort_results[1]["count"] == 1
+
+            # "not in cohort" group exists but is empty
+            assert not_in_cohort_results[0]["count"] == 0
+            assert not_in_cohort_results[1]["count"] == 0
+            assert not_in_cohort_results[0]["breakdown_value"] == NOT_IN_COHORT_ID
+
+        def test_funnel_cohort_breakdown_no_not_in_cohort_with_all(self):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"key": "value"},
+            )
+            journeys_for(
+                {"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)}]},
+                self.team,
+                create_people=False,
+            )
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="test_cohort",
+                groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch(pending_version=0)
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "cohort",
+                "breakdown": ["all", cohort.pk],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            breakdown_labels = {r[0]["breakdown"] for r in results}
+            # "all" already covers everyone, so no "not in cohort" group should be added
+            assert "Not in test_cohort" not in breakdown_labels
+            assert "all users" in breakdown_labels
+            assert "test_cohort" in breakdown_labels
+
+        def test_funnel_cohort_breakdown_no_not_in_cohort_with_multiple_cohorts(self):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"key": "value"},
+            )
+            journeys_for(
+                {"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)}]},
+                self.team,
+                create_people=False,
+            )
+
+            cohort_a = Cohort.objects.create(
+                team=self.team,
+                name="cohort_a",
+                groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            )
+            cohort_a.calculate_people_ch(pending_version=0)
+            cohort_b = Cohort.objects.create(
+                team=self.team,
+                name="cohort_b",
+                groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            )
+            cohort_b.calculate_people_ch(pending_version=0)
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "cohort",
+                "breakdown": [cohort_a.pk, cohort_b.pk],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            breakdown_labels = {r[0]["breakdown"] for r in results}
+            # Multi-cohort: no "not in cohort" group added (overlap makes it ambiguous)
+            assert not any(label.startswith("Not in ") for label in breakdown_labels)
+            assert "cohort_a" in breakdown_labels
+            assert "cohort_b" in breakdown_labels
+
+        def test_funnel_cohort_breakdown_actors_not_in_cohort(self):
+            person_in_cohort = _create_person(
+                distinct_ids=["person_in_cohort"],
+                team_id=self.team.pk,
+                properties={"key": "value"},
+            )
+            person_outside_cohort = _create_person(
+                distinct_ids=["person_outside_cohort"],
+                team_id=self.team.pk,
+                properties={"key": "other"},
+            )
+            journeys_for(
+                {
+                    "person_in_cohort": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 2, 13)},
+                    ],
+                    "person_outside_cohort": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 3, 12)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 3, 13)},
+                    ],
+                },
+                self.team,
+                create_people=False,
+            )
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="test_cohort",
+                groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch(pending_version=0)
+
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "cohort",
+                "breakdown": [cohort.pk],
+            }
+
+            # Actors in the cohort at step 1
+            cohort_actors = self._get_actor_ids_at_step(filters, 1, cohort.pk)
+            assert cohort_actors == [person_in_cohort.uuid]
+
+            # Actors NOT in the cohort at step 1 (simulates clicking "not in cohort" bar)
+            not_in_cohort_actors = self._get_actor_ids_at_step(filters, 1, NOT_IN_COHORT_ID)
+            assert not_in_cohort_actors == [person_outside_cohort.uuid]
+
+        def test_funnel_single_cohort_breakdown_first_touch(self):
+            _create_person(
+                distinct_ids=["person_in_cohort"],
+                team_id=self.team.pk,
+                properties={"key": "value"},
+            )
+            _create_person(
+                distinct_ids=["person_outside_cohort"],
+                team_id=self.team.pk,
+                properties={"key": "other"},
+            )
+            journeys_for(
+                {
+                    "person_in_cohort": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 2, 13)},
+                    ],
+                    "person_outside_cohort": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 3, 12)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 3, 13)},
+                    ],
+                },
+                self.team,
+                create_people=False,
+            )
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="test_cohort",
+                groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch(pending_version=0)
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="sign up"),
+                    EventsNode(event="play movie"),
+                ],
+                dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-08"),
+                funnelsFilter=FunnelsFilter(
+                    funnelWindowInterval=7,
+                    breakdownAttributionType="first_touch",
+                ),
+                breakdownFilter=BreakdownFilter(
+                    breakdown=[cohort.pk],
+                    breakdown_type=BreakdownType.COHORT,
+                ),
+            )
+
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            assert len(results) == 2
+
+            breakdown_labels = {r[0]["breakdown"] for r in results}
+            assert "test_cohort" in breakdown_labels
+            assert "Not in test_cohort" in breakdown_labels
+
+            cohort_results = next(r for r in results if r[0]["breakdown"] == "test_cohort")
+            assert cohort_results[0]["count"] == 1
+            assert cohort_results[1]["count"] == 1
+
+            not_in_cohort_results = next(r for r in results if r[0]["breakdown"] == "Not in test_cohort")
+            assert not_in_cohort_results[0]["count"] == 1
+            assert not_in_cohort_results[1]["count"] == 1
 
         def test_basic_funnel_default_funnel_days_breakdown_event(self):
             events_by_person = {
@@ -2836,11 +3167,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     dateRange=DateRange(date_from="2025-11-01"),
                     series=[
                         EventsNode(event="$pageview"),
-                        DataWarehouseNode(
+                        FunnelsDataWarehouseNode(
                             id=table_name,
                             table_name=table_name,
                             id_field="id",
-                            distinct_id_field="toUUID(user_id)",
+                            aggregation_target_field="toUUID(user_id)",
                             timestamp_field="created",
                         ),
                     ],
@@ -2979,11 +3310,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     dateRange=DateRange(date_from="2025-11-01"),
                     series=[
                         EventsNode(event="$pageview"),
-                        DataWarehouseNode(
+                        FunnelsDataWarehouseNode(
                             id=table_name,
                             table_name=table_name,
                             id_field="id",
-                            distinct_id_field="toUUID(user_id)",
+                            aggregation_target_field="toUUID(user_id)",
                             timestamp_field="created",
                         ),
                     ],
@@ -3108,11 +3439,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     kind="FunnelsQuery",
                     dateRange=DateRange(date_from="2025-11-01"),
                     series=[
-                        DataWarehouseNode(
+                        FunnelsDataWarehouseNode(
                             id=table_name,
                             table_name=table_name,
                             id_field="id",
-                            distinct_id_field="toUUID(user_id)",
+                            aggregation_target_field="toUUID(user_id)",
                             timestamp_field="created",
                         ),
                         EventsNode(event="$pageview"),

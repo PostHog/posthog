@@ -45,6 +45,8 @@ class DuckgresShadowResult:
     schema_name: str
     table_name: str
     error: str | None = None
+    file_size_bytes: int = 0
+    file_size_delta_bytes: int = 0
 
 
 def _is_duckgres_shadow_enabled(team: Team) -> bool:
@@ -90,7 +92,7 @@ def _get_shadow_input_objects(
 ) -> tuple[Team, Node, DataWarehouseSavedQuery]:
     team = Team.objects.get(id=inputs.team_id)
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_fk_id=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
     if node.type == NodeType.TABLE or node.saved_query is None:
         raise ValueError(f"Node {node.name} is not materializable")
@@ -153,6 +155,8 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             duration_seconds=duration,
             schema_name=result.schema_name,
             table_name=result.table_name,
+            file_size_bytes=result.file_size_bytes,
+            file_size_delta_bytes=result.file_size_delta_bytes,
         )
     except Exception as e:
         duration = time.monotonic() - start_time

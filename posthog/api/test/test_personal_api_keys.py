@@ -13,9 +13,9 @@ from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.insight import Insight
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
@@ -37,6 +37,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "last_used_at": None,
             "last_rolled_at": None,
             "user_id": self.user.id,
+            "is_legacy_hashing": False,
             "scopes": ["insight:read"],
             "scoped_organizations": [],
             "scoped_teams": [],
@@ -127,11 +128,46 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label="Test",
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         assert PersonalAPIKey.objects.count() == 1
         response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
         assert response.status_code == 204
         assert PersonalAPIKey.objects.count() == 0
+
+    @parameterized.expand(
+        [
+            ("pbkdf2_260000", "pbkdf2_sha256$260000$posthog_personal_api_key$somehashvalue=", True),
+            ("pbkdf2_390000", "pbkdf2_sha256$390000$posthog_personal_api_key$otherhashvalue=", True),
+            ("sha256", "sha256$" + "a" * 64, False),
+        ]
+    )
+    def test_list_is_legacy_hashing(self, _, secure_value, expected):
+        PersonalAPIKey.objects.create(
+            label="Test key",
+            user=self.user,
+            secure_value=secure_value,
+            scopes=["insight:read"],
+        )
+        response = self.client.get("/api/personal_api_keys")
+        assert response.status_code == 200
+        key_data = next(k for k in response.json() if k["label"] == "Test key")
+        assert key_data["is_legacy_hashing"] is expected
+
+    def test_roll_clears_legacy_hashing(self):
+        key = PersonalAPIKey.objects.create(
+            label="Legacy key",
+            user=self.user,
+            secure_value="pbkdf2_sha256$260000$posthog_personal_api_key$somehashvalue=",
+            scopes=["insight:read"],
+            scoped_organizations=[],
+            scoped_teams=[],
+        )
+        response = self.client.post(f"/api/personal_api_keys/{key.id}/roll/")
+        assert response.status_code == 200
+        assert response.json()["is_legacy_hashing"] is False
+        key.refresh_from_db()
+        assert key.secure_value is not None and key.secure_value.startswith(SHA256_HASH_PREFIX)
 
     def test_list_only_user_personal_api_keys(self):
         my_label = "Test"
@@ -139,12 +175,14 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label=my_label,
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         other_user = self._create_user("abc@def.xyz")
         PersonalAPIKey.objects.create(
             label="Other test",
             user=other_user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         assert PersonalAPIKey.objects.count() == 2
         response = self.client.get("/api/personal_api_keys")
@@ -158,6 +196,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "last_used_at": None,
             "last_rolled_at": None,
             "user_id": self.user.id,
+            "is_legacy_hashing": False,
             "scopes": ["*"],
             "scoped_organizations": None,
             "scoped_teams": None,
@@ -171,6 +210,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label=my_label,
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         response = self.client.get(f"/api/personal_api_keys/{my_key.id}/")
         assert response.status_code == 200
@@ -182,6 +222,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label="Other test",
             user=other_user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         response = self.client.get(f"/api/personal_api_keys/{other_key.id}/")
         assert response.status_code == 404
@@ -317,28 +358,38 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         super().setUp()
         self.value_390000 = generate_random_token_personal()
         self.key_390000 = PersonalAPIKey.objects.create(
-            label="Test", user=self.user, secure_value=hash_key_value(self.value_390000, "pbkdf2", iterations=390000)
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(self.value_390000, "pbkdf2", LEGACY_PERSONAL_API_KEY_SALT, iterations=390000),
+            scopes=["*"],
         )
         self.value_hardcoded = "phx_0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p"
         self.key_hardcoded = PersonalAPIKey.objects.create(
             label="Test",
             user=self.user,
             secure_value="pbkdf2_sha256$260000$posthog_personal_api_key$dUOOjl6bYdigHd+QfhYzN6P2vM01ZbFROS8dm9KRK7Y=",
+            scopes=["*"],
         )
 
     @parameterized.expand(
         [
-            ("sha256", None, "sha256$45af89b510a3279a817f851de5d3f95b73485d58ec2672a39e52d8aeeb014059"),
-            ("pbkdf2", 1, "pbkdf2_sha256$1$posthog_personal_api_key$vzzA4fHFTiUipScUeDJ4+NjuXwAWWu2AFRbk/JUs6Ck="),
+            ("sha256", None, None, "sha256$45af89b510a3279a817f851de5d3f95b73485d58ec2672a39e52d8aeeb014059"),
             (
                 "pbkdf2",
+                LEGACY_PERSONAL_API_KEY_SALT,
+                1,
+                "pbkdf2_sha256$1$posthog_personal_api_key$vzzA4fHFTiUipScUeDJ4+NjuXwAWWu2AFRbk/JUs6Ck=",
+            ),
+            (
+                "pbkdf2",
+                LEGACY_PERSONAL_API_KEY_SALT,
                 260000,
                 "pbkdf2_sha256$260000$posthog_personal_api_key$eeRy21dbVoEzYND0NVLfjXxgNeO67SeBRrwQr6bbhK4=",
             ),
         ]
     )
-    def test_hash_key_values(self, algorithm, iterations, expected_hash):
-        result = hash_key_value("test_key_12345", algorithm, iterations=iterations)
+    def test_hash_key_values(self, algorithm, salt, iterations, expected_hash):
+        result = hash_key_value("test_key_12345", algorithm, legacy_salt=salt, iterations=iterations)
         assert result == expected_hash
 
     def test_no_key(self):
@@ -505,13 +556,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.scopes = ["feature_flag:read"]
         self.key.save()
 
-    def test_allows_legacy_api_key_to_access_all(self):
-        self.key.scopes = None
-        self.key.save()
-        response = self._do_request("/api/users/@me/")
-        assert response.status_code == status.HTTP_200_OK
-
-    def test_rejects_empty_scopes_list_as_not_legacy(self):
+    def test_rejects_empty_scopes_list_as_no_access(self):
         self.key.scopes = []
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")

@@ -51,10 +51,10 @@ from products.signals.backend.temporal.types import (
     SpecificityMetadata,
     TeamSignalGroupingInput,
 )
+from products.signals.backend.utils import EMBEDDING_MODEL, soft_delete_report_signals
 
 logger = structlog.get_logger(__name__)
 
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 MAX_QUERIES = 3
 
@@ -718,11 +718,41 @@ class VerifyMatchSpecificityOutput:
     reason: str
 
 
+async def verify_match_specificity(
+    new_signal_description: str,
+    new_signal_source_product: str,
+    new_signal_source_type: str,
+    report_title: str,
+    group_signals: list[SignalData],
+) -> VerifyMatchSpecificityOutput:
+    """Verify that adding a signal to a group produces a specific-enough PR title."""
+    specificity_prompt = _build_specificity_prompt(
+        new_signal_description=new_signal_description,
+        new_signal_source_product=new_signal_source_product,
+        new_signal_source_type=new_signal_source_type,
+        report_title=report_title,
+        group_signals=group_signals,
+    )
+
+    specificity = await call_llm(
+        system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
+        user_prompt=specificity_prompt,
+        validate=lambda text: SpecificityResult.model_validate_json(text),
+        temperature=0.2,
+    )
+
+    return VerifyMatchSpecificityOutput(
+        pr_title=specificity.pr_title,
+        specific_enough=specificity.specific_enough,
+        reason=specificity.reason,
+    )
+
+
 @temporalio.activity.defn
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
-        specificity_prompt = _build_specificity_prompt(
+        result = await verify_match_specificity(
             new_signal_description=input.new_signal_description,
             new_signal_source_product=input.new_signal_source_product,
             new_signal_source_type=input.new_signal_source_type,
@@ -730,27 +760,16 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
             group_signals=input.group_signals,
         )
 
-        specificity = await call_llm(
-            system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
-            user_prompt=specificity_prompt,
-            validate=lambda text: SpecificityResult.model_validate_json(text),
-            temperature=0.2,
-        )
-
         logger.debug(
             f"Specificity check for report {input.report_id}: "
-            f'pr_title="{specificity.pr_title}", specific_enough={specificity.specific_enough}',
+            f'pr_title="{result.pr_title}", specific_enough={result.specific_enough}',
             team_id=input.team_id,
             report_id=input.report_id,
-            pr_title=specificity.pr_title,
-            specific_enough=specificity.specific_enough,
-            reason=specificity.reason,
+            pr_title=result.pr_title,
+            specific_enough=result.specific_enough,
+            reason=result.reason,
         )
-        return VerifyMatchSpecificityOutput(
-            pr_title=specificity.pr_title,
-            specific_enough=specificity.specific_enough,
-            reason=specificity.reason,
-        )
+        return result
     except Exception as e:
         logger.exception(
             f"Failed to verify match specificity for report {input.report_id}: {e}",
@@ -781,13 +800,15 @@ class AssignAndEmitSignalOutput:
     report_id: str
     promoted: bool
     timestamp: datetime
+    run_count: int
 
 
 @temporalio.activity.defn
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit() -> tuple[str, bool, datetime]:
+    def do_assign_and_emit() -> tuple[str, bool, datetime, bool, int]:
+        """Returns (report_id, promoted, timestamp, matched_deleted_report, run_count)."""
         with transaction.atomic():
             promoted = False
 
@@ -798,7 +819,11 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # if a report is deleted while a signal that would match it is in-flight,
                 # this can happen. In these cases we skip the weight/count update and skip
                 # promotion, but we still emit the signal to ClickHouse, marked as deleted
-                # in metadata
+                # in metadata.
+                #
+                # We also soft-delete all stale signals for the deleted report (outside the
+                # transaction) so they stop showing up in semantic search and attracting
+                # future signals to the dead report.
                 if report.status == SignalReport.Status.DELETED:
                     report_id = str(report.id)
                     ts = input.timestamp or timezone.now()
@@ -823,7 +848,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         timestamp=ts,
                         metadata=metadata,
                     )
-                    return report_id, False, ts
+                    return report_id, False, ts, True, report.run_count
                 report.total_weight += input.weight
                 report.signal_count += 1
                 update_fields = ["total_weight", "signal_count", "updated_at"]
@@ -841,11 +866,14 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     summary=match_result.summary,
                 )
 
-            # SUPPRESSED reports gather signals indefinitely but are never promoted
-            # POTENTIAL reports are only promoted once signal_count >= signals_at_run (snooze gate;
-            # signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met
+            # - SUPPRESSED reports gather signals indefinitely but are never promoted.
+            # - POTENTIAL reports are promoted once signal_count >= signals_at_run (snooze gate;
+            # signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met.
+            # - READY reports are re-promoted under the same gate so the summary workflow can
+            # regenerate the report with the additional signals, keeping it meaningful as
+            # new evidence accumulates.
             if (
-                report.status == SignalReport.Status.POTENTIAL
+                report.status in (SignalReport.Status.POTENTIAL, SignalReport.Status.READY)
                 and report.total_weight >= WEIGHT_THRESHOLD
                 and report.signal_count >= report.signals_at_run
             ):
@@ -880,10 +908,30 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 metadata=metadata,
             )
 
-            return report_id, promoted, ts
+            return report_id, promoted, ts, False, report.run_count
 
     try:
-        report_id, promoted, ts = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
+        report_id, promoted, ts, matched_deleted, run_count = await database_sync_to_async(
+            do_assign_and_emit, thread_sensitive=False
+        )()
+
+        # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
+        # This prevents data corruption where non-deleted signals for a deleted report
+        # keep attracting new signals into the dead group.
+        if matched_deleted:
+            team = await Team.objects.aget(pk=input.team_id)
+            await database_sync_to_async(soft_delete_report_signals, thread_sensitive=False)(
+                report_id=report_id,
+                team_id=input.team_id,
+                team=team,
+            )
+            logger.info(
+                "Soft-deleted stale signals for deleted report encountered during grouping",
+                report_id=report_id,
+                team_id=input.team_id,
+                signal_id=input.signal_id,
+            )
+
         logger.debug(
             f"Assigned and emitted signal to report {report_id}",
             report_id=report_id,
@@ -892,7 +940,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted=promoted,
             is_new_report=isinstance(match_result, NewReportMatch),
         )
-        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted, timestamp=ts)
+        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted, timestamp=ts, run_count=run_count)
     except Exception as e:
         logger.exception(
             f"Failed to assign/emit signal: {e}",
@@ -922,21 +970,23 @@ WAIT_POLL_INTERVAL_SECONDS = 10
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
     """Poll ClickHouse until all emitted signals appear, or give up after max_wait_time_seconds.
 
-    Filters on inserted_at >= (now - 1 minute) rather than on the deleted flag, so we
-    confirm that *this specific ingestion* landed — regardless of whether the signal is
-    deleted — and don't mistake an older row for the one we just emitted.
+    Filters on inserted_at >= (now - 30 minutes) to avoid matching stale rows from a
+    previous emission of the same document_id (e.g. deleted then reingested). The window
+    is generous because signals are emitted during the sequential phase before this
+    activity starts, so early signals may already be minutes old.
     """
     if not input.signals:
         return
 
     team = await Team.objects.aget(pk=input.team_id)
-    inserted_at_threshold = timezone.now() - timedelta(minutes=1)
+    inserted_at_threshold = timezone.now() - timedelta(minutes=30)
     max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
 
     signal_ids = [s.signal_id for s in input.signals]
     timestamps = [s.timestamp for s in input.signals]
-    min_timestamp = min(timestamps)
-    max_timestamp = max(timestamps)
+    # Widen the timestamp range to account for precision loss (Python microseconds vs ClickHouse DateTime64(3) milliseconds)
+    min_timestamp = min(timestamps) - timedelta(minutes=2)
+    max_timestamp = max(timestamps) + timedelta(minutes=2)
 
     query = """
         SELECT count(DISTINCT document_id)
@@ -972,6 +1022,11 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             heartbeat_fn=temporalio.activity.heartbeat,
         )
 
+        # Heartbeat immediately after the query completes — the query itself runs in
+        # sync_to_async and can't heartbeat during execution, so this ensures we don't
+        # hit the heartbeat timeout when queries are slow.
+        temporalio.activity.heartbeat(attempt)
+
         if result.results and result.results[0][0] >= expected_count:
             logger.debug(
                 f"All {expected_count} signal(s) found in ClickHouse after {attempt + 1} attempt(s)",
@@ -980,7 +1035,13 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             )
             return
 
-        await asyncio.sleep(WAIT_POLL_INTERVAL_SECONDS)
+        # Sleep in chunks so we keep heartbeating during the poll interval
+        remaining = WAIT_POLL_INTERVAL_SECONDS
+        while remaining > 0:
+            chunk = min(remaining, 5)
+            await asyncio.sleep(chunk)
+            remaining -= chunk
+            temporalio.activity.heartbeat(attempt)
 
     logger.warning(
         f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
@@ -1181,7 +1242,7 @@ async def _process_signal_batch(
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
     processed_batch_signals: list[_ProcessedBatchSignal] = []
-    promoted_reports: dict[str, SignalReportSummaryWorkflowInputs] = {}
+    promoted_reports: dict[str, tuple[SignalReportSummaryWorkflowInputs, int]] = {}
     emitted_signals: list[tuple[str, AssignAndEmitSignalOutput]] = []
 
     for i, signal in enumerate(batch):
@@ -1307,8 +1368,9 @@ async def _process_signal_batch(
                 )
 
             if assign_result.promoted:
-                promoted_reports[assign_result.report_id] = SignalReportSummaryWorkflowInputs(
-                    team_id=signal.team_id, report_id=assign_result.report_id
+                promoted_reports[assign_result.report_id] = (
+                    SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=assign_result.report_id),
+                    assign_result.run_count,
                 )
 
         except Exception:
@@ -1334,21 +1396,27 @@ async def _process_signal_batch(
                 max_wait_time_seconds=3600,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
-            heartbeat_timeout=timedelta(seconds=30),
+            heartbeat_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    # Spawn summary workflows after CH wait so they can find the signals
-    for report_input in promoted_reports.values():
+    # Spawn summary workflows after CH wait so they can find the signals.
+    for report_input, run_count in promoted_reports.values():
         try:
+            base_id = SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id)
+            # Include run_count in the workflow ID to allow re-generating READY reports when enough new signals arrive,
+            # as without it ALLOW_DUPLICATE_FAILED_ONLY will prevent the re-report from starting
+            workflow_id = base_id if run_count == 0 else f"{base_id}:run-{run_count + 1}"
+            # Concurrent report generation of the same report can't happen, as the promotion gate only allows
+            # POTENTIAL and READY, so IN_PROGRESS reports are never re-promoted.
             await workflow.start_child_workflow(
                 SignalReportSummaryWorkflow.run,
                 report_input,
-                id=SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id),
+                id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                execution_timeout=timedelta(minutes=30),
+                execution_timeout=timedelta(hours=1),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             pass

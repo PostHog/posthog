@@ -24,11 +24,22 @@ class HealthCheckTriggerForm(forms.Form):
     rollout_percentage = forms.FloatField(
         min_value=0.01, max_value=1.0, help_text="Fraction of teams to process (0.01 to 1.0)"
     )
+    active_since_days = forms.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Only process teams with org members who logged in within the last N days. 0 or blank = all teams.",
+    )
     team_ids = forms.CharField(
         required=False,
         widget=forms.Textarea(attrs={"rows": 3, "placeholder": "e.g. 1, 2, 3"}),
         help_text="Comma-separated team IDs to target (leave blank for all teams)",
     )
+
+    def clean_active_since_days(self) -> int | None:
+        value = self.cleaned_data.get("active_since_days")
+        if value is None or value == 0:
+            return None
+        return value
 
     def clean_team_ids(self) -> list[int] | None:
         raw = self.cleaned_data.get("team_ids", "").strip()
@@ -82,6 +93,7 @@ def health_check_trigger_view(request, kind: str):
                 batch_size=form.cleaned_data["batch_size"],
                 max_concurrent=form.cleaned_data["max_concurrent"],
                 rollout_percentage=form.cleaned_data["rollout_percentage"],
+                active_since_days=form.cleaned_data["active_since_days"],
                 team_ids=form.cleaned_data["team_ids"],
             )
 
@@ -93,7 +105,7 @@ def health_check_trigger_view(request, kind: str):
                         "health-check-workflow",
                         dataclasses.asdict(workflow_inputs),
                         id=workflow_id,
-                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        task_queue=settings.HEALTH_CHECK_TASK_QUEUE,
                     )
                 )
                 logger.info(
@@ -116,6 +128,7 @@ def health_check_trigger_view(request, kind: str):
                 "batch_size": config.batch_size,
                 "max_concurrent": config.max_concurrent,
                 "rollout_percentage": config.rollout_percentage,
+                "active_since_days": config.active_since_days,
             }
         )
 

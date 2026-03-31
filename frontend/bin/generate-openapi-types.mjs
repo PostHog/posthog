@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { collectSchemaRefs, preprocessSchema, resolveNestedRefs } from '@posthog/openapi-codegen'
+import { collectSchemaRefs, preprocessSchema, resolveNestedRefs, runOrvalParallel } from '@posthog/openapi-codegen'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(__dirname, '..')
@@ -392,78 +392,67 @@ const jobs = entries.map(([outputDir, groupedSchema]) => {
 
     console.log(`📦 ${label}: ${pathCount} endpoints, ${schemaCount} schemas`)
 
-    return { tempFile, outputDir, label }
+    const outputFile = path.join(outputDir, 'api.ts')
+    const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
+
+    fs.mkdirSync(outputDir, { recursive: true })
+
+    const config = {
+        input: tempFile,
+        output: {
+            target: outputFile,
+            mode: 'split',
+            client: 'fetch',
+            prettier: false,
+            override: {
+                header: (info) => [
+                    'Auto-generated from the Django backend OpenAPI schema.',
+                    'To modify these types, update the Django serializers or views, then run:',
+                    '  hogli build:openapi',
+                    'Questions or issues? #team-devex on Slack',
+                    '',
+                    ...(info?.title ? [info.title] : []),
+                    ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
+                ],
+                namingConvention: {
+                    enum: 'PascalCase',
+                },
+                fetch: {
+                    includeHttpResponseReturnType: false,
+                },
+                mutator: {
+                    path: mutatorPath,
+                    name: 'apiMutator',
+                    external: ['lib/api'],
+                },
+                components: {
+                    schemas: { suffix: 'Api' },
+                },
+            },
+        },
+    }
+
+    return { tempFile, outputDir, label, config }
 })
 
 console.log('')
 console.log(`Running ${jobs.length} orval generations in parallel...`)
 console.log('')
 
-// Run all orval generations in parallel
-const results = await Promise.allSettled(
-    jobs.map(async ({ tempFile, outputDir, label }) => {
-        const { execSync } = await import('node:child_process')
-        const configFile = path.join(tmpDir, `orval-${label}.config.mjs`)
-        const outputFile = path.join(outputDir, 'api.ts')
-        const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
-
-        fs.mkdirSync(outputDir, { recursive: true })
-
-        const config = `
-import { defineConfig } from 'orval';
-export default defineConfig({
-  api: {
-    input: '${tempFile}',
-    output: {
-      target: '${outputFile}',
-      mode: 'split',
-      client: 'fetch',
-      prettier: false,
-      override: {
-        header: (info) => [
-          'Auto-generated from the Django backend OpenAPI schema.',
-          'To modify these types, update the Django serializers or views, then run:',
-          '  hogli build:openapi',
-          'Questions or issues? #team-devex on Slack',
-          '',
-          ...(info?.title ? [info.title] : []),
-          ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
-        ],
-        namingConvention: {
-          enum: 'PascalCase',
-        },
-        fetch: {
-          includeHttpResponseReturnType: false,
-        },
-        mutator: {
-          path: '${mutatorPath}',
-          name: 'apiMutator',
-          external: ['lib/api'],
-        },
-        components: {
-          schemas: { suffix: 'Api' },
-        },
-      },
-    },
-  },
-});
-`
-        fs.writeFileSync(configFile, config)
-        execSync(`pnpm exec orval --config "${configFile}"`, { stdio: 'pipe', cwd: repoRoot })
-
-        return { label, outputDir }
-    })
-)
+// Run all orval generations in parallel (in-process, no subprocess overhead)
+const results = await runOrvalParallel(jobs.map((j) => ({ config: j.config, label: j.label })))
 
 // Report results and collect output dirs for formatting
 const outputDirs = []
-for (const result of results) {
+for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    const job = jobs[i]
     if (result.status === 'fulfilled') {
-        console.log(`   ✓ ${result.value.label} → ${path.relative(repoRoot, result.value.outputDir)}`)
-        outputDirs.push(result.value.outputDir)
+        console.log(`   ✓ ${job.label} → ${path.relative(repoRoot, job.outputDir)}`)
+        outputDirs.push(job.outputDir)
         generated++
     } else {
-        console.error(`   ✗ Failed: ${result.reason?.message || result.reason}`)
+        console.error(`   ✗ ${job.label}: ${result.reason?.message || result.reason}`)
         failed++
     }
 }

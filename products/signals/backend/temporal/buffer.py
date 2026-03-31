@@ -17,12 +17,14 @@ from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
+from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
 
 logger = structlog.get_logger(__name__)
 
+# TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
 BUFFER_MAX_SIZE = 20
-BUFFER_FLUSH_TIMEOUT_SECONDS = 60
+BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
 
@@ -72,7 +74,7 @@ async def signal_with_start_grouping_v2_activity(input: SignalWithStartGroupingV
         TeamSignalGroupingV2Input(team_id=input.team_id),
         id=TeamSignalGroupingV2Workflow.workflow_id_for(input.team_id),
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        run_timeout=timedelta(hours=1),
+        run_timeout=timedelta(hours=3),
         start_signal="submit_batch",
         start_signal_args=[input.object_key],
     )
@@ -151,6 +153,45 @@ class BufferSignalsWorkflow:
             # Drain buffer
             batch = list(self._signal_buffer)
             self._signal_buffer.clear()
+
+            # Filter out malicious signals
+            safety_results = await asyncio.gather(
+                *[
+                    workflow.execute_activity(
+                        safety_filter_activity,
+                        SafetyFilterInput(description=s.description),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for s in batch
+                ]
+            )
+            safe_signals: list[EmitSignalInputs] = []
+            for signal, result in zip(batch, safety_results):
+                if result.safe:
+                    safe_signals.append(signal)
+                else:
+                    workflow.logger.warning(
+                        f"Safety filter dropped signal: {result.threat_type}",
+                        team_id=signal.team_id,
+                        source_product=signal.source_product,
+                        source_type=signal.source_type,
+                        source_id=signal.source_id,
+                    )
+            batch = safe_signals
+
+            if not batch:
+                # Compact history even when no safe signals remain — without
+                # continue_as_new, repeated all-unsafe batches would grow
+                # Temporal history unboundedly.
+                if len(self._signal_buffer) < BUFFER_MAX_SIZE:
+                    workflow.continue_as_new(
+                        BufferSignalsInput(
+                            team_id=input.team_id,
+                            pending_signals=list(self._signal_buffer),
+                        )
+                    )
+                continue
 
             # Flush to S3
             flush_result: FlushBufferOutput = await workflow.execute_activity(

@@ -25,6 +25,13 @@ var (
 		Name: "livestream_ph_events_total",
 		Help: "The total number of handled PostHog events, less than or equal to consumed",
 	})
+	NotificationErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_notification_errors_total",
+			Help: "Notification consumer errors by reason",
+		},
+		[]string{"reason"},
+	)
 
 	IncomingQueue = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "livestream_incoming_queue_use_ratio",
@@ -162,5 +169,13 @@ var (
 	RedisReceiveDropsTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "livestream_redis_receive_drops_total",
 		Help: "Messages dropped at the Redis receive layer due to full message channel",
+	})
+	RedisPublishDropsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_drops_total",
+		Help: "Events dropped at the publish buffer due to full channel",
+	})
+	RedisPublishQueue = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_redis_publish_queue_use_ratio",
+		Help: "How much of the Redis publish buffer is used",
 	})
 )

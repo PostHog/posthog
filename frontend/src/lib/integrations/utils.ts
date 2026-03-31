@@ -31,11 +31,12 @@ import IconVercel from 'public/services/vercel.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
-    'slack-twig': IconSlack,
+    'slack-posthog-code': IconSlack,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
+    'google-cloud-service-account': IconGoogleCloud,
     'google-ads': IconGoogleAds,
     'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
@@ -61,14 +62,16 @@ export const ICONS: Record<IntegrationKind, any> = {
 
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
-        case 'slack-twig':
-            return 'Twig (Slack)'
+        case 'slack-posthog-code':
+            return 'PostHog Code (Slack)'
         case 'google-pubsub':
             return 'Google Cloud Pub/Sub'
         case 'google-cloud-storage':
             return 'Google Cloud Storage'
         case 'google-ads':
             return 'Google Ads'
+        case 'google-cloud-service-account':
+            return 'Google Cloud service account'
         case 'linkedin-ads':
             return 'LinkedIn Ads'
         case 'reddit-ads':

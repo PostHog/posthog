@@ -55,12 +55,41 @@ export function resolveNestedRefs(schemas, refs) {
  *
  * @param {object} fullSchema - complete OpenAPI schema object
  * @param {Set<string>} operationIds - operationIds to include
+ * @param {{ includeResponseSchemas?: boolean }} [options] - filtering options
  * @returns {object} filtered OpenAPI schema
  */
-export function filterSchemaByOperationIds(fullSchema, operationIds) {
+export function filterSchemaByOperationIds(fullSchema, operationIds, options = {}) {
+    const { includeResponseSchemas = true } = options
     const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
     const filteredPaths = {}
     const refs = new Set()
+
+    const stripOperationResponses = (operation) => {
+        if (
+            !operation ||
+            typeof operation !== 'object' ||
+            !operation.responses ||
+            typeof operation.responses !== 'object'
+        ) {
+            return operation
+        }
+
+        const responses = {}
+        for (const [statusCode, response] of Object.entries(operation.responses)) {
+            if (response && typeof response === 'object' && !('$ref' in response)) {
+                responses[statusCode] = {
+                    description: typeof response.description === 'string' ? response.description : '',
+                }
+            } else {
+                responses[statusCode] = { description: '' }
+            }
+        }
+
+        return {
+            ...operation,
+            responses,
+        }
+    }
 
     for (const [pathKey, operations] of Object.entries(fullSchema.paths ?? {})) {
         for (const [method, operation] of Object.entries(operations ?? {})) {
@@ -70,9 +99,10 @@ export function filterSchemaByOperationIds(fullSchema, operationIds) {
             if (!operationIds.has(operation.operationId)) {
                 continue
             }
+            const filteredOperation = includeResponseSchemas ? operation : stripOperationResponses(operation)
             filteredPaths[pathKey] ??= {}
-            filteredPaths[pathKey][method] = operation
-            collectSchemaRefs(operation, refs)
+            filteredPaths[pathKey][method] = filteredOperation
+            collectSchemaRefs(filteredOperation, refs)
         }
     }
 

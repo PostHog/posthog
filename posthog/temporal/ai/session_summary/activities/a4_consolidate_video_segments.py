@@ -147,38 +147,51 @@ async def _call_llm_to_consolidate_segments(
 
 
 CONSOLIDATION_PROMPT = """
-You are analyzing a session recording from a web analytics product. Below are timestamped descriptions of what the user did during the session.
+You are summarizing a user's journey through a product session for PMs, developers, and analysts who want to understand what the user did and whether anything needs attention.
 
-Your task is to consolidate these into meaningful semantic segments and provide an overall analysis. For each segment:
-1. Have a **descriptive title** that captures the user's goal or activity (e.g., "Setting up integration", "Exploring analytics dashboard", "Debugging API errors")
-2. Span a coherent period of related activity (combine adjacent segments that are part of the same task)
-3. Have a **combined description** that synthesizes the details from the original segments
-4. Detect if the user experienced **exceptions** (errors, things not working - classify as "blocking" if it stopped their progress, "non-blocking" if they could continue), **confusion** (backtracking, hesitation, repeated attempts), or **abandonment** (starting something but not finishing)
-5. Determine if the segment was **successful** (user achieved their apparent goal)
+Below are timestamped observations. Produce a short narrative summary + key moments.
+
+Session outcome:
+- 1-2 sentence TLDR: where the user went, what they did, and how it ended. Scannable — a PM should know whether to watch this session in 5 seconds.
+- Good: "Explored analytics dashboard, created a funnel, and shared results. Hit a validation error during project setup but moved on."
+- Bad: "Encountered persistent loading failures that prevented effective analysis."
+
+Each segment is a key moment in the session:
+- **Title**: What happened in this moment (e.g., "Opened funnel creation", "Hit validation error on project setup", "Completed onboarding"). Sentence-cased. Specific, not generic.
+- **Description**: 1 sentence — the key action and its result. Keep it tight. Describe what happened at face value — don't amplify or dramatize severity.
+  - Good: "Filled out the project form and hit a 'Name is required' error."
+  - Bad: "The user proceeded to fill out the project creation form, entering various fields including the name and description, and then clicked the submit button, which resulted in a validation error message appearing on screen."
+- **Success**: Did the user finish what they were doing?
+- **Flags**: exception="blocking" only if it visibly stopped the user. confusion/abandonment only when clearly observed.
+
+Segmentation:
+- Each segment is a meaningful chunk of activity, not a single action. A chunk covers the full flow: navigating to a feature, using it, and the outcome. Example: "Went to Feature Flags, created a new flag, got blocked by unresponsive dropdown" is ONE segment, not three.
+- Short sessions: 1-3 segments. Long sessions: 3-6. If you have more than 6, you are fragmenting too much — merge harder.
+- Merge all activity in the same area/feature into one segment, even if some actions succeeded and others failed. Example: browsing recordings, trying to load summaries, checking event details — if it all happened on the same page within a few minutes, that's ONE segment.
+- Merge repeated attempts at the same thing into one segment. If the user spent most of the session hitting the same issue, keep segments minimal and let fix_suggestions carry the detail.
+- Segments are chronological. Users often pivot between goals within a session — group related actions into arcs, but don't force unrelated activity into one narrative. Example: "Dashboard exploration" → "Feature flag creation" can be two separate arcs if the user switched context.
+- Stick to what you can observe; do not infer motivation or intent.
+
+fix_suggestions:
+- Error details belong here, not in segment descriptions. Do not repeat error messages or specific failure details in both places.
+- Segment descriptions should mention that something failed; fix_suggestions should say exactly what error appeared and what to do about it.
+- Each needs: issue, evidence (exact error or observed behavior), suggestion.
+- Only include when grounded in something specific. Empty list is fine.
 
 Raw segments:
 {segments_text}
 
-Output format (JSON object matching this schema):
+Output a JSON object matching this schema, no other text:
 ```json
 {json_schema}
 ```
 
-Rules:
-- Create as many segments as needed depending on session complexity (fewer for short simple sessions, more for long complex ones)
-- Titles should be specific (avoid generic titles like "User activity" or "Browsing")
-- Titles must be sentence-cased (capitalize only the first letter and proper nouns)
-- Time ranges must not overlap and should cover the full session
-- Preserve error messages, specific UI elements clicked, and outcomes mentioned in original segments
-- Keep descriptions concise but complete
-- Set exception="blocking" if errors prevented the user from completing their intended action
-- Set exception="non-blocking" if errors occurred but the user could continue or work around them
-- Set exception=null if no errors or failures were observed
-- Set confusion_detected=true if the user backtracks, hesitates, or makes repeated attempts at the same thing
-- Set abandonment_detected=true if the user starts a flow but doesn't complete it
-- Set success=false for segments where the user's apparent goal wasn't achieved
-- session_outcome.success should be true if the user accomplished their main goals, false if they left frustrated or unsuccessful
-- segment_outcomes should have one entry per segment with a brief summary of what happened
+Style:
+- Be direct. No filler ("The user proceeded to", "It was observed that").
+- Vary phrasing — don't start every sentence with "The user".
+- Preserve specific feature names, page names, and error messages.
 
-Output ONLY the JSON object, no other text.
+Rules:
+- Time ranges must not overlap and should cover the full session.
+- One segment_outcome per segment with a brief narrative summary.
 """

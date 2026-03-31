@@ -10,6 +10,7 @@ export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
+    AgenticAuthorize = 'AgenticAuthorize',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
@@ -33,7 +34,7 @@ export enum Scene {
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
     DataPipelinesNew = 'DataPipelinesNew',
-    DataWarehouse = 'DataWarehouse',
+    DataOps = 'DataOps',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     DataWarehouseSource = 'DataWarehouseSource',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
@@ -89,6 +90,7 @@ export enum Scene {
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     Models = 'Models',
+    NodeDetail = 'NodeDetail',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
     Notebook = 'Notebook',
@@ -127,6 +129,7 @@ export enum Scene {
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
     Health = 'Health',
+    HealthCategoryDetail = 'HealthCategoryDetail',
     SdkDoctor = 'SdkDoctor',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
@@ -135,7 +138,6 @@ export enum Scene {
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
-
     Site = 'Site',
     Coupons = 'Coupons',
     Sources = 'Sources',
@@ -147,6 +149,7 @@ export enum Scene {
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
     Tracing = 'Tracing',
+    Metrics = 'Metrics',
     Transformations = 'Transformations',
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
@@ -186,6 +189,7 @@ export enum Scene {
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
     OrganizationDeactivated = 'OrganizationDeactivated',
+    CustomerJourneyTemplates = 'CustomerJourneyTemplates',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -222,6 +226,8 @@ export interface SceneTab {
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
     pinned?: boolean
+    /** Show a small badge indicator on the tab icon */
+    badge?: boolean
 
     sceneId?: string
     sceneKey?: string

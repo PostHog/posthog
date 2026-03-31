@@ -321,6 +321,63 @@ describe('SnapshotStore', () => {
         })
     })
 
+    describe('syncFullSnapshotTimestamps', () => {
+        it('syncs synthetic full snapshot timestamps from processed results', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+
+            const snapTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
+            store.markLoaded(0, [makeSnapshot(snapTs)])
+
+            expect(store.findNearestFullSnapshot(snapTs)).toBeNull()
+
+            const syntheticFull = makeFullSnapshot(snapTs - 1)
+            const changed = store.syncFullSnapshotTimestamps([syntheticFull])
+
+            expect(changed).toBe(true)
+            expect(store.findNearestFullSnapshot(snapTs)).toEqual({ sourceIndex: 0, timestamp: snapTs - 1 })
+        })
+
+        it('makes canPlayAt return true after syncing mobile full snapshots', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+
+            const snapTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
+            store.markLoaded(0, [makeSnapshot(snapTs)])
+
+            expect(store.canPlayAt(snapTs)).toBe(false)
+
+            store.syncFullSnapshotTimestamps([makeFullSnapshot(snapTs - 1)])
+
+            expect(store.canPlayAt(snapTs)).toBe(true)
+        })
+
+        it.each([
+            {
+                description: 'returns false when timestamps are unchanged',
+                loadSource: true,
+            },
+            {
+                description: 'skips unloaded entries',
+                loadSource: false,
+            },
+        ])('$description', ({ loadSource }) => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+
+            const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
+            if (loadSource) {
+                store.markLoaded(0, [makeFullSnapshot(fsTs)])
+            }
+
+            const versionBefore = store.version
+            const changed = store.syncFullSnapshotTimestamps([makeFullSnapshot(fsTs)])
+
+            expect(changed).toBe(false)
+            expect(store.version).toBe(versionBefore)
+        })
+    })
+
     describe('getUnloadedIndicesInRange', () => {
         it.each([
             {

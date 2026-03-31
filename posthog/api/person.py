@@ -11,7 +11,13 @@ from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -37,6 +43,7 @@ from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
+from posthog.event_usage import get_request_analytics_properties
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Cohort, Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -51,7 +58,12 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import delete_person, get_persons_by_distinct_ids
+from posthog.models.person.util import (
+    delete_person,
+    get_person_by_pk_or_uuid,
+    get_persons_by_distinct_ids,
+    get_persons_by_uuids,
+)
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -68,8 +80,8 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
-from posthog.utils import format_query_params_absolute_url, is_anonymous_id
+from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
+from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -161,8 +173,51 @@ class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "4800/hour"
 
 
+class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The property key to set.")
+    value = serializers.JSONField(help_text="The property value. Can be a string, number, boolean, or object.")
+
+
+class PersonDeletePropertyRequestSerializer(serializers.Serializer):
+    def get_fields(self):
+        fields = super().get_fields()
+        # The endpoint reads request.data["$unset"], so the field name must include the $ prefix.
+        fields["$unset"] = serializers.CharField(help_text="The property key to remove from this person.")
+        return fields
+
+
+class PersonBulkDeleteRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="A list of PostHog person UUIDs to delete (max 1000).",
+    )
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="A list of distinct IDs whose associated persons will be deleted (max 1000).",
+    )
+    delete_events = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="If true, queue deletion of all events associated with these persons.",
+    )
+    delete_recordings = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="If true, queue deletion of all recordings associated with these persons.",
+    )
+    keep_person = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="If true, keep the person records but delete their events and recordings.",
+    )
+
+
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
-    name = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField(
+        help_text="Display name derived from person properties (email, name, or username)."
+    )
 
     class Meta:
         model = Person
@@ -176,6 +231,13 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "last_seen_at",
         ]
         read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid", "last_seen_at")
+        extra_kwargs = {
+            "id": {"help_text": "Numeric person ID."},
+            "uuid": {"help_text": "Unique identifier (UUID) for this person."},
+            "properties": {"help_text": "Key-value map of person properties set via $set and $set_once operations."},
+            "created_at": {"help_text": "When this person was first seen (ISO 8601)."},
+            "last_seen_at": {"help_text": "Timestamp of the last event from this person, or null."},
+        }
 
     def get_name(self, person: Person) -> str:
         team = self.context["get_team"]()
@@ -203,6 +265,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 class MinimalPersonSerializer(PersonSerializer):
     distinct_ids = serializers.SerializerMethodField()
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_distinct_ids(self, person):
         return person.distinct_ids[:10]
 
@@ -284,7 +347,23 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     return funnel_actor_class
 
 
+_PERSON_ID_PARAMETER = OpenApiParameter(
+    "id",
+    OpenApiTypes.STR,
+    location=OpenApiParameter.PATH,
+    description="A unique value identifying this person. Accepts both numeric ID and UUID.",
+)
+
+_id_schema = extend_schema(parameters=[_PERSON_ID_PARAMETER])
+
+
 @extend_schema(tags=[ProductKey.PERSONS])
+@extend_schema_view(
+    retrieve=_id_schema,
+    update=_id_schema,
+    partial_update=_id_schema,
+    destroy=_id_schema,
+)
 class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
@@ -452,38 +531,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "delete_events",
-                OpenApiTypes.BOOL,
-                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
-                default=False,
-            ),
-            OpenApiParameter(
-                "delete_recordings",
-                OpenApiTypes.BOOL,
-                description="If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
-                default=False,
-            ),
-            OpenApiParameter(
-                "keep_person",
-                OpenApiTypes.BOOL,
-                description="If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them",
-                default=False,
-            ),
-            OpenApiParameter(
-                "distinct_ids",
-                OpenApiTypes.OBJECT,
-                description="A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.",
-            ),
-            OpenApiParameter(
-                "ids",
-                OpenApiTypes.OBJECT,
-                description="A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.",
-            ),
-        ],
-    )
+    @extend_schema(request=PersonBulkDeleteRequestSerializer)
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
@@ -558,6 +606,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if delete_recordings:
             self._queue_delete_recordings(persons)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "key",
+                OpenApiTypes.STR,
+                description="The person property key to get values for (e.g., 'email', 'plan', 'role').",
+                required=True,
+            ),
+            OpenApiParameter(
+                "value",
+                OpenApiTypes.STR,
+                description="Optional search string to filter values (case-insensitive substring match).",
+                required=False,
+            ),
+        ]
+    )
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         from posthog.hogql_queries.property_values_query_runner import (
@@ -567,7 +631,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             PropertyValuesQueryResponse,
             PropertyValuesQueryRunner,
         )
-        from posthog.hogql_queries.query_runner import ExecutionMode
+        from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
         with tracer.start_as_current_span("person_api_property_values") as span:
             key = request.GET.get("key")
@@ -583,7 +647,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resp["Cache-Control"] = "max-age=10"
                 return resp
 
-            force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
+            refresh = refresh_requested_by_client(request)
             runner = PropertyValuesQueryRunner(
                 team=self.team,
                 query=PropertyValuesQuery(
@@ -591,14 +655,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     property_key=key,
                     search_value=value,
                 ),
-                request=request,
             )
-            execution_mode = (
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-                if force_refresh
-                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-            )
-            result = runner.run(execution_mode)
+            execution_mode = execution_mode_from_refresh(refresh)
+            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
+                execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(request))
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)
@@ -641,22 +702,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"success": True}, status=201)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "key",
-                OpenApiTypes.STR,
-                description="Specify the property key",
-                required=True,
-            ),
-            OpenApiParameter(
-                "value",
-                OpenApiTypes.ANY,
-                description="Specify the property value",
-                required=True,
-            ),
-        ]
-    )
+    @extend_schema(request=PersonUpdatePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         if request.data.get("value") is None:
@@ -682,19 +728,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._set_properties({request.data["key"]: request.data["value"]}, request.user)
         return Response(status=202)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "$unset",
-                OpenApiTypes.STR,
-                description="Specify the property key to delete",
-                required=True,
-            ),
-        ]
-    )
+    @extend_schema(request=PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
+        person = get_person_by_pk_or_uuid(self.team_id, pk)
+        if person is None:
+            raise Person.DoesNotExist
 
         event_name = "$delete_person_property"
         distinct_id = person.distinct_ids[0]
@@ -761,8 +800,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"success": True}, status=201)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "person_id",
+                OpenApiTypes.STR,
+                description="The person ID or UUID to get cohorts for.",
+                required=True,
+            ),
+        ]
+    )
     @action(methods=["GET"], detail=False, required_scopes=["person:read", "cohort:read"])
-    def cohorts(self, request: request.Request) -> response.Response:
+    def cohorts(self, request: request.Request, **kwargs) -> response.Response:
         from posthog.api.cohort import CohortMinimalSerializer
 
         team = cast(User, request.user).team
@@ -1093,6 +1142,29 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for distinct_id in person.distinct_ids:
                 if distinct_id in requested:
                     results[distinct_id] = person_data
+
+        return response.Response({"results": results})
+
+    @action(methods=["POST"], detail=False, url_path="batch_by_uuids")
+    def batch_by_uuids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        uuids = request.data.get("uuids", [])
+
+        if not isinstance(uuids, list) or len(uuids) == 0:
+            return response.Response({"results": {}})
+
+        MAX_BATCH_SIZE = 200
+        uuids = uuids[:MAX_BATCH_SIZE]
+
+        try:
+            uuids = [str(uuid.UUID(u)) for u in uuids]
+        except (ValueError, AttributeError):
+            raise ValidationError("One or more UUIDs are invalid.")
+
+        persons = get_persons_by_uuids(self.team, uuids)
+
+        results: dict[str, Any] = {}
+        for person in persons:
+            results[str(person.uuid)] = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
 
         return response.Response({"results": results})
 

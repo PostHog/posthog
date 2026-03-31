@@ -4,8 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Dashboard, Insight, Project, Team
-from posthog.models.dashboard_tile import DashboardTile, Text
+from posthog.models import Action, Insight, Project, Team
 from posthog.models.resource_transfer.inter_project_transferer import (
     _get_mapped_substitutions,
     build_resource_duplication_graph,
@@ -15,6 +14,10 @@ from posthog.models.resource_transfer.inter_project_transferer import (
 )
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import ResourceKind, ResourceTransferVertex
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.surveys.backend.models import Survey
 
 
 class TestBuildResourceDuplicationGraph(BaseTest):
@@ -49,6 +52,32 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert Dashboard in model_types
         assert Insight in model_types
         assert DashboardTile in model_types
+        assert Team in model_types
+
+    def test_survey_with_insight_and_actions_includes_related_resources(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Survey insight")
+        action = Action.objects.create(
+            team=self.team,
+            name="survey action",
+            steps_json=[{"event": "$pageview"}],
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            name="My survey",
+            type=Survey.SurveyType.POPOVER,
+            questions=[{"id": "q1", "type": "open", "question": "Hello"}],
+            linked_insight=insight,
+        )
+        survey.actions.add(action)
+
+        graph = list(build_resource_duplication_graph(survey, set()))
+        model_types = {v.model for v in graph}
+        through = Survey._meta.get_field("actions").remote_field.through
+
+        assert Survey in model_types
+        assert Insight in model_types
+        assert Action in model_types
+        assert through in model_types
         assert Team in model_types
 
     def test_dashboard_text_tiles_reachable_via_m2m(self) -> None:
@@ -130,6 +159,43 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         assert new_dashboards[0].pk != dashboard.pk
         assert new_dashboards[0].team == dest_team
         assert new_dashboards[0].name == "My dashboard"
+
+    def test_duplicates_survey_with_linked_insight_and_actions(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="Linked", filters={})
+        action = Action.objects.create(
+            team=self.team,
+            name="trigger action",
+            steps_json=[{"event": "subscribed"}],
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            name="NPS",
+            type=Survey.SurveyType.POPOVER,
+            questions=[{"id": "q1", "type": "open", "question": "Rate us"}],
+            conditions={"linkedFlagVariant": "control", "url": "/p"},
+            linked_insight=insight,
+        )
+        survey.actions.add(action)
+
+        results = duplicate_resource_to_new_team(survey, dest_team, created_by=self.user)
+        new_surveys = [r for r in results if isinstance(r, Survey)]
+        new_insights = [r for r in results if isinstance(r, Insight)]
+        new_actions = [r for r in results if isinstance(r, Action)]
+
+        assert len(new_surveys) == 1
+        assert len(new_insights) == 1
+        assert len(new_actions) == 1
+
+        copied = new_surveys[0]
+        assert copied.team == dest_team
+        assert copied.linked_insight_id == new_insights[0].pk
+        assert copied.linked_insight is not None
+        assert copied.linked_insight.team == dest_team
+        assert list(copied.actions.values_list("pk", flat=True)) == [new_actions[0].pk]
+        assert copied.conditions is not None
+        assert "linkedFlagVariant" not in copied.conditions
+        assert copied.conditions.get("url") == "/p"
 
     def test_duplicates_dashboard_with_insight_tile(self) -> None:
         dest_team = self._create_destination_team()
@@ -261,6 +327,65 @@ class TestResourceTransferRecordCreation(BaseTest):
         )
         assert transfer.resource_id == str(resource.pk)
         assert transfer.duplicated_resource_id == str(new_resource.pk)
+
+
+class TestNameDeduplication(BaseTest):
+    def _create_destination_team(self) -> Team:
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        return Team.objects.create(id=project.id, project=project, organization=self.organization)
+
+    def test_no_conflict_keeps_original_name(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="Unique insight")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight))
+
+        assert new_insight.name == "Unique insight"
+
+    def test_conflict_adds_copy_suffix(self) -> None:
+        dest_team = self._create_destination_team()
+        Insight.objects.create(team=dest_team, name="My insight")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight) and r.team == dest_team)
+
+        assert new_insight.name == "My insight (Copy)"
+
+    def test_multiple_conflicts_increment_copy_number(self) -> None:
+        dest_team = self._create_destination_team()
+        Insight.objects.create(team=dest_team, name="My insight")
+        Insight.objects.create(team=dest_team, name="My insight (Copy)")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight) and r.team == dest_team)
+
+        assert new_insight.name == "My insight (Copy 2)"
+
+    def test_conflict_with_dashboard(self) -> None:
+        dest_team = self._create_destination_team()
+        Dashboard.objects.create(team=dest_team, name="Sales")
+        dashboard = Dashboard.objects.create(team=self.team, name="Sales")
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+        new_dashboard = next(r for r in results if isinstance(r, Dashboard) and r.team == dest_team)
+
+        assert new_dashboard.name == "Sales (Copy)"
+
+    def test_conflict_skips_taken_copy_numbers(self) -> None:
+        dest_team = self._create_destination_team()
+        Insight.objects.create(team=dest_team, name="X")
+        Insight.objects.create(team=dest_team, name="X (Copy)")
+        Insight.objects.create(team=dest_team, name="X (Copy 2)")
+        Insight.objects.create(team=dest_team, name="X (Copy 3)")
+        insight = Insight.objects.create(team=self.team, name="X")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight) and r.team == dest_team)
+
+        assert new_insight.name == "X (Copy 4)"
 
 
 class TestSubstitutionTeamValidation(BaseTest):

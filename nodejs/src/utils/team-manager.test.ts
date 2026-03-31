@@ -30,7 +30,7 @@ describe('TeamManager()', () => {
 
         postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres)
-        const team = await getFirstTeam(hub)
+        const team = await getFirstTeam(hub.postgres)
         teamId = team.id
         teamToken = team.api_token
         organizationId = team.organization_id
@@ -64,6 +64,7 @@ describe('TeamManager()', () => {
                   "person_display_name_properties": [],
                   "person_processing_opt_out": null,
                   "project_id": 2,
+                  "secret_api_token": null,
                   "session_recording_opt_in": true,
                   "slack_incoming_webhook": null,
                   "timezone": "UTC",

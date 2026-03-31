@@ -25,6 +25,7 @@ import {
     dataVisualizationLogic,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
+import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -39,16 +40,23 @@ interface SQLEditorProps {
     tabId?: string
     mode?: SQLEditorMode
     showDatabaseTree?: boolean
+    defaultShowDatabaseTree?: boolean
 }
 
-export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseTree }: SQLEditorProps): JSX.Element {
+export function SQLEditor({
+    tabId,
+    mode = SQLEditorMode.FullScene,
+    showDatabaseTree,
+    defaultShowDatabaseTree = true,
+}: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
     const sidebarRef = useRef(null)
     const databaseTreeRef = useRef(null)
+    const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
 
-    const shouldShowDatabaseTree = showDatabaseTree ?? true
+    const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
 
     const editorSizingLogicProps = useMemo(
         () => ({
@@ -102,6 +110,8 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
 
     const { sourceQuery, dataLogicKey } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
+    const sourceQueryRef = useRef(sourceQuery)
+    sourceQueryRef.current = sourceQuery
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: dataLogicKey,
@@ -112,7 +122,7 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
-        setQuery: (setter) => setSourceQuery(setter(sourceQuery)),
+        setQuery: (setter) => applyDataVisualizationQueryUpdate(sourceQueryRef, setter, setSourceQuery),
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -175,6 +185,8 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
                                                     <QueryWindow
                                                         mode={mode}
                                                         tabId={tabId || ''}
+                                                        showDatabaseTree={shouldShowDatabaseTree}
+                                                        onShowDatabaseTree={() => setHasShownDatabaseTree(true)}
                                                         onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
                                                             setMonacoAndEditor([nextMonaco, nextEditor])
                                                         }
@@ -253,6 +265,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     }
 
     const saveAsDisabledReason = useMemo(() => {
+        if (insightLoading) {
+            return 'Loading insight...'
+        }
+
         if (!isSourceQueryLastRun) {
             return 'Run latest query changes before saving'
         }
@@ -266,7 +282,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         }
 
         return undefined
-    }, [isSourceQueryLastRun, responseLoading, responseError, response])
+    }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {

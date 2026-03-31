@@ -37,6 +37,10 @@ function PostHogLogo({ size = 16 }: { size?: number }): ReactElement {
 }
 
 export function AppErrorState({ message }: { message: string }): ReactElement {
+    useEffect(() => {
+        console.error('[PostHog MCP App] AppErrorState:', message)
+    }, [message])
+
     return (
         <div
             style={{
@@ -125,14 +129,21 @@ function ExpandButton({
 
 export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): ReactElement {
     const toolResult = useToolResult<T>(options)
-    const { data, isConnected, error, openLink, app, containerDimensions, refreshContainerDimensions } = toolResult
+    const { data, isConnected, error, isCancelled, openLink, app, containerDimensions, refreshContainerDimensions } =
+        toolResult
 
     const posthogUrl =
         data && typeof data === 'object' && '_posthogUrl' in data
             ? ((data as Record<string, unknown>)._posthogUrl as string | undefined)
             : undefined
 
-    const hasContent = !error && isConnected && data
+    useEffect(() => {
+        if (error) {
+            console.error('[PostHog MCP App] AppWrapper error:', error.message, error)
+        }
+    }, [error])
+
+    const hasContent = !error && !isCancelled && isConnected && data
 
     const rootStyle: React.CSSProperties = {
         display: 'flex',
@@ -149,6 +160,8 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
     }
 
     if (!hasContent) {
+        const showError = error || isCancelled
+
         return (
             <div
                 style={{
@@ -159,10 +172,15 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
                     gap: '0.75rem',
                 }}
             >
-                <div style={{ animation: error ? 'none' : 'loading__pulse 4s ease-in-out infinite' }}>
+                <div style={{ animation: showError ? 'none' : 'loading__pulse 4s ease-in-out infinite' }}>
                     <PostHogLogo size={40} />
                 </div>
-                {error && (
+                {isCancelled && (
+                    <span style={{ color: 'var(--color-text-secondary, #ca8a04)', fontSize: '0.8125rem' }}>
+                        Tool call was cancelled
+                    </span>
+                )}
+                {error && !isCancelled && (
                     <span style={{ color: 'var(--color-text-danger, #dc2626)', fontSize: '0.8125rem' }}>
                         {error.message}
                     </span>
@@ -185,22 +203,24 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
                 }}
             >
                 <ExpandButton app={app} onDisplayModeChanged={refreshContainerDimensions} />
-                {posthogUrl ? (
-                    <Link
-                        href={posthogUrl}
-                        external
-                        onClick={(e) => {
-                            e.preventDefault()
-                            openLink(posthogUrl)
-                        }}
-                        className="text-xs"
-                    >
+                <span className="ml-auto">
+                    {posthogUrl ? (
+                        <Link
+                            href={posthogUrl}
+                            external
+                            onClick={(e) => {
+                                e.preventDefault()
+                                openLink(posthogUrl)
+                            }}
+                            className="text-xs"
+                        >
+                            <PostHogLogo size={16} />
+                            <span>View in PostHog</span>
+                        </Link>
+                    ) : (
                         <PostHogLogo size={16} />
-                        <span>View in PostHog</span>
-                    </Link>
-                ) : (
-                    <PostHogLogo size={16} />
-                )}
+                    )}
+                </span>
             </footer>
         </div>
     )

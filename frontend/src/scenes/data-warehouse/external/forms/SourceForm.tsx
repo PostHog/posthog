@@ -23,6 +23,7 @@ import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general
 
 import { SSH_FIELD, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
+import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { parseConnectionString } from './parseConnectionString'
 
 export interface SourceFormProps {
@@ -39,7 +40,7 @@ const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Redshift: 5439,
 }
 
-const sourceFieldToElement = (
+export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfig,
     lastValue?: any,
@@ -181,6 +182,7 @@ const sourceFieldToElement = (
                         value={value}
                         onChange={onChange}
                         integration={field.kind}
+                        schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
                     />
                 )}
             </LemonField>
@@ -211,6 +213,11 @@ const sourceFieldToElement = (
             lastValue,
             isUpdateMode
         )
+    }
+
+    if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
+        // Special case, this is the GitHub repository field
+        return <GitHubRepositorySelector key={field.name} />
     }
 
     return (

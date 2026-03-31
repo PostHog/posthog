@@ -1,6 +1,9 @@
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
+import { TeamManager } from '../../../utils/team-manager'
 import { PersonRepository } from '../../../worker/ingestion/persons/repositories/person-repository'
+import { CyclotronPerson } from '../../types'
+import { getPersonDisplayName } from '../../utils'
 
 export type PersonGetArgs = {
     teamId: number
@@ -25,35 +28,53 @@ export type PersonManagerPersonWithDistinctId = PersonManagerPerson & {
 }
 
 export class PersonsManagerService {
-    private lazyLoader: LazyLoader<PersonManagerPerson>
+    private lazyLoaderByPersonId: LazyLoader<PersonManagerPerson>
+    private lazyLoaderByDistinctId: LazyLoader<PersonManagerPersonWithDistinctId>
 
     constructor(
+        private teamManager: TeamManager,
         private personRepository: PersonRepository,
-        lookupMode: 'distinct_id' | 'person_id' = 'distinct_id'
+        private siteUrl: string
     ) {
-        this.lazyLoader = new LazyLoader({
-            name: `person_manager_lookup_by_${lookupMode}`,
-            loader: async (ids) => {
-                return lookupMode === 'distinct_id'
-                    ? await this.fetchPersonsByDistinctIds(ids)
-                    : await this.fetchPersonsByPersonIds(ids)
-            },
+        this.lazyLoaderByPersonId = new LazyLoader({
+            name: 'person_manager_lookup_by_person_id',
+            loader: async (ids) => await this.fetchPersonsByPersonIds(ids),
+            refreshAgeMs: 1000 * 60, // 1 minute, so that we don't hold stale person data for too long
+        })
+        this.lazyLoaderByDistinctId = new LazyLoader({
+            name: 'person_manager_lookup_by_distinct_id',
+            loader: async (ids) => await this.fetchPersonsByDistinctIds(ids),
             refreshAgeMs: 1000 * 60, // 1 minute, so that we don't hold stale person data for too long
         })
     }
 
     public clear(): void {
-        this.lazyLoader.clear()
+        this.lazyLoaderByPersonId.clear()
+        this.lazyLoaderByDistinctId.clear()
     }
 
-    public async get(args: PersonGetArgs): Promise<PersonManagerPerson | null> {
-        const key = toKey(args)
-        return (await this.lazyLoader.get(key)) ?? null
-    }
+    public async getCyclotronPerson(
+        teamId: number,
+        id: string,
+        kind: 'distinct_id' | 'person_id'
+    ): Promise<CyclotronPerson | null> {
+        const key = toKey({ teamId, id })
 
-    public async getMany(args: PersonGetArgs[]): Promise<Record<string, PersonManagerPerson | null>> {
-        const keys = args.map(toKey)
-        return await this.lazyLoader.getMany(keys)
+        const [team, dbPerson] = await Promise.all([
+            this.teamManager.getTeam(teamId),
+            kind === 'distinct_id' ? this.lazyLoaderByDistinctId.get(key) : this.lazyLoaderByPersonId.get(key),
+        ])
+
+        if (!dbPerson || !team) {
+            return null
+        }
+
+        return {
+            id: dbPerson.id,
+            properties: dbPerson.properties,
+            name: getPersonDisplayName(team, id, dbPerson.properties),
+            url: `${this.siteUrl}/project/${teamId}/person/${encodeURIComponent(id)}`,
+        }
     }
 
     private async fetchPersonsByDistinctIds(

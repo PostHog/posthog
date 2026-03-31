@@ -110,6 +110,7 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
+    { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',
         objectName: 'Webhook',
@@ -119,6 +120,8 @@ export const API_SCOPES: APIScope[] = [
     { key: 'warehouse_view', objectName: 'Warehouse view', objectPlural: 'warehouse views' },
     { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
 ]
+
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string
@@ -167,6 +170,13 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     read: 'Read',
     write: 'Write',
 }
+
+export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
+    value: string
+    label: string
+    scopes: string[]
+    isCloudOnly?: boolean
+}[] = [{ value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] }]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

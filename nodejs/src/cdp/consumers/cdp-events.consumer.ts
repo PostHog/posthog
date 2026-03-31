@@ -42,7 +42,7 @@ export class CdpEventsConsumer<
         groupId: string = 'cdp-processed-events-consumer'
     ) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config)
+        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {
@@ -256,9 +256,6 @@ export class CdpEventsConsumer<
     protected async createHogFlowInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
-        // TODO: Add back in group enrichment if necessary
-        // await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
-
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
 

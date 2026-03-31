@@ -11,9 +11,12 @@ from posthog.schema import (
     ConversionGoalFilter3,
     DateRange,
     MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
@@ -89,21 +92,47 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Build SELECT columns for the CTE
         select_columns: list[ast.Expr] = []
 
-        # Only include campaign, ID, source, and match_key fields if we're grouping by them
+        # Include grouping columns based on drill-down level.
+        # We always emit campaign_name, campaign_id, source_name, match_key
+        # so the CTE schema is stable. At channel/source level we repurpose
+        # campaign_name to hold the channel or source value.
         if group_by_exprs:
-            select_columns.extend(
-                [
-                    ast.Field(chain=[self.config.campaign_field]),
-                    ast.Field(chain=[self.config.id_field]),
-                    ast.Field(chain=[self.config.source_field]),
-                    # match_key is used for joining with conversion goals
-                    # Use any() since all rows in a group have the same match_key value
-                    ast.Alias(
-                        alias=self.config.match_key_field,
-                        expr=ast.Call(name="any", args=[ast.Field(chain=[self.config.match_key_field])]),
-                    ),
-                ]
-            )
+            level = self.config.drill_down_level
+            if level == MarketingAnalyticsDrillDownLevel.CHANNEL:
+                # Repurpose campaign_name to hold the channel derived from source
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=self._build_channel_type_expr()),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
+                # Repurpose campaign_name to hold the source
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=ast.Field(chain=[self.config.source_field])),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Field(chain=[self.config.source_field])),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            else:
+                # Campaign level (default) — include campaign, id, source, match_key
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        # match_key is used for joining with conversion goals
+                        # Use any() since all rows in a group have the same match_key value
+                        ast.Alias(
+                            alias=self.config.match_key_field,
+                            expr=ast.Call(name="any", args=[ast.Field(chain=[self.config.match_key_field])]),
+                        ),
+                    ]
+                )
 
         select_columns.extend(
             [
@@ -422,9 +451,37 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
         return main_query
 
+    def _build_channel_type_expr(self) -> ast.Expr:
+        """Compute channel_type for adapter data using web analytics' classification."""
+        modifiers = create_default_modifiers_for_team(self.team)
+        return create_channel_type_expr(
+            custom_rules=modifiers.customChannelTypeRules,
+            source_exprs=ChannelTypeExprs(
+                source=ast.Field(chain=[self.config.source_field]),
+                medium=ast.Constant(value="cpc"),  # all adapter data is paid
+                campaign=ast.Constant(value=""),
+                referring_domain=ast.Constant(value="$direct"),
+                url=ast.Constant(value=""),
+                hostname=ast.Constant(value=""),
+                pathname=ast.Constant(value=""),
+                has_gclid=ast.Constant(value=False),
+                has_fbclid=ast.Constant(value=False),
+                gad_source=ast.Constant(value=None),
+            ),
+        )
+
+    def _apply_drill_down_level(self) -> None:
+        """Read drillDownLevel from query and apply to config"""
+        level = getattr(self.query, "drillDownLevel", None)
+        if level is not None:
+            self.config.drill_down_level = level
+
     def to_query(self) -> ast.SelectQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_base_query"):
+            # Apply drill-down level from query to config
+            self._apply_drill_down_level()
+
             # Get marketing source adapters
             adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
 
@@ -514,6 +571,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
     def _get_group_by_expressions(self) -> list[ast.Expr]:
         """Get GROUP BY expressions"""
+        if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
+            # channel is a computed alias, so GROUP BY the same expression
+            return [self._build_channel_type_expr()]
         return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
 
     # Abstract methods that subclasses must implement

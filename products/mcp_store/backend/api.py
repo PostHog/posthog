@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import is_dev_mode
+from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.integration import OauthIntegration
 from posthog.rate_limit import (
@@ -45,6 +46,8 @@ from .oauth import (
     register_dcr_client,
 )
 from .proxy import proxy_mcp_request, validate_installation_auth
+
+_RECOMMENDED_URLS = [server["url"] for server in RECOMMENDED_SERVERS]
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):
@@ -79,7 +82,7 @@ def _create_oauth_state(
     server: MCPServer,
     token: str,
     install_source: str,
-    twig_callback_url: str = "",
+    posthog_code_callback_url: str = "",
     pkce_verifier: str = "",
 ) -> MCPOAuthState:
     return MCPOAuthState.objects.create(
@@ -88,7 +91,7 @@ def _create_oauth_state(
         team=installation.team,
         server=server,
         install_source=install_source,
-        twig_callback_url=twig_callback_url,
+        posthog_code_callback_url=posthog_code_callback_url,
         pkce_verifier=pkce_verifier,
         expires_at=timezone.now() + timedelta(seconds=OAUTH_STATE_MAX_AGE_SECONDS),
     )
@@ -101,10 +104,10 @@ def _is_https(url: str) -> bool:
     return urlparse(url).scheme == "https"
 
 
-def _is_valid_twig_callback_url(url: str) -> bool:
-    """Validate that a Twig callback URL is safe to redirect to (prevents open redirect)."""
+def _is_valid_posthog_code_callback_url(url: str) -> bool:
+    """Validate that a PostHog Code callback URL is safe to redirect to (prevents open redirect)."""
     parsed = urlparse(url)
-    if parsed.scheme in ("array", "twig", "posthog-code"):
+    if parsed.scheme in ("array", "posthog-code"):
         return True
     if is_dev_mode() and parsed.scheme == "http" and parsed.hostname == "localhost":
         return True
@@ -199,10 +202,8 @@ class InstallCustomSerializer(serializers.Serializer):
     api_key = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
     oauth_provider_kind = serializers.CharField(required=False, allow_blank=True, default="")
-    install_source = serializers.ChoiceField(
-        choices=["posthog", "twig", "posthog-code"], required=False, default="posthog"
-    )
-    twig_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
+    install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
+    posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_url(self, value: str) -> str:
         allowed, error = is_url_allowed(value)
@@ -210,18 +211,16 @@ class InstallCustomSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"URL not allowed: {error}")
         return value
 
-    def validate_twig_callback_url(self, value: str) -> str:
-        if value and not _is_valid_twig_callback_url(value):
+    def validate_posthog_code_callback_url(self, value: str) -> str:
+        if value and not _is_valid_posthog_code_callback_url(value):
             raise serializers.ValidationError("Invalid callback URL")
         return value
 
 
 class AuthorizeQuerySerializer(serializers.Serializer):
     server_id = serializers.UUIDField(required=True)
-    install_source = serializers.ChoiceField(
-        choices=["posthog", "twig", "posthog-code"], required=False, default="posthog"
-    )
-    twig_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
+    install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
+    posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class MCPServerInstallationUpdateSerializer(serializers.Serializer):
@@ -270,6 +269,19 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def perform_destroy(self, instance: MCPServerInstallation) -> None:
+        report_user_action(
+            self.request.user,
+            "mcp_store server uninstalled",
+            properties={
+                "server_name": instance.display_name or (instance.server.name if instance.server else ""),
+                "server_url": instance.url,
+                "auth_type": instance.auth_type,
+            },
+            team=self.team,
+        )
+        super().perform_destroy(instance)
 
     def _validate_mcp_url_or_error_response(self, mcp_url: str) -> Response | None:
         allowed, reason = is_url_allowed(mcp_url)
@@ -324,6 +336,20 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         installation = self.get_object()
         data = request.validated_data
 
+        if "is_enabled" in data:
+            report_user_action(
+                request.user,
+                "mcp_store server toggled",
+                properties={
+                    "server_name": installation.display_name
+                    or (installation.server.name if installation.server else ""),
+                    "server_url": installation.url,
+                    "auth_type": installation.auth_type,
+                    "is_enabled": data["is_enabled"],
+                },
+                team=self.team,
+            )
+
         for field, value in data.items():
             setattr(installation, field, value)
         installation.save()
@@ -372,7 +398,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         oauth_provider_kind = data.get("oauth_provider_kind", "")
 
         install_source = data.get("install_source", "posthog")
-        twig_callback_url = data.get("twig_callback_url", "")
+        posthog_code_callback_url = data.get("posthog_code_callback_url", "")
 
         # If the auth type is OAuth, we need to authorize the user for the custom server
         if auth_type == "oauth":
@@ -383,7 +409,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 description=description,
                 oauth_provider_kind=oauth_provider_kind,
                 install_source=install_source,
-                twig_callback_url=twig_callback_url,
+                posthog_code_callback_url=posthog_code_callback_url,
             )
         elif auth_type == "api_key":
             sensitive_config: SensitiveConfig = {}
@@ -405,6 +431,26 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             if not created:
                 return Response({"detail": "This server URL is already installed."}, status=status.HTTP_400_BAD_REQUEST)
 
+            logger.info(
+                "MCP server installed via API key",
+                server_name=name,
+                server_url=url,
+                install_source=install_source,
+                team_id=self.team_id,
+            )
+            report_user_action(
+                request.user,
+                "mcp_store server installed",
+                properties={
+                    "server_name": name,
+                    "server_url": url,
+                    "auth_type": "api_key",
+                    "install_source": install_source,
+                    "source": "custom",
+                },
+                team=self.team,
+            )
+
             result_serializer = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
             return Response(result_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -421,7 +467,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         description: str,
         oauth_provider_kind: str = "",
         install_source: str = "posthog",
-        twig_callback_url: str = "",
+        posthog_code_callback_url: str = "",
     ) -> HttpResponse:
         if blocked_response := self._validate_mcp_url_or_error_response(mcp_url):
             return blocked_response
@@ -485,7 +531,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         # Generate a PKCE challenge and state token for the OAuth flow.
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
-        _create_oauth_state(installation, server, token, install_source, twig_callback_url, pkce_verifier=code_verifier)
+        _create_oauth_state(
+            installation, server, token, install_source, posthog_code_callback_url, pkce_verifier=code_verifier
+        )
 
         try:
             authorize_url = self._build_dcr_authorize_url(
@@ -571,15 +619,33 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         server_id = request.validated_query_data["server_id"]
         install_source = request.validated_query_data.get("install_source", "posthog")
-        twig_callback_url = request.validated_query_data.get("twig_callback_url", "")
+        posthog_code_callback_url = request.validated_query_data.get("posthog_code_callback_url", "")
 
-        if twig_callback_url and not _is_valid_twig_callback_url(twig_callback_url):
+        if posthog_code_callback_url and not _is_valid_posthog_code_callback_url(posthog_code_callback_url):
             return Response({"detail": "Invalid callback URL"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             server = MCPServer.objects.get(id=server_id)
         except MCPServer.DoesNotExist:
             return Response({"detail": "Server not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        logger.info(
+            "MCP OAuth flow started",
+            server_name=server.name,
+            server_id=str(server.id),
+            install_source=install_source,
+            team_id=self.team_id,
+        )
+        report_user_action(
+            request.user,
+            "mcp_store oauth started",
+            properties={
+                "server_name": server.name,
+                "server_id": str(server.id),
+                "install_source": install_source,
+            },
+            team=self.team,
+        )
 
         # Look up the user's installation to get the MCP URL for RFC 9728 discovery
         installation = MCPServerInstallation.objects.filter(
@@ -592,7 +658,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     server.oauth_provider_kind,
                     server,
                     install_source=install_source,
-                    twig_callback_url=twig_callback_url,
+                    posthog_code_callback_url=posthog_code_callback_url,
                     installation=installation,
                 )
             except NotImplementedError:
@@ -605,7 +671,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             mcp_url=mcp_url,
             installation=installation,
             install_source=install_source,
-            twig_callback_url=twig_callback_url,
+            posthog_code_callback_url=posthog_code_callback_url,
         )
 
     def _authorize_known_provider(
@@ -614,7 +680,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         server: MCPServer,
         *,
         install_source: str = "posthog",
-        twig_callback_url: str = "",
+        posthog_code_callback_url: str = "",
         installation: MCPServerInstallation | None = None,
     ) -> HttpResponse:
         oauth_config = OauthIntegration.oauth_config_for_kind(kind)
@@ -623,7 +689,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         token = secrets.token_urlsafe(32)
 
         if installation:
-            _create_oauth_state(installation, server, token, install_source, twig_callback_url)
+            _create_oauth_state(installation, server, token, install_source, posthog_code_callback_url)
 
         query_params = {
             "client_id": oauth_config.client_id,
@@ -647,7 +713,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         mcp_url: str,
         installation: MCPServerInstallation | None = None,
         install_source: str = "posthog",
-        twig_callback_url: str = "",
+        posthog_code_callback_url: str = "",
     ) -> HttpResponse:
         if blocked_response := self._validate_mcp_url_or_error_response(mcp_url):
             return blocked_response
@@ -684,7 +750,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         if installation:
             _create_oauth_state(
-                installation, server, token, install_source, twig_callback_url, pkce_verifier=code_verifier
+                installation, server, token, install_source, posthog_code_callback_url, pkce_verifier=code_verifier
             )
 
         try:
@@ -708,7 +774,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
 
     OAuth providers redirect here after authorization. This endpoint
     validates the state token, exchanges the code for tokens, and
-    redirects to the originating client (PostHog web or Twig).
+    redirects to the originating client (PostHog web or PostHog Code).
     """
 
     permission_classes: list = []
@@ -727,34 +793,92 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
 
         installation = oauth_state.installation
         install_source = oauth_state.install_source
-        twig_callback_url = oauth_state.twig_callback_url
+        posthog_code_callback_url = oauth_state.posthog_code_callback_url
         server = oauth_state.server
 
         error = request.query_params.get("error")
         if error:
             logger.warning("OAuth redirect: provider error", error=error)
             error_msg = "cancelled" if error == "access_denied" else error
+            report_user_action(
+                installation.user,
+                "mcp_store oauth failed",
+                properties={
+                    "server_name": server.name if server else "",
+                    "server_id": str(server.id) if server else "",
+                    "error": error_msg,
+                    "install_source": install_source,
+                },
+                team=installation.team,
+            )
             return self._build_oauth_redirect(
-                install_source, installation, error=error_msg, twig_callback_url=twig_callback_url
+                install_source, installation, error=error_msg, posthog_code_callback_url=posthog_code_callback_url
             )
 
         code = request.query_params.get("code")
         if not code:
+            logger.warning(
+                "OAuth redirect: missing authorization code",
+                server_url=installation.url,
+                install_source=install_source,
+            )
             return self._build_oauth_redirect(
-                install_source, installation, error="Missing authorization code", twig_callback_url=twig_callback_url
+                install_source,
+                installation,
+                error="Missing authorization code",
+                posthog_code_callback_url=posthog_code_callback_url,
             )
 
         try:
             self._exchange_and_store_tokens(installation, server, code, oauth_state.pkce_verifier)
         except OAuthTokenExchangeError:
+            logger.exception(
+                "OAuth redirect: token exchange failed",
+                server_url=installation.url,
+                server_id=str(server.id) if server else "",
+            )
+            report_user_action(
+                installation.user,
+                "mcp_store oauth failed",
+                properties={
+                    "server_name": server.name if server else "",
+                    "server_id": str(server.id) if server else "",
+                    "error": "token_exchange_failed",
+                    "install_source": install_source,
+                },
+                team=installation.team,
+            )
             return self._build_oauth_redirect(
                 install_source,
                 installation,
                 error="token_exchange_failed",
-                twig_callback_url=twig_callback_url,
+                posthog_code_callback_url=posthog_code_callback_url,
             )
 
-        return self._build_oauth_redirect(install_source, installation, twig_callback_url=twig_callback_url)
+        logger.info(
+            "MCP server installed via OAuth",
+            server_name=server.name if server else "",
+            server_url=installation.url,
+            install_source=install_source,
+            team_id=installation.team_id,
+        )
+        report_user_action(
+            installation.user,
+            "mcp_store server installed",
+            properties={
+                "server_name": server.name if server else "",
+                "server_id": str(server.id) if server else "",
+                "server_url": installation.url,
+                "auth_type": "oauth",
+                "install_source": install_source,
+                "source": "recommended" if installation.url in _RECOMMENDED_URLS else "custom",
+            },
+            team=installation.team,
+        )
+
+        return self._build_oauth_redirect(
+            install_source, installation, posthog_code_callback_url=posthog_code_callback_url
+        )
 
     @staticmethod
     def _consume_oauth_state(state_token: str) -> MCPOAuthState | None:
@@ -836,12 +960,12 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         *,
         team_id: int | None = None,
         error: str | None = None,
-        twig_callback_url: str = "",
+        posthog_code_callback_url: str = "",
     ) -> HttpResponse:
-        if install_source in ["twig", "posthog-code"] and twig_callback_url:
+        if install_source == "posthog-code" and posthog_code_callback_url:
             params = {"status": "error", "error": error} if error else {"status": "success"}
-            separator = "&" if "?" in twig_callback_url else "?"
-            redirect_url = f"{twig_callback_url}{separator}{urlencode(params)}"
+            separator = "&" if "?" in posthog_code_callback_url else "?"
+            redirect_url = f"{posthog_code_callback_url}{separator}{urlencode(params)}"
         elif error:
             fallback_team_id = installation.team_id if installation else team_id
             redirect_url = f"{settings.SITE_URL}/project/{fallback_team_id}/settings/mcp-servers?oauth_error=true"

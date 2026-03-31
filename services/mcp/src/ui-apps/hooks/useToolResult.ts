@@ -75,6 +75,8 @@ export interface UseToolResultReturn<T> {
     isConnected: boolean
     /** Connection or parsing error, if any */
     error: Error | null
+    /** Whether the tool call was cancelled by the user or host */
+    isCancelled: boolean
     /** The App instance for advanced usage (e.g., opening links) */
     app: App | null
     /** Callback to open a link via the host */
@@ -138,6 +140,7 @@ export function useToolResult<T = unknown>({
 }: UseToolResultOptions): UseToolResultReturn<T> {
     const [data, setData] = useState<T | null>(null)
     const [parseError, setParseError] = useState<Error | null>(null)
+    const [isCancelled, setIsCancelled] = useState(false)
     const [containerDimensions, setContainerDimensions] = useState<ContainerDimensions | null>(null)
     const hasLoggedConnection = useRef(false)
 
@@ -174,6 +177,7 @@ export function useToolResult<T = unknown>({
             // Register tool cancelled handler
             appInstance.setNotificationHandler(McpUiToolCancelledNotificationSchema, (notification) => {
                 const params = notification.params as Record<string, unknown>
+                setIsCancelled(true)
                 captureToolCancelled({
                     toolName: typeof params.toolName === 'string' ? params.toolName : undefined,
                     reason: typeof params.reason === 'string' ? params.reason : undefined,
@@ -283,6 +287,7 @@ export function useToolResult<T = unknown>({
         data,
         isConnected,
         error,
+        isCancelled,
         app,
         openLink,
         capture,

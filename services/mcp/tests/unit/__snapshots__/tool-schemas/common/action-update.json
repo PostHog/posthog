@@ -1,0 +1,481 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "description": "Human-readable description of what this action represents.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A unique integer value identifying this action.",
+            "type": "number"
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Name of the action (must be unique within the project)."
+        },
+        "pinned_at": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin."
+        },
+        "post_to_slack": {
+            "description": "Whether to post a notification to Slack when this action is triggered.",
+            "type": "boolean"
+        },
+        "slack_message_format": {
+            "description": "Custom Slack message format. Supports templates with event properties.",
+            "maxLength": 1200,
+            "type": "string"
+        },
+        "steps": {
+            "description": "Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.",
+            "items": {
+                "properties": {
+                    "event": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Event name to match (e.g. '$pageview', '$autocapture', or a custom event name)."
+                    },
+                    "href": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Link href attribute to match."
+                    },
+                    "href_matching": {
+                        "anyOf": [
+                            {
+                                "anyOf": [
+                                    {
+                                        "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                                        "enum": ["contains", "regex", "exact"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": null,
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "How to match the href value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact"
+                    },
+                    "properties": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "description": "Matches string values with text-oriented operators.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "default": "exact",
+                                                    "description": "String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex",
+                                                    "enum": [
+                                                        "exact",
+                                                        "is_not",
+                                                        "icontains",
+                                                        "not_icontains",
+                                                        "regex",
+                                                        "not_regex"
+                                                    ],
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "default": "event",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "enum": [
+                                                        "event",
+                                                        "event_metadata",
+                                                        "feature",
+                                                        "person",
+                                                        "cohort",
+                                                        "element",
+                                                        "static-cohort",
+                                                        "dynamic-cohort",
+                                                        "precalculated-cohort",
+                                                        "group",
+                                                        "recording",
+                                                        "log_entry",
+                                                        "behavioral",
+                                                        "session",
+                                                        "hogql",
+                                                        "data_warehouse",
+                                                        "data_warehouse_person_property",
+                                                        "error_tracking_issue",
+                                                        "log",
+                                                        "log_attribute",
+                                                        "log_resource_attribute",
+                                                        "revenue_analytics",
+                                                        "flag",
+                                                        "workflow_variable"
+                                                    ],
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "description": "String value to match against.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key", "value"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "description": "Matches numeric values with comparison operators.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "default": "exact",
+                                                    "description": "Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte",
+                                                    "enum": ["exact", "is_not", "gt", "lt", "gte", "lte"],
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "default": "event",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "enum": [
+                                                        "event",
+                                                        "event_metadata",
+                                                        "feature",
+                                                        "person",
+                                                        "cohort",
+                                                        "element",
+                                                        "static-cohort",
+                                                        "dynamic-cohort",
+                                                        "precalculated-cohort",
+                                                        "group",
+                                                        "recording",
+                                                        "log_entry",
+                                                        "behavioral",
+                                                        "session",
+                                                        "hogql",
+                                                        "data_warehouse",
+                                                        "data_warehouse_person_property",
+                                                        "error_tracking_issue",
+                                                        "log",
+                                                        "log_attribute",
+                                                        "log_resource_attribute",
+                                                        "revenue_analytics",
+                                                        "flag",
+                                                        "workflow_variable"
+                                                    ],
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "description": "Numeric value to compare against.",
+                                                    "type": "number"
+                                                }
+                                            },
+                                            "required": ["key", "value"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "description": "Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "default": "exact",
+                                                    "description": "Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in",
+                                                    "enum": ["exact", "is_not", "in", "not_in"],
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "default": "event",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "enum": [
+                                                        "event",
+                                                        "event_metadata",
+                                                        "feature",
+                                                        "person",
+                                                        "cohort",
+                                                        "element",
+                                                        "static-cohort",
+                                                        "dynamic-cohort",
+                                                        "precalculated-cohort",
+                                                        "group",
+                                                        "recording",
+                                                        "log_entry",
+                                                        "behavioral",
+                                                        "session",
+                                                        "hogql",
+                                                        "data_warehouse",
+                                                        "data_warehouse_person_property",
+                                                        "error_tracking_issue",
+                                                        "log",
+                                                        "log_attribute",
+                                                        "log_resource_attribute",
+                                                        "revenue_analytics",
+                                                        "flag",
+                                                        "workflow_variable"
+                                                    ],
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "description": "List of values to match. For example `[\"test@example.com\", \"ok@example.com\"]`.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                }
+                                            },
+                                            "required": ["key", "value"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "description": "Matches date/datetime values with date-specific operators.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "default": "is_date_exact",
+                                                    "description": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after",
+                                                    "enum": ["is_date_exact", "is_date_before", "is_date_after"],
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "default": "event",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "enum": [
+                                                        "event",
+                                                        "event_metadata",
+                                                        "feature",
+                                                        "person",
+                                                        "cohort",
+                                                        "element",
+                                                        "static-cohort",
+                                                        "dynamic-cohort",
+                                                        "precalculated-cohort",
+                                                        "group",
+                                                        "recording",
+                                                        "log_entry",
+                                                        "behavioral",
+                                                        "session",
+                                                        "hogql",
+                                                        "data_warehouse",
+                                                        "data_warehouse_person_property",
+                                                        "error_tracking_issue",
+                                                        "log",
+                                                        "log_attribute",
+                                                        "log_resource_attribute",
+                                                        "revenue_analytics",
+                                                        "flag",
+                                                        "workflow_variable"
+                                                    ],
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "description": "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z').",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key", "value"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "description": "Checks whether a property is set or not, without comparing values.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "description": "Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                                    "enum": ["is_set", "is_not_set"],
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "default": "event",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "enum": [
+                                                        "event",
+                                                        "event_metadata",
+                                                        "feature",
+                                                        "person",
+                                                        "cohort",
+                                                        "element",
+                                                        "static-cohort",
+                                                        "dynamic-cohort",
+                                                        "precalculated-cohort",
+                                                        "group",
+                                                        "recording",
+                                                        "log_entry",
+                                                        "behavioral",
+                                                        "session",
+                                                        "hogql",
+                                                        "data_warehouse",
+                                                        "data_warehouse_person_property",
+                                                        "error_tracking_issue",
+                                                        "log",
+                                                        "log_attribute",
+                                                        "log_resource_attribute",
+                                                        "revenue_analytics",
+                                                        "flag",
+                                                        "workflow_variable"
+                                                    ],
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key", "operator"],
+                                            "type": "object"
+                                        }
+                                    ]
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person)."
+                    },
+                    "selector": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "CSS selector to match the target element (e.g. 'div > button.cta')."
+                    },
+                    "selector_regex": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "tag_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "HTML tag name to match (e.g. \"button\", \"a\", \"input\")."
+                    },
+                    "text": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Element text content to match."
+                    },
+                    "text_matching": {
+                        "anyOf": [
+                            {
+                                "anyOf": [
+                                    {
+                                        "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                                        "enum": ["contains", "regex", "exact"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": null,
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "How to match the text value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact"
+                    },
+                    "url": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Page URL to match."
+                    },
+                    "url_matching": {
+                        "anyOf": [
+                            {
+                                "anyOf": [
+                                    {
+                                        "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                                        "enum": ["contains", "regex", "exact"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": null,
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "How to match the URL value. Defaults to contains.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact"
+                    }
+                },
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "tags": {
+            "items": {},
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

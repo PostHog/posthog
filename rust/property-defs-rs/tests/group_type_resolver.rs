@@ -182,6 +182,12 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn update_person_properties(
+        &self,
+        _: Request<UpdatePersonPropertiesRequest>,
+    ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

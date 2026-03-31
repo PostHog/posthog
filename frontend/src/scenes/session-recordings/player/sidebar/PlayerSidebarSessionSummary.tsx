@@ -12,6 +12,7 @@ import {
     IconExpand,
     IconKeyboard,
     IconMagicWand,
+    IconPlay,
     IconPointer,
     IconThumbsDown,
     IconThumbsUp,
@@ -22,6 +23,7 @@ import { LemonBanner, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lem
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
@@ -323,35 +325,53 @@ function SessionSummaryKeyActions({
                     <div
                         key={`${segmentName}-${eventIndex}`}
                         className={clsx(
-                            'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
+                            'py-2 px-2',
                             // Avoid adding a border to the last event
                             eventIndex !== events.length - 1 && 'border-b',
                             (event.abandonment || event.confusion || event.exception) && 'bg-danger-highlight'
                         )}
-                        onClick={() => {
-                            // Excessive check, required for type safety
-                            if (!isValidTimestamp(event.milliseconds_since_start)) {
-                                return
-                            }
-                            onSeekToTime(timeToSeekTo(event.milliseconds_since_start))
-                        }}
                     >
                         <div className="flex flex-row gap-2">
-                            <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                {formatMsIntoTime(event.milliseconds_since_start)}
-                                <div className="flex flex-row gap-2 mt-1">
+                            <div className="shrink-0 flex flex-col items-center gap-0.5 min-w-[4rem]">
+                                <Tooltip title="Play from this moment">
+                                    <button
+                                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium text-primary-3000 hover:bg-primary-alt-highlight cursor-pointer border-0 bg-transparent"
+                                        onClick={() => {
+                                            onSeekToTime(timeToSeekTo(event.milliseconds_since_start!))
+                                        }}
+                                    >
+                                        <IconPlay className="text-sm" />
+                                        {formatMsIntoTime(event.milliseconds_since_start)}
+                                    </button>
+                                </Tooltip>
+                                <div className="flex flex-row gap-1.5 pl-1.5">
                                     {event.current_url ? (
-                                        <Link to={event.current_url} target="_blank">
-                                            <Tooltip title={event.current_url} placement="top">
-                                                <span className="font-mono text-xs text-muted-alt">url</span>
-                                            </Tooltip>
-                                        </Link>
+                                        <Tooltip title={event.current_url} placement="top">
+                                            <span
+                                                className="font-mono text-xs text-muted-alt cursor-pointer hover:text-primary-3000"
+                                                onClick={() => {
+                                                    void copyToClipboard(event.current_url || '', 'URL')
+                                                }}
+                                            >
+                                                url
+                                            </span>
+                                        </Tooltip>
                                     ) : null}
-                                    <Tooltip title={formatEventMetaInfo(event)} placement="top">
-                                        <span className="font-mono text-xs text-muted-alt">meta</span>
-                                    </Tooltip>
+                                    {event.event ? (
+                                        <Tooltip title={formatEventMetaInfo(event)} placement="top">
+                                            <span
+                                                className="font-mono text-xs text-muted-alt cursor-pointer hover:text-primary-3000"
+                                                onClick={() => {
+                                                    const meta = `Event: ${event.event}\nEvent type: ${event.event_type}\nTimestamp: ${event.timestamp}${event.current_url ? `\nCurrent URL: ${event.current_url}` : ''}`
+                                                    void copyToClipboard(meta, 'event metadata')
+                                                }}
+                                            >
+                                                meta
+                                            </span>
+                                        </Tooltip>
+                                    ) : null}
                                 </div>
-                            </span>
+                            </div>
 
                             <div className="flex flex-col">
                                 <div className="text-xs break-words">{event.description}</div>

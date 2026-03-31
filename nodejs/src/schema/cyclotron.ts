@@ -81,6 +81,8 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
         name: z.string().optional(),
         integrationId: z.number(),
     }),
+    cc: z.string().optional(),
+    bcc: z.string().optional(),
     subject: z.string(),
     preheader: z.string().optional(),
     text: z.string(),

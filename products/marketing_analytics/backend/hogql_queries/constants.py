@@ -1,7 +1,7 @@
 # Marketing Analytics Constants and Configuration
 
 import math
-from typing import Optional, Union
+from typing import Optional, TypedDict, Union
 
 from pydantic import BaseModel
 
@@ -19,6 +19,7 @@ from posthog.schema import (
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
@@ -181,8 +182,8 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION,
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS,
         expr=ast.Call(
             name="round",
             args=[
@@ -221,8 +222,8 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION,
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
         expr=ast.Call(
             name="round",
             args=[
@@ -244,6 +245,45 @@ BASE_COLUMN_MAPPING = {
 }
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
+
+
+class DrillDownLevelConfig(TypedDict):
+    column_alias: str
+    excluded_base_columns: frozenset[MarketingAnalyticsBaseColumns]
+
+
+# Centralized drill-down level configuration
+DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelConfig] = {
+    MarketingAnalyticsDrillDownLevel.CHANNEL: {
+        "column_alias": "Channel",
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+                MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.SOURCE: {
+        "column_alias": MarketingAnalyticsBaseColumns.SOURCE,
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+                MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.CAMPAIGN: {
+        "column_alias": MarketingAnalyticsBaseColumns.CAMPAIGN,
+        "excluded_base_columns": frozenset(),
+    },
+}
+
+# All possible grouping column aliases (used to identify string columns)
+DRILL_DOWN_STRING_COLUMN_ALIASES: frozenset[str] = frozenset(
+    cfg["column_alias"] for cfg in DRILL_DOWN_LEVEL_CONFIG.values()
+)
 
 # Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {
@@ -392,10 +432,10 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: "unit",
     MarketingAnalyticsBaseColumns.CPC: "currency",
     MarketingAnalyticsBaseColumns.CTR: "percentage",
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: "unit",
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: "currency",
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: "unit",
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: "currency",
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: "currency",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
@@ -408,10 +448,10 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: False,  # More impressions is good
     MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
     MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: False,  # More reported conversions is good
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: False,  # Higher conversion value is good
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: False,  # Higher ROAS is good
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: True,  # Higher cost per conversion is bad
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: True,  # Higher cost per conversion is bad
 }
 
 
@@ -457,12 +497,8 @@ def to_marketing_analytics_data(
             kind = "unit"
             is_increase_bad = False  # More conversions is good
 
-    # For string columns (ID, Campaign, Source), preserve the string values
-    if kind == "unit" and key in [
-        MarketingAnalyticsBaseColumns.ID.value,
-        MarketingAnalyticsBaseColumns.CAMPAIGN.value,
-        MarketingAnalyticsBaseColumns.SOURCE.value,
-    ]:
+    # For string columns (ID, Campaign, Source, and drill-down grouping aliases), preserve the string values
+    if kind == "unit" and key in (DRILL_DOWN_STRING_COLUMN_ALIASES | {MarketingAnalyticsBaseColumns.ID.value}):
         # String columns - no numeric processing needed
         pass
     else:

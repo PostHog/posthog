@@ -1,13 +1,20 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Dashboard, Insight, Project, Team
+from posthog.models import Action, Insight, Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
-from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.surveys.backend.models import Survey
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestResourceTransferPreview(APIBaseTest):
@@ -89,6 +96,39 @@ class TestResourceTransferPreview(APIBaseTest):
 
         tile_resource = next(r for r in resources if r["resource_kind"] == "DashboardTile")
         assert tile_resource["friendly_kind"] == "Dashboard tile"
+
+    def test_preview_survey_includes_insight_and_dependencies(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Survey insight")
+        action = Action.objects.create(
+            team=self.team,
+            name="survey trigger",
+            steps_json=[{"event": "$pageview"}],
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            name="My survey",
+            type=Survey.SurveyType.POPOVER,
+            questions=[{"id": "q1", "type": "open", "question": "Hi"}],
+            linked_insight=insight,
+        )
+        survey.actions.add(action)
+
+        response = self.client.post(
+            self._preview_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Survey",
+                "resource_id": str(survey.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        resources = response.json()["resources"]
+        kinds = {r["resource_kind"] for r in resources}
+        assert "Survey" in kinds
+        assert "Insight" in kinds
+        assert "Action" in kinds
 
     def test_preview_includes_suggested_substitution_from_previous_transfer(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
@@ -579,3 +619,200 @@ class TestResourceTransferSearch(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestResourceTransferTenantIsolation(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.dest_project = Project.objects.create(
+            id=Team.objects.increment_id_sequence(), organization=self.organization
+        )
+        self.dest_team = Team.objects.create(
+            id=self.dest_project.id, project=self.dest_project, organization=self.organization
+        )
+        # Foreign org + team the attacker should never reach
+        self.foreign_org = Organization.objects.create(name="Foreign Org")
+        self.foreign_project = Project.objects.create(
+            id=Team.objects.increment_id_sequence(), organization=self.foreign_org
+        )
+        self.foreign_team = Team.objects.create(
+            id=self.foreign_project.id, project=self.foreign_project, organization=self.foreign_org
+        )
+
+    def _preview_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/resource_transfers/preview/"
+
+    def _transfer_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/resource_transfers/transfer/"
+
+    def test_preview_rejects_insight_referencing_foreign_org_action(self) -> None:
+        foreign_action = Action.objects.create(team=self.foreign_team, name="Secret action")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Malicious insight",
+            filters={"actions": [{"id": foreign_action.pk}]},
+        )
+
+        response = self.client.post(
+            self._preview_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(insight.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Foreign action name must NOT leak in the response
+        assert "Secret action" not in str(response.json())
+
+    def test_preview_rejects_insight_referencing_foreign_org_cohort(self) -> None:
+        foreign_cohort = Cohort.objects.create(team=self.foreign_team, name="Secret cohort")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Malicious insight",
+            filters={"properties": [{"type": "cohort", "value": foreign_cohort.pk}]},
+        )
+
+        response = self.client.post(
+            self._preview_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(insight.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Secret cohort" not in str(response.json())
+
+    def test_transfer_substitution_error_does_not_leak_team_id(self) -> None:
+        foreign_insight = Insight.objects.create(team=self.foreign_team, name="Secret insight")
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+                "substitutions": [
+                    {
+                        "source_resource_kind": "Insight",
+                        "source_resource_id": str(insight.pk),
+                        "destination_resource_kind": "Insight",
+                        "destination_resource_id": str(foreign_insight.pk),
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body_text = str(response.json())
+        assert str(self.foreign_team.pk) not in body_text
+
+
+class TestResourceTransferProjectAccessControl(APIBaseTest):
+    """Verify that users without project membership cannot use resource transfer endpoints."""
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.private_project = Project.objects.create(
+            id=Team.objects.increment_id_sequence(), organization=self.organization
+        )
+        self.private_team = Team.objects.create(
+            id=self.private_project.id, project=self.private_project, organization=self.organization
+        )
+
+        self.dest_project = Project.objects.create(
+            id=Team.objects.increment_id_sequence(), organization=self.organization
+        )
+        self.dest_team = Team.objects.create(
+            id=self.dest_project.id, project=self.dest_project, organization=self.organization
+        )
+
+        # Create a non-admin org member
+        self.other_user = self._create_user("other@posthog.com")
+        self.other_membership = OrganizationMembership.objects.get(organization=self.organization, user=self.other_user)
+
+        # Make private_team private: default access "none", then grant self.user admin access
+        AccessControl.objects.create(
+            team=self.private_team,
+            resource="project",
+            resource_id=str(self.private_team.id),
+            access_level="none",
+        )
+        AccessControl.objects.create(
+            team=self.private_team,
+            resource="project",
+            resource_id=str(self.private_team.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level="admin",
+        )
+
+        self.insight = Insight.objects.create(team=self.private_team, name="Secret insight")
+
+    def _preview_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/resource_transfers/preview/"
+
+    def _transfer_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/resource_transfers/transfer/"
+
+    def _search_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/resource_transfers/search/"
+
+    def _endpoint_params(self, endpoint: str) -> tuple[str, dict]:
+        if endpoint == "preview":
+            return self._preview_url(), {
+                "source_team_id": self.private_team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(self.insight.pk),
+            }
+        elif endpoint == "transfer":
+            return self._transfer_url(), {
+                "source_team_id": self.private_team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(self.insight.pk),
+            }
+        elif endpoint == "search":
+            return self._search_url(), {
+                "team_id": self.private_team.pk,
+                "resource_kind": "Insight",
+            }
+        raise ValueError(f"Unknown endpoint: {endpoint}")
+
+    @parameterized.expand(
+        [
+            ("preview",),
+            ("transfer",),
+            ("search",),
+        ]
+    )
+    @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
+    def test_blocked_for_user_without_project_access(self, endpoint: str) -> None:
+        self.client.force_login(self.other_user)
+        url, payload = self._endpoint_params(endpoint)
+        response = self.client.post(url, payload)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("preview", status.HTTP_200_OK),
+            ("transfer", status.HTTP_201_CREATED),
+            ("search", status.HTTP_200_OK),
+        ]
+    )
+    @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
+    def test_allowed_for_user_with_project_access(self, endpoint: str, expected_status: int) -> None:
+        url, payload = self._endpoint_params(endpoint)
+        response = self.client.post(url, payload)
+        assert response.status_code == expected_status

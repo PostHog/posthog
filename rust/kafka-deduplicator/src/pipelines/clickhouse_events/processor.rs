@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use axum::async_trait;
+use async_trait::async_trait;
 use common_types::ClickHouseEvent;
 use futures::future::join_all;
 use itertools::Itertools;

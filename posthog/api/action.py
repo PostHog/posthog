@@ -188,6 +188,7 @@ class ActionSerializer(
     def get_is_calculating(self, action: Action) -> bool:
         return False
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_creation_context(self, obj):
         return None
 
@@ -202,6 +203,14 @@ class ActionSerializer(
             include_args = {"team_id": attrs["team_id"]}
         if attrs.get("pinned_at") == "":
             attrs["pinned_at"] = None
+
+        # Check for empty name - this must come before uniqueness check
+        name = attrs.get("name")
+        if name is not None and not name.strip():
+            raise serializers.ValidationError(
+                {"name": "This field may not be blank."},
+                code="blank",
+            )
 
         if "name" in attrs:
             colliding_action_ids = list(

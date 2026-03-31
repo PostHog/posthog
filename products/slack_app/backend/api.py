@@ -20,6 +20,7 @@ import requests
 import structlog
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     GitHubIntegration,
     Integration,
@@ -29,29 +30,37 @@ from posthog.models.integration import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.temporal.ai.posthog_code_slack_interactivity import (
+    PostHogCodeSlackInteractivityInputs,
+    PostHogCodeSlackTerminateTaskWorkflow,
+)
+from posthog.temporal.ai.posthog_code_slack_mention import (
+    PostHogCodeSlackMentionWorkflow,
+    PostHogCodeSlackMentionWorkflowInputs,
+)
 from posthog.temporal.ai.slack_conversation import (
     THINKING_MESSAGES,
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
 )
-from posthog.temporal.ai.twig_slack_interactivity import TwigSlackInteractivityInputs, TwigSlackTerminateTaskWorkflow
-from posthog.temporal.ai.twig_slack_mention import TwigSlackMentionWorkflow, TwigSlackMentionWorkflowInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
+
+from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
-HANDLED_EVENT_TYPES = ["app_mention"]
+HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
 ROUTE_PROXY_FAILED = "proxy_failed"
 ROUTE_NO_INTEGRATION = "no_integration"
 
-PICKER_TOKEN_SALT = "twig_repo_picker"
+PICKER_TOKEN_SALT = "posthog_code_repo_picker"
 PICKER_TOKEN_MAX_AGE_SECONDS = 900
 SLACK_USER_INFO_CACHE_TTL_SECONDS = 600
 
@@ -61,7 +70,7 @@ REPO_LIST_CACHE_TTL_SECONDS = 300
 
 
 def _repo_list_cache_key(team_id: int) -> str:
-    return f"twig:repo_list:v1:{team_id}"
+    return f"posthog_code:repo_list:v1:{team_id}"
 
 
 def _invalidate_repo_list_cache(team_id: int) -> None:
@@ -87,11 +96,11 @@ class RulesCommand:
     action: Literal["list", "add", "remove", "help", "default_set", "default_show", "default_clear"]
     rule_text: str | None = None
     repository: str | None = None
-    rule_number: int | None = None
+    rule_numbers: list[int] | None = None
 
 
 def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
-    return f"twig_slack_user_info:{integration_id}:{slack_user_id}"
+    return f"posthog_code_slack_user_info:{integration_id}:{slack_user_id}"
 
 
 def _format_slack_user_info_payload(*, email: str | None, display_name: str, real_name: str) -> dict[str, Any]:
@@ -125,7 +134,7 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
             integration_id=integration.id, slack_user_id=slack_user_id
         ).first()
     except DatabaseError:
-        logger.warning("twig_slack_user_cache_db_unavailable", integration_id=integration.id)
+        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
         return None
     if not profile:
         return None
@@ -152,7 +161,7 @@ def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_
             },
         )
     except DatabaseError:
-        logger.warning("twig_slack_user_cache_db_unavailable", integration_id=integration.id)
+        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
 def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> dict[str, Any]:
@@ -200,9 +209,15 @@ def _post_slack_user_feedback(
 
 
 def resolve_slack_user(
-    slack: SlackIntegration, integration: Integration, slack_user_id: str, channel: str, thread_ts: str
+    slack: SlackIntegration,
+    integration: Integration,
+    slack_user_id: str,
+    channel: str,
+    thread_ts: str,
+    *,
+    post_feedback: bool = True,
 ) -> SlackUserContext | None:
-    """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure."""
+    """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure (unless post_feedback is False)."""
     try:
         slack_user_info = _get_slack_user_info(slack, integration, slack_user_id)
         slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
@@ -219,18 +234,19 @@ def resolve_slack_user(
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
-            _post_slack_user_feedback(
-                slack,
-                channel,
-                slack_user_id,
-                thread_ts,
-                (
-                    "Sorry, I couldn't find your email address in Slack. "
-                    "Please make sure your email is visible in your Slack profile, "
-                    "and contact the PostHog team if the issue persists."
-                ),
-                prefer_thread_message=True,
-            )
+            if post_feedback:
+                _post_slack_user_feedback(
+                    slack,
+                    channel,
+                    slack_user_id,
+                    thread_ts,
+                    (
+                        "Sorry, I couldn't find your email address in Slack. "
+                        "Please make sure your email is visible in your Slack profile, "
+                        "and contact the PostHog team if the issue persists."
+                    ),
+                    prefer_thread_message=True,
+                )
             return None
 
         if get_instance_region() == "DEV":
@@ -250,16 +266,17 @@ def resolve_slack_user(
         )
         if not membership or not membership.user:
             organization_name = integration.team.organization.name
-            _post_slack_user_feedback(
-                slack,
-                channel,
-                slack_user_id,
-                thread_ts,
-                (
-                    f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
-                    f"Please make sure you're a member of that PostHog organization."
-                ),
-            )
+            if post_feedback:
+                _post_slack_user_feedback(
+                    slack,
+                    channel,
+                    slack_user_id,
+                    thread_ts,
+                    (
+                        f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
+                        f"Please make sure you're a member of that PostHog organization."
+                    ),
+                )
             return None
 
         posthog_user = membership.user
@@ -272,28 +289,30 @@ def resolve_slack_user(
                 team_id=integration.team_id,
                 organization_id=integration.team.organization_id,
             )
-            _post_slack_user_feedback(
-                slack,
-                channel,
-                slack_user_id,
-                thread_ts,
-                (
-                    "Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
-                    "Please ask an admin of your PostHog organization to grant you access."
-                ),
-            )
+            if post_feedback:
+                _post_slack_user_feedback(
+                    slack,
+                    channel,
+                    slack_user_id,
+                    thread_ts,
+                    (
+                        "Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
+                        "Please ask an admin of your PostHog organization to grant you access."
+                    ),
+                )
             return None
 
         return SlackUserContext(user=posthog_user, slack_email=slack_email)
     except Exception as e:
         logger.exception("slack_app_user_lookup_failed", error=str(e))
-        _post_slack_user_feedback(
-            slack,
-            channel,
-            slack_user_id,
-            thread_ts,
-            "Sorry, I encountered an error looking up your user account. Please try again later.",
-        )
+        if post_feedback:
+            _post_slack_user_feedback(
+                slack,
+                channel,
+                slack_user_id,
+                thread_ts,
+                "Sorry, I encountered an error looking up your user account. Please try again later.",
+            )
         return None
 
 
@@ -330,6 +349,8 @@ def route_slack_event_to_relevant_region(request: HttpRequest, event: dict, slac
         # We're in the right region
         if event.get("type") == "app_mention":
             handle_app_mention(event, integration)
+        elif event.get("type") == "link_shared":
+            handle_posthog_link_unfurl(event, integration)
     elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
         # We aren't in the right region OR the Slack workspace is not connected to any PostHog project in ANY region
         # OR we're in dev and the request hasn't been proxied once yet
@@ -600,7 +621,9 @@ def slack_event_handler(request: HttpRequest) -> HttpResponse:
 
     This endpoint handles:
     - URL verification challenges from Slack
-    - Event callbacks (app_mention, etc.)
+    - Event callbacks (app_mention, link_shared for PostHog insight/dashboard unfurls, etc.)
+
+    The Slack app must subscribe to `link_shared` and register PostHog app domains for unfurling.
     """
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -688,9 +711,11 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
     if add_no_repo_match:
         return RulesCommand(action="add", rule_text=add_no_repo_match.group(1))
 
-    remove_match = re.fullmatch(r"rules\s+remove\s+(\d+)", cleaned, flags=re.IGNORECASE)
+    remove_match = re.fullmatch(r"rules\s+remove\s+([\d,\s]+)", cleaned, flags=re.IGNORECASE)
     if remove_match:
-        return RulesCommand(action="remove", rule_number=int(remove_match.group(1)))
+        numbers = [int(n.strip()) for n in remove_match.group(1).split(",") if n.strip().isdigit()]
+        if numbers:
+            return RulesCommand(action="remove", rule_numbers=numbers)
 
     default_set_match = re.fullmatch(
         r"default\s+repo\s+set\s+([\w.-]+/[\w.-]+)",
@@ -745,7 +770,7 @@ def _post_repo_picker_message(
         blocks=[
             {
                 "type": "section",
-                "block_id": f"twig_repo_picker_v2:{integration.id}:{slack_user_id}:{context_token}",
+                "block_id": f"posthog_code_repo_picker_v2:{integration.id}:{slack_user_id}:{context_token}",
                 "text": {"type": "mrkdwn", "text": guidance},
                 "accessory": {
                     "type": "external_select",
@@ -756,7 +781,7 @@ def _post_repo_picker_message(
             },
         ],
         metadata={
-            "event_type": "twig_repo_picker",
+            "event_type": "posthog_code_repo_picker",
             "event_payload": {"context_token": context_token, "workflow_id": workflow_id},
         },
     )
@@ -924,7 +949,7 @@ def _match_repo_rule(
 
     rules = list(RepoRoutingRule.objects.filter(team_id=team_id).order_by("priority", "id"))
     if not rules:
-        logger.info("twig_rule_match_no_rules", team_id=team_id)
+        logger.info("posthog_code_rule_match_no_rules", team_id=team_id)
         return None
 
     _MAX_RULES_FOR_LLM = 20
@@ -933,7 +958,7 @@ def _match_repo_rule(
     eligible_rules = [r for r in rules if r.repository.lower() in connected_set][:_MAX_RULES_FOR_LLM]
     if not eligible_rules:
         logger.info(
-            "twig_rule_match_no_eligible_rules",
+            "posthog_code_rule_match_no_eligible_rules",
             team_id=team_id,
             rule_repos=[r.repository for r in rules],
             connected_repos=all_repos,
@@ -954,9 +979,7 @@ def _match_repo_rule(
     )
 
     try:
-        from posthog.llm.gateway_client import get_llm_client
-
-        client = get_llm_client("slack-twig")
+        client = get_llm_client("slack-posthog-code")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],
@@ -967,33 +990,71 @@ def _match_repo_rule(
         # Strip markdown code fences if the LLM wrapped the response
         if content.startswith("```"):
             content = content.strip("`").removeprefix("json").strip()
-        logger.info("twig_rule_match_llm_response", content=content, team_id=team_id)
+        logger.info("posthog_code_rule_match_llm_response", content=content, team_id=team_id)
         parsed = json.loads(content)
         idx = parsed.get("rule_index")
         if idx is None:
-            logger.info("twig_rule_match_llm_returned_null", team_id=team_id)
+            logger.info("posthog_code_rule_match_llm_returned_null", team_id=team_id)
             return None
         if not isinstance(idx, int) or idx < 0 or idx >= len(eligible_rules):
-            logger.warning("twig_rule_match_invalid_index", index=idx, rule_count=len(eligible_rules))
+            logger.warning("posthog_code_rule_match_invalid_index", index=idx, rule_count=len(eligible_rules))
             return None
 
         matched_repo = eligible_rules[idx].repository
         canonical = next((r for r in all_repos if r.lower() == matched_repo.lower()), None)
         if not canonical:
-            logger.warning("twig_rule_match_repo_not_connected", repo=matched_repo)
+            logger.warning("posthog_code_rule_match_repo_not_connected", repo=matched_repo)
             return None
-        logger.info("twig_rule_match_success", repo=canonical, rule_index=idx, team_id=team_id)
+        logger.info("posthog_code_rule_match_success", repo=canonical, rule_index=idx, team_id=team_id)
         return canonical
     except Exception:
-        logger.exception("twig_rule_match_failed", team_id=team_id)
+        logger.exception("posthog_code_rule_match_failed", team_id=team_id)
         return None
 
 
-def route_twig_event_to_relevant_region(
+def classify_task_needs_repo(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+) -> bool:
+    """Classify whether a Slack conversation requires code repository access.
+
+    Returns True if the task likely needs a repo (writing code, fixing bugs, PRs),
+    False if it does not (analytics, data queries, PostHog config).
+    Defaults to True on error (conservative — falls back to picker).
+    """
+    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    prompt = (
+        "You are a task classifier. Given a Slack conversation, determine whether the task "
+        "requires access to a code repository (e.g. writing code, fixing bugs, creating PRs, "
+        "reviewing code, modifying files) or NOT (e.g. answering questions about analytics, "
+        "querying data, PostHog configuration, general knowledge questions, planning).\n\n"
+        f"Conversation:\n{conversation}\n\n"
+        f"Latest message: {event_text}\n\n"
+        'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
+    )
+    try:
+        client = get_llm_client("slack-posthog-code")
+        response = client.chat.completions.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=64,
+            temperature=0,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        if content.startswith("```"):
+            content = content.strip("`").removeprefix("json").strip()
+        parsed = json.loads(content)
+        return bool(parsed.get("needs_repo", True))
+    except Exception:
+        logger.exception("classify_task_needs_repo_failed")
+        return True
+
+
+def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
     slack_team_id: str,
-    integration_kind: str = "slack-twig",
+    integration_kind: str = "slack-posthog-code",
     event_id: str | None = None,
 ) -> str:
     integrations = list(
@@ -1002,22 +1063,22 @@ def route_twig_event_to_relevant_region(
         .order_by("id")[:2]
     )
     if len(integrations) > 1:
-        logger.warning("twig_multiple_integrations", slack_team_id=slack_team_id)
+        logger.warning("posthog_code_multiple_integrations", slack_team_id=slack_team_id)
     integration = integrations[0] if integrations else None
 
     if integration and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event.get("type") == "app_mention":
-            workflow_inputs = TwigSlackMentionWorkflowInputs(
+            workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
                 event=event,
                 integration_id=integration.id,
                 slack_team_id=slack_team_id,
             )
             event_id_or_fallback = event_id if event_id else f"{event.get('channel', '')}:{event.get('ts', '')}"
-            workflow_id = f"twig-mention-{slack_team_id}:{event_id_or_fallback}"
+            workflow_id = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
             client = sync_connect()
             asyncio.run(
                 client.start_workflow(
-                    TwigSlackMentionWorkflow.run,
+                    PostHogCodeSlackMentionWorkflow.run,
                     workflow_inputs,
                     id=workflow_id,
                     task_queue=settings.MAX_AI_TASK_QUEUE,
@@ -1030,13 +1091,13 @@ def route_twig_event_to_relevant_region(
         success = proxy_slack_event_to_secondary_region(request)
         return ROUTE_PROXIED if success else ROUTE_PROXY_FAILED
     else:
-        logger.warning("twig_no_integration_found", slack_team_id=slack_team_id)
+        logger.warning("posthog_code_no_integration_found", slack_team_id=slack_team_id)
         return ROUTE_NO_INTEGRATION
 
 
 def _picker_context_cache_key(context_token: str) -> str:
     token_hash = hashlib.sha256(context_token.encode("utf-8")).hexdigest()
-    return f"twig_repo_picker_ctx:{token_hash}"
+    return f"posthog_code_repo_picker_ctx:{token_hash}"
 
 
 def _decode_picker_context(context_token: str) -> dict[str, Any] | None:
@@ -1049,7 +1110,7 @@ def _decode_picker_context(context_token: str) -> dict[str, Any] | None:
 
     # Backward-compat for older tests/keys using raw token in cache key.
     if len(context_token) < 120:
-        cached = cache.get(f"twig_repo_picker_ctx:{context_token}")
+        cached = cache.get(f"posthog_code_repo_picker_ctx:{context_token}")
     if isinstance(cached, dict):
         return cached
 
@@ -1066,20 +1127,20 @@ def _decode_picker_context(context_token: str) -> dict[str, Any] | None:
 
 
 @csrf_exempt
-def twig_event_handler(request: HttpRequest) -> HttpResponse:
+def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         return HttpResponse(status=405)
 
     try:
-        twig_config = SlackIntegration.twig_slack_config()
-        validate_slack_request(request, twig_config["SLACK_TWIG_SIGNING_SECRET"])
+        posthog_code_config = SlackIntegration.posthog_code_slack_config()
+        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
     except SlackIntegrationError as e:
-        logger.warning("twig_event_invalid_request", error=str(e))
+        logger.warning("posthog_code_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
     retry_num = request.headers.get("X-Slack-Retry-Num")
     if retry_num:
-        logger.info("twig_event_retry", retry_num=retry_num)
+        logger.info("posthog_code_event_retry", retry_num=retry_num)
         return HttpResponse(status=200)
 
     try:
@@ -1099,13 +1160,13 @@ def twig_event_handler(request: HttpRequest) -> HttpResponse:
         event_id = data.get("event_id")
 
         if event.get("type") == "app_mention":
-            result = route_twig_event_to_relevant_region(request, event, slack_team_id, event_id=event_id)
+            result = route_posthog_code_event_to_relevant_region(request, event, slack_team_id, event_id=event_id)
             if result == ROUTE_PROXY_FAILED:
                 return HttpResponse(status=502)
 
         return HttpResponse(status=202)
 
-    # twig_event_handler: unrecognized event type
+    # posthog_code_event_handler: unrecognized event type
     return HttpResponse(status=200)
 
 
@@ -1115,7 +1176,7 @@ def _extract_context_token(payload: dict) -> str:
     def token_from_block_id(raw_block_id: str) -> str:
         if not raw_block_id:
             return ""
-        if raw_block_id.startswith("twig_repo_picker_v2:"):
+        if raw_block_id.startswith("posthog_code_repo_picker_v2:"):
             parts = raw_block_id.split(":", 3)
             return parts[3] if len(parts) == 4 else ""
         if ":" in raw_block_id:
@@ -1147,7 +1208,7 @@ def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
         if actions:
             block_id = actions[0].get("block_id", "")
 
-    if not block_id.startswith("twig_repo_picker_v2:"):
+    if not block_id.startswith("posthog_code_repo_picker_v2:"):
         return None, None
 
     parts = block_id.split(":", 3)
@@ -1165,7 +1226,7 @@ def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
 
 def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
     actions = payload.get("actions", [])
-    action = next((a for a in actions if a.get("action_id") == "twig_terminate_task"), None)
+    action = next((a for a in actions if a.get("action_id") == "posthog_code_terminate_task"), None)
     if not action:
         return None, None
 
@@ -1190,16 +1251,16 @@ def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
 def _handle_repo_picker_options(payload: dict) -> JsonResponse:
     """Return filtered repo options for the external_select picker."""
     action = payload.get("action_id") or (payload.get("actions", [{}])[0].get("action_id", ""))
-    if action != "twig_repo_select":
+    if action != "posthog_code_repo_select":
         return JsonResponse({"options": []})
 
     context_token = _extract_context_token(payload)
     slack_team_id = payload.get("team", {}).get("id")
     if not slack_team_id:
-        logger.info("twig_repo_picker_options_missing_slack_team")
+        logger.info("posthog_code_repo_picker_options_missing_slack_team")
         return JsonResponse({"options": []})
     if not context_token:
-        logger.info("twig_repo_picker_options_missing_token")
+        logger.info("posthog_code_repo_picker_options_missing_token")
         return JsonResponse({"options": []})
 
     ctx = _decode_picker_context(context_token)
@@ -1208,26 +1269,26 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         team_id = payload.get("team", {}).get("id")
         if team_id:
             fallback_integration = (
-                Integration.objects.filter(kind="slack-twig", integration_id=team_id).order_by("id").first()
+                Integration.objects.filter(kind="slack-posthog-code", integration_id=team_id).order_by("id").first()
             )
             if fallback_integration:
                 hinted_integration_id = fallback_integration.id
                 logger.info(
-                    "twig_repo_picker_options_fallback_team",
+                    "posthog_code_repo_picker_options_fallback_team",
                     context_token=context_token,
                     team_id=team_id,
                     integration_id=hinted_integration_id,
                 )
 
     if not ctx and not hinted_integration_id:
-        logger.info("twig_repo_picker_options_no_context", context_token=context_token)
+        logger.info("posthog_code_repo_picker_options_no_context", context_token=context_token)
         return JsonResponse({"options": []})
 
     requesting_user = payload.get("user", {}).get("id", "")
     expected_user = ctx["mentioning_slack_user_id"] if ctx else hinted_user_id
     if expected_user and requesting_user != expected_user:
         logger.info(
-            "twig_repo_picker_options_user_mismatch",
+            "posthog_code_repo_picker_options_user_mismatch",
             context_token=context_token,
             requesting_user=requesting_user,
             expected_user=expected_user,
@@ -1235,16 +1296,18 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         return JsonResponse({"options": []})
 
     if not expected_user:
-        logger.info("twig_repo_picker_options_missing_expected_user", context_token=context_token)
+        logger.info("posthog_code_repo_picker_options_missing_expected_user", context_token=context_token)
 
     try:
         integration_id: int | None = ctx["integration_id"] if ctx else hinted_integration_id
         if not integration_id:
             raise Integration.DoesNotExist
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
+        integration = Integration.objects.get(
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+        )
     except Integration.DoesNotExist:
-        logger.info("twig_repo_picker_options_no_integration", context_token=context_token)
+        logger.info("posthog_code_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
 
     try:
@@ -1254,7 +1317,9 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         return JsonResponse({"options": []})
 
     if not all_repos:
-        logger.info("twig_repo_picker_options_no_repos", context_token=context_token, integration_id=integration.id)
+        logger.info(
+            "posthog_code_repo_picker_options_no_repos", context_token=context_token, integration_id=integration.id
+        )
         return JsonResponse({"options": []})
 
     query = (payload.get("value") or "").lower()
@@ -1267,7 +1332,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
 def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
     """Signal Temporal mention workflow for repo submit."""
     actions = payload.get("actions", [])
-    action = next((a for a in actions if a.get("action_id") == "twig_repo_select"), None)
+    action = next((a for a in actions if a.get("action_id") == "posthog_code_repo_select"), None)
     selected_repo = action.get("selected_option", {}).get("value") if action else None
 
     context_token = _extract_context_token(payload)
@@ -1286,7 +1351,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
 
         if not slack_team_id or not integration_id or not channel or not thread_ts:
             logger.warning(
-                "twig_repo_submit_expired_feedback_missing_context",
+                "posthog_code_repo_submit_expired_feedback_missing_context",
                 slack_team_id=slack_team_id,
                 integration_id=integration_id,
                 channel=channel,
@@ -1296,15 +1361,17 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
 
         try:
             # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-            integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
+            integration = Integration.objects.get(
+                id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+            )
             SlackIntegration(integration).client.chat_postMessage(
                 channel=channel,
                 thread_ts=thread_ts,
-                text="Repository selection expired. Please mention Twig again to retry.",
+                text="Repository selection expired. Please mention PostHog Code again to retry.",
             )
         except Exception:
             logger.warning(
-                "twig_repo_submit_expired_feedback_failed",
+                "posthog_code_repo_submit_expired_feedback_failed",
                 integration_id=integration_id,
                 channel=channel,
                 thread_ts=thread_ts,
@@ -1314,18 +1381,18 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     if not workflow_id:
-        logger.info("twig_repo_submit_missing_workflow_id")
+        logger.info("posthog_code_repo_submit_missing_workflow_id")
         post_selection_expired()
         return HttpResponse(status=200)
 
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(TwigSlackMentionWorkflow.repo_selected, selected_repo))
+        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.repo_selected, selected_repo))
         _replace_repo_picker_with_selection(payload, context, selected_repo)
         return HttpResponse(status=200)
     except Exception as e:
-        logger.warning("twig_repo_submit_signal_failed", workflow_id=workflow_id, error=str(e))
+        logger.warning("posthog_code_repo_submit_signal_failed", workflow_id=workflow_id, error=str(e))
         post_selection_expired()
         return HttpResponse(status=200)
 
@@ -1338,7 +1405,7 @@ def _replace_repo_picker_with_selection(payload: dict, context: dict | None, sel
 
     if not integration_id or not slack_team_id or not channel or not message_ts:
         logger.info(
-            "twig_repo_submit_missing_picker_update_context",
+            "posthog_code_repo_submit_missing_picker_update_context",
             integration_id=integration_id,
             slack_team_id=slack_team_id,
             channel=channel,
@@ -1348,7 +1415,9 @@ def _replace_repo_picker_with_selection(payload: dict, context: dict | None, sel
 
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
+        integration = Integration.objects.get(
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+        )
         slack = SlackIntegration(integration)
         text = f"Repository selected: `{selected_repo}`"
         slack.client.chat_update(
@@ -1364,7 +1433,7 @@ def _replace_repo_picker_with_selection(payload: dict, context: dict | None, sel
         )
     except Exception:
         logger.warning(
-            "twig_repo_submit_picker_update_failed",
+            "posthog_code_repo_submit_picker_update_failed",
             integration_id=integration_id,
             channel=channel,
             message_ts=message_ts,
@@ -1373,17 +1442,19 @@ def _replace_repo_picker_with_selection(payload: dict, context: dict | None, sel
 
 def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
     """Start Temporal workflow for task termination and return 200 immediately."""
-    action = next((a for a in payload.get("actions", []) if a.get("action_id") == "twig_terminate_task"), None)
+    action = next((a for a in payload.get("actions", []) if a.get("action_id") == "posthog_code_terminate_task"), None)
     action_ts = action.get("action_ts") if action else ""
     team_id = payload.get("team", {}).get("id", "")
     user_id = payload.get("user", {}).get("id", "")
-    workflow_id = f"twig-terminate-task:{team_id}:{user_id}:{action_ts or payload.get('message', {}).get('ts', '')}"
+    workflow_id = (
+        f"posthog-code-terminate-task:{team_id}:{user_id}:{action_ts or payload.get('message', {}).get('ts', '')}"
+    )
     try:
         client = sync_connect()
         asyncio.run(
             client.start_workflow(
-                TwigSlackTerminateTaskWorkflow.run,
-                TwigSlackInteractivityInputs(payload=payload),
+                PostHogCodeSlackTerminateTaskWorkflow.run,
+                PostHogCodeSlackInteractivityInputs(payload=payload),
                 id=workflow_id,
                 task_queue=settings.MAX_AI_TASK_QUEUE,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
@@ -1391,20 +1462,20 @@ def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
             )
         )
     except Exception as e:
-        logger.warning("twig_terminate_submit_start_failed", workflow_id=workflow_id, error=str(e))
+        logger.warning("posthog_code_terminate_submit_start_failed", workflow_id=workflow_id, error=str(e))
     return HttpResponse(status=200)
 
 
 @csrf_exempt
-def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
+def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         return HttpResponse(status=405)
 
     try:
-        twig_config = SlackIntegration.twig_slack_config()
-        validate_slack_request(request, twig_config["SLACK_TWIG_SIGNING_SECRET"])
+        posthog_code_config = SlackIntegration.posthog_code_slack_config()
+        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
     except SlackIntegrationError as e:
-        logger.warning("twig_interactivity_invalid_request", error=str(e))
+        logger.warning("posthog_code_interactivity_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
     try:
@@ -1415,7 +1486,7 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     payload_type = payload.get("type")
     context_token = _extract_context_token(payload)
     logger.info(
-        "twig_interactivity_received",
+        "posthog_code_interactivity_received",
         payload_type=payload_type,
         context_token=context_token,
         host=request.get_host(),
@@ -1434,24 +1505,24 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if slack_team_id and ctx_integration_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=ctx_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind="slack-twig",
+            kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=hinted_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind="slack-twig",
+            kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind="slack-twig",
+            kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
 
     logger.info(
-        "twig_interactivity_resolution",
+        "posthog_code_interactivity_resolution",
         context_token_present=bool(context_token),
         has_context=bool(context),
         hinted_integration_id=hinted_integration_id,
@@ -1478,7 +1549,7 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=502)
 
     if not local:
-        logger.warning("twig_interactivity_no_context", context_token=context_token)
+        logger.warning("posthog_code_interactivity_no_context", context_token=context_token)
         if payload_type == "block_suggestion":
             return JsonResponse({"options": []})
         return HttpResponse(status=200)
@@ -1490,9 +1561,9 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if payload_type == "block_actions":
         actions = payload.get("actions", [])
         for action in actions:
-            if action.get("action_id") == "twig_repo_select":
+            if action.get("action_id") == "posthog_code_repo_select":
                 return _handle_repo_picker_submit(payload)
-            if action.get("action_id") == "twig_terminate_task":
+            if action.get("action_id") == "posthog_code_terminate_task":
                 return _handle_terminate_task_submit(payload)
 
     return HttpResponse(status=200)

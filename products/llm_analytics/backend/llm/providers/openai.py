@@ -42,6 +42,7 @@ class OpenAIConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "gpt-5.4",
         "gpt-5.2-pro",
         "gpt-5.2",
         "gpt-5.1",
@@ -60,6 +61,7 @@ class OpenAIConfig:
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "gpt-5.4",
         "gpt-5.2-pro",
         "gpt-5.2",
         "gpt-5.1",

@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result};
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
-    DBWithThreadMode, MultiThreaded, Options, SliceTransform, WriteBatch, WriteBufferManager,
+    DBCompressionType, DBWithThreadMode, MultiThreaded, Options, WriteBatch, WriteBufferManager,
     WriteOptions,
 };
 use std::time::Instant;
@@ -35,7 +35,7 @@ const DEFAULT_L0_STOP_WRITES_TRIGGER: i32 = 36;
 /// Bloom filter bits per key — 10 bits ≈ 1% false-positive rate.
 const BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
 /// Timestamp key prefix length for SliceTransform (8-byte epoch seconds).
-const TIMESTAMP_PREFIX_LEN: usize = 8;
+pub const TIMESTAMP_PREFIX_LEN: usize = 8;
 /// 2 write buffers: one active for writes, one flushing to disk.
 const MAX_WRITE_BUFFER_NUMBER: i32 = 2;
 /// Merge every buffer immediately — avoids batching delay before flush.
@@ -52,7 +52,25 @@ const UNIVERSAL_SIZE_RATIO: i32 = 10; // Allow 10% size difference before compac
 const UNIVERSAL_MIN_MERGE_WIDTH: i32 = 2;
 const UNIVERSAL_MAX_MERGE_WIDTH: i32 = 16;
 const UNIVERSAL_MAX_SIZE_AMPLIFICATION_PERCENT: i32 = 200; // Allow 2x space amplification
-const UNIVERSAL_COMPRESSION_SIZE_PERCENT: i32 = -1; // Compress all levels
+const DEFAULT_UNIVERSAL_COMPRESSION_SIZE_PERCENT: i32 = -1; // Compress all levels
+
+// ── Compression type parsing ─────────────────────────────────────────────────
+
+pub fn parse_compression_type(s: &str) -> Result<DBCompressionType> {
+    match s.to_lowercase().trim() {
+        "none" => Ok(DBCompressionType::None),
+        "snappy" => Ok(DBCompressionType::Snappy),
+        "zlib" => Ok(DBCompressionType::Zlib),
+        "lz4" => Ok(DBCompressionType::Lz4),
+        "lz4hc" => Ok(DBCompressionType::Lz4hc),
+        "zstd" => Ok(DBCompressionType::Zstd),
+        other => anyhow::bail!("unknown compression type: {other}"),
+    }
+}
+
+pub fn parse_compression_per_level(s: &str) -> Result<Vec<DBCompressionType>> {
+    s.split(',').map(parse_compression_type).collect()
+}
 
 /// RocksDB tuning knobs exposed as env vars for per-deploy overrides.
 /// Concrete types — all values fully resolved at construction time.
@@ -71,6 +89,16 @@ pub struct RocksDbConfig {
     /// Whether the write buffer manager should stall writes when memory is full.
     /// false = backpressure handled at Kafka level instead.
     pub write_buffer_manager_allow_stall: bool,
+    /// Default compression type applied to all SST levels when compression_per_level is None.
+    pub compression_type: DBCompressionType,
+    /// Per-level compression overrides. When set, takes precedence over compression_type.
+    /// In Universal compaction, universal_compression_size_percent must be >= 0 for this to take effect.
+    pub compression_per_level: Option<Vec<DBCompressionType>>,
+    /// Compression override for the bottommost sorted run (e.g. Zstd for cold data).
+    pub bottommost_compression_type: Option<DBCompressionType>,
+    /// Controls what fraction of data is compressed in Universal compaction.
+    /// -1 = compress all (per-level settings ignored), >= 0 = enable per-level compression.
+    pub universal_compression_size_percent: i32,
 }
 
 impl Default for RocksDbConfig {
@@ -89,6 +117,10 @@ impl Default for RocksDbConfig {
             l0_slowdown_writes_trigger: DEFAULT_L0_SLOWDOWN_WRITES_TRIGGER,
             l0_stop_writes_trigger: DEFAULT_L0_STOP_WRITES_TRIGGER,
             write_buffer_manager_allow_stall: false,
+            compression_type: DBCompressionType::Lz4,
+            compression_per_level: None,
+            bottommost_compression_type: None,
+            universal_compression_size_percent: DEFAULT_UNIVERSAL_COMPRESSION_SIZE_PERCENT,
         }
     }
 }
@@ -121,7 +153,7 @@ pub fn init_shared_resources(config: &RocksDbConfig) {
     });
 }
 
-pub fn block_based_table_factory() -> BlockBasedOptions {
+fn block_based_table_options() -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
     // Bloom filter reduces full-key lookups during dedup checks
     block_opts.set_bloom_filter(BLOOM_FILTER_BITS_PER_KEY, false);
@@ -130,64 +162,80 @@ pub fn block_based_table_factory() -> BlockBasedOptions {
     block_opts.set_whole_key_filtering(true);
     block_opts.set_partition_filters(true);
     block_opts.set_pin_top_level_index_and_filter(true);
-    block_opts
-}
-
-fn rocksdb_options(config: &RocksDbConfig) -> Options {
-    // Ensure shared resources are initialized (idempotent fallback for tests)
-    init_shared_resources(config);
-
-    let mut opts = Options::default();
-    opts.create_if_missing(true);
-    opts.set_atomic_flush(true);
-    opts.create_missing_column_families(true);
-
-    // Universal compaction: lower write amplification for write-heavy workloads
-    // at the cost of higher space amplification — good for batch writes on slow PVC storage
-    opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
-    let mut universal_opts = rocksdb::UniversalCompactOptions::default();
-    universal_opts.set_size_ratio(UNIVERSAL_SIZE_RATIO);
-    universal_opts.set_min_merge_width(UNIVERSAL_MIN_MERGE_WIDTH);
-    universal_opts.set_max_merge_width(UNIVERSAL_MAX_MERGE_WIDTH);
-    universal_opts.set_max_size_amplification_percent(UNIVERSAL_MAX_SIZE_AMPLIFICATION_PERCENT);
-    universal_opts.set_compression_size_percent(UNIVERSAL_COMPRESSION_SIZE_PERCENT);
-    opts.set_universal_compaction_options(&universal_opts);
-
-    let mut block_opts = block_based_table_factory();
-
-    // Timestamp column family uses prefix extractor for 8-byte epoch-second keys
-    let mut ts_cf = Options::default();
-    ts_cf.set_block_based_table_factory(&block_opts);
-    ts_cf.set_prefix_extractor(SliceTransform::create_fixed_prefix(TIMESTAMP_PREFIX_LEN));
-
-    // CRITICAL: Use shared block cache across all stores
+    // Use shared block cache across all stores and column families
     block_opts.set_block_cache(
         SHARED_BLOCK_CACHE
             .get()
             .expect("shared block cache not initialized"),
     );
-    opts.set_block_based_table_factory(&block_opts);
+    block_opts
+}
 
-    // CRITICAL: Use shared write buffer manager to limit total memory
-    opts.set_write_buffer_manager(
-        SHARED_WRITE_BUFFER_MANAGER
-            .get()
-            .expect("shared write buffer manager not initialized"),
-    );
+/// Build column family options with all tuning from `RocksDbConfig`.
+/// CF options don't inherit from DB options, so this must explicitly set
+/// every option that matters for the CF's performance and compression.
+pub fn column_family_options(config: &RocksDbConfig) -> Options {
+    // Ensure shared resources are initialized (idempotent fallback for tests)
+    init_shared_resources(config);
+
+    let mut opts = Options::default();
+
+    opts.set_block_based_table_factory(&block_based_table_options());
 
     // Write buffer tuning — larger buffers = fewer flushes = less I/O on PVC storage.
-    // The shared write buffer manager caps total memory across all partition stores.
     opts.set_write_buffer_size(config.write_buffer_size_bytes);
     opts.set_max_write_buffer_number(MAX_WRITE_BUFFER_NUMBER);
     opts.set_min_write_buffer_number_to_merge(MIN_WRITE_BUFFER_NUMBER_TO_MERGE);
 
     opts.set_target_file_size_base(config.target_file_size_base_bytes);
 
+    // Universal compaction: lower write amplification for write-heavy workloads
+    opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
+    let mut universal_opts = rocksdb::UniversalCompactOptions::default();
+    universal_opts.set_size_ratio(UNIVERSAL_SIZE_RATIO);
+    universal_opts.set_min_merge_width(UNIVERSAL_MIN_MERGE_WIDTH);
+    universal_opts.set_max_merge_width(UNIVERSAL_MAX_MERGE_WIDTH);
+    universal_opts.set_max_size_amplification_percent(UNIVERSAL_MAX_SIZE_AMPLIFICATION_PERCENT);
+    universal_opts.set_compression_size_percent(config.universal_compression_size_percent);
+    opts.set_universal_compaction_options(&universal_opts);
+
+    // L0 compaction triggers
     opts.set_level_zero_file_num_compaction_trigger(config.l0_compaction_trigger);
     opts.set_level_zero_slowdown_writes_trigger(config.l0_slowdown_writes_trigger);
     opts.set_level_zero_stop_writes_trigger(config.l0_stop_writes_trigger);
 
-    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    // Compression
+    if let Some(ref per_level) = config.compression_per_level {
+        opts.set_compression_per_level(per_level);
+    } else {
+        opts.set_compression_type(config.compression_type);
+    }
+    if let Some(bottommost) = config.bottommost_compression_type {
+        opts.set_bottommost_compression_type(bottommost);
+        if bottommost == DBCompressionType::Zstd {
+            opts.set_bottommost_zstd_max_train_bytes(0, true);
+        }
+    }
+
+    opts
+}
+
+fn rocksdb_options(config: &RocksDbConfig) -> Options {
+    // Start with column_family_options() as the base — these settings apply to the
+    // default CF and are shared with custom CFs via column_family_options().
+    let mut opts = column_family_options(config);
+
+    // DB-level settings (not per-CF)
+    opts.create_if_missing(true);
+    opts.set_atomic_flush(true);
+    opts.create_missing_column_families(true);
+
+    // CRITICAL: Use shared write buffer manager to limit total memory across all stores
+    opts.set_write_buffer_manager(
+        SHARED_WRITE_BUFFER_MANAGER
+            .get()
+            .expect("shared write buffer manager not initialized"),
+    );
 
     // Limit background jobs to reduce I/O contention when many partitions share a disk
     opts.increase_parallelism(config.max_background_jobs);
@@ -902,5 +950,90 @@ mod tests {
 
         // Delta should account for all files in phase2 (either added or unchanged)
         assert!(total_delta_files >= total_phase2_files || sst_files_phase2.is_empty());
+    }
+
+    #[test]
+    fn test_parse_compression_type_valid() {
+        assert_eq!(
+            parse_compression_type("none").unwrap(),
+            DBCompressionType::None
+        );
+        assert_eq!(
+            parse_compression_type("lz4").unwrap(),
+            DBCompressionType::Lz4
+        );
+        assert_eq!(
+            parse_compression_type("lz4hc").unwrap(),
+            DBCompressionType::Lz4hc
+        );
+        assert_eq!(
+            parse_compression_type("zstd").unwrap(),
+            DBCompressionType::Zstd
+        );
+        assert_eq!(
+            parse_compression_type("snappy").unwrap(),
+            DBCompressionType::Snappy
+        );
+        assert_eq!(
+            parse_compression_type("zlib").unwrap(),
+            DBCompressionType::Zlib
+        );
+    }
+
+    #[test]
+    fn test_parse_compression_type_case_insensitive() {
+        assert_eq!(
+            parse_compression_type("LZ4").unwrap(),
+            DBCompressionType::Lz4
+        );
+        assert_eq!(
+            parse_compression_type("Zstd").unwrap(),
+            DBCompressionType::Zstd
+        );
+        assert_eq!(
+            parse_compression_type("  lz4  ").unwrap(),
+            DBCompressionType::Lz4
+        );
+    }
+
+    #[test]
+    fn test_parse_compression_type_invalid() {
+        assert!(parse_compression_type("brotli").is_err());
+        assert!(parse_compression_type("").is_err());
+    }
+
+    #[test]
+    fn test_parse_compression_per_level() {
+        let levels = parse_compression_per_level("none,none,lz4,lz4,lz4,lz4,lz4").unwrap();
+        assert_eq!(
+            levels,
+            vec![
+                DBCompressionType::None,
+                DBCompressionType::None,
+                DBCompressionType::Lz4,
+                DBCompressionType::Lz4,
+                DBCompressionType::Lz4,
+                DBCompressionType::Lz4,
+                DBCompressionType::Lz4,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_compression_per_level_mixed() {
+        let levels = parse_compression_per_level("none,lz4,zstd").unwrap();
+        assert_eq!(
+            levels,
+            vec![
+                DBCompressionType::None,
+                DBCompressionType::Lz4,
+                DBCompressionType::Zstd,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_compression_per_level_invalid_entry() {
+        assert!(parse_compression_per_level("none,invalid,lz4").is_err());
     }
 }

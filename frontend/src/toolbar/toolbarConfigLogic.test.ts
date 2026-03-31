@@ -684,7 +684,6 @@ describe('toolbar toolbarConfigLogic', () => {
 
             await expectLogic(logic).delay(0)
 
-            expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: PKCE verifier expired')
             // HEAD check fires but token exchange does not
             expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
             expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
@@ -703,7 +702,6 @@ describe('toolbar toolbarConfigLogic', () => {
 
             await expectLogic(logic).delay(0)
 
-            expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
             // HEAD check fires but token exchange does not
             expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
             expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
@@ -722,7 +720,6 @@ describe('toolbar toolbarConfigLogic', () => {
 
             await expectLogic(logic).delay(0)
 
-            expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
             // HEAD check fires but token exchange does not
             expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
             expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')

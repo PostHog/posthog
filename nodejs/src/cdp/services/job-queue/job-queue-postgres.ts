@@ -17,9 +17,10 @@ import {
 
 import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
-import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 
 export class CyclotronJobQueuePostgres {
@@ -27,7 +28,19 @@ export class CyclotronJobQueuePostgres {
     private cyclotronManager?: CyclotronManager
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(
+        private consumerBatchSize: number,
+        private config: Pick<
+            CdpConfig,
+            | 'CYCLOTRON_DATABASE_URL'
+            | 'CYCLOTRON_SHARD_DEPTH_LIMIT'
+            | 'CDP_CYCLOTRON_COMPRESS_VM_STATE'
+            | 'CDP_CYCLOTRON_USE_BULK_COPY_JOB'
+            | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
+            | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
+            | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
+        >
+    ) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -69,7 +82,7 @@ export class CyclotronJobQueuePostgres {
             },
             queueName: queue,
             includeVmState: true, // NOTE: We used to omit the vmstate but given we can requeue to kafka we need it
-            batchMaxSize: this.config.CONSUMER_BATCH_SIZE, // Use the common value
+            batchMaxSize: this.consumerBatchSize, // Use the common value
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
             shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,

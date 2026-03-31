@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode
+from posthog.schema import ActionsNode, EventsNode, FunnelsDataWarehouseNode
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -11,16 +11,16 @@ from posthog.hogql.visitor import clone_expr
 from posthog.hogql_queries.insights.funnels.utils import alias_columns_in_select, entity_config_mismatch
 
 
-def _data_warehouse_node(**overrides) -> DataWarehouseNode:
+def _funnels_data_warehouse_node(**overrides) -> FunnelsDataWarehouseNode:
     node_data: dict[str, str] = {
         "id": "payments",
         "table_name": "payments",
         "id_field": "id",
-        "distinct_id_field": "person_id",
+        "aggregation_target_field": "person_id",
         "timestamp_field": "created_at",
     }
     node_data.update(overrides)
-    return DataWarehouseNode(**node_data)
+    return FunnelsDataWarehouseNode(**node_data)
 
 
 class TestUtils(SimpleTestCase):
@@ -51,10 +51,10 @@ class TestUtils(SimpleTestCase):
             ("events_vs_events", EventsNode(event="$pageview"), EventsNode(event="$signup"), False),
             ("events_vs_actions", EventsNode(event="$pageview"), ActionsNode(id=1), False),
             ("events_vs_none", EventsNode(event="$pageview"), None, False),
-            ("events_vs_dwh", EventsNode(event="$pageview"), _data_warehouse_node(), True),
-            ("dwh_vs_actions", _data_warehouse_node(), ActionsNode(id=1), True),
-            ("dwh_vs_none", _data_warehouse_node(), None, True),
-            ("dwh_vs_events", _data_warehouse_node(), EventsNode(event="$pageview"), True),
+            ("events_vs_dwh", EventsNode(event="$pageview"), _funnels_data_warehouse_node(), True),
+            ("dwh_vs_actions", _funnels_data_warehouse_node(), ActionsNode(id=1), True),
+            ("dwh_vs_none", _funnels_data_warehouse_node(), None, True),
+            ("dwh_vs_events", _funnels_data_warehouse_node(), EventsNode(event="$pageview"), True),
         ]
     )
     def test_entity_config_mismatch_for_entity_types(
@@ -67,7 +67,7 @@ class TestUtils(SimpleTestCase):
             ("same_config", {}, {}, False),
             ("different_table_name", {}, {"table_name": "other_table"}, True),
             ("different_id_field", {}, {"id_field": "other_id"}, True),
-            ("different_distinct_id_field", {}, {"distinct_id_field": "other_distinct_id"}, True),
+            ("different_aggregation_target_field", {}, {"aggregation_target_field": "other_aggregation_target"}, True),
             ("different_timestamp_field", {}, {"timestamp_field": "other_timestamp"}, True),
         ]
     )
@@ -78,7 +78,7 @@ class TestUtils(SimpleTestCase):
         table_overrides: dict[str, str],
         expected_mismatch: bool,
     ) -> None:
-        step_entity = _data_warehouse_node(**step_overrides)
-        table_entity = _data_warehouse_node(**table_overrides)
+        step_entity = _funnels_data_warehouse_node(**step_overrides)
+        table_entity = _funnels_data_warehouse_node(**table_overrides)
 
         assert entity_config_mismatch(step_entity, table_entity) is expected_mismatch

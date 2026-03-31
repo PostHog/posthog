@@ -5,11 +5,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { FunnelLayout } from 'lib/constants'
-import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
 // eslint-disable-next-line import/no-cycle
-import { animate, getOrCreateEl, wrap } from 'lib/utils/d3Utils'
+import { animate, getOrCreateEl, wrap } from 'lib/d3/utils'
+import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+// eslint-disable-next-line import/no-cycle
 import { histogramLogic } from 'scenes/insights/views/Histogram/histogramLogic'
 
 import { D3HistogramDatum, INITIAL_CONFIG, createRoundedRectPath, getConfig } from './histogramUtils'

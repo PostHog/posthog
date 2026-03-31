@@ -41,10 +41,6 @@ from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
 )
-from posthog.temporal.delete_recordings import (
-    ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
-    WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
-)
 from posthog.temporal.dlq_replay import (
     ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
     WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
@@ -52,10 +48,6 @@ from posthog.temporal.dlq_replay import (
 from posthog.temporal.ducklake import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
-)
-from posthog.temporal.enforce_max_replay_retention import (
-    ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
-    WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
 from posthog.temporal.event_screenshots import (
     ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
@@ -65,9 +57,9 @@ from posthog.temporal.experiments import (
     ACTIVITIES as EXPERIMENTS_ACTIVITIES,
     WORKFLOWS as EXPERIMENTS_WORKFLOWS,
 )
-from posthog.temporal.export_recording import (
-    ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
-    WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
+from posthog.temporal.exports import (
+    ACTIVITIES as EXPORT_ACTIVITIES,
+    WORKFLOWS as EXPORT_WORKFLOWS,
 )
 from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
@@ -76,10 +68,6 @@ from posthog.temporal.exports_video import (
 from posthog.temporal.health_checks import (
     ACTIVITIES as HEALTH_CHECK_ACTIVITIES,
     WORKFLOWS as HEALTH_CHECK_WORKFLOWS,
-)
-from posthog.temporal.import_recording import (
-    ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
-    WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
 )
 from posthog.temporal.ingestion_acceptance_test import (
     ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
@@ -112,6 +100,26 @@ from posthog.temporal.quota_limiting import (
 from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
+)
+from posthog.temporal.session_replay.delete_recordings import (
+    ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
+    WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
+)
+from posthog.temporal.session_replay.enforce_max_replay_retention import (
+    ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
+    WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
+)
+from posthog.temporal.session_replay.export_recording import (
+    ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
+    WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
+)
+from posthog.temporal.session_replay.import_recording import (
+    ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
+    WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
+)
+from posthog.temporal.session_replay.rasterize_recording import (
+    ACTIVITIES as RASTERIZE_RECORDING_ACTIVITIES,
+    WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS,
 )
 from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
@@ -187,8 +195,7 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
-        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
-        + HEALTH_CHECK_WORKFLOWS,
+        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
@@ -200,8 +207,12 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
-        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
-        + HEALTH_CHECK_ACTIVITIES,
+        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
+    ),
+    (
+        settings.HEALTH_CHECK_TASK_QUEUE,
+        HEALTH_CHECK_WORKFLOWS,
+        HEALTH_CHECK_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,
@@ -210,8 +221,8 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        SUBSCRIPTION_WORKFLOWS,
-        SUBSCRIPTION_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS,
+        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,
@@ -243,11 +254,13 @@ _task_queue_specs = [
         DELETE_RECORDING_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + EXPORT_RECORDING_WORKFLOWS
-        + IMPORT_RECORDING_WORKFLOWS,
+        + IMPORT_RECORDING_WORKFLOWS
+        + RASTERIZE_RECORDING_WORKFLOWS,
         DELETE_RECORDING_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + EXPORT_RECORDING_ACTIVITIES
-        + IMPORT_RECORDING_ACTIVITIES,
+        + IMPORT_RECORDING_ACTIVITIES
+        + RASTERIZE_RECORDING_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
@@ -352,16 +365,19 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--graceful-shutdown-timeout-seconds",
+            type=int,
             default=settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
             help="Time that the worker will wait after shutdown before canceling activities, in seconds",
         )
         parser.add_argument(
             "--max-concurrent-workflow-tasks",
+            type=int,
             default=settings.MAX_CONCURRENT_WORKFLOW_TASKS,
             help="Maximum number of concurrent workflow tasks for this worker",
         )
         parser.add_argument(
             "--max-concurrent-activities",
+            type=int,
             default=settings.MAX_CONCURRENT_ACTIVITIES,
             help="Maximum number of concurrent activity tasks for this worker",
         )
@@ -373,11 +389,13 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--target-memory-usage",
+            type=float,
             default=settings.TARGET_MEMORY_USAGE,
             help="Fraction of available memory to use",
         )
         parser.add_argument(
             "--target-cpu-usage",
+            type=float,
             default=settings.TARGET_CPU_USAGE,
             help="Fraction of available CPU to use",
         )

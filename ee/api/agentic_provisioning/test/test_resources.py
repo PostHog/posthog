@@ -1,5 +1,7 @@
 from django.test import override_settings
 
+from posthog.models.personal_api_key import PersonalAPIKey
+
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
 
 
@@ -9,7 +11,7 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "product_analytics"},
+            data={"service_id": "analytics"},
             token=token,
         )
         assert res.status_code == 200
@@ -47,13 +49,13 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         assert res.status_code == 400
 
     def test_create_resource_missing_bearer_returns_401(self):
-        res = self._post_signed("/api/agentic/provisioning/resources", data={"service_id": "product_analytics"})
+        res = self._post_signed("/api/agentic/provisioning/resources", data={"service_id": "analytics"})
         assert res.status_code == 401
 
     def test_create_resource_invalid_bearer_returns_401(self):
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "product_analytics"},
+            data={"service_id": "analytics"},
             token="pha_invalid_token",
         )
         assert res.status_code == 401
@@ -66,14 +68,14 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         token = self._get_bearer_token()
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "session_replay"},
+            data={"service_id": "analytics"},
             token=token,
         )
         res = self._get_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}",
             token=token,
         )
-        assert res.json()["service_id"] == "session_replay"
+        assert res.json()["service_id"] == "analytics"
 
     def test_get_resource_defaults_service_id_without_create(self):
         token = self._get_bearer_token()
@@ -81,9 +83,9 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             f"/api/agentic/provisioning/resources/{self.team.id}",
             token=token,
         )
-        assert res.json()["service_id"] == "posthog"
+        assert res.json()["service_id"] == "analytics"
 
-    def test_create_resource_defaults_service_id_to_posthog(self):
+    def test_create_resource_defaults_service_id_to_analytics(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -91,4 +93,64 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             token=token,
         )
         assert res.status_code == 200
-        assert res.json()["service_id"] == "posthog"
+        assert res.json()["service_id"] == "analytics"
+
+    def test_create_resource_includes_personal_api_key(self):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 200
+        personal_api_key = res.json()["complete"]["access_configuration"]["personal_api_key"]
+        assert personal_api_key.startswith("phx_")
+
+    def test_create_resource_creates_pat_for_user(self):
+        initial_count = PersonalAPIKey.objects.filter(user=self.user).count()
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count + 1
+
+    def test_create_resource_pat_label_contains_stripe_projects(self):
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert pat.label.startswith("Stripe Projects")
+
+    def test_create_resource_does_not_delete_existing_pats(self):
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        first_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        assert first_pat is not None
+
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        stripe_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
+        assert stripe_pats.count() == 2
+        assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
+
+    def test_get_resource_does_not_include_personal_api_key(self):
+        token = self._get_bearer_token()
+        res = self._get_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}",
+            token=token,
+        )
+        assert res.status_code == 200
+        assert "personal_api_key" not in res.json()["complete"]["access_configuration"]

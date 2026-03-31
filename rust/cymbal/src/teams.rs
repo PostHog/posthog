@@ -14,6 +14,7 @@ use crate::{
     pipeline::IncomingEvent,
     sanitize_string,
     spike_config::SpikeDetectionConfig,
+    suppression_rules::SuppressionRule,
     WithIndices,
 };
 
@@ -22,6 +23,7 @@ pub struct TeamManager {
     pub token_cache: Cache<String, Option<Team>>,
     pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
     pub grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
+    pub suppression_rules: Cache<TeamId, Vec<SuppressionRule>>,
     pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
     pub spike_detection_configs: Cache<TeamId, Option<SpikeDetectionConfig>>,
 }
@@ -54,6 +56,15 @@ impl TeamManager {
             })
             .build();
 
+        let suppression_rules = CacheBuilder::new(config.max_suppression_rule_cache_size)
+            .time_to_live(Duration::from_secs(config.suppression_rule_cache_ttl_secs))
+            .weigher(|_, v: &Vec<SuppressionRule>| {
+                v.iter()
+                    .map(|rule| rule.bytecode.as_array().map_or(0, Vec::len) as u32)
+                    .sum()
+            })
+            .build();
+
         let spike_detection_configs = CacheBuilder::new(config.max_team_cache_size)
             .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
             .build();
@@ -62,6 +73,7 @@ impl TeamManager {
             token_cache: cache,
             assignment_rules,
             grouping_rules,
+            suppression_rules,
             group_type_indices,
             spike_detection_configs,
         }
@@ -131,6 +143,26 @@ impl TeamManager {
         // If we have no rules for the team, we just put an empty vector in the cache
         let rules = GroupingRule::load_for_team(e, team_id).await?;
         self.grouping_rules.insert(team_id, rules.clone());
+        Ok(rules)
+    }
+
+    pub async fn get_suppression_rules<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<Vec<SuppressionRule>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(rules) = self.suppression_rules.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "suppression_rules", "outcome" => "hit")
+                .increment(1);
+            return Ok(rules.clone());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "suppression_rules", "outcome" => "miss")
+            .increment(1);
+        let rules = SuppressionRule::load_for_team(e, team_id).await?;
+        self.suppression_rules.insert(team_id, rules.clone());
         Ok(rules)
     }
 

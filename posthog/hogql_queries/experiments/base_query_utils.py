@@ -31,9 +31,10 @@ from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
 )
 from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Experiment
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
+from products.experiments.backend.models.experiment import Experiment
 
 
 def is_session_property_metric(source: Union[EventsNode, ActionsNode]) -> bool:

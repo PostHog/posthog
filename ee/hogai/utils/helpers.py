@@ -36,13 +36,19 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
-from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantDispatcherEvent, AssistantMessageUnion
+from ee.hogai.utils.types.base import (
+    ArtifactRefMessage,
+    AssistantDispatcherEvent,
+    AssistantMessageUnion,
+    ConversationTitleAction,
+)
 
 
 def remove_line_breaks(line: str) -> str:
@@ -158,7 +164,8 @@ def _process_events_data(
     """Common logic for processing events and building event data."""
     query = TeamTaxonomyQuery(limit=limit, offset=offset)
     response = TeamTaxonomyQueryRunner(query, team).run(
-        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+        analytics_props={"source": EventSource.POSTHOG_AI},
     )
 
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
@@ -389,7 +396,7 @@ def extract_stream_update(update: Any) -> Any:
         # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
         update = update[2]
 
-    if isinstance(update, AssistantDispatcherEvent):
+    if isinstance(update, (AssistantDispatcherEvent, ConversationTitleAction)):
         return update
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name

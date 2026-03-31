@@ -11,7 +11,7 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.api.documentation import extend_schema
+from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -57,6 +57,16 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
         model = ErrorTrackingIssue
         fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues", "cohort"]
 
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "id": {"type": "integer"},
+                "name": {"type": "string"},
+            },
+        }
+    )
     def get_cohort(self, instance):
         first_cohort = instance.cohorts.filter(cohort__deleted=False).first()
         return {"id": first_cohort.cohort_id, "name": first_cohort.cohort.name} if first_cohort is not None else None
@@ -305,6 +315,7 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
             issue_id=issue.id,
             defaults={
+                "team_id": issue.team_id,
                 "user_id": None if assignee["type"] != "user" else assignee["id"],
                 "role_id": None if assignee["type"] != "role" else assignee["id"],
             },

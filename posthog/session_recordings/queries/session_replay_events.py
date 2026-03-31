@@ -8,9 +8,9 @@ import pytz
 from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
-from posthog.session_recordings.models.metadata import RecordingBlockListing, RecordingMetadata
+from posthog.session_recordings.models.metadata import RecordingMetadata
 
 DEFAULT_EVENT_FIELDS = [
     "event",
@@ -94,7 +94,7 @@ class SessionReplayEvents:
 
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = sync_execute(
             """
             SELECT
@@ -188,7 +188,7 @@ class SessionReplayEvents:
                 "now": now,
             },
         )
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return []
@@ -221,7 +221,7 @@ class SessionReplayEvents:
                 "max_timestamp": max_timestamp,
             },
         )
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return set()
@@ -282,45 +282,6 @@ class SessionReplayEvents:
         return query
 
     @staticmethod
-    def get_block_listing_query(
-        recording_start_time: Optional[datetime] = None,
-        format: Optional[str] = None,
-    ) -> LiteralString:
-        """
-        Helper function to build a query for session metadata, to be able to use
-        both in production and locally (for example, when testing session summary)
-        """
-        query = """
-                SELECT
-                    min(min_first_timestamp) as start_time,
-                    groupArrayArray(block_first_timestamps) as block_first_timestamps,
-                    groupArrayArray(block_last_timestamps) as block_last_timestamps,
-                    groupArrayArray(block_urls) as block_urls,
-                    max(retention_period_days) as retention_period_days,
-                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
-                FROM
-                    session_replay_events
-                PREWHERE
-                    team_id = %(team_id)s
-                    AND session_id = %(session_id)s
-                    AND min_first_timestamp <= %(python_now)s
-                    {optional_timestamp_clause}
-                GROUP BY
-                    session_id
-                HAVING
-                    expiry_time >= %(python_now)s
-                    AND max(is_deleted) = 0
-                {optional_format_clause}
-                """
-        query = query.format(
-            optional_timestamp_clause=(
-                "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
-            ),
-            optional_format_clause=(f"FORMAT {format}" if format else ""),
-        )
-        return query
-
-    @staticmethod
     def build_recording_metadata(session_id: str, replay_response: list[tuple]) -> Optional[RecordingMetadata]:
         if len(replay_response) == 0:
             return None
@@ -357,7 +318,7 @@ class SessionReplayEvents:
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query(recording_start_time)
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -428,7 +389,7 @@ class SessionReplayEvents:
                 expiry_time >= %(python_now)s
                 AND max(is_deleted) = 0
         """
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -447,42 +408,6 @@ class SessionReplayEvents:
             if metadata:
                 result[session_id] = metadata
         return result
-
-    @staticmethod
-    def build_recording_block_listing(session_id: str, replay_response: list[tuple]) -> Optional[RecordingBlockListing]:
-        if len(replay_response) == 0:
-            return None
-        if len(replay_response) > 1:
-            raise ValueError("Multiple sessions found for session_id: {}".format(session_id))
-
-        replay = replay_response[0]
-
-        return RecordingBlockListing(
-            start_time=replay[0],
-            block_first_timestamps=replay[1],
-            block_last_timestamps=replay[2],
-            block_urls=replay[3],
-        )
-
-    def list_blocks(
-        self,
-        session_id: str,
-        team: Team,
-        recording_start_time: Optional[datetime] = None,
-    ) -> Optional[RecordingBlockListing]:
-        query = self.get_block_listing_query(recording_start_time)
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
-        replay_response: list[tuple] = sync_execute(
-            query,
-            {
-                "team_id": team.pk,
-                "session_id": session_id,
-                "recording_start_time": recording_start_time,
-                "python_now": datetime.now(pytz.timezone("UTC")),
-            },
-        )
-        recording_metadata = self.build_recording_block_listing(session_id, replay_response)
-        return recording_metadata
 
     def get_events_query(
         self,
@@ -548,7 +473,7 @@ class SessionReplayEvents:
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
         hq = self.get_events_query(session_id, metadata, events_to_ignore, extra_fields, limit, page)
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
             query=hq,
@@ -705,7 +630,7 @@ def get_person_emails_for_session_ids(
             "max_timestamp": max_timestamp,
         },
     )
-    tag_queries(product=Product.REPLAY, team_id=team_id)
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team_id)
     result = HogQLQueryRunner(team=team, query=query).calculate()
     email_mapping: dict[str, str | None] = dict.fromkeys(session_ids)
     if result.results:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import math
+import datetime
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -13,6 +14,7 @@ import pyarrow as pa
 import pymysql
 import pymysql.converters
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
@@ -30,6 +32,45 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
+
+
+def _safe_convert_date(obj: Any) -> datetime.date | None:
+    """Convert MySQL date, returning None for invalid dates like '0000-00-00'."""
+    if isinstance(obj, (bytes, bytearray)):
+        obj = obj.decode("utf-8")
+    try:
+        parts = obj.split("-", 2)
+        return datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+    except (ValueError, IndexError, AttributeError):
+        return None
+
+
+def _safe_convert_datetime(obj: Any) -> datetime.datetime | None:
+    """Convert MySQL datetime/timestamp, returning None for invalid values like '0000-00-00 00:00:00'."""
+    if isinstance(obj, (bytes, bytearray)):
+        obj = obj.decode("utf-8")
+    try:
+        date_part, time_part = obj.split(" ", 1)
+        date_values = [int(x) for x in date_part.split("-", 2)]
+        time_parts = time_part.split(":", 2)
+        hours = int(time_parts[0])
+        minutes = int(time_parts[1])
+        # Handle optional microseconds
+        sec_parts = time_parts[2].split(".", 1)
+        seconds = int(sec_parts[0])
+        microseconds = int(sec_parts[1].ljust(6, "0")) if len(sec_parts) > 1 else 0
+        return datetime.datetime(date_values[0], date_values[1], date_values[2], hours, minutes, seconds, microseconds)
+    except (ValueError, IndexError, AttributeError):
+        return None
+
+
+# Custom conversions that return None for MySQL zero dates instead of raw strings
+_MYSQL_SAFE_CONVERSIONS: dict[type[object] | int, Any] = {
+    **pymysql.converters.conversions,
+    FIELD_TYPE.DATE: _safe_convert_date,
+    FIELD_TYPE.DATETIME: _safe_convert_datetime,
+    FIELD_TYPE.TIMESTAMP: _safe_convert_datetime,
+}
 
 
 def filter_mysql_incremental_fields(
@@ -73,7 +114,7 @@ def get_schemas(
         database=database,
         user=user,
         password=password,
-        connect_timeout=5,
+        connect_timeout=10,
         ssl_ca=ssl_ca,
     )
 
@@ -148,7 +189,7 @@ def _get_rows_to_sync(
     cursor: Cursor, inner_query: str, inner_query_args: dict[str, Any], logger: FilteringBoundLogger
 ) -> int:
     try:
-        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+        query = f"SELECT /*+ MAX_EXECUTION_TIME(60000) */ COUNT(*) FROM ({inner_query}) as t"
 
         cursor.execute(query, inner_query_args)
         row = cursor.fetchone()
@@ -171,59 +212,75 @@ def _get_rows_to_sync(
 
 
 def _get_partition_settings(
-    cursor: Cursor, schema: str, table_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 ) -> PartitionSettings | None:
     """Get partition settings for given MySQL table.
 
-    To obtain partition settings, we look up `DATA_LENGTH` from
-    `INFORMATION_SCHEMA.TABLES`. Keep in mind that `DATA_LENGTH` only includes
-    size of values in clustered index. Notably, types like `TEXT` do not store
-    their values in the index, so the size will be underestimated if fields like
-    that are present. This could lead to larger than expected partitions.
+    To obtain partition settings, we look up `DATA_LENGTH` and `TABLE_ROWS`
+    from `INFORMATION_SCHEMA.TABLES`. Keep in mind that `DATA_LENGTH` only
+    includes size of values in clustered index. Notably, types like `TEXT` do
+    not store their values in the index, so the size will be underestimated
+    if fields like that are present. This could lead to larger than expected
+    partitions.
 
-    We obtain the row count by counting the table directly, as `TABLE_ROWS` can
-    be out of date by a large factor depending on how recently have table
-    statistics been computed.
+    `TABLE_ROWS` is an InnoDB estimate and can be imprecise, but it is
+    sufficient for partition sizing and avoids a potentially expensive
+    `COUNT(*)` full table scan that can cause connection timeouts on large
+    tables.
     """
-    query = """
-    SELECT
-        t.DATA_LENGTH AS table_size,
-        (SELECT COUNT(*) FROM `{schema_identifier}`.`{table_name_identifier}`) AS row_count
-    FROM
-        information_schema.TABLES AS t
-    WHERE
-        t.TABLE_SCHEMA = %(schema)s
-        AND t.TABLE_NAME = %(table_name)s
-    """.format(
-        schema_identifier=pymysql.converters.escape_string(schema),
-        table_name_identifier=pymysql.converters.escape_string(table_name),
-    )
+    try:
+        query = """
+        SELECT
+            t.DATA_LENGTH AS table_size,
+            t.TABLE_ROWS AS row_count
+        FROM
+            information_schema.TABLES AS t
+        WHERE
+            t.TABLE_SCHEMA = %(schema)s
+            AND t.TABLE_NAME = %(table_name)s
+        """
 
-    cursor.execute(
-        query,
-        {
-            "schema": schema,
-            "table_name": table_name,
-        },
-    )
-    result = cursor.fetchone()
-    if result is None:
+        logger.debug(f"_get_partition_settings: running query {query}")
+
+        cursor.execute(
+            query,
+            {
+                "schema": schema,
+                "table_name": table_name,
+            },
+        )
+        result = cursor.fetchone()
+        if result is None:
+            logger.debug("_get_partition_settings: no results returning None")
+            return None
+
+        table_size, row_count = result
+
+        if table_size is None or row_count is None or row_count == 0:
+            logger.debug(
+                "_get_partition_settings: table_size is None or row_count is None or row_count == 0. returning None"
+            )
+            return None
+
+        avg_row_size = table_size / row_count
+        # Partition must have at least one row
+        partition_size = max(round(partition_size_bytes / avg_row_size), 1)
+        partition_count = math.floor(row_count / partition_size)
+
+        if partition_count == 0:
+            logger.debug(f"_get_partition_settings: partition_count == 0, returning partition_size={partition_size}")
+            return PartitionSettings(partition_count=1, partition_size=partition_size)
+
+        logger.debug(f"_get_partition_settings: partition_count={partition_count}, partition_size={partition_size}")
+        return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
+    except Exception as e:
+        logger.debug(f"_get_partition_settings: Error: {e}. Returning None", exc_info=e)
+        capture_exception(e)
         return None
-
-    table_size, row_count = result
-
-    if table_size is None or row_count is None or row_count == 0:
-        return None
-
-    avg_row_size = table_size / row_count
-    # Partition must have at least one row
-    partition_size = max(round(partition_size_bytes / avg_row_size), 1)
-    partition_count = math.floor(row_count / partition_size)
-
-    if partition_count == 0:
-        return PartitionSettings(partition_count=1, partition_size=partition_size)
-
-    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
 def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str] | None:
@@ -312,9 +369,13 @@ class MySQLColumn(Column):
             case "varchar" | "char" | "text" | "mediumtext" | "longtext":
                 arrow_type = pa.string()
             case "date":
+                # MySQL allows zero dates ('0000-00-00') which become None,
+                # so date columns must always be nullable in the Arrow schema
                 arrow_type = pa.date32()
+                return pa.field(self.name, arrow_type, nullable=True)
             case "datetime" | "timestamp":
                 arrow_type = pa.timestamp("us")
+                return pa.field(self.name, arrow_type, nullable=True)
             case "time":
                 arrow_type = pa.time64("us")
             case "boolean" | "bool":
@@ -515,8 +576,9 @@ def mysql_source(
             database=database,
             user=user,
             password=password,
-            connect_timeout=5,
+            connect_timeout=10,
             ssl_ca=ssl_ca,
+            conv=_MYSQL_SAFE_CONVERSIONS,
         ) as connection:
             with connection.cursor() as cursor:
                 inner_query, inner_query_args = _build_query(
@@ -543,7 +605,9 @@ def mysql_source(
                     logger,
                 )
                 partition_settings = (
-                    _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
+                    _get_partition_settings(cursor, schema, table_name, logger)
+                    if should_use_incremental_field
+                    else None
                 )
 
                 # Fallback on checking for an `id` field on the table
@@ -563,9 +627,10 @@ def mysql_source(
                 database=database,
                 user=user,
                 password=password,
-                connect_timeout=5,
+                connect_timeout=10,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
+                conv=_MYSQL_SAFE_CONVERSIONS,
             ) as connection:
                 with connection.cursor(SSCursor) as cursor:
                     query, args = _build_query(

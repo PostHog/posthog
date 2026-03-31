@@ -28,7 +28,17 @@ Classifies user messages from `$ai_generation` events using an ONNX model
 
 ## Local development
 
-Install the sentiment dependency group:
+### Using hogli (recommended)
+
+If you enable the `llm_analytics` intent via `hogli dev:setup`, the sentiment
+dependencies and ONNX model download are handled automatically. The temporal-worker
+startup prepends `uv sync --group sentiment --inexact && uv run --group sentiment bin/download-sentiment-model`
+to its shell command, so no manual steps are needed. Packages are cached by uv,
+so re-installs after the first run are fast (~1–2s).
+
+### Manual setup
+
+If you aren't using hogli, install the sentiment dependency group:
 
 ```bash
 uv sync --group sentiment
@@ -42,10 +52,10 @@ if it's missing from `ONNX_CACHE_DIR` (default `/tmp/posthog-sentiment-onnx-cach
 In production the model is baked into the Docker image at build time
 (see `Dockerfile.llm-analytics`).
 
-To download the model locally for development:
+To download the model locally:
 
 ```bash
-bin/download-sentiment-model
+uv run --group sentiment bin/download-sentiment-model
 ```
 
 This is a no-op if the model already exists.

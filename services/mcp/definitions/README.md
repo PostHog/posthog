@@ -6,7 +6,6 @@ endpoints.
 
 ## How it works
 
-The pipeline turns YAML configs + the Django OpenAPI schema into ready-to-use TypeScript
 tool handlers and Zod validation schemas. Operations are discovered by matching URL paths
 against product names (e.g., `error_tracking` matches all paths containing `/error_tracking/`),
 same approach as the frontend type generator.
@@ -15,7 +14,7 @@ same approach as the frontend type generator.
 OpenAPI schema (Django)
         │
         ▼
-  scaffold-yaml          ← discovers operations by URL path, writes YAML stubs
+  scaffold-yaml          ← discovers operations by tag + URL path, writes YAML stubs
         │
         ▼
   YAML definitions       ← product teams enable tools, add scopes/annotations/descriptions
@@ -81,7 +80,9 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 
 This is idempotent and non-destructive — it only adds newly discovered operations
 (with `enabled: false`) and removes stale ones. All hand-authored configuration
-(descriptions, scopes, annotations, etc.) is preserved. CI runs this as a drift check.
+(descriptions, scopes, annotations, etc.) is preserved.
+
+CI runs this as a drift check.
 
 ## YAML schema reference
 
@@ -109,6 +110,7 @@ tools:
     enrich_url: '{id}' # appended to url_prefix for result URLs
     exclude_params: [field] # hide params from tool input
     include_params: [field] # whitelist params (excludes all others)
+    requires_ai_consent: true # gate behind org AI data processing consent
     param_overrides: # override individual param descriptions or schemas
       name:
         description: Custom description

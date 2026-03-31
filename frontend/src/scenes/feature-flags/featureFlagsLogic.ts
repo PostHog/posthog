@@ -7,6 +7,8 @@ import { PaginationManual } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
+import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,11 +21,34 @@ import type { featureFlagsLogicType } from './featureFlagsLogicType'
 export const FLAGS_PER_PAGE = 100
 
 export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
-    if (!search) {
+    if (!search?.trim()) {
         return true
     }
-    const s = search.toLowerCase()
-    return flag.key.toLowerCase().includes(s) || !!flag.name?.toLowerCase().includes(s)
+
+    const searchValue = search.trim().toLowerCase()
+    const keyLower = flag.key.toLowerCase()
+    const nameLower = flag.name?.toLowerCase() || ''
+
+    // Get experiment names from experiment_set_metadata, filtering out null/undefined names
+    const experimentNames =
+        flag.experiment_set_metadata
+            ?.map((exp) => exp.name?.toLowerCase())
+            .filter(Boolean)
+            .join(' ') || ''
+
+    // Use regex pattern matching like the backend - escape metacharacters then replace spaces with word boundary pattern
+    const escapedSearchValue = searchValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regexPattern = escapedSearchValue.replace(/\s+/g, '[\\s\\-_]*')
+
+    try {
+        const regex = new RegExp(regexPattern, 'i')
+        return regex.test(keyLower) || regex.test(nameLower) || regex.test(experimentNames)
+    } catch {
+        // Fallback to simple case-insensitive substring search if regex fails
+        return (
+            keyLower.includes(searchValue) || nameLower.includes(searchValue) || experimentNames.includes(searchValue)
+        )
+    }
 }
 
 export function flagMatchesStatus(flag: FeatureFlagType, active?: string): boolean {
@@ -152,14 +177,28 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     }
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
-                    const response = await api.update(
-                        `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                        payload
-                    )
-                    const updatedFlags = [...values.featureFlags.results].map((flag) =>
-                        flag.id === response.id ? response : flag
-                    )
-                    return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
+                    try {
+                        const response = await api.update(
+                            `api/projects/${values.currentProjectId}/feature_flags/${id}`,
+                            payload
+                        )
+                        const updatedFlags = [...values.featureFlags.results].map((flag) =>
+                            flag.id === response.id ? response : flag
+                        )
+                        return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
+                    } catch (e: any) {
+                        if (e.status === 409 && e.data?.change_request_id) {
+                            const actionDescription =
+                                payload.active === true
+                                    ? 'enable this feature flag'
+                                    : payload.active === false
+                                      ? 'disable this feature flag'
+                                      : 'update this feature flag'
+                            showApprovalRequiredToast(e.data.change_request_id, actionDescription)
+                            dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: id })
+                        }
+                        throw e
+                    }
                 },
             },
         ],
@@ -340,6 +379,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 replace = true
             }
             searchParams['tab'] = values.activeTab
+
+            // Preserve the activity deep-link param only when on the history tab
+            const currentActivity = router.values.searchParams['activity']
+            if (currentActivity && values.activeTab === FeatureFlagsTab.HISTORY) {
+                searchParams['activity'] = currentActivity
+            }
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
         }

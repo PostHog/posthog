@@ -6,11 +6,11 @@ from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import filters, mixins, serializers, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -21,13 +21,13 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDR
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.schema import EmbeddingModelName
-
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models import Team
 from posthog.permissions import APIScopePermission
 from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
 from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
@@ -53,10 +53,9 @@ from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
+from products.signals.backend.utils import EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
-
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -87,6 +86,48 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             source_product=data["source_product"],
             source_type=data["source_type"],
             source_id=str(uuid.uuid4()),
+            description=data["description"],
+            weight=data["weight"],
+            extra=data["extra"],
+        )
+
+        return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
+
+
+class InternalEmitSignalSerializer(serializers.Serializer):
+    source_product = serializers.CharField(max_length=100)
+    source_type = serializers.CharField(max_length=100)
+    source_id = serializers.CharField(max_length=512)
+    description = serializers.CharField()
+    weight = serializers.FloatField(default=0.5, min_value=0.0, max_value=1.0)
+    extra = serializers.DictField(required=False, default=dict)
+
+
+class InternalSignalViewSet(viewsets.ViewSet):
+    """
+    Internal-only endpoint for service-to-service signal emission (e.g. from cymbal).
+    Authenticated via X-Internal-Api-Secret header, not exposed to external ingress.
+    """
+
+    authentication_classes = [InternalAPIAuthentication]
+
+    @extend_schema(exclude=True)
+    def emit(self, request: Request, team_id: str, *args, **kwargs):
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = InternalEmitSignalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+
+        async_to_sync(emit_signal)(
+            team=team,
+            source_product=data["source_product"],
+            source_type=data["source_type"],
+            source_id=data["source_id"],
             description=data["description"],
             weight=data["weight"],
             extra=data["extra"],
@@ -213,9 +254,15 @@ class SignalReportViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReport.objects.all()
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ["signal_count", "total_weight", "created_at", "updated_at"]
-    ordering = ["-signal_count"]
+    _DEFAULT_SIGNAL_REPORT_ORDERING = "status,-updated_at"
+    _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
+        "status": "pipeline_status_rank",
+        "signal_count": "signal_count",
+        "total_weight": "total_weight",
+        "created_at": "created_at",
+        "updated_at": "updated_at",
+        "id": "id",
+    }
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team).annotate(artefact_count=Count("artefacts"))
@@ -229,7 +276,66 @@ class SignalReportViewSet(
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+        # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
+        qs = qs.annotate(
+            pipeline_status_rank=Case(
+                When(status=SignalReport.Status.READY, then=Value(0)),
+                When(status=SignalReport.Status.PENDING_INPUT, then=Value(1)),
+                When(status=SignalReport.Status.IN_PROGRESS, then=Value(2)),
+                When(status=SignalReport.Status.CANDIDATE, then=Value(3)),
+                When(status=SignalReport.Status.POTENTIAL, then=Value(4)),
+                When(status=SignalReport.Status.FAILED, then=Value(5)),
+                When(status=SignalReport.Status.SUPPRESSED, then=Value(6)),
+                When(status=SignalReport.Status.DELETED, then=Value(7)),
+                default=Value(50),
+                output_field=IntegerField(),
+            )
+        )
+        qs = qs.prefetch_related(
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+                ).order_by("-created_at"),
+                to_attr="prefetched_priority_artefacts",
+            )
+        )
         return qs
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        return self._apply_signal_report_ordering(queryset)
+
+    def _parse_ordering_string(self, raw: str) -> list[str]:
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        clauses: list[str] = []
+        for part in parts:
+            descending = part.startswith("-")
+            name = part[1:] if descending else part
+            db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
+            if db_field is None:
+                return self._default_signal_report_ordering_clauses
+            clause = f"-{db_field}" if descending else db_field
+            clauses.append(clause)
+        return clauses
+
+    @property
+    def _default_signal_report_ordering_clauses(self) -> list[str]:
+        return self._parse_ordering_string(self._DEFAULT_SIGNAL_REPORT_ORDERING)
+
+    def _parse_signal_report_ordering(self) -> list[str]:
+        raw = self.request.query_params.get("ordering", self._DEFAULT_SIGNAL_REPORT_ORDERING)
+        if not raw or not str(raw).strip():
+            return self._default_signal_report_ordering_clauses
+        clauses = self._parse_ordering_string(str(raw).strip())
+        return clauses if clauses else self._default_signal_report_ordering_clauses
+
+    def _apply_signal_report_ordering(self, queryset):
+        clauses = self._parse_signal_report_ordering()
+        has_id = any((c[1:] if c.startswith("-") else c) == "id" for c in clauses)
+        if not has_id:
+            clauses = [*clauses, "id"]
+        return queryset.order_by(*clauses)
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
@@ -293,7 +399,7 @@ class SignalReportViewSet(
                 document_id,
                 content,
                 metadata,
-                toString(timestamp) as timestamp
+                timestamp
             FROM (
                 SELECT
                     document_id,
@@ -311,6 +417,7 @@ class SignalReportViewSet(
             ORDER BY timestamp ASC
         """
 
+        tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
         result = execute_hogql_query(
             query_type="SignalsDebugFetchForReport",
             query=query,

@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.utils import timezone
 
@@ -67,7 +67,9 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         assert args[1] == team
 
         # Check run was called with the correct execution mode
-        mock_runner_instance.run.assert_called_once_with(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+        mock_runner_instance.run.assert_called_once_with(
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, analytics_props=ANY
+        )
 
     def test_injects_action(self, cohere_mock, embed_mock):
         retriever = InsightRagContextNode(team=self.team, user=self.user)

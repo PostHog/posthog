@@ -1,6 +1,102 @@
 {% extends "admin/change_form.html" %}
 {% load i18n %}
 
+{% block extrahead %}
+    {{ block.super }}
+    <script nonce="{{ request.csp_nonce }}">
+        document.addEventListener("DOMContentLoaded", () => {
+            const isActiveCheckbox = document.getElementById("id_is_active")
+            const reasonField = document.getElementById("id_is_not_active_reason")
+
+            if (!isActiveCheckbox || !reasonField) {
+                return
+            }
+
+            const presets = [
+                "Access revoked due to unpaid balance.",
+                "Access disabled for compliance review.",
+                "Access revoked due to terms of service violation.",
+            ]
+
+            const reasonFieldRow = reasonField.closest(".form-row")
+            if (!reasonFieldRow) {
+                return
+            }
+
+            const reasonSelectRow = document.createElement("div")
+            reasonSelectRow.className = "form-row field-is_not_active_reason_select"
+            reasonSelectRow.style.marginBottom = "8px"
+
+            const reasonSelectLabel = document.createElement("label")
+            reasonSelectLabel.htmlFor = "id_is_not_active_reason_select"
+            reasonSelectLabel.textContent = "Reason:"
+
+            const reasonSelect = document.createElement("select")
+            reasonSelect.id = "id_is_not_active_reason_select"
+            reasonSelect.style.marginLeft = "8px"
+
+            const noneOption = document.createElement("option")
+            noneOption.value = "__none__"
+            noneOption.textContent = "None"
+            reasonSelect.appendChild(noneOption)
+
+            for (const preset of presets) {
+                const option = document.createElement("option")
+                option.value = preset
+                option.textContent = preset
+                reasonSelect.appendChild(option)
+            }
+
+            const customOption = document.createElement("option")
+            customOption.value = "__custom__"
+            customOption.textContent = "Custom"
+            reasonSelect.appendChild(customOption)
+
+            reasonSelectRow.appendChild(reasonSelectLabel)
+            reasonSelectRow.appendChild(reasonSelect)
+            reasonFieldRow.insertAdjacentElement("beforebegin", reasonSelectRow)
+
+            const setReasonUIFromSelect = () => {
+                if (reasonSelect.value === "__none__") {
+                    reasonField.value = ""
+                    reasonFieldRow.style.display = "none"
+                } else if (reasonSelect.value === "__custom__") {
+                    reasonFieldRow.style.removeProperty("display")
+                } else {
+                    reasonField.value = reasonSelect.value
+                    reasonFieldRow.style.display = "none"
+                }
+            }
+
+            const setVisibilityForActiveState = () => {
+                const isDisabled = !isActiveCheckbox.checked
+                reasonSelectRow.style.display = isDisabled ? "" : "none"
+                if (!isDisabled) {
+                    reasonFieldRow.style.display = "none"
+                    return
+                }
+                setReasonUIFromSelect()
+            }
+
+            const existingReason = reasonField.value.trim()
+            if (!existingReason) {
+                reasonSelect.value = "__none__"
+            } else if (presets.includes(existingReason)) {
+                reasonSelect.value = existingReason
+            } else {
+                reasonSelect.value = "__custom__"
+            }
+
+            reasonSelect.addEventListener("change", setReasonUIFromSelect)
+            isActiveCheckbox.addEventListener("change", setVisibilityForActiveState)
+
+            // Ensure the row is in the correct state before active/inactive gating.
+            setReasonUIFromSelect()
+            setVisibilityForActiveState()
+        })
+    </script>
+{% endblock %}
+
 {% block submit_buttons_bottom %}
     {{ block.super }}
 {% endblock %} 

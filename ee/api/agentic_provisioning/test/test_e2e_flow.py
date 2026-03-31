@@ -68,7 +68,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         # 5. Provision a resource
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "product_analytics"},
+            data={"service_id": "analytics"},
             token=access_token,
         )
         assert res.status_code == 200

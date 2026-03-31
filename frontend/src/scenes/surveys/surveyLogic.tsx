@@ -2268,10 +2268,8 @@ export const surveyLogic = kea<surveyLogicType>([
             submit: (surveyPayload) => {
                 if (values.hasCycle) {
                     actions.reportSurveyCycleDetected(values.survey)
-
-                    return lemonToast.error(
-                        'Your survey contains an endless cycle. Please revisit your branching rules.'
-                    )
+                    lemonToast.error('Your survey contains an endless cycle. Please revisit your branching rules.')
+                    return
                 }
                 const payload = sanitizeSurvey(surveyPayload, { keepEmptyConditions: true })
 

@@ -1,6 +1,6 @@
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 from urllib.parse import urlparse
 
@@ -31,6 +31,8 @@ from products.data_warehouse.backend.models.util import (
 )
 
 logger = structlog.get_logger(__name__)
+
+TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
 
 
 def validate_saved_query_name(value):
@@ -108,6 +110,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     origin = models.CharField(
         choices=Origin.choices, help_text="Where this SavedQuery is created.", default=None, null=True, blank=True
     )
+
+    is_test = models.BooleanField(
+        default=False, help_text="Whether this view is for testing only and will auto-expire."
+    )
+    expires_at = models.DateTimeField(
+        null=True, blank=True, help_text="When this test view should be automatically deleted."
+    )
+
+    def save(self, *args, **kwargs):
+        if self.is_test and not self.expires_at:
+            from django.utils import timezone
+
+            self.expires_at = timezone.now() + TEST_VIEW_EXPIRY_INTERVAL
+        elif not self.is_test and self.expires_at:
+            self.expires_at = None
+        super().save(*args, **kwargs)
 
     class Meta:
         constraints = [
@@ -202,6 +220,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         query = self.query or {}
         if not isinstance(query, dict):
             raise Exception("Saved query is missing a query definition")
+
+        # Saved queries store {"query": "SELECT ..."} without a kind discriminator.
+        # process_query_dict requires a valid QuerySchemaRoot, so wrap as HogQLQuery.
+        if "kind" not in query and "query" in query:
+            query = {"kind": "HogQLQuery", **query}
 
         response = process_query_dict(self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result = getattr(response, "types", [])
@@ -314,13 +337,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
-                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
+                fields[column] = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
             elif isinstance(type, dict):
-                hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+                fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
-
-            fields[column] = hogql_type(name=column)
 
         return SavedQuery(
             id=str(self.id),

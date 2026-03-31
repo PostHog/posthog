@@ -1,12 +1,19 @@
 import { chunk } from 'lodash'
+import { Gauge } from 'prom-client'
 
 import { parseJSON } from '~/utils/json-parse'
 
-import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { logger } from '../../../utils/logger'
+import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
+
+const pendingJobsGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_pending_jobs',
+    help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/retry',
+})
 
 /**
  * State blob stored in the single `state` BYTEA column.
@@ -23,7 +30,17 @@ export class CyclotronJobQueuePostgresV2 {
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(
+        private consumerBatchSize: number,
+        private config: Pick<
+            CdpConfig,
+            | 'CYCLOTRON_NODE_DATABASE_URL'
+            | 'CYCLOTRON_SHARD_DEPTH_LIMIT'
+            | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
+            | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
+            | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
+        >
+    ) {}
 
     public async startAsProducer(): Promise<void> {
         if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
@@ -50,7 +67,7 @@ export class CyclotronJobQueuePostgresV2 {
         this.worker = new CyclotronV2Worker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: queue,
-            batchMaxSize: this.config.CONSUMER_BATCH_SIZE,
+            batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
         })
@@ -63,9 +80,11 @@ export class CyclotronJobQueuePostgresV2 {
                 invocations.push(v2JobToInvocation(job))
             }
 
+            pendingJobsGauge.set(this.pendingJobs.size)
+
             await consumeBatch(invocations)
 
-            // TODO: Some sanity check that all pending jobs are acked or failed
+            pendingJobsGauge.set(this.pendingJobs.size)
         })
     }
 

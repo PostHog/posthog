@@ -8,8 +8,17 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.schema import ProductKey
+
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
+
+LOG_SOURCE_TO_PRODUCT_KEY: dict[str, ProductKey] = {
+    "hog_function": ProductKey.PIPELINE_DESTINATIONS,
+    "hog_flow": ProductKey.WORKFLOWS,
+    "batch_exports": ProductKey.PIPELINE_BATCH_EXPORTS,
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -101,6 +110,9 @@ class LogEntryMixin(viewsets.GenericViewSet):
 
         if not self.log_source:
             raise ValidationError("log_source not set on the viewset")
+
+        product_key = LOG_SOURCE_TO_PRODUCT_KEY.get(self.log_source, ProductKey.PIPELINE_DESTINATIONS)
+        tag_queries(product=product_key, feature=Feature.QUERY)
 
         if not param_serializer.is_valid():
             raise ValidationError(param_serializer.errors)

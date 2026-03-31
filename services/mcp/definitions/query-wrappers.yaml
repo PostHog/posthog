@@ -1,0 +1,139 @@
+# MCP query wrapper tool definitions.
+#
+# Each wrapper generates a typed tool that accepts a single query schema
+# from frontend/src/queries/schema.json and POSTs to /api/environments/{project_id}/query/.
+#
+# schema_ref must match a definition name in schema.json exactly.
+# The Zod input schema is auto-generated from the JSON Schema at build time.
+category: Query wrappers
+feature: insights
+wrappers:
+    query-trends:
+        schema_ref: AssistantTrendsQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a trends query
+        description_file: ./prompts/query-trends.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-funnel:
+        schema_ref: AssistantFunnelsQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a funnel query
+        description_file: ./prompts/query-funnel.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-retention:
+        schema_ref: AssistantRetentionQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a retention query
+        description_file: ./prompts/query-retention.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-stickiness:
+        schema_ref: AssistantStickinessQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a stickiness query
+        description_file: ./prompts/query-stickiness.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-paths:
+        schema_ref: AssistantPathsQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a paths query
+        description_file: ./prompts/query-paths.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-lifecycle:
+        schema_ref: AssistantLifecycleQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a lifecycle query
+        description_file: ./prompts/query-lifecycle.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-traces-list:
+        schema_ref: TracesQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: List LLM traces
+        description: >
+            Query LLM traces to inspect AI/LLM usage. Returns a list of traces
+            with their events, latency, token usage, and other metadata.
+            Use dateRange, properties, and limit to filter results.
+        exclude_properties:
+            - response
+            - modifiers
+            - showColumnConfigurator
+            - tags
+            - version

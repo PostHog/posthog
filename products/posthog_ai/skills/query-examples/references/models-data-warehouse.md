@@ -96,6 +96,83 @@ The `columns` field contains column definitions with their types:
 
 ---
 
+## Source Schemas (`system.source_schemas`)
+
+Per-table sync configuration for external data sources.
+Each schema represents one table or entity being synced from an external source.
+
+### Columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`name` | varchar(400) | NOT NULL | Schema/table name (e.g., `customers`, `invoices`)
+`source_id` | uuid | NOT NULL | FK to `system.data_warehouse_sources.id`
+`table_id` | uuid | NULL | FK to `system.data_warehouse_tables.id`
+`should_sync` | boolean | NOT NULL | Whether this schema is enabled for syncing
+`status` | varchar(400) | NULL | Current sync status
+`sync_type` | varchar(128) | NULL | Sync strategy
+`last_synced_at` | timestamp with tz | NULL | Last successful sync timestamp
+`latest_error` | text | NULL | Most recent error message
+`created_at` | timestamp with tz | NOT NULL | Creation timestamp
+`updated_at` | timestamp with tz | NOT NULL | Last update timestamp
+`deleted` | boolean | NOT NULL | Soft delete flag
+`deleted_at` | timestamp with tz | NULL | Deletion timestamp
+
+### Status Values
+
+- `Running` - Sync currently in progress
+- `Paused` - Sync paused by user
+- `Completed` - Last sync finished successfully
+- `Failed` - Last sync encountered an error
+- `BillingLimitReached` - Stopped due to billing limit
+- `BillingLimitTooLow` - Billing limit too low to sync
+
+### Sync Types
+
+- `full_refresh` - Full data reload each sync
+- `incremental` - Only sync new/changed data
+- `append` - Append new data without updating existing rows
+
+### Key Relationships
+
+- **Source**: `source_id` -> `system.data_warehouse_sources.id`
+- **Table**: `table_id` -> `system.data_warehouse_tables.id`
+
+---
+
+## Source Sync Jobs (`system.source_sync_jobs`)
+
+Individual sync job runs for external data sources.
+Each job tracks the status, row count, and timing of a single sync operation.
+
+### Columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`pipeline_id` | uuid | NOT NULL | FK to `system.data_warehouse_sources.id`
+`schema_id` | uuid | NULL | FK to schema being synced
+`status` | varchar | NOT NULL | Job status
+`rows_synced` | bigint | NULL | Number of rows synced
+`billable` | boolean | NULL | Whether this sync job is billable (non-billable syncs don't appear in the syncs UI)
+`latest_error` | text | NULL | Error message if failed
+`created_at` | timestamp with tz | NOT NULL | Job start timestamp
+`finished_at` | timestamp with tz | NULL | Job completion timestamp
+`updated_at` | timestamp with tz | NOT NULL | Last update timestamp
+
+### Status Values
+
+- `Running` - Sync currently in progress
+- `Completed` - Sync finished successfully
+- `Failed` - Sync encountered an error
+- `BillingLimitReached` - Stopped due to billing limit
+- `BillingLimitTooLow` - Billing limit too low to sync
+
+### Key Relationships
+
+- **Source**: `pipeline_id` -> `system.data_warehouse_sources.id`
+
+---
+
 ## Common Query Patterns
 
 **List all data warehouse tables:**
@@ -146,4 +223,52 @@ LEFT JOIN system.data_warehouse_tables AS t ON t.external_data_source_id = s.id 
 WHERE NOT s.deleted
 GROUP BY s.source_type, s.prefix
 ORDER BY table_count DESC
+```
+
+**View recent sync jobs with their source type:**
+
+```sql
+SELECT
+  j.status,
+  j.rows_synced,
+  j.created_at,
+  j.finished_at,
+  j.latest_error,
+  s.source_type
+FROM system.source_sync_jobs AS j
+INNER JOIN system.data_warehouse_sources AS s ON j.pipeline_id = s.id
+ORDER BY j.created_at DESC
+LIMIT 50
+```
+
+**Find failed sync jobs in the last 7 days:**
+
+```sql
+SELECT
+  j.pipeline_id,
+  j.latest_error,
+  j.created_at,
+  s.source_type,
+  s.prefix
+FROM system.source_sync_jobs AS j
+INNER JOIN system.data_warehouse_sources AS s ON j.pipeline_id = s.id
+WHERE j.status = 'Failed'
+  AND j.created_at >= now() - INTERVAL 7 DAY
+ORDER BY j.created_at DESC
+```
+
+**Get sync statistics per source:**
+
+```sql
+SELECT
+  s.source_type,
+  s.prefix,
+  count(j.id) AS total_jobs,
+  countIf(j.status = 'Completed') AS completed,
+  countIf(j.status = 'Failed') AS failed,
+  sum(j.rows_synced) AS total_rows_synced
+FROM system.source_sync_jobs AS j
+INNER JOIN system.data_warehouse_sources AS s ON j.pipeline_id = s.id
+GROUP BY s.source_type, s.prefix
+ORDER BY total_jobs DESC
 ```

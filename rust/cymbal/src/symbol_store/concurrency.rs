@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use axum::async_trait;
+use async_trait::async_trait;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use super::Provider;

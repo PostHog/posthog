@@ -171,6 +171,38 @@ export class SnapshotStore {
         return { sourceIndex: bestSourceIndex, timestamp: bestTs }
     }
 
+    syncFullSnapshotTimestamps(processedSnapshots: RecordingSnapshot[]): boolean {
+        let changed = false
+        for (const entry of this.entries) {
+            if (entry.state !== 'loaded') {
+                continue
+            }
+            const timestamps: number[] = []
+            for (const snap of processedSnapshots) {
+                if (
+                    snap.type === EventType.FullSnapshot &&
+                    snap.timestamp >= entry.startMs &&
+                    snap.timestamp <= entry.endMs
+                ) {
+                    timestamps.push(snap.timestamp)
+                }
+            }
+            timestamps.sort((a, b) => a - b)
+            if (
+                timestamps.length > 0 &&
+                (timestamps.length !== entry.fullSnapshotTimestamps.length ||
+                    timestamps.some((t, j) => t !== entry.fullSnapshotTimestamps[j]))
+            ) {
+                entry.fullSnapshotTimestamps = timestamps
+                changed = true
+            }
+        }
+        if (changed) {
+            this.bump()
+        }
+        return changed
+    }
+
     clearSnapshotData(): void {
         for (const entry of this.entries) {
             entry.processedSnapshots = null

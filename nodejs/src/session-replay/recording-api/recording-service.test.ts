@@ -1,4 +1,5 @@
 import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
 import { PostgresRouter } from '../../utils/db/postgres'
@@ -14,6 +15,7 @@ describe('RecordingService', () => {
     let mockDecryptor: jest.Mocked<RecordingDecryptor>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockPostgres: jest.Mocked<PostgresRouter>
+    let mockClickhouse: jest.Mocked<ClickHouseClient>
 
     beforeEach(() => {
         mockS3Send = jest.fn()
@@ -43,6 +45,10 @@ describe('RecordingService', () => {
             query: jest.fn().mockResolvedValue({ rows: [] }),
         } as unknown as jest.Mocked<PostgresRouter>
 
+        mockClickhouse = {
+            query: jest.fn(),
+        } as unknown as jest.Mocked<ClickHouseClient>
+
         service = new RecordingService(
             mockS3Client,
             'test-bucket',
@@ -50,7 +56,8 @@ describe('RecordingService', () => {
             mockKeyStore,
             mockDecryptor,
             mockMetadataStore,
-            mockPostgres
+            mockPostgres,
+            mockClickhouse
         )
     })
 
@@ -205,6 +212,224 @@ describe('RecordingService', () => {
                     },
                 })
             )
+        })
+    })
+
+    describe('parseBlockUrl', () => {
+        it.each([
+            [
+                's3://posthog/session_recordings/30d/1000-abc123?range=bytes=0-5000',
+                { key: 'session_recordings/30d/1000-abc123', start_byte: 0, end_byte: 5000 },
+            ],
+            [
+                's3://bucket/session_recordings/90d/2000-def456?range=bytes=100-6000',
+                { key: 'session_recordings/90d/2000-def456', start_byte: 100, end_byte: 6000 },
+            ],
+        ])('parses "%s"', (url, expected) => {
+            expect(RecordingService.parseBlockUrl(url)).toEqual(expected)
+        })
+
+        it.each([
+            ['s3://posthog/key?no-range', 'missing range'],
+            ['not-a-url', 'invalid URL'],
+        ])('returns null for invalid URL: %s', (url) => {
+            expect(RecordingService.parseBlockUrl(url)).toBeNull()
+        })
+    })
+
+    describe('buildBlockList', () => {
+        it('returns sorted blocks when arrays match and first block matches start_time', () => {
+            const row = {
+                start_time: '2024-01-01 00:00:00.000000',
+                block_first_timestamps: ['2024-01-01 00:00:00.000000', '2024-01-01 00:01:00.000000'],
+                block_last_timestamps: ['2024-01-01 00:00:59.000000', '2024-01-01 00:01:59.000000'],
+                block_urls: [
+                    's3://b/session_recordings/30d/1000-aaa?range=bytes=0-100',
+                    's3://b/session_recordings/30d/2000-bbb?range=bytes=0-200',
+                ],
+            }
+
+            const blocks = RecordingService.buildBlockList('sess-1', 1, row)
+
+            expect(blocks).toEqual([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01 00:00:00.000000',
+                    end_timestamp: '2024-01-01 00:00:59.000000',
+                },
+                {
+                    key: 'session_recordings/30d/2000-bbb',
+                    start_byte: 0,
+                    end_byte: 200,
+                    start_timestamp: '2024-01-01 00:01:00.000000',
+                    end_timestamp: '2024-01-01 00:01:59.000000',
+                },
+            ])
+        })
+
+        it('sorts blocks by start timestamp', () => {
+            const row = {
+                start_time: '2024-01-01 00:00:00.000000',
+                block_first_timestamps: ['2024-01-01 00:01:00.000000', '2024-01-01 00:00:00.000000'],
+                block_last_timestamps: ['2024-01-01 00:01:59.000000', '2024-01-01 00:00:59.000000'],
+                block_urls: [
+                    's3://b/session_recordings/30d/2000-bbb?range=bytes=0-200',
+                    's3://b/session_recordings/30d/1000-aaa?range=bytes=0-100',
+                ],
+            }
+
+            const blocks = RecordingService.buildBlockList('sess-1', 1, row)
+
+            expect(blocks[0]).toEqual({
+                key: 'session_recordings/30d/1000-aaa',
+                start_byte: 0,
+                end_byte: 100,
+                start_timestamp: '2024-01-01 00:00:00.000000',
+                end_timestamp: '2024-01-01 00:00:59.000000',
+            })
+            expect(blocks[1]).toEqual({
+                key: 'session_recordings/30d/2000-bbb',
+                start_byte: 0,
+                end_byte: 200,
+                start_timestamp: '2024-01-01 00:01:00.000000',
+                end_timestamp: '2024-01-01 00:01:59.000000',
+            })
+        })
+
+        it('returns empty when first block start_time does not match recording start_time', () => {
+            const row = {
+                start_time: '2024-01-01 00:00:00.000000',
+                block_first_timestamps: ['2024-01-01 00:01:00.000000'],
+                block_last_timestamps: ['2024-01-01 00:01:59.000000'],
+                block_urls: ['s3://b/session_recordings/30d/2000-bbb?range=bytes=0-200'],
+            }
+
+            expect(RecordingService.buildBlockList('sess-1', 1, row)).toEqual([])
+        })
+
+        it('returns empty when array lengths do not match', () => {
+            const row = {
+                start_time: '2024-01-01 00:00:00.000000',
+                block_first_timestamps: ['2024-01-01 00:00:00.000000'],
+                block_last_timestamps: ['2024-01-01 00:00:59.000000', '2024-01-01 00:01:59.000000'],
+                block_urls: ['s3://b/session_recordings/30d/1000-aaa?range=bytes=0-100'],
+            }
+
+            expect(RecordingService.buildBlockList('sess-1', 1, row)).toEqual([])
+        })
+
+        it('returns empty when arrays are empty', () => {
+            const row = {
+                start_time: '2024-01-01 00:00:00.000000',
+                block_first_timestamps: [],
+                block_last_timestamps: [],
+                block_urls: [],
+            }
+
+            expect(RecordingService.buildBlockList('sess-1', 1, row)).toEqual([])
+        })
+
+        it('skips blocks with unparseable URLs', () => {
+            const row = {
+                start_time: '2024-01-01 00:00:00.000000',
+                block_first_timestamps: ['2024-01-01 00:00:00.000000', '2024-01-01 00:01:00.000000'],
+                block_last_timestamps: ['2024-01-01 00:00:59.000000', '2024-01-01 00:01:59.000000'],
+                block_urls: ['s3://b/session_recordings/30d/1000-aaa?range=bytes=0-100', 'not-a-url'],
+            }
+
+            const blocks = RecordingService.buildBlockList('sess-1', 1, row)
+
+            expect(blocks).toEqual([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01 00:00:00.000000',
+                    end_timestamp: '2024-01-01 00:00:59.000000',
+                },
+            ])
+        })
+    })
+
+    describe('listBlocks', () => {
+        function mockClickhouseResult(rows: any[]): void {
+            mockClickhouse.query.mockResolvedValue({
+                json: jest.fn().mockResolvedValue(rows),
+            } as any)
+        }
+
+        it('returns parsed blocks from ClickHouse result', async () => {
+            mockClickhouseResult([
+                {
+                    start_time: '2024-01-01 00:00:00.000000',
+                    block_first_timestamps: ['2024-01-01 00:00:00.000000', '2024-01-01 00:01:00.000000'],
+                    block_last_timestamps: ['2024-01-01 00:00:59.000000', '2024-01-01 00:01:59.000000'],
+                    block_urls: [
+                        's3://b/session_recordings/30d/1000-aaa?range=bytes=0-100',
+                        's3://b/session_recordings/30d/2000-bbb?range=bytes=0-200',
+                    ],
+                },
+            ])
+
+            const blocks = await service.listBlocks('sess-1', 1)
+
+            expect(blocks).toEqual([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01 00:00:00.000000',
+                    end_timestamp: '2024-01-01 00:00:59.000000',
+                },
+                {
+                    key: 'session_recordings/30d/2000-bbb',
+                    start_byte: 0,
+                    end_byte: 200,
+                    start_timestamp: '2024-01-01 00:01:00.000000',
+                    end_timestamp: '2024-01-01 00:01:59.000000',
+                },
+            ])
+            expect(mockClickhouse.query).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    query_params: { team_id: 1, session_id: 'sess-1' },
+                    format: 'JSONEachRow',
+                    clickhouse_settings: expect.objectContaining({
+                        date_time_output_format: 'iso',
+                        log_comment: expect.stringContaining('"team_id":1'),
+                        max_execution_time: 30,
+                        max_threads: 45,
+                        max_bytes_to_read: '10000000000',
+                    }),
+                })
+            )
+        })
+
+        it('returns empty array when ClickHouse returns no rows', async () => {
+            mockClickhouseResult([])
+
+            const blocks = await service.listBlocks('sess-1', 1)
+
+            expect(blocks).toEqual([])
+        })
+
+        it('throws when ClickHouse client is not initialized', async () => {
+            const serviceWithoutCH = new RecordingService(
+                mockS3Client,
+                'test-bucket',
+                'session_recordings',
+                mockKeyStore,
+                mockDecryptor
+            )
+
+            await expect(serviceWithoutCH.listBlocks('sess-1', 1)).rejects.toThrow('ClickHouse client not initialized')
+        })
+
+        it('propagates ClickHouse query errors', async () => {
+            mockClickhouse.query.mockRejectedValue(new Error('Connection refused'))
+
+            await expect(service.listBlocks('sess-1', 1)).rejects.toThrow('Connection refused')
         })
     })
 

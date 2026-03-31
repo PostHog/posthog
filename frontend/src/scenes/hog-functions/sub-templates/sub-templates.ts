@@ -86,6 +86,13 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'experiment-alerts',
         filters: { events: [{ id: '$experiment_metric_significant', type: 'events' }] },
     },
+    'logs-alert-firing': {
+        sub_template_id: 'logs-alert-firing',
+        type: 'internal_destination',
+        context_id: 'logs-alerting',
+        filters: { events: [{ id: '$logs_alert_firing', type: 'events' }] },
+        flag: FEATURE_FLAGS.LOGS_ALERTING,
+    },
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -629,30 +636,29 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'header',
                             text: {
                                 type: 'plain_text',
-                                text: "Experiment '{event.properties.experiment_name}' has reached significance",
+                                text: "\ud83e\uddea Experiment '{event.properties.experiment_name}' has reached significance",
                             },
                         },
                         {
                             type: 'section',
                             text: {
                                 type: 'mrkdwn',
-                                text: 'Metric: *{event.properties.metric_name}* ({event.properties.variant_key} variant)',
+                                text: '*{event.properties.variant_key}* variant is winning on *{event.properties.metric_name}* {event.properties.relative_change}\nChance to win: *{event.properties.chance_to_win}* \u00b7 Goal: *{event.properties.goal_direction}*',
                             },
                         },
-                        {
-                            type: 'context',
-                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
-                        },
-                        { type: 'divider' },
                         {
                             type: 'actions',
                             elements: [
                                 {
                                     url: '{project.url}{event.properties.experiment_url}',
-                                    text: { text: 'View Experiment', type: 'plain_text' },
+                                    text: { text: 'View experiment', type: 'plain_text' },
                                     type: 'button',
                                 },
                             ],
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: '{project.name}' }],
                         },
                     ],
                 },
@@ -719,6 +725,58 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'logs-alert-firing': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-firing'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on log alert firing',
+            description: 'Send a webhook when a log alert fires',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-firing'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on log alert firing',
+            description: 'Post to a Slack channel when a log alert fires',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: "Log alert '{event.properties.alert_name}' is firing",
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*Threshold breached:* {event.properties.threshold_count} logs in {event.properties.window_minutes}m (limit: {event.properties.threshold_operator} {event.properties.threshold_value})',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/logs?{event.properties.logs_url_params}',
+                                    text: { text: 'View logs', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: "Log alert '{event.properties.alert_name}' is firing",
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -742,6 +800,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'activity-log'
         case '$discussion_mention_created':
             return 'discussion-mention'
+        case '$logs_alert_firing':
+            return 'logs-alerting'
         default:
             return 'standard'
     }

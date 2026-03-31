@@ -635,6 +635,10 @@
         "chromium": 7.1,
         "webkit": 2.6
     },
+    "frontend/src/scenes/data-pipelines/batch-exports/BatchExportScene.stories.tsx": {
+        "chromium": 45.0,
+        "webkit": 14.0
+    },
     "frontend/src/scenes/data-warehouse/settings/source/Schemas.stories.tsx": {
         "chromium": 6.9,
         "webkit": 2.6
@@ -1041,10 +1045,6 @@
     "products/error_tracking/frontend/components/ExceptionCard/Tabs/StackTraceTab/StackTraceDisplay.stories.tsx": {
         "chromium": 37.9,
         "webkit": 4.2
-    },
-    "products/error_tracking/frontend/components/SparklineChart/SparklineChart.stories.tsx": {
-        "chromium": 17.7,
-        "webkit": 2.8
     },
     "products/links/frontend/LinksScene.stories.tsx": {
         "chromium": 16.3,

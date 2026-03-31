@@ -1,6 +1,6 @@
 [package]
 name = "posthog-symbol-data"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -18,3 +18,4 @@ workspace = true
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true }
+zstd = "0.13"

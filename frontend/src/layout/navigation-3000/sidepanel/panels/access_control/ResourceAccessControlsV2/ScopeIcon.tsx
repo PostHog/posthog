@@ -72,6 +72,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconBug />
         case 'web_analytics':
             return <IconPieChart />
+        case 'tracing':
+            return <IconLive />
         default:
             return null
     }

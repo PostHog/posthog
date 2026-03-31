@@ -11,7 +11,7 @@ describe('posthog-plugin-geoip', () => {
     let geoip: GeoIp
 
     beforeAll(async () => {
-        geoip = await new GeoIPService(defaultConfig).get()
+        geoip = await new GeoIPService(defaultConfig.MMDB_FILE_LOCATION).get()
     })
 
     function resetMetaWithMmdb(

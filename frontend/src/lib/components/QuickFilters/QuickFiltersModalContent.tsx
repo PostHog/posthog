@@ -159,7 +159,7 @@ export function QuickFiltersModalContent({
                             className="mb-2"
                         />
                     )}
-                    {filteredQuickFilters.length === 0 ? (
+                    {filteredQuickFilters.length === 0 && !quickFiltersLoading ? (
                         <div className="text-center py-8 text-muted">
                             <p>No filters match your search.</p>
                         </div>

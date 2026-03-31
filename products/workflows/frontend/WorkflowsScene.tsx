@@ -228,7 +228,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
-            <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset />
+            <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>
     )

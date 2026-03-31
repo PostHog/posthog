@@ -1,4 +1,4 @@
-use axum::async_trait;
+use async_trait::async_trait;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,7 +36,12 @@ impl CohortMembershipProvider for RealtimeCohortMembershipProvider {
             return Ok(HashMap::new());
         }
 
-        let matched_cohort_ids: Vec<CohortMembershipRow> = sqlx::query_as(
+        // The cohort_membership table uses BIGINT columns, so we bind i64 params
+        // and decode i64 results. CohortId is i32 today, which is safe as long as
+        // IDs stay below ~2.1 billion; if that ceiling is ever reached, CohortId
+        // should be widened to i64 across the codebase.
+        let cohort_ids_i64: Vec<i64> = cohort_ids.iter().map(|&id| i64::from(id)).collect();
+        let rows: Vec<CohortMembershipRow> = sqlx::query_as(
             r#"
             SELECT cohort_id
             FROM cohort_membership
@@ -46,15 +51,17 @@ impl CohortMembershipProvider for RealtimeCohortMembershipProvider {
               AND in_cohort = true
             "#,
         )
-        .bind(team_id)
+        .bind(i64::from(team_id))
         .bind(person_uuid)
-        .bind(cohort_ids)
+        .bind(&cohort_ids_i64)
         .fetch_all(self.pool.as_ref())
         .await
         .map_err(|e| CohortMembershipError::QueryFailed(e.to_string()))?;
 
-        let matched_set: std::collections::HashSet<CohortId> =
-            matched_cohort_ids.iter().map(|r| r.cohort_id).collect();
+        let matched_set: std::collections::HashSet<CohortId> = rows
+            .iter()
+            .filter_map(|r| CohortId::try_from(r.cohort_id).ok())
+            .collect();
 
         let result = cohort_ids
             .iter()
@@ -67,7 +74,7 @@ impl CohortMembershipProvider for RealtimeCohortMembershipProvider {
 
 #[derive(sqlx::FromRow)]
 struct CohortMembershipRow {
-    cohort_id: CohortId,
+    cohort_id: i64,
 }
 
 /// No-op provider used when the behavioral cohorts database is not configured.

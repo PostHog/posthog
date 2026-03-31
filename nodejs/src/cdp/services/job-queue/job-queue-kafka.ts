@@ -8,9 +8,10 @@ import { compress, uncompress } from 'snappy'
 
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { HealthCheckResult, HealthCheckResultError, PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
+import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
 
@@ -20,14 +21,17 @@ export class CyclotronJobQueueKafka {
     private queue?: CyclotronJobQueueKind
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(
+        private kafkaClientRack: string | undefined,
+        private config: Pick<CdpConfig, 'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA'>
+    ) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
      */
     public async startAsProducer() {
         // NOTE: For producing we use different values dedicated for Cyclotron as this is typically using its own Kafka cluster
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.kafkaClientRack, 'CDP_PRODUCER')
     }
 
     public async startAsConsumer(

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use chrono::{DateTime, Utc};
-use tracing::info;
+use tracing::debug;
 
 use crate::utils::format_store_path;
 
@@ -102,17 +102,28 @@ impl CheckpointMetadata {
         Ok(metadata)
     }
 
-    /// Write metadata.json directly into the given directory.
-    /// Stamps `updated_at` to `Utc::now()` before writing so the persisted
-    /// file always reflects the actual write time.
+    /// Write metadata.json atomically into the given directory.
+    ///
+    /// Writes to a temporary file first, then renames to the final path. This
+    /// prevents torn reads if another task reads metadata.json concurrently
+    /// (e.g., during rebalance restore while a commit-triggered write is in flight).
     pub async fn write_to_dir(&mut self, dir: &Path) -> Result<()> {
         self.updated_at = Utc::now();
         let json = self.to_json().context("In write_to_dir")?;
         let path = dir.join(METADATA_FILENAME);
-        tokio::fs::write(&path, json)
+        let tmp_path = dir.join(".metadata.json.tmp");
+        if let Err(e) = tokio::fs::write(&tmp_path, json).await {
+            // Clean up partial tmp file on write failure
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(e)
+                .with_context(|| format!("Failed to write temp metadata to: {tmp_path:?}"));
+        }
+        // rename(2) atomically replaces the destination on Unix, so concurrent
+        // readers see either the old or new file, never a partial write.
+        tokio::fs::rename(&tmp_path, &path)
             .await
-            .with_context(|| format!("Failed to write metadata to: {path:?}"))?;
-        info!("Saved checkpoint metadata to {:?}", path);
+            .with_context(|| format!("Failed to rename temp metadata to: {path:?}"))?;
+        debug!("Saved checkpoint metadata to {:?}", path);
         Ok(())
     }
 
@@ -129,25 +140,10 @@ impl CheckpointMetadata {
         format!("{}/{}/{}", self.topic, self.partition, self.id)
     }
 
-    /// Produce a path under the supplied base directory for the local RocksDB stores that
-    /// will host the imported checkpoint files. Example:
-    /// <local_store_base_path>/<topic_name>_<partition_number>/<timestamp_unix_epoch_millis>
-    ///
-    /// The caller provides the timestamp to use for the local store directory. Production code
-    /// should pass `Utc::now()` so imported checkpoints get the current timestamp (ensuring they
-    /// are "newest" and won't be superseded by accidentally created empty stores). Tests can
-    /// pass controlled timestamps for validation.
-    pub fn get_store_path(
-        &self,
-        local_store_base_path: &Path,
-        timestamp: DateTime<Utc>,
-    ) -> PathBuf {
-        format_store_path(
-            local_store_base_path,
-            &self.topic,
-            self.partition,
-            timestamp,
-        )
+    /// Produce a path under the supplied base directory for the local RocksDB store.
+    /// Example: `<local_store_base_path>/<topic>/<partition>`
+    pub fn get_store_path(&self, local_store_base_path: &Path) -> PathBuf {
+        format_store_path(local_store_base_path, &self.topic, self.partition)
     }
 
     /// Get relative path to metadata file for this checkpoint attempt,
@@ -186,13 +182,22 @@ impl CheckpointInfo {
         }
     }
 
-    /// Fully-qualified remote path for metadata.json (unhashed; used for list/discovery).
+    /// Fully-qualified remote path for metadata.json.
+    /// When hash_prefix is present, metadata lives alongside object files under the hashed path.
     pub fn get_metadata_key(&self) -> String {
-        format!(
-            "{}/{}",
-            self.s3_key_prefix,
-            self.metadata.get_metadata_filepath()
-        )
+        match &self.hash_prefix {
+            Some(h) => format!(
+                "{}/{}/{}",
+                h,
+                self.s3_key_prefix,
+                self.metadata.get_metadata_filepath()
+            ),
+            None => format!(
+                "{}/{}",
+                self.s3_key_prefix,
+                self.metadata.get_metadata_filepath()
+            ),
+        }
     }
 
     /// Fully-qualified remote path for a file in this attempt (relative_file_path = filename only).
@@ -211,13 +216,22 @@ impl CheckpointInfo {
         }
     }
 
-    // The fully qualified remote base path for this checkpoint attempt
+    /// The fully qualified remote base path for this checkpoint attempt.
+    /// Includes hash prefix when present, matching get_metadata_key() and get_file_key().
     pub fn get_remote_attempt_path(&self) -> String {
-        format!(
-            "{}/{}",
-            self.s3_key_prefix,
-            self.metadata.get_attempt_path(),
-        )
+        match &self.hash_prefix {
+            Some(h) => format!(
+                "{}/{}/{}",
+                h,
+                self.s3_key_prefix,
+                self.metadata.get_attempt_path(),
+            ),
+            None => format!(
+                "{}/{}",
+                self.s3_key_prefix,
+                self.metadata.get_attempt_path(),
+            ),
+        }
     }
 }
 
@@ -519,10 +533,12 @@ mod tests {
         let info = CheckpointInfo::new(metadata, bucket_namespace.to_string(), Some(hash.clone()));
 
         let meta_key = info.get_metadata_key();
-        assert!(!meta_key.contains(&hash));
+        assert!(meta_key.contains(&hash));
         assert_eq!(
             meta_key,
-            format!("{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/{METADATA_FILENAME}")
+            format!(
+                "{hash}/{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/{METADATA_FILENAME}"
+            )
         );
 
         let file_key = info.get_file_key("000001.sst");
@@ -569,7 +585,6 @@ mod tests {
     #[test]
     fn test_get_store_path() {
         let attempt_timestamp = Utc::now();
-        let timestamp_millis = attempt_timestamp.timestamp_millis();
         let topic = "events";
         let partition = 5;
 
@@ -583,28 +598,20 @@ mod tests {
         );
 
         let base_path = Path::new("/data/stores");
-        // Pass explicit timestamp - production code uses Utc::now(), tests can control the timestamp
-        let store_path = metadata.get_store_path(base_path, attempt_timestamp);
+        let store_path = metadata.get_store_path(base_path);
+        assert_eq!(store_path, PathBuf::from("/data/stores/events/5"));
 
-        // Store path should be <base>/<topic>_<partition>/<timestamp_millis>
-        let expected = base_path
-            .join(format!("{topic}_{partition}"))
-            .join(timestamp_millis.to_string());
-        assert_eq!(store_path, expected);
-
-        // Works with different base paths
         let tmp_base = Path::new("/tmp/deduplication-store");
-        let tmp_store_path = metadata.get_store_path(tmp_base, attempt_timestamp);
-        let tmp_expected = tmp_base
-            .join(format!("{topic}_{partition}"))
-            .join(timestamp_millis.to_string());
-        assert_eq!(tmp_store_path, tmp_expected);
+        let tmp_store_path = metadata.get_store_path(tmp_base);
+        assert_eq!(
+            tmp_store_path,
+            PathBuf::from("/tmp/deduplication-store/events/5")
+        );
     }
 
     #[test]
     fn test_get_store_path_with_slashes_in_topic() {
         let attempt_timestamp = Utc::now();
-        let timestamp_millis = attempt_timestamp.timestamp_millis();
         let topic = "org/team/events";
         let partition = 0;
 
@@ -618,13 +625,8 @@ mod tests {
         );
 
         let base_path = Path::new("/data/stores");
-        // Pass explicit timestamp - production code uses Utc::now(), tests can control the timestamp
-        let store_path = metadata.get_store_path(base_path, attempt_timestamp);
-
-        // Slashes in topic should be replaced with underscores for filesystem safety
-        let expected = base_path
-            .join("org_team_events_0")
-            .join(timestamp_millis.to_string());
-        assert_eq!(store_path, expected);
+        let store_path = metadata.get_store_path(base_path);
+        // Slashes are replaced with underscores to keep a two-level directory structure
+        assert_eq!(store_path, PathBuf::from("/data/stores/org_team_events/0"));
     }
 }

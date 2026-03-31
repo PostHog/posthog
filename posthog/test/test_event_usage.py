@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -25,6 +26,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": "http://app.posthog.com/insights",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -45,6 +48,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": "http://app.posthog.com/insights",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": "posthog/cursor 1.0",
@@ -66,6 +71,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": None,
+                    "$host": None,
+                    "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -82,6 +89,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": "http://app.posthog.com/insights",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -99,6 +108,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "terraform",
                     "$current_url": "override",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -115,6 +126,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": None,
+                    "$host": None,
+                    "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -134,18 +147,62 @@ class TestReportUserAction(BaseTest):
         factory = APIRequestFactory()
         request = factory.get("/fake", headers=headers)
 
-        report_user_action(self.user, "test event", properties=explicit_properties, request=request)
+        report_user_action(
+            self.user,
+            "test event",
+            properties=explicit_properties,
+            request=request,
+        )
 
         mock_capture.assert_called_once()
         captured_props = mock_capture.call_args[1]["properties"]
-        assert captured_props == expected_properties
+        assert captured_props == {**expected_properties, "$set_once": {"email": self.user.email}}
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_no_request_passes_properties_unchanged(self, mock_capture):
         report_user_action(self.user, "test event", properties={"key": "val"})
 
         mock_capture.assert_called_once()
-        assert mock_capture.call_args[1]["properties"] == {"key": "val"}
+        assert mock_capture.call_args[1]["properties"] == {"key": "val", "$set_once": {"email": self.user.email}}
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_analytics_props_merged_into_capture(self, mock_capture):
+        report_user_action(
+            self.user,
+            "test event",
+            properties={"key": "val"},
+            analytics_props={"source": EventSource.CACHE_WARMING},
+        )
+
+        mock_capture.assert_called_once()
+        captured_props = mock_capture.call_args[1]["properties"]
+        assert captured_props["source"] == EventSource.CACHE_WARMING
+        assert captured_props["key"] == "val"
+        assert captured_props["$set_once"] == {"email": self.user.email}
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_explicit_properties_take_precedence_over_analytics_props(self, mock_capture):
+        report_user_action(
+            self.user,
+            "test event",
+            properties={"source": "override"},
+            analytics_props={"source": EventSource.CACHE_WARMING},
+        )
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args[1]["properties"]["source"] == "override"
+
+    def test_raises_when_both_request_and_analytics_props_provided(self):
+        factory = APIRequestFactory()
+        request = factory.get("/fake")
+
+        with pytest.raises(ValueError, match="Pass either request or analytics_props, not both"):
+            report_user_action(
+                self.user,
+                "test event",
+                request=request,
+                analytics_props={"source": EventSource.API},
+            )
 
 
 class TestGetEventSource(BaseTest):
@@ -219,6 +276,7 @@ class TestSanitizeHeaderValue(BaseTest):
     @parameterized.expand(
         [
             ("passthrough", "posthog/wizard 1.0", "posthog/wizard 1.0"),
+            ("uuidv7_session_id", "019644d0-a67c-7fa5-a44c-e864c81b5087", "019644d0-a67c-7fa5-a44c-e864c81b5087"),
             ("strips_control_chars", "agent\x00with\x1fnulls", "agentwithnulls"),
             ("truncates_to_max_length", "a" * 1500, "a" * 1000),
             ("strips_whitespace", "  spaces  ", "spaces"),

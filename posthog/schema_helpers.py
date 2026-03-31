@@ -1,4 +1,4 @@
-from typing import Literal, get_origin
+from typing import Literal, assert_never, get_origin
 
 from pydantic import BaseModel, ValidationError
 
@@ -154,17 +154,47 @@ def filter_key_for_query(node: InsightQueryNode) -> str:
         raise ValidationError(f"Expected an insight node, got {node.__name__}")
 
 
-def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType | None:
-    if display in [
-        ChartDisplayType.ACTIONS_LINE_GRAPH,
-        ChartDisplayType.ACTIONS_BAR,
-        ChartDisplayType.ACTIONS_AREA_GRAPH,
-    ]:
-        # time series
-        return ChartDisplayType.ACTIONS_LINE_GRAPH
-    elif display in [ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE]:
-        # cumulative time series
-        return ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
-    else:
-        # total value
-        return ChartDisplayType.ACTIONS_BAR_VALUE
+# keep in sync with frontend/src/scenes/insights/utils/queryUtils.ts `groupedChartDisplayTypes` object
+def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
+    match display:
+        case (
+            ChartDisplayType.ACTIONS_LINE_GRAPH
+            | ChartDisplayType.ACTIONS_AREA_GRAPH
+            | ChartDisplayType.ACTIONS_BAR
+            | ChartDisplayType.ACTIONS_UNSTACKED_BAR
+            | ChartDisplayType.ACTIONS_STACKED_BAR
+            | ChartDisplayType.TWO_DIMENSIONAL_HEATMAP
+        ):
+            # standard time series
+            return ChartDisplayType.ACTIONS_LINE_GRAPH
+
+        case ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
+            # cumulative time series
+            return ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+
+        case (
+            ChartDisplayType.ACTIONS_BAR_VALUE
+            | ChartDisplayType.BOLD_NUMBER
+            | ChartDisplayType.ACTIONS_PIE
+            | ChartDisplayType.ACTIONS_TABLE
+        ):
+            # total value
+            return ChartDisplayType.ACTIONS_BAR_VALUE
+
+        case ChartDisplayType.WORLD_MAP:
+            # separate: different breakdown limit (250)
+            return ChartDisplayType.WORLD_MAP
+
+        case ChartDisplayType.CALENDAR_HEATMAP:
+            # separate runner
+            return ChartDisplayType.CALENDAR_HEATMAP
+
+        case ChartDisplayType.BOX_PLOT:
+            # separate runner
+            return ChartDisplayType.BOX_PLOT
+
+        case ChartDisplayType.AUTO:
+            return ChartDisplayType.AUTO
+
+        case _:
+            assert_never(display)

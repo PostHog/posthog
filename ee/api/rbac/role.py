@@ -1,39 +1,16 @@
-from typing import cast
-
 from django.db import IntegrityError
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.exceptions import NotFound
 
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
-from posthog.models.user import User
-from posthog.permissions import TimeSensitiveActionPermission
+from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
 from ee.models.rbac.role import Role, RoleMembership
-
-
-class RolePermissions(BasePermission):
-    """
-    Requires organization admin level to change object, allows everyone read
-    """
-
-    message = "You need to have admin level or higher."
-
-    def has_permission(self, request, view):
-        organization = request.user.organization
-
-        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
-            user_id=cast(User, request.user).id,
-            organization=organization,
-        )
-
-        if request.method in SAFE_METHODS or requesting_membership.level >= OrganizationMembership.Level.ADMIN:
-            return True
-        return False
 
 
 class RoleSerializer(serializers.ModelSerializer):
@@ -54,7 +31,7 @@ class RoleSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "created_by", "is_default"]
 
     def validate_name(self, name):
-        qs = Role.objects.filter(name__iexact=name, organization=self.context["request"].user.organization)
+        qs = Role.objects.filter(name__iexact=name, organization=self.context["view"].organization)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
@@ -62,21 +39,25 @@ class RoleSerializer(serializers.ModelSerializer):
         return name
 
     def create(self, validated_data):
-        organization = self.context["request"].user.organization
-        validated_data["organization"] = organization
+        validated_data["organization"] = self.context["view"].organization
         return super().create(validated_data)
 
+    @extend_schema_field(
+        serializers.ListField(child=serializers.DictField(), help_text="Members assigned to this role")
+    )
     def get_members(self, role: Role):
         members = RoleMembership.objects.filter(role=role)
         return RoleMembershipSerializer(members, many=True).data
 
+    @extend_schema_field(serializers.BooleanField())
     def get_is_default(self, role: Role):
         """Check if this role is the default role for the organization"""
-        request = self.context.get("request")
-        if not request or not hasattr(request, "user") or not request.user.is_authenticated:
+        view = self.context.get("view")
+        if not view:
             return False
-        organization = getattr(request.user, "organization", None)
-        if not organization:
+        try:
+            organization = view.organization
+        except NotFound:
             return False
         return organization.default_role_id == role.id
 
@@ -86,7 +67,7 @@ class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
-    permission_classes = [RolePermissions, TimeSensitiveActionPermission]
+    permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
 
 
 class RoleMembershipSerializer(serializers.ModelSerializer):
@@ -136,7 +117,7 @@ class RoleMembershipViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "organization"
-    permission_classes = [RolePermissions, TimeSensitiveActionPermission]
+    permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     serializer_class = RoleMembershipSerializer
     queryset = RoleMembership.objects.select_related("role")
     filter_rewrite_rules = {"organization_id": "role__organization_id"}

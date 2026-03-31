@@ -94,6 +94,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
+        setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
         syncNow: true,
         setSyncingNow: (syncing: boolean) => ({ syncing }),
         refreshSchemas: true,
@@ -130,14 +131,16 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             [] as ExternalDataJob[],
             {
                 loadJobs: async () => {
+                    const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
+
                     if (values.jobs.length === 0) {
-                        return await api.externalDataSources.jobs(values.sourceId, null, null)
+                        return await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
                     }
 
                     // Re-fetch recent jobs without an `after` filter to get updated statuses.
                     // The API returns up to 50 jobs sorted by created_at desc, so this
                     // will refresh the status of recent jobs (e.g. Running -> Completed).
-                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null)
+                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
 
                     // Merge fresh jobs with existing jobs, preferring the fresh data
                     const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
@@ -151,10 +154,16 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     )
                 },
                 loadMoreJobs: async () => {
-                    const hasJobs = values.jobs.length >= 0
+                    const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
+                    const hasJobs = values.jobs.length > 0
                     if (hasJobs) {
                         const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
-                        const oldJobs = await api.externalDataSources.jobs(values.sourceId, lastJobCreatedAt, null)
+                        const oldJobs = await api.externalDataSources.jobs(
+                            values.sourceId,
+                            lastJobCreatedAt,
+                            null,
+                            schemas
+                        )
 
                         if (oldJobs.length === 0) {
                             actions.setCanLoadMoreJobs(false)
@@ -202,6 +211,12 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
             },
         ],
+        schemaNameFilter: [
+            '' as string,
+            {
+                setSchemaNameFilter: (_, { schemaNameFilter }) => schemaNameFilter,
+            },
+        ],
         syncingNow: [
             false as boolean,
             {
@@ -237,15 +252,20 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         ],
         filteredSchemas: [
-            (s) => [s.source, s.showEnabledSchemasOnly],
-            (source, showEnabledSchemasOnly): ExternalDataSourceSchema[] => {
+            (s) => [s.source, s.showEnabledSchemasOnly, s.schemaNameFilter],
+            (source, showEnabledSchemasOnly, schemaNameFilter): ExternalDataSourceSchema[] => {
                 if (!source?.schemas) {
                     return []
                 }
+                let schemas = source.schemas
                 if (showEnabledSchemasOnly) {
-                    return source.schemas.filter((schema) => schema.should_sync)
+                    schemas = schemas.filter((schema) => schema.should_sync)
                 }
-                return source.schemas
+                if (schemaNameFilter) {
+                    const filter = schemaNameFilter.toLowerCase()
+                    schemas = schemas.filter((schema) => (schema.label ?? schema.name).toLowerCase().includes(filter))
+                }
+                return schemas
             },
         ],
     }),
@@ -366,6 +386,13 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 actions.setRefreshingSchemas(false)
             }
         },
+        setSelectedSchemas: () => {
+            // Reset jobs so loadJobs fetches fresh data for the new filter
+            // instead of merging with stale results from a different selection
+            actions.loadJobsSuccess([])
+            actions.setCanLoadMoreJobs(true)
+            actions.loadJobs()
+        },
         loadJobsSuccess: () => {
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
@@ -454,7 +481,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 await api.externalDataSchemas.delete_data(schema.id)
 
                 posthog.capture('schema data deleted', { sourceType: clonedSource.source_type })
-                lemonToast.success(`Data for ${schema.name} has been deleted`)
+                lemonToast.success(`Data for ${schema.label ?? schema.name} has been deleted`)
             } catch (e: any) {
                 if (e.message) {
                     lemonToast.error(e.message)

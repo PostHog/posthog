@@ -1,6 +1,9 @@
 import time
 import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
 from uuid import UUID
 
 from django.conf import settings
@@ -16,7 +19,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
@@ -107,6 +110,7 @@ def process_query_task(
     query_tags: dict,
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
+    analytics_props: Optional["AnalyticsProps"] = None,
 ) -> None:
     """
     Kick off query
@@ -128,6 +132,7 @@ def process_query_task(
         query_json=query_json,
         limit_context=limit_context,
         is_query_service=is_query_service,
+        analytics_props=analytics_props,
     )
 
 
@@ -317,7 +322,7 @@ def replay_count_metrics() -> None:
         --group by team_id
         """
 
-        tag_queries(product=Product.REPLAY, name="replay_count_metrics")
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, name="replay_count_metrics")
 
         results = sync_execute(
             query,
@@ -927,7 +932,7 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     from temporalio import common
 
     from posthog.temporal.common.client import async_connect
-    from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithTeamInput
+    from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithTeamInput
 
     config = DeletionConfig(deleted_by=deleted_by, reason="team deletion")
 
@@ -959,15 +964,20 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
     from posthog.models.async_deletion import AsyncDeletion, DeletionType
     from posthog.models.project import Project
     from posthog.models.team import Team
-    from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+    from posthog.models.team.util import (
+        delete_batch_exports,
+        delete_bulky_postgres_data,
+        delete_data_modeling_schedules,
+    )
     from posthog.models.user import User
 
+    # User may have already deleted their account after requesting org deletion,
+    # so we must not block the cleanup on user existence.
     user = User.objects.filter(id=user_id).first()
-    if not user:
-        raise ValueError(f"Cannot delete team data: user {user_id} not found")
 
     try:
-        _queue_delete_team_recordings(team_ids, deleted_by=user.email)
+        deleted_by = user.email if user else f"deleted_user_id:{user_id}"
+        _queue_delete_team_recordings(team_ids, deleted_by=deleted_by)
     except Exception:
         logger.exception("Failed to queue recording deletion workflows", team_ids=team_ids)
         capture_exception()
@@ -977,6 +987,9 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
 
     logger.info("Deleting batch exports", team_ids=team_ids)
     delete_batch_exports(team_ids=team_ids)
+
+    logger.info("Deleting data modeling schedules", team_ids=team_ids)
+    delete_data_modeling_schedules(team_ids=team_ids)
 
     logger.info("Deleting team records", team_ids=team_ids)
     if project_id:

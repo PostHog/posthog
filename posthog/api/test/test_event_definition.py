@@ -140,6 +140,8 @@ class TestEventDefinitionAPI(APIBaseTest):
             properties={
                 "source": ANY,
                 "$current_url": ANY,
+                "$host": ANY,
+                "$pathname": ANY,
                 "$session_id": ANY,
                 "was_impersonated": ANY,
                 "mcp_user_agent": ANY,
@@ -147,6 +149,7 @@ class TestEventDefinitionAPI(APIBaseTest):
                 "mcp_client_version": ANY,
                 "mcp_protocol_version": ANY,
                 "mcp_oauth_client_name": ANY,
+                "$set_once": ANY,
                 "name": "test_event",
             },
             groups={
@@ -154,6 +157,7 @@ class TestEventDefinitionAPI(APIBaseTest):
                 "organization": str(self.organization.id),
                 "project": str(self.demo_team.uuid),
             },
+            send_feature_flags=False,
         )
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="EventDefinition").first()

@@ -140,6 +140,13 @@ pub struct Config {
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
     pub max_grouping_rule_cache_size: u64,
 
+    #[envconfig(default = "300")]
+    pub suppression_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_suppression_rule_cache_size: u64,
+
     #[envconfig(from = "MAXMIND_DB_PATH")]
     pub maxmind_db_path: PathBuf,
 
@@ -168,6 +175,13 @@ pub struct Config {
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
+
+    // Internal API for signal emission
+    #[envconfig(default = "")]
+    pub signals_api_base_url: String,
+
+    #[envconfig(default = "")]
+    pub internal_api_secret: String,
 }
 
 impl Config {

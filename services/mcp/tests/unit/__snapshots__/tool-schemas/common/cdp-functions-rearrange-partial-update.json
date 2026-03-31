@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "orders": {
+            "additionalProperties": {
+                "type": "number"
+            },
+            "description": "Map of hog function UUIDs to their new execution_order values.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        }
+    },
+    "type": "object"
+}

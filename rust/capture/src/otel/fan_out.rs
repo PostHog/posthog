@@ -1,4 +1,5 @@
 use chrono::{DateTime, TimeZone, Utc};
+use common_types::HasEventName;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
 use serde_json::Value;
@@ -10,6 +11,32 @@ pub struct SpanEvent {
     pub distinct_id: String,
     pub properties: Value,
     pub timestamp: Option<DateTime<Utc>>,
+}
+
+impl HasEventName for SpanEvent {
+    fn event_name(&self) -> &str {
+        &self.event_name
+    }
+
+    fn has_property(&self, key: &str) -> bool {
+        self.properties
+            .as_object()
+            .map(|m| m.contains_key(key))
+            .unwrap_or(false)
+    }
+}
+
+impl HasEventName for &SpanEvent {
+    fn event_name(&self) -> &str {
+        &self.event_name
+    }
+
+    fn has_property(&self, key: &str) -> bool {
+        self.properties
+            .as_object()
+            .map(|m| m.contains_key(key))
+            .unwrap_or(false)
+    }
 }
 
 fn any_value_to_json(value: &any_value::Value) -> Value {

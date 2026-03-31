@@ -1,15 +1,17 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use etcd_client::EventType;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
 
 use crate::error::{Error, Result};
 use crate::store::PersonhogStore;
-use crate::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
+use crate::types::{HandoffPhase, HandoffState, PartitionAssignment, PodStatus, RegisteredPod};
 use crate::util;
 
 /// Trait for the application-layer handoff handler on writer pods.
@@ -49,6 +51,8 @@ pub struct PodHandle {
     store: Arc<PersonhogStore>,
     config: PodConfig,
     handler: Arc<dyn HandoffHandler>,
+    /// Partitions this pod has warmed. Used to avoid re-warming on assignment watches.
+    owned_partitions: Mutex<HashSet<u32>>,
 }
 
 impl PodHandle {
@@ -61,6 +65,7 @@ impl PodHandle {
             store,
             config,
             handler,
+            owned_partitions: Mutex::new(HashSet::new()),
         }
     }
 
@@ -108,12 +113,16 @@ impl PodHandle {
             })
         };
 
-        let handoff_result = self.watch_handoff_loop(cancel.clone()).await;
+        // Run handoff and assignment watches concurrently
+        let result = tokio::select! {
+            r = self.watch_handoff_loop(cancel.clone()) => r,
+            r = self.watch_assignment_loop(cancel.clone()) => r,
+        };
 
         heartbeat_cancel.cancel();
         drop(heartbeat_handle.await);
 
-        handoff_result
+        result
     }
 
     async fn watch_handoff_loop(&self, cancel: CancellationToken) -> Result<()> {
@@ -152,6 +161,7 @@ impl PodHandle {
                 "warming cache for partition"
             );
             self.handler.warm_partition(handoff.partition).await?;
+            self.owned_partitions.lock().await.insert(handoff.partition);
 
             // Signal ready — routers will now begin cutover
             let mut updated = handoff.clone();
@@ -165,7 +175,78 @@ impl PodHandle {
         if handoff.old_owner == *pod && handoff.phase == HandoffPhase::Complete {
             tracing::info!(pod, partition = handoff.partition, "releasing partition");
             self.handler.release_partition(handoff.partition).await?;
+            self.owned_partitions
+                .lock()
+                .await
+                .remove(&handoff.partition);
         }
+
+        Ok(())
+    }
+
+    /// Watch for direct assignment changes. This handles the case where the
+    /// coordinator assigns partitions without handoffs (e.g., initial assignment
+    /// when the first pod registers).
+    async fn watch_assignment_loop(&self, cancel: CancellationToken) -> Result<()> {
+        let mut stream = self.store.watch_assignments().await?;
+
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                msg = stream.message() => {
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("assignment watch stream ended".to_string()))?;
+                    for event in resp.events() {
+                        if event.event_type() == EventType::Put {
+                            match parse_watch_value::<PartitionAssignment>(event) {
+                                Ok(assignment) => {
+                                    self.handle_assignment_event(&assignment).await?;
+                                }
+                                Err(e) => {
+                                    tracing::error!(pod = %self.config.pod_name, error = %e, "failed to parse assignment");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn handle_assignment_event(&self, assignment: &PartitionAssignment) -> Result<()> {
+        let pod = &self.config.pod_name;
+
+        if assignment.owner != *pod {
+            return Ok(());
+        }
+
+        // Skip if we already own this partition (warmed via handoff or prior assignment)
+        if self
+            .owned_partitions
+            .lock()
+            .await
+            .contains(&assignment.partition)
+        {
+            return Ok(());
+        }
+
+        // Check if there's an active handoff for this partition — if so, the
+        // handoff handler will take care of warming
+        let handoffs = self.store.list_handoffs().await.unwrap_or_default();
+        if handoffs.iter().any(|h| h.partition == assignment.partition) {
+            return Ok(());
+        }
+
+        // Direct assignment without handoff — warm the partition
+        tracing::info!(
+            pod,
+            partition = assignment.partition,
+            "warming partition from direct assignment"
+        );
+        self.handler.warm_partition(assignment.partition).await?;
+        self.owned_partitions
+            .lock()
+            .await
+            .insert(assignment.partition);
 
         Ok(())
     }

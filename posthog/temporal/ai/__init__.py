@@ -4,6 +4,25 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
+from posthog.temporal.ai.posthog_code_slack_interactivity import (
+    PostHogCodeSlackTerminateTaskWorkflow,
+    process_posthog_code_terminate_task_activity,
+)
+from posthog.temporal.ai.posthog_code_slack_mention import (
+    PostHogCodeSlackMentionWorkflow,
+    classify_posthog_code_task_needs_repo_activity,
+    collect_posthog_code_thread_messages_activity,
+    create_posthog_code_routing_rule_activity,
+    create_posthog_code_task_for_repo_activity,
+    forward_posthog_code_followup_activity,
+    handle_posthog_code_rules_command_activity,
+    post_posthog_code_internal_error_activity,
+    post_posthog_code_no_repos_activity,
+    post_posthog_code_picker_timeout_activity,
+    post_posthog_code_repo_picker_activity,
+    resolve_posthog_code_slack_user_activity,
+    select_posthog_code_repository_activity,
+)
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
 from posthog.temporal.ai.session_summary.activities import (
     analyze_video_segment_activity,
@@ -29,24 +48,6 @@ from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
     process_slack_conversation_activity,
-)
-from posthog.temporal.ai.twig_slack_interactivity import (
-    TwigSlackTerminateTaskWorkflow,
-    process_twig_terminate_task_activity,
-)
-from posthog.temporal.ai.twig_slack_mention import (
-    TwigSlackMentionWorkflow,
-    collect_twig_thread_messages_activity,
-    create_twig_routing_rule_activity,
-    create_twig_task_for_repo_activity,
-    forward_twig_followup_activity,
-    handle_twig_rules_command_activity,
-    post_twig_internal_error_activity,
-    post_twig_no_repos_activity,
-    post_twig_picker_timeout_activity,
-    post_twig_repo_picker_activity,
-    resolve_twig_slack_user_activity,
-    select_twig_repository_activity,
 )
 
 from products.signals.backend.temporal import (
@@ -98,8 +99,8 @@ AI_WORKFLOWS = [
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    TwigSlackMentionWorkflow,
-    TwigSlackTerminateTaskWorkflow,
+    PostHogCodeSlackMentionWorkflow,
+    PostHogCodeSlackTerminateTaskWorkflow,
 ]
 
 AI_ACTIVITIES = [
@@ -111,18 +112,19 @@ AI_ACTIVITIES = [
     process_research_agent_activity,
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
-    resolve_twig_slack_user_activity,
-    handle_twig_rules_command_activity,
-    collect_twig_thread_messages_activity,
-    create_twig_routing_rule_activity,
-    select_twig_repository_activity,
-    post_twig_no_repos_activity,
-    post_twig_repo_picker_activity,
-    create_twig_task_for_repo_activity,
-    forward_twig_followup_activity,
-    post_twig_picker_timeout_activity,
-    post_twig_internal_error_activity,
-    process_twig_terminate_task_activity,
+    resolve_posthog_code_slack_user_activity,
+    handle_posthog_code_rules_command_activity,
+    collect_posthog_code_thread_messages_activity,
+    create_posthog_code_routing_rule_activity,
+    select_posthog_code_repository_activity,
+    classify_posthog_code_task_needs_repo_activity,
+    post_posthog_code_no_repos_activity,
+    post_posthog_code_repo_picker_activity,
+    create_posthog_code_task_for_repo_activity,
+    forward_posthog_code_followup_activity,
+    post_posthog_code_picker_timeout_activity,
+    post_posthog_code_internal_error_activity,
+    process_posthog_code_terminate_task_activity,
 ]
 
 SIGNALS_WORKFLOWS = [

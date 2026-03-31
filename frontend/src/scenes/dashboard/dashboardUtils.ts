@@ -14,10 +14,31 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardLayoutSize,
+    DashboardTile,
+    DashboardWidgetType,
     InsightModel,
     QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
+
+/** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
+export function getDashboardWidgetType(
+    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile'>
+): DashboardWidgetType {
+    if (tile.insight) {
+        return 'insight'
+    }
+    if (tile.text) {
+        return 'text'
+    }
+    if (tile.button_tile) {
+        return 'button_tile'
+    }
+
+    throw new Error(
+        'Dashboard tile has no widget payload. If a new widget type was added to `DashboardTile`, handle it in getDashboardWidgetType.'
+    )
+}
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 768,
@@ -41,6 +62,7 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
+export const QUICK_FILTER_DEBOUNCE_MS = 1500
 
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))

@@ -49,7 +49,7 @@ class TrendsResultsFormatter:
     def _format_aggregated_values(self, results: list[dict[str, Any]]) -> str:
         # Get dates and series labels
         result = results[0]
-        dates = result.get("action", {}).get("days") or []
+        dates = (result.get("action") or {}).get("days") or []
         if len(dates) == 0:
             range = "All time"
         else:

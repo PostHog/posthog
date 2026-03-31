@@ -1,8 +1,10 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Params } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
@@ -36,11 +38,16 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     props({} as IssueQueryOptionsLogicProps),
     key(({ logicKey }) => logicKey),
 
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
+
     actions({
         setOrderBy: (orderBy: ErrorTrackingQueryOrderBy) => ({ orderBy }),
         setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => ({ orderDirection }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
+        setUseQueryV2: (useQueryV2: boolean) => ({ useQueryV2 }),
     }),
 
     reducers({
@@ -71,6 +78,20 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             {
                 setStatus: (_, { status }) => status,
             },
+        ],
+        useQueryV2: [
+            false as boolean,
+            { persist: true },
+            {
+                setUseQueryV2: (_, { useQueryV2 }) => useQueryV2,
+            },
+        ],
+    }),
+
+    selectors({
+        forceQueryV2: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_FORCE_QUERY_V2],
         ],
     }),
 

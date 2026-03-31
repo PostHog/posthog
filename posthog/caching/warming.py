@@ -17,13 +17,16 @@ from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import DashboardTile, Insight, Team
+from posthog.models import Insight, Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.utils import CeleryQueue
+
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
 
@@ -233,6 +236,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
+                analytics_props={"source": EventSource.CACHE_WARMING},
             )
 
             is_cached = getattr(results, "is_cached", False)

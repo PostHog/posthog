@@ -10,7 +10,7 @@ import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_sta
 
 import { ToastCloseButton, ToastContent, ToastContentProps, lemonToast } from './LemonToast'
 
-const meta: Meta<typeof ToastContent> = {
+const meta: Meta<ToastContentProps> = {
     title: 'Lemon UI/Lemon Toast',
     component: ToastContent,
     parameters: {
@@ -66,8 +66,6 @@ export const ToastTypes: Story = {
                 position="top-left" // different from app
                 autoClose={false} // different from app
                 transition={Slide}
-                closeOnClick={false}
-                draggable={false}
                 closeButton={<ToastCloseButton />}
                 theme={isDarkModeOn ? 'dark' : 'light'}
             />
@@ -169,8 +167,6 @@ export const ErrorWithIncidentNote: Story = {
                 position="top-left"
                 autoClose={false}
                 transition={Slide}
-                closeOnClick={false}
-                draggable={false}
                 closeButton={<ToastCloseButton />}
                 theme={isDarkModeOn ? 'dark' : 'light'}
             />

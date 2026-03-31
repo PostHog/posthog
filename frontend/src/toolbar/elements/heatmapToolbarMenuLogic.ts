@@ -14,6 +14,7 @@ import { createVersionChecker } from 'lib/utils/semver'
 import { DOMIndex, buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
@@ -657,6 +658,9 @@ function matchEventToElement(
                 }
             }
         } catch {
+            toolbarLogger.warn('heatmap', 'Failed to resolve heatmap element with selector', {
+                selector: combinedSelector,
+            })
             break
         }
 

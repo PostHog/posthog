@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -10,12 +10,11 @@ import {
     LemonInput,
     LemonSelect,
     LemonSwitch,
-    LemonTag,
     Link,
 } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -25,257 +24,16 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
+import { AuthorizedDomains } from './AuthorizedDomains'
 import { BrowserNotificationsSection } from './BrowserNotificationsSection'
+import { EmailSection } from './EmailSection'
+import { SecretApiKeySection } from './SecretApiKeySection'
+import { SlackSection } from './SlackSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export const scene: SceneExport = {
     component: SupportSettingsScene,
     productKey: ProductKey.CONVERSATIONS,
-}
-
-function AuthorizedDomains(): JSX.Element {
-    const { conversationsDomains, isAddingDomain, editingDomainIndex, domainInputValue } =
-        useValues(supportSettingsLogic)
-    const { setDomainInputValue, saveDomain, removeDomain, startEditDomain, cancelDomainEdit } =
-        useActions(supportSettingsLogic)
-
-    return (
-        <div className="flex flex-col gap-2">
-            {conversationsDomains.length === 0 && !isAddingDomain && (
-                <div className="border rounded p-4 text-secondary">
-                    <p className="mb-0">
-                        <span className="font-bold">No domains configured.</span>
-                        <br />
-                        The widget will show on all domains. Add domains to limit where it appears.
-                    </p>
-                </div>
-            )}
-
-            {(isAddingDomain || editingDomainIndex !== null) && (
-                <div className="border rounded p-2 bg-surface-primary">
-                    <div className="gap-2">
-                        <LemonInput
-                            autoFocus
-                            value={domainInputValue}
-                            onChange={setDomainInputValue}
-                            placeholder="https://example.com or https://*.example.com"
-                            fullWidth
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    saveDomain(domainInputValue, editingDomainIndex)
-                                } else if (e.key === 'Escape') {
-                                    cancelDomainEdit()
-                                }
-                            }}
-                        />
-                        <div className="flex gap-2 mt-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => saveDomain(domainInputValue, editingDomainIndex)}
-                                disabledReason={!domainInputValue.trim() ? 'Enter a domain' : undefined}
-                            >
-                                Save
-                            </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={cancelDomainEdit}>
-                                Cancel
-                            </LemonButton>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {conversationsDomains.map((domain: string, index: number) =>
-                editingDomainIndex === index ? null : (
-                    <div key={index} className="border rounded flex items-center p-2 pl-4 bg-surface-primary">
-                        <span title={domain} className="flex-1 truncate">
-                            {domain}
-                        </span>
-                        <div className="flex gap-1 shrink-0">
-                            <LemonButton
-                                icon={<IconPencil />}
-                                onClick={() => startEditDomain(index)}
-                                tooltip="Edit"
-                                size="small"
-                            />
-                            <LemonButton
-                                icon={<IconTrash />}
-                                tooltip="Remove domain"
-                                size="small"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: <>Remove {domain}?</>,
-                                        description: 'Are you sure you want to remove this domain?',
-                                        primaryButton: {
-                                            status: 'danger',
-                                            children: 'Remove',
-                                            onClick: () => removeDomain(index),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                }}
-                            />
-                        </div>
-                    </div>
-                )
-            )}
-        </div>
-    )
-}
-
-function SlackSection(): JSX.Element {
-    return (
-        <SceneSection
-            title="SupportHog Slack bot"
-            description="Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from Slack messages."
-            className="mt-4"
-        >
-            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
-                <SlackChannelSection />
-            </LemonCard>
-        </SceneSection>
-    )
-}
-
-function SlackChannelSection(): JSX.Element {
-    const {
-        slackConnected,
-        slackChannelId,
-        slackChannels,
-        slackChannelsLoading,
-        slackTicketEmoji,
-        slackTicketEmojiValue,
-    } = useValues(supportSettingsLogic)
-    const {
-        connectSlack,
-        setSlackChannel,
-        loadSlackChannelsWithToken,
-        setSlackTicketEmojiValue,
-        saveSlackTicketEmoji,
-        disconnectSlack,
-    } = useActions(supportSettingsLogic)
-
-    return (
-        <div className="flex flex-col gap-y-2">
-            <div>
-                <label className="font-medium">Connection</label>
-                <p className="text-xs text-muted-alt">
-                    Install the SupportHog bot in your Slack workspace to enable support ticket creation from channels,
-                    mentions, and emoji reactions. This is separate from the main PostHog Slack integration.
-                </p>
-                {!slackConnected && (
-                    <LemonButton
-                        className="mt-2"
-                        type="primary"
-                        size="small"
-                        onClick={() => connectSlack(window.location.pathname)}
-                    >
-                        Add SupportHog to Slack
-                    </LemonButton>
-                )}
-            </div>
-            {slackConnected && (
-                <>
-                    <LemonDivider />
-                    <div className="gap-4">
-                        <div>
-                            <label className="font-medium">Support channel</label>
-                            <p className="text-xs text-muted-alt">
-                                Messages posted in this channel will automatically create support tickets. Thread
-                                replies become ticket messages.
-                            </p>
-                        </div>
-                        <div className="flex gap-2 items-center">
-                            <LemonSelect
-                                value={slackChannelId}
-                                options={[
-                                    { value: null, label: 'None' },
-                                    ...slackChannels.map((c: { id: string; name: string }) => ({
-                                        value: c.id,
-                                        label: `#${c.name}`,
-                                    })),
-                                ]}
-                                onChange={(value) => {
-                                    const channel = slackChannels.find((c: { id: string }) => c.id === value)
-                                    setSlackChannel(value, channel?.name ?? null)
-                                }}
-                                loading={slackChannelsLoading}
-                                placeholder="Select channel"
-                            />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={loadSlackChannelsWithToken}
-                                disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
-                            >
-                                Refresh
-                            </LemonButton>
-                        </div>
-                    </div>
-                    <LemonDivider />
-                    <div className="flex items-center gap-4 justify-between">
-                        <div>
-                            <label className="font-medium">Ticket emoji trigger</label>
-                            <p className="text-xs text-muted-alt">
-                                React with this emoji on any message to create a support ticket from it.
-                            </p>
-                        </div>
-                        <div className="flex gap-2 items-center">
-                            <LemonInput
-                                value={slackTicketEmojiValue ?? slackTicketEmoji}
-                                onChange={setSlackTicketEmojiValue}
-                                placeholder="ticket"
-                                className="max-w-[200px]"
-                            />
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={saveSlackTicketEmoji}
-                                disabledReason={!slackTicketEmojiValue ? 'Enter an emoji name' : undefined}
-                            >
-                                Save
-                            </LemonButton>
-                        </div>
-                    </div>
-                    <LemonDivider />
-                    <div className="flex items-center gap-4 justify-between">
-                        <div>
-                            <label className="font-medium">Bot mention</label>
-                            <p className="text-xs text-muted-alt">
-                                Users can @mention the bot in any channel to create a support ticket.
-                            </p>
-                        </div>
-                        <LemonTag type="success">Active</LemonTag>
-                    </div>
-                    <LemonDivider />
-                    <div className="flex justify-end">
-                        <LemonButton
-                            type="secondary"
-                            status="danger"
-                            size="small"
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Remove SupportHog bot?',
-                                    description:
-                                        'This will stop creating tickets from Slack messages. Existing tickets will not be affected.',
-                                    primaryButton: {
-                                        status: 'danger',
-                                        children: 'Remove',
-                                        onClick: disconnectSlack,
-                                    },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            }}
-                        >
-                            Remove SupportHog bot
-                        </LemonButton>
-                    </div>
-                </>
-            )}
-        </div>
-    )
 }
 
 export function SupportSettingsScene(): JSX.Element {
@@ -307,6 +65,7 @@ export function SupportSettingsScene(): JSX.Element {
         placeholderTextValue,
         notificationRecipients,
     } = useValues(supportSettingsLogic)
+    const emailChannelEnabled = useFeatureFlag('PRODUCT_SUPPORT_EMAIL_CHANNEL')
 
     return (
         <SceneContent>
@@ -320,7 +79,14 @@ export function SupportSettingsScene(): JSX.Element {
             <ScenesTabs />
             <SceneSection
                 title="Conversations API"
-                description="Turn on conversations API to enable access for tickets and messages."
+                description={
+                    <>
+                        Turn on conversations API to enable access for tickets and messages.{' '}
+                        <Link to="https://posthog.com/docs/support/javascript-api" target="_blank">
+                            Docs
+                        </Link>
+                    </>
+                }
             >
                 <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                     <div className="flex items-center gap-4 justify-between">
@@ -372,7 +138,19 @@ export function SupportSettingsScene(): JSX.Element {
                         </LemonCard>
                     </SceneSection>
                     <SlackSection />
-                    <SceneSection title="In-app widget" className="mt-4">
+                    {emailChannelEnabled && <EmailSection />}
+                    <SceneSection
+                        title="In-app widget"
+                        description={
+                            <>
+                                Add a chat widget to your website for customers to reach you.{' '}
+                                <Link to="https://posthog.com/docs/support/widget" target="_blank">
+                                    Docs
+                                </Link>
+                            </>
+                        }
+                        className="mt-4"
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>
@@ -682,7 +460,10 @@ export function SupportSettingsScene(): JSX.Element {
                         description={
                             <>
                                 Use these events as triggers in <Link to="/workflows">Workflows</Link> to automate
-                                ticket actions.
+                                ticket actions.{' '}
+                                <Link to="https://posthog.com/docs/support/workflows" target="_blank">
+                                    Docs
+                                </Link>
                             </>
                         }
                         className="mt-4"
@@ -767,6 +548,7 @@ export function SupportSettingsScene(): JSX.Element {
                             </div>
                         </LemonCard>
                     </SceneSection>
+                    <SecretApiKeySection />
                 </>
             )}
         </SceneContent>

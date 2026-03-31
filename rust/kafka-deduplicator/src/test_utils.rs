@@ -2,15 +2,31 @@
 //!
 //! This module provides common test helpers to avoid duplication across test files.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::rebalance_tracker::RebalanceTracker;
+use crate::rocksdb::store::RocksDbConfig;
+use crate::store::DeduplicationStoreConfig;
+use crate::store_manager::StoreManager;
 
 /// Creates a test `RebalanceTracker`.
 ///
 /// This is a convenience function that wraps `RebalanceTracker::new()` in an `Arc`.
 pub fn create_test_tracker() -> Arc<RebalanceTracker> {
     Arc::new(RebalanceTracker::new())
+}
+
+/// Creates a test `StoreManager` backed by the given path.
+///
+/// The caller is responsible for managing the directory lifetime (typically via `TempDir`).
+pub fn create_test_store_manager(path: PathBuf) -> Arc<StoreManager> {
+    let config = DeduplicationStoreConfig {
+        path,
+        max_capacity: 1_000_000,
+        rocksdb: RocksDbConfig::default(),
+    };
+    Arc::new(StoreManager::new(config, create_test_tracker()))
 }
 
 /// Test helpers for creating test data.

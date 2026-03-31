@@ -28,6 +28,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { PendingApprovalsBanner } from 'scenes/approvals/PendingApprovalsBanner'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -544,6 +545,7 @@ export function OverViewTab({
                 className={cn('my-0')}
             />
             {!isProductIntroVisible && <ApprovalsPromoBanner />}
+            <PendingApprovalsBanner />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
             <div className="flex items-center justify-between min-h-9">

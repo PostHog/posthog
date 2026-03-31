@@ -1,4 +1,4 @@
-export type LogEntryType = 'console' | 'agent' | 'tool' | 'user' | 'raw' | 'system'
+export type LogEntryType = 'console' | 'agent' | 'tool' | 'user' | 'raw' | 'system' | 'thinking'
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 export type ToolStatus = 'pending' | 'running' | 'completed' | 'error'
 
@@ -28,6 +28,35 @@ function normalizeLevel(level?: string): LogLevel {
         return lower as LogLevel
     }
     return 'info'
+}
+
+/**
+ * ACP serializes arrays/strings in rawOutput as index-keyed objects:
+ *   "hello" → {"0":"h","1":"e","2":"l","3":"l","4":"o"}
+ *   [{type:"text"}] → {"0":{type:"text"}}
+ * Detect and reconstruct the original value.
+ */
+function normalizeRawOutput(value: unknown): unknown {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return value
+    }
+    const obj = value as Record<string, unknown>
+    if (!('0' in obj)) {
+        return value
+    }
+    // Reconstruct array from sequential numeric keys
+    const arr: unknown[] = []
+    for (let i = 0; String(i) in obj; i++) {
+        arr.push(obj[String(i)])
+    }
+    if (arr.length === 0) {
+        return value
+    }
+    // If every element is a single character, it was a string
+    if (arr.every((v) => typeof v === 'string' && v.length === 1)) {
+        return arr.join('')
+    }
+    return arr
 }
 
 function normalizeToolStatus(status?: string | null): ToolStatus {
@@ -116,10 +145,22 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                 return null
 
             case 'agent_message_chunk':
+            case 'agent_message':
                 if (update.content?.type === 'text' && update.content.text) {
                     return {
                         id,
                         type: 'agent',
+                        timestamp,
+                        message: update.content.text,
+                    }
+                }
+                return null
+
+            case 'agent_thought_chunk':
+                if (update.content?.type === 'text' && update.content.text) {
+                    return {
+                        id,
+                        type: 'thinking',
                         timestamp,
                         message: update.content.text,
                     }
@@ -138,7 +179,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     if (update._meta?.claudeCode?.toolResponse !== undefined) {
                         existing.toolResult = update._meta.claudeCode.toolResponse
                     } else if (update.rawOutput !== undefined) {
-                        existing.toolResult = update.rawOutput
+                        existing.toolResult = normalizeRawOutput(update.rawOutput)
                     }
                     return null
                 }
@@ -149,7 +190,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     toolName: update._meta?.claudeCode?.toolName || update.title || 'Unknown Tool',
                     toolCallId,
                     toolStatus: normalizeToolStatus(update.status),
-                    toolArgs: update.rawInput,
+                    toolArgs: update.rawInput && Object.keys(update.rawInput).length > 0 ? update.rawInput : undefined,
                 }
                 toolMap.set(toolCallId, entry)
                 return entry
@@ -161,10 +202,13 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     const existing = toolMap.get(toolCallId)
                     if (existing) {
                         existing.toolStatus = normalizeToolStatus(update.status)
+                        if (update.rawInput && Object.keys(update.rawInput).length > 0) {
+                            existing.toolArgs = update.rawInput
+                        }
                         if (update._meta?.claudeCode?.toolResponse !== undefined) {
                             existing.toolResult = update._meta.claudeCode.toolResponse
                         } else if (update.rawOutput !== undefined) {
-                            existing.toolResult = update.rawOutput
+                            existing.toolResult = normalizeRawOutput(update.rawOutput)
                         }
                         return null
                     }
@@ -192,6 +236,60 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
     return null
 }
 
+function parseLogObject(parsed: Record<string, unknown>, id: string): LogEntry | null {
+    if (parsed.toolName || parsed.tool_name || parsed.tool) {
+        return {
+            id,
+            type: 'tool',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            toolName: (parsed.toolName || parsed.tool_name || parsed.tool) as string,
+            toolStatus: 'completed',
+            toolArgs: (parsed.args || parsed.arguments || parsed.input) as Record<string, unknown> | undefined,
+            toolResult: parsed.result || parsed.output,
+        }
+    }
+
+    if (parsed.level || parsed.severity) {
+        return {
+            id,
+            type: 'console',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            level: normalizeLevel((parsed.level || parsed.severity) as string | undefined),
+            message: ((parsed.message || parsed.msg || parsed.text) as string) || JSON.stringify(parsed),
+        }
+    }
+
+    if (parsed.role === 'user' || parsed.type === 'user') {
+        return {
+            id,
+            type: 'user',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            message: (parsed.content || parsed.message || parsed.text) as string | undefined,
+        }
+    }
+
+    if (parsed.role === 'assistant' || parsed.type === 'agent' || parsed.type === 'assistant') {
+        return {
+            id,
+            type: 'agent',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            message: (parsed.content || parsed.message || parsed.text) as string | undefined,
+        }
+    }
+
+    if (parsed.message || parsed.msg || parsed.text) {
+        return {
+            id,
+            type: 'console',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            level: 'info',
+            message: (parsed.message || parsed.msg || parsed.text) as string,
+        }
+    }
+
+    return null
+}
+
 function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry>): LogEntry | null {
     const id = `log-${index}`
     const trimmed = line.trim()
@@ -211,61 +309,7 @@ function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry
             return parseACPNotification(parsed, id, toolMap)
         }
 
-        if (parsed.toolName || parsed.tool_name || parsed.tool) {
-            return {
-                id,
-                type: 'tool',
-                timestamp: parsed.timestamp || parsed.time,
-                toolName: parsed.toolName || parsed.tool_name || parsed.tool,
-                toolStatus: 'completed',
-                toolArgs: parsed.args || parsed.arguments || parsed.input,
-                toolResult: parsed.result || parsed.output,
-            }
-        }
-
-        if (parsed.level || parsed.severity) {
-            return {
-                id,
-                type: 'console',
-                timestamp: parsed.timestamp || parsed.time,
-                level: normalizeLevel(parsed.level || parsed.severity),
-                message: parsed.message || parsed.msg || parsed.text || JSON.stringify(parsed),
-            }
-        }
-
-        if (parsed.role === 'user' || parsed.type === 'user') {
-            return {
-                id,
-                type: 'user',
-                timestamp: parsed.timestamp || parsed.time,
-                message: parsed.content || parsed.message || parsed.text,
-            }
-        }
-
-        if (parsed.role === 'assistant' || parsed.type === 'agent' || parsed.type === 'assistant') {
-            return {
-                id,
-                type: 'agent',
-                timestamp: parsed.timestamp || parsed.time,
-                message: parsed.content || parsed.message || parsed.text,
-            }
-        }
-
-        if (parsed.message || parsed.msg || parsed.text) {
-            return {
-                id,
-                type: 'console',
-                timestamp: parsed.timestamp || parsed.time,
-                level: 'info',
-                message: parsed.message || parsed.msg || parsed.text,
-            }
-        }
-
-        return {
-            id,
-            type: 'raw',
-            raw: line,
-        }
+        return parseLogObject(parsed, id) ?? { id, type: 'raw', raw: line }
     } catch {
         return {
             id,
@@ -273,6 +317,24 @@ function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry
             raw: line,
         }
     }
+}
+
+/**
+ * Parse a single ACP event object from an SSE stream into a LogEntry.
+ * Uses the same logic as parseLogs but for individual events arriving in real-time.
+ */
+export function parseLogEvent(
+    event: Record<string, unknown>,
+    index: number,
+    toolMap: Map<string, LogEntry>
+): LogEntry | null {
+    const id = `stream-${index}`
+
+    if (isACPNotification(event)) {
+        return parseACPNotification(event as ACPNotification, id, toolMap)
+    }
+
+    return parseLogObject(event, id)
 }
 
 export function parseLogs(logs: string): LogEntry[] {
@@ -289,7 +351,10 @@ export function parseLogs(logs: string): LogEntry[] {
         const entry = parseLogLine(lines[i], i, toolMap)
         if (entry !== null) {
             const lastEntry = entries[entries.length - 1]
-            if (entry.type === 'agent' && lastEntry?.type === 'agent') {
+            if (
+                (entry.type === 'agent' && lastEntry?.type === 'agent') ||
+                (entry.type === 'thinking' && lastEntry?.type === 'thinking')
+            ) {
                 lastEntry.message = (lastEntry.message || '') + (entry.message || '')
             } else {
                 entries.push(entry)
