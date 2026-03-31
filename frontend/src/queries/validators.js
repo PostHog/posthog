@@ -4074,7 +4074,7 @@ const schema49 = {
     required: ['key', 'operator', 'type'],
     type: 'object',
 }
-const schema51 = { enum: ['span_attribute', 'span_resource_attribute'], type: 'string' }
+const schema51 = { enum: ['span', 'span_attribute', 'span_resource_attribute'], type: 'string' }
 function validate57(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
@@ -4244,7 +4244,13 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if (!(data3 === 'span_attribute' || data3 === 'span_resource_attribute')) {
+                                    if (
+                                        !(
+                                            data3 === 'span' ||
+                                            data3 === 'span_attribute' ||
+                                            data3 === 'span_resource_attribute'
+                                        )
+                                    ) {
                                         validate57.errors = [
                                             {
                                                 instancePath: instancePath + '/type',

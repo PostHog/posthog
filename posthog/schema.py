@@ -3458,6 +3458,7 @@ class PropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
     LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
+    SPAN = "span"
     SPAN_ATTRIBUTE = "span_attribute"
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
     WORKFLOW_VARIABLE = "workflow_variable"
@@ -4134,6 +4135,7 @@ class SourceMap(BaseModel):
 
 
 class SpanPropertyFilterType(StrEnum):
+    SPAN = "span"
     SPAN_ATTRIBUTE = "span_attribute"
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
 

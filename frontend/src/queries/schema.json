@@ -25215,6 +25215,7 @@
                 "log",
                 "log_attribute",
                 "log_resource_attribute",
+                "span",
                 "span_attribute",
                 "span_resource_attribute",
                 "workflow_variable",
@@ -33715,7 +33716,7 @@
             "type": "object"
         },
         "SpanPropertyFilterType": {
-            "enum": ["span_attribute", "span_resource_attribute"],
+            "enum": ["span", "span_attribute", "span_resource_attribute"],
             "type": "string"
         },
         "StepOrderValue": {
