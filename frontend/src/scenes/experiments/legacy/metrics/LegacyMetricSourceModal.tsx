@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { experimentLogic } from '../experimentLogic'
-import { modalsLogic } from '../modalsLogic'
-import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../utils'
+import { experimentLogic } from '../../experimentLogic'
+import { modalsLogic } from '../../modalsLogic'
+import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../../utils'
 
 /**
  *

@@ -5,9 +5,9 @@ import { LemonButton, LemonDialog, LemonModal, LemonSelect } from '@posthog/lemo
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
-import { modalsLogic } from '../modalsLogic'
-import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
+import { experimentLogic } from '../../experimentLogic'
+import { modalsLogic } from '../../modalsLogic'
+import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
 

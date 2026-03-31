@@ -18,7 +18,7 @@ import { Query } from '~/queries/Query/Query'
 import { AnyEntityNode, ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, FilterType } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic } from '../../experimentLogic'
 import {
     FunnelAggregationSelect,
     FunnelAttributionSelect,

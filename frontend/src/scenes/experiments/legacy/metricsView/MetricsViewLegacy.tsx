@@ -6,8 +6,8 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { experimentLogic } from '../../experimentLogic'
-import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
-import { getNiceTickValues } from '../shared/utils'
+import { getNiceTickValues } from '../../MetricsView/shared/utils'
+import { credibleIntervalForVariant } from '../calculations/legacyExperimentCalculations'
 import { DeltaChart } from './DeltaChart'
 
 export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): JSX.Element {

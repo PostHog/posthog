@@ -1,5 +1,5 @@
-import { COLORS } from '../shared/colors'
-import { formatTickValue } from '../shared/utils'
+import { COLORS } from '../../MetricsView/shared/colors'
+import { formatTickValue } from '../../MetricsView/shared/utils'
 
 interface TickPanelProps {
     tickValues: number[]

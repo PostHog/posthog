@@ -7,7 +7,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
-import { getHighestProbabilityVariant, getIndexForVariant } from '../legacyExperimentCalculations'
+import { getHighestProbabilityVariant, getIndexForVariant } from '../legacy/calculations/legacyExperimentCalculations'
 import { VariantTag } from './components'
 
 export function WinningVariantText({

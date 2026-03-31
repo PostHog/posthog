@@ -17,9 +17,9 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
-import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
-import { commonActionFilterProps } from '../Metrics/Selectors'
-import { sharedMetricLogic } from './sharedMetricLogic'
+import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../../constants'
+import { commonActionFilterProps } from '../../Metrics/Selectors'
+import { sharedMetricLogic } from '../../SharedMetrics/sharedMetricLogic'
 
 export function LegacySharedTrendsMetricForm(): JSX.Element {
     const { sharedMetric } = useValues(sharedMetricLogic)

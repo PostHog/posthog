@@ -13,18 +13,18 @@ import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_R
 import { experimentLogic } from '../../experimentLogic'
 import { isLaunched } from '../../experimentsLogic'
 import { VariantTag } from '../../ExperimentView/components'
+import { ChartEmptyState } from '../../MetricsView/shared/ChartEmptyState'
+import { ChartLoadingState } from '../../MetricsView/shared/ChartLoadingState'
+import { useChartColors } from '../../MetricsView/shared/colors'
+import { GridLines } from '../../MetricsView/shared/GridLines'
+import { MetricHeader } from '../../MetricsView/shared/MetricHeader'
 import {
     calculateDelta,
     conversionRateForVariant,
     countDataForVariant,
     credibleIntervalForVariant,
     exposureCountDataForVariant,
-} from '../../legacyExperimentCalculations'
-import { ChartEmptyState } from '../shared/ChartEmptyState'
-import { ChartLoadingState } from '../shared/ChartLoadingState'
-import { useChartColors } from '../shared/colors'
-import { GridLines } from '../shared/GridLines'
-import { MetricHeader } from '../shared/MetricHeader'
+} from '../calculations/legacyExperimentCalculations'
 import { ChartModal } from './ChartModal'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'

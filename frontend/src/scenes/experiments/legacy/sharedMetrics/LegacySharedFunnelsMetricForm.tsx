@@ -21,8 +21,8 @@ import {
     FunnelAttributionSelect,
     FunnelConversionWindowFilter,
     commonActionFilterProps,
-} from '../Metrics/Selectors'
-import { sharedMetricLogic } from './sharedMetricLogic'
+} from '../../Metrics/Selectors'
+import { sharedMetricLogic } from '../../SharedMetrics/sharedMetricLogic'
 
 export function LegacySharedFunnelsMetricForm(): JSX.Element {
     const { sharedMetric } = useValues(sharedMetricLogic)

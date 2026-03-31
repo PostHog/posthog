@@ -1,4 +1,4 @@
-import { useChartColors } from '../shared/colors'
+import { useChartColors } from '../../MetricsView/shared/colors'
 import { generateViolinPath } from './violinUtils'
 
 interface ViolinPathProps {

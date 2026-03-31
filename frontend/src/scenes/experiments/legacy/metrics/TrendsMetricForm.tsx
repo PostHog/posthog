@@ -17,9 +17,9 @@ import { Query } from '~/queries/Query/Query'
 import { AnyEntityNode, ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
-import { SelectableCard } from '../components/SelectableCard'
-import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
-import { experimentLogic } from '../experimentLogic'
+import { SelectableCard } from '../../components/SelectableCard'
+import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../../constants'
+import { experimentLogic } from '../../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
