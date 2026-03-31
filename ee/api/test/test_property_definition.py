@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.api.test.test_property_definition import exclude_virtual_properties
 from posthog.models import ActivityLog, EventProperty, Tag
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -489,12 +490,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         for property in properties:
             EnterprisePropertyDefinition.objects.create(team=self.team, name=property["name"])
 
-        _exclude_virtual = lambda results: [r for r in results if not r.get("name", "").startswith("$virt_")]
-
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        db_results = _exclude_virtual(response.json()["results"])
+        db_results = exclude_virtual_properties(response.json()["results"])
         assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", False, None),
             ("2_when_verified", False, None),
@@ -513,7 +512,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
 
-        db_results = _exclude_virtual(response.json()["results"])
+        db_results = exclude_virtual_properties(response.json()["results"])
         assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", True, None),
             ("2_when_verified", True, None),
@@ -529,7 +528,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/?event_names=%5B%22%24pageview%22%5D")
 
-        db_results = _exclude_virtual(response.json()["results"])
+        db_results = exclude_virtual_properties(response.json()["results"])
         assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("3_when_verified", True, True),
             ("4_when_verified", False, True),

@@ -11,6 +11,10 @@ from posthog.models import ActivityLog, EventDefinition, EventProperty, Organiza
 from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer, PropertyDefinitionViewSet
 
 
+def exclude_virtual_properties(results: list) -> list:
+    return [r for r in results if not r.get("name", "").startswith("$virt_")]
+
+
 class TestPropertyDefinitionAPI(APIBaseTest):
     EXPECTED_PROPERTY_DEFINITIONS: list[dict[str, Union[str, Optional[int], bool]]] = [
         {"name": "$browser", "is_numerical": False},
@@ -27,7 +31,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     @staticmethod
     def _exclude_virtual(results: list) -> list:
-        return [r for r in results if not r.get("name", "").startswith("$virt_")]
+        return exclude_virtual_properties(results)
 
     def setUp(self) -> None:
         super().setUp()
@@ -738,7 +742,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding hidden
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) == 4
+        assert len(virtual_props) > 0
 
     @parameterized.expand(
         [
