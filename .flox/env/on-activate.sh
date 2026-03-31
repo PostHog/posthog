@@ -232,10 +232,13 @@ fi
 run_step "Node packages" pnpm install
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
-if grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
+if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
   done_step "System hosts"
 else
-  echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1>/dev/null
+  # Remove any old posthog hosts entry, then add the current one
+  sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts 2>/dev/null || true
+  echo "$POSTHOG_HOSTS" | sudo tee -a /etc/hosts 1>/dev/null
   done_step "System hosts (updated)"
 fi
 

@@ -552,8 +552,10 @@ def check_trends_alert_with_detector(
     )
     detector_type_str = detector_config.get("type", "zscore")
 
-    # Calculate date range to fetch enough historical data for this detector
-    min_samples = _compute_min_samples_for_detector(detector_config)
+    # Calculate date range to fetch enough historical data for this detector.
+    # Request one extra sample because the query always includes the current
+    # (incomplete) interval which we drop below to avoid false positives.
+    min_samples = _compute_min_samples_for_detector(detector_config) + 1
     filters_override = _date_range_override_for_detector(query, min_samples)
 
     is_non_time_series = _is_non_time_series_trend(query)
@@ -598,6 +600,16 @@ def check_trends_alert_with_detector(
     # Extract dates for chart alignment
     dates: list[str] = selected_series_result.get("days") or selected_series_result.get("labels") or []
 
+    # Drop the current (incomplete) interval — always the last element.
+    # The query does not set date_to, so the result includes the ongoing
+    # interval whose value is still accumulating.  Comparing this partial
+    # value against complete historical intervals causes systematic false
+    # positives (the diff to the previous complete interval is always a
+    # large negative spike).
+    if not is_non_time_series and len(data) > 1:
+        data = data[:-1]
+        dates = dates[:-1] if dates else dates
+
     # Create and run detector
     detector = get_detector(detector_config)
     result = detector.detect(data)
@@ -613,8 +625,23 @@ def check_trends_alert_with_detector(
         label = selected_series_result.get("label", "Series")
         current_value = float(data[-1])
         score_str = f" (anomaly probability: {result.score:.0%})" if result.score is not None else ""
+
+        # For ensemble detectors, include per-sub-detector scores
+        sub_scores_str = ""
+        if detector_type_str == "ensemble" and result.metadata:
+            sub_results = result.metadata.get("sub_results", [])
+            if sub_results:
+                parts = []
+                for sr in sub_results:
+                    sr_type = sr.get("type", "unknown")
+                    sr_score = sr.get("score")
+                    sr_fired = sr.get("is_anomaly", False)
+                    score_pct = f"{sr_score:.0%}" if sr_score is not None else "n/a"
+                    parts.append(f"{sr_type}: {score_pct}{' [fired]' if sr_fired else ''}")
+                sub_scores_str = f" | sub-detectors: {', '.join(parts)}"
+
         breaches.append(
-            f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type_str} detector"
+            f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type_str} detector{sub_scores_str}"
         )
 
     return AlertEvaluationResult(

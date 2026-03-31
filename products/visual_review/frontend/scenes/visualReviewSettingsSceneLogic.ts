@@ -14,15 +14,18 @@ import type { visualReviewSettingsSceneLogicType } from './visualReviewSettingsS
 
 export interface RepoFormValues {
     baseline_file_paths: Record<string, string>
+    enable_pr_comments: boolean
 }
 
 const EMPTY_FORM: RepoFormValues = {
     baseline_file_paths: {},
+    enable_pr_comments: false,
 }
 
 function formValuesFromRepo(repo: RepoApi): RepoFormValues {
     return {
         baseline_file_paths: repo.baseline_file_paths || {},
+        enable_pr_comments: repo.enable_pr_comments,
     }
 }
 
@@ -100,7 +103,8 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 }
                 return (
                     JSON.stringify(formValues.baseline_file_paths) !==
-                    JSON.stringify(editingRepo.baseline_file_paths || {})
+                        JSON.stringify(editingRepo.baseline_file_paths || {}) ||
+                    formValues.enable_pr_comments !== editingRepo.enable_pr_comments
                 )
             },
         ],
@@ -161,6 +165,7 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
             if (repo) {
                 const form = formValuesFromRepo(repo)
                 actions.setFormField('baseline_file_paths', form.baseline_file_paths)
+                actions.setFormField('enable_pr_comments', form.enable_pr_comments)
             }
         },
         addRepo: async ({ githubRepo }) => {
@@ -183,6 +188,7 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 if (editingRepoId) {
                     const updates: PatchedUpdateRepoRequestInputApi = {
                         baseline_file_paths: formValues.baseline_file_paths,
+                        enable_pr_comments: formValues.enable_pr_comments,
                     }
                     await visualReviewReposPartialUpdate(String(values.currentProjectId), editingRepoId, updates)
                     lemonToast.success('Settings saved')

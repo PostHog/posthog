@@ -450,6 +450,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightId: number,
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
+        /** Empty-state AI prompt chips (ai-first empty dashboard only). */
+        reportDashboardEmptyAiPromptClicked: (promptLabel: string, dashboardId: number | undefined) => ({
+            promptLabel,
+            dashboardId,
+        }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -1320,6 +1325,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
                 insight_id: insightId,
                 source,
+            })
+        },
+        reportDashboardEmptyAiPromptClicked: async ({ promptLabel, dashboardId }) => {
+            posthog.capture('dashboard empty ai prompt clicked', {
+                prompt_label: promptLabel,
+                dashboard_id: dashboardId,
+                source: 'web',
             })
         },
         reportUpgradeModalShown: async (payload) => {

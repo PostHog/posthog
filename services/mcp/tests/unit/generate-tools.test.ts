@@ -197,7 +197,7 @@ describe('generateToolCode with input_schema', () => {
 
         expect(result.toolInputsImports).toEqual(['ThingCreateSchema'])
         expect(result.orvalImports).toEqual([])
-        expect(result.code).toContain('const ThingsCreateSchema = ThingCreateSchema')
+        expect(result.code).toMatchSnapshot()
     })
 
     it('generates body forwarding for POST with input_schema', () => {
@@ -298,8 +298,7 @@ describe('generateToolCode with input_schema', () => {
             new Set<string>()
         )
 
-        expect(result.code).toContain('_posthogUrl:')
-        expect(result.code).toContain('getProjectBaseUrl')
+        expect(result.code).toMatchSnapshot()
     })
 
     it('applies list enrichment with input_schema', () => {
@@ -313,9 +312,7 @@ describe('generateToolCode with input_schema', () => {
         const resolved = makeResolved({ method: 'GET' })
 
         const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
-
-        expect(result.code).toContain('.results ?? result')
-        expect(result.code).toContain('.map(')
+        expect(result.code).toMatchSnapshot()
     })
 })
 

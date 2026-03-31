@@ -22,6 +22,7 @@ from pydantic import (
     BaseModel,
     Field as PydanticField,
     RootModel,
+    ValidationError as PydanticValidationError,
 )
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
@@ -43,6 +44,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_suggestions import generate_insight_metadata, get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_dict, process_query_model
@@ -992,6 +994,47 @@ class InsightSerializer(InsightBasicSerializer):
         return dashboard_tile
 
 
+class MCPInsightSerializer(InsightSerializer):
+    """Serializer for MCP insight create/update requests.
+
+    Accepts raw product analytics queries and normalizes them into the correct saved-insight
+    wrapper before persisting: HogQLQuery → DataVisualizationNode, insight queries
+    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode.
+    """
+
+    query = QueryFieldSerializer(required=False, allow_null=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if self.context["view"].action == "create" and "query" not in attrs:
+            raise serializers.ValidationError({"query": "This field is required."})
+        return super().validate(attrs)
+
+    def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
+        # Raw HogQL → DataVisualizationNode
+        try:
+            return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
+                exclude_none=True, mode="json"
+            )
+        except PydanticValidationError:
+            pass
+
+        # Already-wrapped node → use as-is
+        for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
+            try:
+                return wrapped_cls.model_validate(value).model_dump(exclude_none=True, mode="json")
+            except PydanticValidationError:
+                pass
+
+        # Raw product analytics query → InsightVizNode
+        try:
+            return schema.InsightVizNode.model_validate({"kind": "InsightVizNode", "source": value}).model_dump(
+                exclude_none=True, mode="json"
+            )
+        except PydanticValidationError as exc:
+            details = "; ".join(f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors())
+            raise serializers.ValidationError(f"This query can't be saved: {details}")
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1019,6 +1062,7 @@ Background calculation can be tracked using the `query_status` response field.""
     ),
 )
 class InsightViewSet(
+    QueryCoalescingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -1055,11 +1099,17 @@ class InsightViewSet(
             raise PermissionDenied("AI data processing must be approved by your organization")
             raise PermissionDenied("AI data processing must be approved by your organization")
 
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0")
         ):
             return InsightBasicSerializer
+        if self.action in ("create", "partial_update") and self._is_mcp_request(self.request):
+            return MCPInsightSerializer
         return super().get_serializer_class()
 
     def get_serializer_context(self) -> dict[str, Any]:

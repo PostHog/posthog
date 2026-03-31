@@ -1,11 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { IconThumbsUpFilled } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import type { Sorting } from 'lib/lemon-ui/LemonTable'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
@@ -13,8 +17,24 @@ import { userLogic } from 'scenes/userLogic'
 
 import { DashboardTemplateType } from '~/types'
 
+const templatesTableLogic = dashboardTemplatesLogic({ scope: 'default' })
+
+const POPULAR_TEMPLATE_TOOLTIP = 'One of our most popular templates'
+
 export const DashboardTemplatesTable = (): JSX.Element | null => {
-    const { allTemplates, allTemplatesLoading } = useValues(dashboardTemplatesLogic)
+    const { allTemplates, allTemplatesLoading, templateFilter, templateNameOrdering } = useValues(templatesTableLogic)
+    const { setTemplateFilter, setTemplateNameOrdering } = useActions(templatesTableLogic)
+
+    const nameSorting: Sorting | null = useMemo(
+        () =>
+            !templateNameOrdering
+                ? null
+                : {
+                      columnKey: 'template_name',
+                      order: templateNameOrdering === '-template_name' ? -1 : 1,
+                  },
+        [templateNameOrdering]
+    )
 
     const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate, updateDashboardTemplate } =
         useActions(dashboardTemplateEditorLogic)
@@ -23,8 +43,24 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
 
     const columns: LemonTableColumns<DashboardTemplateType> = [
         {
+            key: 'featured',
+            width: '2rem',
+            align: 'center',
+            className: 'align-middle',
+            render: (_, record) => (
+                <span className="inline-flex min-h-5 w-full items-center justify-center leading-none">
+                    {record.scope === 'global' && record.is_featured ? (
+                        <Tooltip title={POPULAR_TEMPLATE_TOOLTIP}>
+                            <IconThumbsUpFilled className="size-4 text-success" aria-label={POPULAR_TEMPLATE_TOOLTIP} />
+                        </Tooltip>
+                    ) : null}
+                </span>
+            ),
+        },
+        {
             title: 'Name',
             dataIndex: 'template_name',
+            sorter: true,
             render: (_, { template_name }) => {
                 return <>{template_name}</>
             },
@@ -126,16 +162,32 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
 
     return (
         <>
+            <div className="mb-4 max-w-100">
+                <LemonInput
+                    type="search"
+                    placeholder="Search dashboard templates (min. 3 characters)"
+                    onChange={setTemplateFilter}
+                    value={templateFilter}
+                    fullWidth
+                    data-attr="dashboard-templates-search"
+                />
+            </div>
             <LemonTable
+                id="dashboard-templates"
                 data-attr="dashboards-template-table"
-                pagination={{ pageSize: 10 }}
+                pagination={{ pageSize: 25 }}
                 dataSource={Object.values(allTemplates)}
                 columns={columns}
                 loading={allTemplatesLoading}
-                defaultSorting={{
-                    columnKey: 'name',
-                    order: 1,
+                sorting={nameSorting}
+                onSort={(newSorting) => {
+                    if (!newSorting) {
+                        setTemplateNameOrdering('')
+                        return
+                    }
+                    setTemplateNameOrdering(newSorting.order === 1 ? 'template_name' : '-template_name')
                 }}
+                useURLForSorting={false}
                 emptyState={<>There are no dashboard templates.</>}
                 nouns={['template', 'templates']}
             />

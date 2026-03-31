@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
@@ -22,7 +21,14 @@ import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
-import { AiEventOutput, AsyncOutput, EventOutput, HeatmapsOutput } from './outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    HeatmapsOutput,
+    PersonDistinctIdsOutput,
+    PersonsOutput,
+} from './outputs'
 import {
     PerDistinctIdPipelineConfig,
     PerDistinctIdPipelineInput,
@@ -51,13 +57,14 @@ export interface JoinedIngestionPipelineConfig {
         | OverflowOutput
         | AsyncOutput
         | GroupsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
 }
 
 export interface JoinedIngestionPipelineDeps {
-    kafkaProducer: KafkaProducerWrapper
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     hogTransformer: HogTransformerService
@@ -136,7 +143,6 @@ export function createJoinedIngestionPipeline<
     } = config
 
     const {
-        kafkaProducer,
         personsStore,
         groupStore,
         hogTransformer,
@@ -181,7 +187,6 @@ export function createJoinedIngestionPipeline<
         hogTransformer,
         personsStore,
         groupStore,
-        kafkaProducer,
         groupId,
         topHog: topHogWrapper,
     }
@@ -218,7 +223,7 @@ export function createJoinedIngestionPipeline<
                                     createFlushBatchStoresStep({
                                         personsStore,
                                         groupStore,
-                                        kafkaProducer,
+                                        outputs,
                                     })
                                 )
                         )

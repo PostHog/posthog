@@ -13938,6 +13938,8 @@ export namespace Schemas {
       /** @nullable */
       name?: string | null;
       /** @nullable */
+      only_count_matured_users?: boolean | null;
+      /** @nullable */
       response?: ExperimentFunnelMetricResponse;
       series: (EventsNode | ActionsNode)[];
       /** @nullable */
@@ -13988,6 +13990,8 @@ export namespace Schemas {
       metric_type?: ExperimentMeanMetricMetricType;
       /** @nullable */
       name?: string | null;
+      /** @nullable */
+      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentMeanMetricResponse;
       /** @nullable */
@@ -14047,6 +14051,8 @@ export namespace Schemas {
       name?: string | null;
       numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
       /** @nullable */
+      only_count_matured_users?: boolean | null;
+      /** @nullable */
       response?: ExperimentRatioMetricResponse;
       /** @nullable */
       sharedMetricId?: number | null;
@@ -14101,6 +14107,8 @@ export namespace Schemas {
       metric_type?: ExperimentRetentionMetricMetricType;
       /** @nullable */
       name?: string | null;
+      /** @nullable */
+      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentRetentionMetricResponse;
       retention_window_end: number;
@@ -18035,6 +18043,21 @@ export namespace Schemas {
     }
 
     /**
+     * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+     * @nullable
+     */
+    export type MaterializationPreviewRequestBucketOverrides = {[key: string]: string} | null | null;
+
+    export interface MaterializationPreviewRequest {
+      version?: number;
+      /**
+       * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+       * @nullable
+       */
+      bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
+    }
+
+    /**
      * * `1` - event
     * `2` - person
     * `3` - group
@@ -19760,6 +19783,7 @@ export namespace Schemas {
       repo_external_id: number;
       repo_full_name: string;
       baseline_file_paths: RepoBaselineFilePaths;
+      enable_pr_comments: boolean;
       created_at: string;
     }
 
@@ -19946,6 +19970,11 @@ export namespace Schemas {
     * `monthly` - monthly
     * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at: string | null;
       /**
@@ -20900,6 +20929,8 @@ export namespace Schemas {
       readonly email_subject: string | null;
       /** @nullable */
       readonly email_from: string | null;
+      /** @nullable */
+      readonly email_to: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -23689,6 +23720,11 @@ export namespace Schemas {
     * `monthly` - monthly
     * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at?: string | null;
       /**
@@ -24938,6 +24974,8 @@ export namespace Schemas {
       readonly email_subject?: string | null;
       /** @nullable */
       readonly email_from?: string | null;
+      /** @nullable */
+      readonly email_to?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -24997,6 +25035,8 @@ export namespace Schemas {
     export interface PatchedUpdateRepoRequestInput {
       /** @nullable */
       baseline_file_paths?: PatchedUpdateRepoRequestInputBaselineFilePaths;
+      /** @nullable */
+      enable_pr_comments?: boolean | null;
     }
 
     export type PatchedUserNotificationSettings = {[key: string]: unknown};
@@ -28689,6 +28729,23 @@ export namespace Schemas {
       metadata?: unknown;
     }
 
+    /**
+     * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+     */
+    export type SurveyGlobalStatsResponseStats = {[key: string]: unknown};
+
+    /**
+     * Calculated response and dismissal rates.
+     */
+    export type SurveyGlobalStatsResponseRates = {[key: string]: unknown};
+
+    export interface SurveyGlobalStatsResponse {
+      /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+      stats: SurveyGlobalStatsResponseStats;
+      /** Calculated response and dismissal rates. */
+      rates: SurveyGlobalStatsResponseRates;
+    }
+
     export interface SurveySerializerCreateUpdateOnly {
       readonly id: string;
       /** @maxLength 400 */
@@ -29116,6 +29173,35 @@ export namespace Schemas {
       form_content?: unknown | null;
     }
 
+    /**
+     * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+     */
+    export type SurveyStatsResponseStats = {[key: string]: unknown};
+
+    /**
+     * Calculated response and dismissal rates.
+     */
+    export type SurveyStatsResponseRates = {[key: string]: unknown};
+
+    export interface SurveyStatsResponse {
+      /** The survey ID these stats belong to. */
+      survey_id: string;
+      /**
+       * When the survey started collecting responses.
+       * @nullable
+       */
+      start_date: string | null;
+      /**
+       * When the survey stopped collecting responses.
+       * @nullable
+       */
+      end_date: string | null;
+      /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+      stats: SurveyStatsResponseStats;
+      /** Calculated response and dismissal rates. */
+      rates: SurveyStatsResponseRates;
+    }
+
     export type TaskRunAppendLogRequestEntriesItem = {[key: string]: unknown};
 
     export interface TaskRunAppendLogRequest {
@@ -29272,11 +29358,8 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Follow-up user message to include in the resumed run's prompt. */
       pending_user_message?: string;
-      /**
-       * ID of a SandboxEnvironment to use for network governance
-       * @nullable
-       */
-      sandbox_environment_id?: string | null;
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -32268,6 +32351,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Sort templates by name when not using `search`. Omit for database default order. Ignored when `search` is set (results stay relevance-ranked). Use `template_name` for A–Z or `-template_name` for Z–A.
+     */
+    ordering?: string;
     };
 
     export type DashboardsListParams = {
