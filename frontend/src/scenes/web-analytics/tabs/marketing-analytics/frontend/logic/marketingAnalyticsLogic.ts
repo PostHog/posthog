@@ -47,7 +47,7 @@ import {
 
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
-    UTM_AUDIT = 'utm-audit',
+    INTEGRATION_HEALTH = 'integration-health',
 }
 
 export enum MarketingSourceStatus {

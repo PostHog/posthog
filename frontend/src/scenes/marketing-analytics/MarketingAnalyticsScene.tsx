@@ -167,11 +167,11 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const { activeTab } = useValues(marketingAnalyticsLogic)
     const { setActiveTab } = useActions(marketingAnalyticsLogic)
 
-    const showUtmAudit = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+    const showIntegrationHealth = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
 
     return (
         <>
-            {showUtmAudit ? (
+            {showIntegrationHealth ? (
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
@@ -187,8 +187,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                             ),
                         },
                         {
-                            key: MarketingAnalyticsTab.UTM_AUDIT,
-                            label: 'UTM audit',
+                            key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
+                            label: 'Integration health',
                             content: <UtmAuditTab />,
                         },
                     ]}
@@ -203,14 +203,25 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     )
 }
 
+const TAB_DESCRIPTIONS: Record<string, string> = {
+    [MarketingAnalyticsTab.DASHBOARD]:
+        'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
+    [MarketingAnalyticsTab.INTEGRATION_HEALTH]:
+        'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
+}
+
 export function MarketingAnalyticsScene(): JSX.Element {
+    const { activeTab } = useValues(marketingAnalyticsLogic)
+
     return (
         <BindLogic logic={marketingAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <SceneContent className="MarketingAnalyticsDashboard">
                     <SceneTitleSection
                         name={sceneConfigurations[Scene.MarketingAnalytics]?.name || 'Marketing analytics'}
-                        description={sceneConfigurations[Scene.MarketingAnalytics]?.description}
+                        description={
+                            TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.MarketingAnalytics]?.description
+                        }
                         resourceType={{
                             type: sceneConfigurations[Scene.MarketingAnalytics]?.iconType || 'marketing_analytics',
                         }}

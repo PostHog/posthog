@@ -1,5 +1,7 @@
+from dataclasses import asdict
+
 import structlog
-import posthoganalytics
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -12,6 +14,7 @@ from posthog.schema import SourceMap
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import DEFAULT_CURRENCY
 
@@ -30,75 +33,78 @@ class TestMappingSerializer(serializers.Serializer):
     source_map = serializers.DictField(child=serializers.CharField(allow_null=True, allow_blank=True))
 
 
-class UtmAuditSerializer(serializers.Serializer):
+class UtmAuditQuerySerializer(serializers.Serializer):
     date_from = serializers.CharField(required=False, default="-30d", help_text="Start date for the audit period")
     date_to = serializers.CharField(
         required=False, default=None, allow_null=True, help_text="End date for the audit period"
     )
 
 
+class UtmIssueSerializer(serializers.Serializer):
+    field = serializers.CharField(help_text="The UTM field with the issue (e.g. utm_campaign, utm_source)")
+    severity = serializers.ChoiceField(choices=["error", "warning"], help_text="Issue severity level")
+    message = serializers.CharField(help_text="Human-readable description of the issue")
+
+
+class CampaignAuditResultSerializer(serializers.Serializer):
+    campaign_name = serializers.CharField(help_text="Campaign name from the ad platform")
+    campaign_id = serializers.CharField(help_text="Campaign ID from the ad platform")
+    source_name = serializers.CharField(help_text="Integration source name (e.g. google, meta)")
+    spend = serializers.FloatField(help_text="Total spend for this campaign in the period")
+    clicks = serializers.IntegerField(help_text="Total clicks for this campaign")
+    impressions = serializers.IntegerField(help_text="Total impressions for this campaign")
+    has_utm_events = serializers.BooleanField(help_text="Whether matching UTM pageview events were found")
+    event_count = serializers.IntegerField(help_text="Number of matching UTM pageview events")
+    issues = UtmIssueSerializer(many=True, help_text="List of detected UTM configuration issues")
+
+
+class UtmEventSerializer(serializers.Serializer):
+    utm_campaign = serializers.CharField(help_text="UTM campaign value from pageview events")
+    utm_source = serializers.CharField(help_text="UTM source value from pageview events")
+    event_count = serializers.IntegerField(help_text="Number of pageview events with this UTM combination")
+    campaign_match = serializers.ChoiceField(
+        choices=["none", "auto", "mapped"],
+        help_text="How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)",
+    )
+    source_match = serializers.ChoiceField(
+        choices=["none", "auto", "mapped"],
+        help_text="How utm_source matched: none, auto (default source), or mapped (custom mapping)",
+    )
+    matched_campaign = serializers.CharField(allow_null=True, help_text="Name of the matched campaign, if any")
+
+
+class UtmAuditResponseSerializer(serializers.Serializer):
+    total_campaigns = serializers.IntegerField(help_text="Total number of campaigns with spend")
+    campaigns_with_issues = serializers.IntegerField(help_text="Number of campaigns with UTM issues")
+    campaigns_without_issues = serializers.IntegerField(help_text="Number of campaigns without issues")
+    total_spend_at_risk = serializers.FloatField(help_text="Total spend on campaigns with UTM issues")
+    results = CampaignAuditResultSerializer(many=True, help_text="Audit results per campaign")
+    all_utm_events = UtmEventSerializer(many=True, help_text="All UTM events with match status")
+
+
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
 
+    @validated_request(
+        query_serializer=UtmAuditQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=UtmAuditResponseSerializer, description="UTM audit results"),
+        },
+        summary="Run UTM audit",
+        description="Cross-reference campaigns with spend from ad platforms against pageview events with UTM parameters to identify tracking issues.",
+    )
     @action(methods=["GET"], detail=False, url_path="utm_audit")
     def utm_audit(self, request: Request, *args, **kwargs) -> Response:
-        if not posthoganalytics.feature_enabled(
-            "marketing-analytics-utm-audit",
-            str(request.user.distinct_id),  # type: ignore[union-attr]
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        ):
-            return Response(
-                {"detail": "UTM audit feature is not enabled"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        serializer = UtmAuditSerializer(data=request.query_params)
-        serializer.is_valid(raise_exception=True)
-        date_from = serializer.validated_data["date_from"]
-        date_to = serializer.validated_data["date_to"]
+        date_from = request.validated_query_data["date_from"]
+        date_to = request.validated_query_data["date_to"]
 
         try:
             audit_response = run_utm_audit(self.team, date_from=date_from, date_to=date_to)
-
-            return Response(
-                {
-                    "total_campaigns": audit_response.total_campaigns,
-                    "campaigns_with_issues": audit_response.campaigns_with_issues,
-                    "campaigns_without_issues": audit_response.campaigns_without_issues,
-                    "total_spend_at_risk": audit_response.total_spend_at_risk,
-                    "results": [
-                        {
-                            "campaign_name": r.campaign_name,
-                            "campaign_id": r.campaign_id,
-                            "source_name": r.source_name,
-                            "source_type": r.source_type,
-                            "spend": r.spend,
-                            "clicks": r.clicks,
-                            "impressions": r.impressions,
-                            "has_utm_events": r.has_utm_events,
-                            "event_count": r.event_count,
-                            "issues": [
-                                {
-                                    "field": issue.field,
-                                    "severity": issue.severity,
-                                    "message": issue.message,
-                                }
-                                for issue in r.issues
-                            ],
-                        }
-                        for r in audit_response.results
-                    ],
-                }
-            )
-        except Exception as e:
-            logger.exception("UTM audit failed", error=str(e))
+            response_data = UtmAuditResponseSerializer(asdict(audit_response)).data
+            return Response(response_data)
+        except Exception:
+            logger.exception("utm_audit_failed")
             return Response(
                 {"detail": "Failed to run UTM audit. Check server logs for details."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
