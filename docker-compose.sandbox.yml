@@ -297,8 +297,6 @@ services:
             db:
                 condition: service_healthy
 
-    # --- Observability profile ---
-
     otel-collector:
         extends:
             file: docker-compose.base.yml
@@ -333,8 +331,6 @@ services:
             - otel_network
             - default
 
-    # --- Dev tools profile ---
-
     kafka_ui:
         extends:
             file: docker-compose.base.yml
@@ -361,8 +357,6 @@ services:
         environment:
             - AUTO_CREATE_SESSIONS=true
 
-    # --- etcd profile ---
-
     etcd:
         image: quay.io/coreos/etcd:v3.6.8
         restart: on-failure
@@ -377,8 +371,6 @@ services:
             timeout: 5s
             retries: 10
 
-    # --- localstack profile ---
-
     localstack:
         extends:
             file: docker-compose.base.yml
@@ -386,15 +378,11 @@ services:
         restart: on-failure
         # No host ports — avoid conflicts between sandboxes
 
-    # --- azure profile ---
-
     objectstorage-azure:
         extends:
             file: docker-compose.base.yml
             service: objectstorage-azure
         # No host ports — avoid conflicts between sandboxes
-
-    # --- duckgres profile ---
 
     duckgres:
         image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
@@ -409,8 +397,6 @@ services:
             objectstorage:
                 condition: service_started
         command: ['--config', '/app/config.yaml']
-
-    # --- Always-on services (no profile) ---
 
     redis-cluster:
         image: redis:7.2
