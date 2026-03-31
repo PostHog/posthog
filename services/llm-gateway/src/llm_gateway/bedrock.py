@@ -159,7 +159,6 @@ def count_tokens_with_bedrock(
     timeout_seconds: float,
 ) -> int:
     bedrock_runtime_client = get_bedrock_runtime_client(aws_region_name, timeout_seconds)
-    body = build_bedrock_invoke_model_body(request_data)
 
     # CountTokens API does not support regional model prefixes ("us.anthropic.", "eu.anthropic.")
     count_tokens_model = model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
