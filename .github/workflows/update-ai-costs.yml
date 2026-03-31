@@ -85,7 +85,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  if ! gh api repos/${{ github.repository }}/git/ref/heads/chore/llma-update-ai-costs &>/dev/null; then
+                  if ! gh api repos/${{ github.repository }}/git/ref/heads/chore/llma-update-ai-costs 2>/dev/null; then
                     master_sha=$(gh api repos/${{ github.repository }}/git/ref/heads/master --jq '.object.sha')
                     gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/llma-update-ai-costs -f sha="$master_sha"
                     echo "Created branch from master at $master_sha"
