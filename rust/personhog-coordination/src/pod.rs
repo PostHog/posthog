@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use etcd_client::EventType;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -58,6 +58,8 @@ pub struct PodHandle {
     handler: Arc<dyn HandoffHandler>,
     /// Partitions this pod has warmed. Used to avoid re-warming on assignment watches.
     owned_partitions: Mutex<HashSet<u32>>,
+    /// Signalled when a partition is released, waking `drain()` without polling.
+    drain_notify: Notify,
 }
 
 impl PodHandle {
@@ -71,6 +73,7 @@ impl PodHandle {
             config,
             handler,
             owned_partitions: Mutex::new(HashSet::new()),
+            drain_notify: Notify::new(),
         }
     }
 
@@ -179,13 +182,14 @@ impl PodHandle {
         Ok(())
     }
 
-    /// Poll until all owned partitions have been released via handoffs.
+    /// Wait until all owned partitions have been released via handoffs.
+    /// Woken reactively by `drain_notify` each time a partition is released.
     async fn wait_for_drain(&self) {
         loop {
             if self.owned_partitions.lock().await.is_empty() {
                 return;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            self.drain_notify.notified().await;
         }
     }
 
@@ -243,6 +247,7 @@ impl PodHandle {
                 .lock()
                 .await
                 .remove(&handoff.partition);
+            self.drain_notify.notify_one();
         }
 
         Ok(())

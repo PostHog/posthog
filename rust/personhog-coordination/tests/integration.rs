@@ -1126,16 +1126,19 @@ async fn graceful_drain_transfers_partitions(
     })
     .await;
 
-    // Verify pod-0 released its partitions (check events)
-    let events = pod0.events.lock().await;
-    let released: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, HandoffEvent::Released(_)))
-        .collect();
-    assert!(
-        !released.is_empty(),
-        "pod-0 should have released partitions during drain"
-    );
+    // Wait for pod-0 to record Released events (may lag behind handoff deletion)
+    let check_events = Arc::clone(&pod0.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&check_events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .any(|e| matches!(e, HandoffEvent::Released(_)))
+        }
+    })
+    .await;
 
     // Verify all partitions belong to pod-1
     let assignments = store.list_assignments().await.unwrap();
