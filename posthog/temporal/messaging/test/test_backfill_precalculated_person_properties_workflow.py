@@ -1,5 +1,3 @@
-import asyncio
-
 import pytest
 from unittest.mock import Mock, patch
 
@@ -10,10 +8,7 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch_async,
 )
-from posthog.temporal.messaging.precalculated_person_properties import (
-    PersonPropertyFilter,
-    store_filters,
-)
+from posthog.temporal.messaging.precalculated_person_properties import PersonPropertyFilter, store_filters
 
 
 class TestFlushKafkaBatchAsync:
