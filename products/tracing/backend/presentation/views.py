@@ -96,7 +96,6 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         results = response.results
         has_more = len(results) > requested_limit
-        results = results[:requested_limit]
 
         next_cursor = None
         if has_more and results:

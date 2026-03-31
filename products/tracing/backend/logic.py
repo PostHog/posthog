@@ -205,6 +205,7 @@ class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse], Trace
 
     def _calculate(self) -> TraceSpansQueryResponse:
         limit_by_n = self.query.prefetchSpans or 1
+        query = self.to_query()
         # original pagination settings are locked in in the trace id subquery already
         # override limit to allow for N * limit for the trace spans
         self.paginator = HogQLHasMorePaginator.from_limit_context(
@@ -215,7 +216,7 @@ class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse], Trace
 
         response = self.paginator.execute_hogql_query(
             query_type="TraceSpansQuery",
-            query=self.to_query(),
+            query=query,
             modifiers=self.modifiers,
             team=self.team,
             workload=Workload.LOGS,
@@ -258,7 +259,8 @@ class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse], Trace
             SELECT
                 trace_id
             FROM posthog.trace_spans
-            WHERE {where} AND is_root_span = 1 LIMIT {limit}
+            WHERE {where} AND is_root_span = 1
+            LIMIT {limit}
         """,
                 placeholders={
                     "where": self.where(),
@@ -266,6 +268,11 @@ class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse], Trace
                 },
             )
         )
+
+        trace_id_query.order_by = [
+            parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
+        ]
 
         query = parse_select(
             """
@@ -294,7 +301,7 @@ class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse], Trace
         assert isinstance(query, ast.SelectQuery)
 
         query.order_by = [
-            parse_order_expr(f"end_time {order_dir}"),
+            parse_order_expr(f"timestamp {order_dir}"),
             parse_order_expr(f"uuid {order_dir}"),
         ]
 
