@@ -298,7 +298,7 @@ def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
 
 
 _VERSION_MISMATCH_PATTERNS = (
-    "catalog version",
+    "ducklake catalog version",
     "ducklake version",
     "only ducklake versions",
 )
