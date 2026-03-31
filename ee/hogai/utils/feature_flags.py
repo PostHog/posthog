@@ -96,9 +96,9 @@ def has_sandbox_mode_feature_flag(team: Team, user: User) -> bool:
     )
 
 
-def has_llm_gateway_bedrock_feature_flag(team: Team, user: User) -> bool:
+def has_llm_gateway_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
-        "phai-llm-gateway-bedrock",
+        "phai-llm-gateway",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
