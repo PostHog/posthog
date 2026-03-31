@@ -560,7 +560,7 @@ export const LLMMessageDisplay = React.memo(
         let resolvedIsRenderingXml = isRenderingXml
 
         if (minimal) {
-            resolvedIsRenderingMarkdown = false
+            resolvedIsRenderingMarkdown = true
             resolvedIsRenderingXml = false
         }
 
@@ -808,7 +808,9 @@ export const LLMMessageDisplay = React.memo(
                 {show && !!content && (
                     <div className={!minimal ? 'p-2 border-t' : 'p-1'}>
                         {minimal ? (
-                            <span className="whitespace-pre-wrap">{extractMinimalPreview(content)}</span>
+                            <LemonMarkdown className="whitespace-pre-wrap">
+                                {extractMinimalPreview(content)}
+                            </LemonMarkdown>
                         ) : (
                             renderMessageContent(content, searchQuery)
                         )}
