@@ -480,7 +480,8 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        if settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True:
+        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        if enable_otel:
             initialize_otel(settings.OTEL_SERVICE_NAME)
 
         async def shutdown_all(
@@ -560,7 +561,7 @@ class Command(BaseCommand):
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
                     enable_combined_metrics_server=not disable_combined_metrics_server,
-                    enable_open_telemetry_plugin=settings.TEMPORAL_OTEL_PLUGIN_ENABLED,
+                    enable_open_telemetry_plugin=enable_otel,
                 )
             )
 
