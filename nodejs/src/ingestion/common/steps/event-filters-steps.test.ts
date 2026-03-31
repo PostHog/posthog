@@ -1,6 +1,6 @@
-import { PipelineEvent, Team } from '../../../types'
+import { createTestEventHeaders } from '../../../../tests/helpers/event-headers'
+import { createTestTeam } from '../../../../tests/helpers/team'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
-import { PipelineContext } from '../../pipelines/pipeline.interface'
 import { isDropResult, isOkResult, ok } from '../../pipelines/results'
 import { EventFilterManager } from '../event-filters'
 import { EventFiltersBatchAppMetrics } from '../event-filters/batch-app-metrics'
@@ -16,23 +16,14 @@ const mockOutputs = {
 } as unknown as jest.Mocked<Pick<IngestionOutputs<AppMetricsOutput>, 'queueMessages'>> &
     IngestionOutputs<AppMetricsOutput>
 
-function makeContext<C>(extra?: C): PipelineContext<C> {
-    return { ...extra, sideEffects: [], warnings: [] } as PipelineContext<C>
-}
-
-function makeTeam(id: number): Team {
-    return { id } as Team
-}
-
-function makeEvent(event: string, distinct_id?: string): PipelineEvent {
-    return { event, distinct_id } as PipelineEvent
+function makePipelineContext(extra: Record<string, unknown> = {}) {
+    return { sideEffects: [], warnings: [], ...extra }
 }
 
 function makeInput(teamId: number, eventName: string, batchMetrics: EventFiltersBatchAppMetrics, distinct_id?: string) {
     return {
-        event: makeEvent(eventName, distinct_id),
-        team: makeTeam(teamId),
-        headers: { token: 'tok', distinct_id } as any,
+        team: createTestTeam({ id: teamId }),
+        headers: createTestEventHeaders({ event: eventName, distinct_id }),
         eventFiltersBatchAppMetrics: batchMetrics,
     }
 }
@@ -45,7 +36,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
     it('creates a batch metrics instance in the batch context', async () => {
         const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
         const result = await step({
-            elements: [{ result: ok({ foo: 1 }), context: makeContext() }],
+            elements: [{ result: ok({ foo: 1 }), context: makePipelineContext() }],
             batchId: 0,
         })
 
@@ -60,8 +51,8 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
         const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
         const result = await step({
             elements: [
-                { result: ok({ a: 1 }), context: makeContext() },
-                { result: ok({ a: 2 }), context: makeContext() },
+                { result: ok({ a: 1 }), context: makePipelineContext() },
+                { result: ok({ a: 2 }), context: makePipelineContext() },
             ],
             batchId: 0,
         })
@@ -80,7 +71,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
     it('preserves existing element values and context', async () => {
         const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
         const result = await step({
-            elements: [{ result: ok({ data: 'hello' }), context: makeContext({ ctx: true }) }],
+            elements: [{ result: ok({ data: 'hello' }), context: makePipelineContext({ ctx: true }) }],
             batchId: 0,
         })
 
@@ -182,7 +173,7 @@ describe('createApplyEventFiltersStep', () => {
         expect(incrementSpy).not.toHaveBeenCalled()
     })
 
-    it('uses distinct_id from headers when not on event', async () => {
+    it('matches on distinct_id from headers', async () => {
         mockManager.getFilter.mockReturnValue({
             id: 'f1',
             team_id: 1,
@@ -191,12 +182,7 @@ describe('createApplyEventFiltersStep', () => {
         })
         const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
         const step = createApplyEventFiltersStep(mockManager)
-        const input = {
-            event: makeEvent('$pageview', undefined),
-            team: makeTeam(1),
-            headers: { token: 'tok', distinct_id: 'bot-1' } as any,
-            eventFiltersBatchAppMetrics: metrics,
-        }
+        const input = makeInput(1, '$pageview', metrics, 'bot-1')
 
         const result = await step(input)
 
