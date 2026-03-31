@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import errno
 import subprocess
 from pathlib import Path
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.box import (
@@ -89,6 +90,12 @@ class TestCoderConfig:
             coder.ensure_runtime_ready()
 
         assert "Run `hogli box:setup`." in capsys.readouterr().out
+
+    def test_run_build_raises_if_stdout_pipe_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder.subprocess, "Popen", lambda *args, **kwargs: MagicMock(stdout=None))
+
+        with pytest.raises(RuntimeError, match="stdout pipe was not opened"):
+            coder._run_build(["coder", "start", "devbox-test-user"])
 
 
 class TestWorkspaceNaming:
@@ -390,6 +397,25 @@ class TestBoxCommands:
         assert captured["git_name"] == "PostHog Engineer"
         assert captured["git_email"] == "test-user@example.com"
         assert "--name api" in result.output
+
+    def test_claude_prompt_uses_fallback_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HOGLI_BOX_CLAUDE_OAUTH_TOKEN", raising=False)
+        monkeypatch.setenv("CLAUDE_OAUTH_TOKEN", "oauth-token")
+
+        assert box_cli._maybe_prompt_for_claude_oauth_token(None) == "oauth-token"
+
+    def test_local_port_check_ignores_missing_ipv6_support(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        ipv4_socket = MagicMock()
+        ipv4_socket.__enter__.return_value = ipv4_socket
+
+        ipv6_socket = MagicMock()
+        ipv6_socket.__enter__.return_value = ipv6_socket
+        ipv6_socket.bind.side_effect = OSError(errno.EAFNOSUPPORT, "Address family not supported")
+
+        sockets = iter([ipv4_socket, ipv6_socket])
+        monkeypatch.setattr(box_cli.socket, "socket", lambda *args, **kwargs: next(sockets))
+
+        assert box_cli._local_port_is_available(8010) is True
 
     def test_box_status_does_not_reference_missing_box_update(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)

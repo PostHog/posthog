@@ -16,7 +16,7 @@ import threading
 import subprocess
 import webbrowser
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import yaml
 import click
@@ -38,7 +38,7 @@ class CoderUserInfo(dict[str, str]):
     """Normalized subset of Coder user fields used by hogli."""
 
 
-def _fail(message: str) -> None:
+def _fail(message: str) -> NoReturn:
     """Print a short actionable error and exit."""
     click.echo(click.style(message, fg="red"))
     raise SystemExit(1)
@@ -84,7 +84,8 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
     """
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     captured: list[str] = []
-    assert proc.stdout is not None
+    if proc.stdout is None:
+        raise RuntimeError("Popen stdout pipe was not opened")
 
     if verbose:
         for line in proc.stdout:

@@ -6,6 +6,7 @@ Provides hogli box:* commands for managing Coder-based remote dev environments.
 from __future__ import annotations
 
 import os
+import errno
 import socket
 from collections.abc import Callable
 from typing import Any, NoReturn
@@ -87,12 +88,14 @@ def _local_port_is_available(port: int) -> bool:
     """Return whether the given localhost TCP port can be bound."""
     for host in ("127.0.0.1", "::1"):
         family = socket.AF_INET6 if ":" in host else socket.AF_INET
-        with socket.socket(family, socket.SOCK_STREAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 sock.bind((host, port))
-            except OSError:
-                return False
+        except OSError as err:
+            if err.errno in (errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL):
+                continue
+            return False
     return True
 
 
@@ -190,9 +193,6 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
 
 def _maybe_prompt_for_claude_oauth_token(configure_claude: bool | None) -> str | None:
     """Prompt for a Claude token when the user wants workspace auth configured."""
-    if token := os.environ.get("HOGLI_BOX_CLAUDE_OAUTH_TOKEN"):
-        return token
-
     if token := os.environ.get("CLAUDE_OAUTH_TOKEN"):
         return token
 
