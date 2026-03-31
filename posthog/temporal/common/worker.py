@@ -7,10 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from prometheus_client import REGISTRY
-from temporalio.client import Plugin
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
+from temporalio.worker import Plugin, ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
@@ -209,9 +208,9 @@ async def create_worker(
         temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
 
     if enable_open_telemetry_plugin:
-        plugins: collections.abc.Sequence[Plugin] | None = (OpenTelemetryPlugin(add_temporal_spans=True),)
+        plugins: collections.abc.Sequence[Plugin] = (OpenTelemetryPlugin(add_temporal_spans=True),)
     else:
-        plugins = None
+        plugins = ()
 
     runtime = Runtime(
         telemetry=TelemetryConfig(
