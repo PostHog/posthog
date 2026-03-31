@@ -9,7 +9,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1043_add_15_minute_interval_to_batch_exports"),
-        ("llm_analytics", "0018_migrate_clustering_configs_to_jobs"),
+        ("llm_analytics", "0022_reviewqueue_reviewqueueitem_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
