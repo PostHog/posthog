@@ -14,6 +14,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from redis.exceptions import RedisError
+from rest_framework.exceptions import Throttled
 
 from posthog import (
     redis as posthog_redis,
@@ -425,6 +426,8 @@ class QueryCoalescingMixin(_MixinBase):
         self.request = request
         try:
             self.initial(request, *args, **kwargs)
+        except Throttled:
+            pass  # Serving cached response, no backend load — safe to skip throttle
         except Exception as exc:
             response = self.handle_exception(exc)
             self.response = self.finalize_response(request, response, *args, **kwargs)

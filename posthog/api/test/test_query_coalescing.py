@@ -9,7 +9,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 from redis.exceptions import RedisError
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog import redis as posthog_redis
 from posthog.api.query_coalescer import (
@@ -450,6 +450,30 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(self._query_url(), self._query_payload())
 
         self.assertEqual(response.status_code, 403)
+
+    def test_follower_throttled_still_serves_cached_response(self):
+        mock_coalescer = mock.MagicMock()
+        mock_coalescer.try_acquire.return_value = False
+        mock_coalescer._dry_run = False
+        mock_coalescer.wait_for_signal.return_value = CoalesceSignal.DONE
+        mock_coalescer.get_success_response.return_value = {
+            "status": 200,
+            "body": '{"results": [["test_event"]]}',
+            "content_type": "application/json",
+        }
+
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer),
+            mock.patch(
+                "posthog.api.query.QueryViewSet.check_throttles",
+                side_effect=Throttled(),
+            ),
+        ):
+            response = self.client.post(self._query_url(), self._query_payload())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["results"], [["test_event"]])
 
     @parameterized.expand(
         [
