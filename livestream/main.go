@@ -79,57 +79,60 @@ func main() {
 	go stats.KeepStats(statsChan, flushInterval)
 	go sessionStats.KeepStats(ctx, sessionStatsChan, flushInterval)
 
-	consumer, err := events.NewPostHogKafkaConsumer(
-		config.Kafka.EventsBrokers, config.Kafka.EventsSecurityProtocol,
-		config.Kafka.GroupID, config.Kafka.EventsTopic,
-		geolocator, phEventChan, statsChan, config.Parallelism)
-	if err != nil {
-		log.Fatalf("Failed to create Kafka consumer: %v", err)
-	}
-	defer consumer.Close()
-
+	var consumer *events.PostHogKafkaConsumer
 	usePubSub := config.Redis.UsePubSub
-	if usePubSub {
-		cleanup, err := setupRedisPubSub(ctx, config.Redis, consumer, subChan, unSubChan)
+
+	if config.Consumers.Event.Enabled {
+		var err error
+		consumer, err = events.NewPostHogKafkaConsumer(
+			config.Consumers.Event,
+			geolocator, phEventChan, statsChan, config.Parallelism)
 		if err != nil {
-			log.Printf("ERROR: Failed to set up Redis pub/sub, falling back to in-memory filter: %v", err)
-			usePubSub = false
-		} else {
-			defer cleanup()
-			log.Printf("Redis pub/sub event transport enabled (publish_workers=%d, publish_buffer_size=%d)",
-				config.Redis.PublishWorkers, config.Redis.PublishBufferSize)
+			log.Fatalf("Failed to create Kafka consumer: %v", err)
+		}
+		defer consumer.Close()
+
+		if usePubSub {
+			cleanup, err := setupRedisPubSub(ctx, config.Redis, consumer, subChan, unSubChan)
+			if err != nil {
+				log.Printf("ERROR: Failed to set up Redis pub/sub, falling back to in-memory filter: %v", err)
+				usePubSub = false
+			} else {
+				defer cleanup()
+				log.Printf("Redis pub/sub event transport enabled (publish_workers=%d, publish_buffer_size=%d)",
+					config.Redis.PublishWorkers, config.Redis.PublishBufferSize)
+			}
+		}
+
+		go consumer.Consume(ctx)
+
+		if !usePubSub {
+			filter := events.NewFilter(subChan, unSubChan, phEventChan)
+			go filter.Run()
 		}
 	}
 
-	go consumer.Consume(ctx)
-
-	if !usePubSub {
-		filter := events.NewFilter(subChan, unSubChan, phEventChan)
-		go filter.Run()
-	}
-
-	if config.Kafka.SessionRecordingEnabled {
+	if config.Consumers.SessionRecording.Enabled {
 		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
-			config.Kafka.SessionRecordingBrokers, config.Kafka.SessionRecordingSecurityProtocol, config.Kafka.GroupID,
-			config.Kafka.SessionRecordingTopic, sessionStatsChan)
+			config.Consumers.SessionRecording, sessionStatsChan)
 		if err != nil {
 			log.Printf("Failed to create session recording Kafka consumer: %v", err)
 		} else {
 			defer sessionConsumer.Close()
 			go sessionConsumer.Consume(ctx)
 			log.Printf("Session recording consumer started for topic: %s (security_protocol: %s)",
-				config.Kafka.SessionRecordingTopic, config.Kafka.SessionRecordingSecurityProtocol)
+				config.Consumers.SessionRecording.Topic, config.Consumers.SessionRecording.SecurityProtocol)
 		}
 	}
 
-	if config.Kafka.NotificationEnabled && statsRedis != nil {
-		notifConsumer, err := events.NewNotificationKafkaConsumer(config.Kafka, statsRedis.Client())
+	if config.Consumers.Notification.Enabled && statsRedis != nil {
+		notifConsumer, err := events.NewNotificationKafkaConsumer(config.Consumers.Notification, statsRedis.Client())
 		if err != nil {
 			log.Printf("Failed to create notification Kafka consumer: %v", err)
 		} else {
 			defer notifConsumer.Close()
 			go notifConsumer.Consume(ctx)
-			log.Printf("Notification Kafka consumer enabled (topic: %s)", config.Kafka.NotificationTopic)
+			log.Printf("Notification Kafka consumer enabled (topic: %s)", config.Consumers.Notification.Topic)
 		}
 	}
 
@@ -142,15 +145,17 @@ func main() {
 				log.Println("metrics collection shutting down...")
 				return
 			case <-ticker.C:
-				metrics.IncomingQueue.Set(consumer.IncomingRatio())
+				if consumer != nil {
+					metrics.IncomingQueue.Set(consumer.IncomingRatio())
+					if consumer.Broker != nil {
+						metrics.RedisPublishQueue.Set(consumer.Broker.BufferRatio())
+					}
+				}
 				metrics.EventQueue.Set(float64(len(phEventChan)) / float64(cap(phEventChan)))
 				metrics.StatsQueue.Set(float64(len(statsChan)) / float64(cap(statsChan)))
 				metrics.SessionRecordingStatsQueue.Set(float64(len(sessionStatsChan)) / float64(cap(sessionStatsChan)))
 				metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
 				metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
-				if consumer.Broker != nil {
-					metrics.RedisPublishQueue.Set(consumer.Broker.BufferRatio())
-				}
 			}
 		}
 	}()
