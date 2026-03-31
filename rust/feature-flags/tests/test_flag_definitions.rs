@@ -1968,6 +1968,12 @@ async fn test_db_rate_limit_allowlist() {
 
     let context = TestContext::new(None).await;
 
+    // Clean up any leftover rows from a previous failed run
+    context
+        .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+        .await
+        .unwrap();
+
     let (team1, secret1, _) = context
         .create_team_with_secret_token(None, None, None)
         .await
