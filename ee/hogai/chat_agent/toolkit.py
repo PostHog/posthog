@@ -2,6 +2,8 @@ import asyncio
 from collections.abc import Awaitable
 from typing import Any
 
+from django.conf import settings
+
 from langchain_core.runnables import RunnableConfig
 
 from products.tasks.backend.max_tools import (
@@ -141,7 +143,11 @@ class ChatAgentToolkitManager(AgentToolkitManager):
                 available_tools.append(mcp_tool)
 
         # Final tools = available contextual tools + LLM provider server tools
-        if not has_llm_gateway_feature_flag(self._team, self._user):
+        if not (
+            has_llm_gateway_feature_flag(self._team, self._user)
+            and settings.LLM_GATEWAY_URL
+            and settings.LLM_GATEWAY_API_KEY
+        ):
             # Web Search isn't supported by AWS Bedrock
             available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
