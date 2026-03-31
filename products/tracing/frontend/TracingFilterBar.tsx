@@ -17,10 +17,10 @@ import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 
+import { DateRange } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     DateMappingOption,
-    DateRange,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,

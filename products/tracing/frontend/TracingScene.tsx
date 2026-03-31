@@ -88,10 +88,9 @@ export default function TracingScene(): JSX.Element {
         selectedTraceId,
         sparklineData,
         sparklineLoading,
-        hasMoreToLoad,
         totalSpansMatchingFilters,
     } = useValues(tracingSceneLogic)
-    const { openTraceModal, closeTraceModal, setDateRange, fetchNextPage } = useActions(tracingSceneLogic)
+    const { openTraceModal, closeTraceModal, setDateRange } = useActions(tracingSceneLogic)
 
     return (
         <SceneContent>
@@ -125,7 +124,6 @@ export default function TracingScene(): JSX.Element {
                     onClick: () => openTraceModal(span.trace_id),
                     className: 'cursor-pointer',
                 })}
-                loadMore={hasMoreToLoad ? () => fetchNextPage() : undefined}
             />
             <LemonModal
                 title={`Trace ${selectedTraceId}`}
