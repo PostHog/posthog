@@ -38,6 +38,10 @@ const CONSTANCE_KEY: &str = "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS";
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
 /// Matches Django's `get_team_allow_list(round(time.time() / 60))` pattern.
 /// The cache is per-instance (stored on the rate limiter), not global.
+///
+/// To avoid stampeding the database at the TTL boundary (10k+ req/s), we mark the
+/// timestamp as refreshed *before* the DB query. Concurrent requests see it as fresh
+/// and skip the query. If the query fails, we serve stale data for another TTL cycle.
 async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
     if !state
         .flag_definitions_limiter
@@ -46,6 +50,9 @@ async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
         return;
     }
 
+    // Mark as refreshed immediately to prevent concurrent requests from also querying
+    state.flag_definitions_limiter.mark_allowlist_refreshed();
+
     match fetch_allowlist_from_db(&state.database_pools.non_persons_reader).await {
         Ok(Some(new_allowlist)) => {
             state
@@ -53,13 +60,10 @@ async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
                 .update_allowlist(new_allowlist);
         }
         Ok(None) => {
-            // Row not in DB — keep the env var default, just mark as refreshed
-            state.flag_definitions_limiter.mark_allowlist_refreshed();
+            // Row not in DB — keep the env var default
         }
         Err(e) => {
             warn!(error = %e, "Failed to refresh rate limit allowlist from database, using cached value");
-            // Mark as refreshed so we don't retry on every request
-            state.flag_definitions_limiter.mark_allowlist_refreshed();
         }
     }
 }
