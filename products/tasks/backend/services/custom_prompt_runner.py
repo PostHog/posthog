@@ -118,12 +118,9 @@ async def _poll_for_turn(
     printed_lines: int = 0,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    workflow_handle=None,
 ) -> tuple[str, str | None, int, int]:
-    """Poll S3 logs until the agent finishes a turn.
-
-    Returns (last_message, full_log, new_skip_lines, new_printed_lines).
-    Raises RuntimeError on timeout or terminal status without a message.
-    """
+    """Poll S3 logs until the agent finishes a turn."""
     from posthog.storage.object_storage import ObjectStorageError
 
     from products.tasks.backend.models import TaskRun
@@ -133,7 +130,13 @@ async def _poll_for_turn(
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
-
+        # Send heartbeat signals to the ProcessTaskWorkflow on each poll cycle to prevent
+        # the workflow's inactivity timeout from firing while the agent is still working
+        if workflow_handle is not None:
+            try:
+                await workflow_handle.signal("heartbeat")
+            except Exception:
+                logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
             finished, last_message, full_log, total_lines = await sync_to_async(_check_logs)(task_run, skip_lines)
         except ObjectStorageError:
