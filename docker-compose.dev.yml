@@ -372,6 +372,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: objectstorage-azure
+        ports:
+            - '10000:10000'
 
     maildev:
         extends:
@@ -416,6 +418,10 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal
+        ports:
+            - 7233:7233
+        volumes:
+            - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
 
     temporal-admin-tools:
         extends:
@@ -427,6 +433,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal-ui
+        ports:
+            - 8081:8080
         depends_on:
             temporal:
                 condition: service_started
@@ -437,6 +445,18 @@ services:
         extends:
             file: docker-compose.base.yml
             service: otel-collector
+        container_name: otel-collector-local
+        ports:
+            - '4317:4317' # OTLP gRPC receiver
+            - '4318:4318' # OTLP HTTP receiver
+            - '13133:13133' # health_check extension
+            - '55679:55679' # zpages extension
+        volumes:
+            - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
+        environment:
+            # Used by otel-collector-config.dev.yaml to scope container log
+            # collection to this compose project only.
+            COMPOSE_PROJECT: posthog
         depends_on:
             - jaeger
             - capture-logs
@@ -452,18 +472,30 @@ services:
         extends:
             file: docker-compose.base.yml
             service: jaeger
+        container_name: jaeger-local
+        ports:
+            - '16686:16686' # Jaeger UI
+            - '14268:14268' # jaeger.thrift
+            - '14250:14250' # model.proto
 
     localstack:
         extends:
             file: docker-compose.base.yml
             service: localstack
+        container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
+        ports:
+            - '127.0.0.1:4566:4566' # LocalStack Gateway
+            - '127.0.0.1:4510-4559:4510-4559' # external services port range
 
     seaweedfs:
         extends:
             file: docker-compose.base.yml
             service: seaweedfs
+        container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
         command: server -s3 -s3.port=8333 -filer -dir=/data
         ports:
+            - '127.0.0.1:8333:8333' # S3 API
+            - '127.0.0.1:9333:9333' # Master server
             - '127.0.0.1:8888:8888' # SeaweedFS Filer UI
         volumes:
             - 'seaweedfs-data:/data'
@@ -473,7 +505,6 @@ services:
         image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
         platform: arm64
         restart: on-failure
-        profiles: ['duckgres']
         ports:
             - '15432:15432'
         volumes:

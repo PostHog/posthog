@@ -3256,6 +3256,14 @@ const api = {
                 })
             return response.results
         },
+        async getByUUIDs(uuids: string[]): Promise<Record<string, PersonType>> {
+            const response = await new ApiRequest().persons().withAction('batch_by_uuids').create({
+                data: {
+                    uuids,
+                },
+            })
+            return response.results
+        },
     },
 
     groups: {

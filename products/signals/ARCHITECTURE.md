@@ -393,7 +393,7 @@ Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission`
 
 | Method | Path                              | Description                                                                                                                                                                                                                                                                   |
 | ------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/signal_reports/`                | List reports (excludes `deleted` always, excludes `suppressed` by default), filterable by `?status=` query param, ordered by `-signal_count` by default                                                                                                                       |
+| GET    | `/signal_reports/`                | List reports (excludes `deleted` always, excludes `suppressed` by default), filterable by `?status=` query param (comma-separated), searchable via `?search=`, ordered by `status,-updated_at` by default                                                                     |
 | GET    | `/signal_reports/{id}/`           | Retrieve a single report                                                                                                                                                                                                                                                      |
 | DELETE | `/signal_reports/{id}/`           | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow` and returns `202 Accepted`.                                                                                                                                                                       |
 | POST   | `/signal_reports/{id}/state/`     | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Validates transitions via `SignalReport.transition_to()`. Returns 409 on invalid transition, 400 on bad arguments. |
@@ -401,12 +401,12 @@ Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission`
 | GET    | `/signal_reports/{id}/artefacts/` | List video segment artefacts for a report                                                                                                                                                                                                                                     |
 | GET    | `/signal_reports/{id}/signals/`   | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                       |
 
-**Ordering:** Configurable via query params. Supported fields: `signal_count`, `total_weight`, `created_at`, `updated_at`. Default: `-signal_count`.
+**Ordering:** Configurable via `?ordering=` query param with comma-separated fields (e.g., `?ordering=status,-updated_at`). Supported fields: `status`, `signal_count`, `total_weight`, `created_at`, `updated_at`, `id`. The `status` field uses semantic pipeline stage ranking (ready=0, pending_input=1, in_progress=2, candidate=3, potential=4, failed=5, suppressed=6, deleted=7). Default: `status,-updated_at`.
 
 ### Serializers (`backend/serializers.py`)
 
 - **`SignalSourceConfigSerializer`** — Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`. Validates that `recording_filters` in config is a dict when `source_product` is `session_replay`.
-- **`SignalReportSerializer`** — Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`.
+- **`SignalReportSerializer`** — Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`, `priority`. The `priority` field (read-only) extracts P0–P4 from the latest `PRIORITY_JUDGMENT` artefact when present, otherwise returns `null`.
 - **`SignalReportArtefactSerializer`** — Exposes `id`, `type`, `content` (parsed from JSON text), `created_at`.
 
 ---
