@@ -127,6 +127,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+        [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
         [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
         [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
         [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
