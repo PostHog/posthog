@@ -7,7 +7,6 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { experimentLogic } from '../../experimentLogic'
 import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
-import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { getNiceTickValues } from '../shared/utils'
 import { DeltaChart } from './DeltaChart'
 
@@ -133,15 +132,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                     </div>
                 </div>
 
-                <div className="w-1/2 flex flex-col justify-end">
-                    <div className="ml-auto">
-                        {metrics.length > 0 && (
-                            <div className="mb-2 mt-4 justify-end">
-                                {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
-                            </div>
-                        )}
-                    </div>
-                </div>
+                <div className="w-1/2 flex flex-col justify-end" />
             </div>
             {metrics.length > 0 ? (
                 <div className="w-full overflow-x-auto">
@@ -191,7 +182,6 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                                     : 'Primary metrics represent the main goal of the experiment and directly measure if your hypothesis was successful.'}
                             </p>
                         </div>
-                        {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
                     </div>
                 </div>
             )}

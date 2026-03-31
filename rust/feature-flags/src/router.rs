@@ -256,6 +256,16 @@ pub fn router(
             .route(
                 "/flags/definitions/",
                 any(flag_definitions::flags_definitions),
+            )
+            // Alias for Django's local_evaluation endpoint — allows Contour to route
+            // traffic to Rust without path rewriting (same pattern as /decide → /flags)
+            .route(
+                "/api/feature_flag/local_evaluation",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/api/feature_flag/local_evaluation/",
+                any(flag_definitions::flags_definitions),
             );
     }
 

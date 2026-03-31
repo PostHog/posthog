@@ -83,7 +83,7 @@ export function NewDashboardModal(): JSX.Element {
                 ) : null
             }
         >
-            <div className="NewDashboardModal">
+            <div className="NewDashboardModal max-w-[1000px]">
                 {activeDashboardTemplate ? <DashboardTemplateVariables /> : _dashboardTemplateChooser}
             </div>
         </LemonModal>
