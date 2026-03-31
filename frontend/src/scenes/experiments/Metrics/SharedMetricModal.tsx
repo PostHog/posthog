@@ -38,7 +38,7 @@ function MetricSummary({ metric }: { metric: SharedMetric }): JSX.Element {
                         </span>
                         <Link
                             target="_blank"
-                            className="flex items-center text-muted hover:text-default"
+                            className="flex items-center text-warning"
                             to={urls.experimentsSharedMetric(metric.id)}
                         >
                             <IconOpenInNew fontSize="14" />
