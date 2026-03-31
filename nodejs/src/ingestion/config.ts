@@ -47,6 +47,21 @@ export type RedisConnectionsConfig = Pick<
     | 'POSTHOG_REDIS_PASSWORD'
 >
 
+/** PersonHog gRPC client config */
+export type PersonHogConfig = Pick<
+    CommonConfig,
+    | 'PERSONHOG_ENABLED'
+    | 'PERSONHOG_ADDR'
+    | 'PERSONHOG_ROLLOUT_PERCENTAGE'
+    | 'PERSONHOG_TLS'
+    | 'PERSONHOG_TIMEOUT_MS'
+    | 'PERSONHOG_READ_MAX_BYTES'
+    | 'PERSONHOG_WRITE_MAX_BYTES'
+    | 'PERSONHOG_PING_INTERVAL_MS'
+    | 'PERSONHOG_PING_TIMEOUT_MS'
+    | 'PERSONHOG_PING_IDLE_CONNECTION'
+>
+
 /** Kafka consumer loop tuning config */
 export type KafkaConsumerBaseConfig = Pick<
     CommonConfig,

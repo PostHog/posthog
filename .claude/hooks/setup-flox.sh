@@ -17,9 +17,29 @@ fi
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 VENV_DIR="$PROJECT_DIR/.flox/cache/venv"
+CACHE_FILE="$PROJECT_DIR/.flox/cache/claude-env-cache"
+FLOX_MANIFEST="$PROJECT_DIR/.flox/env/manifest.toml"
 
-# Step 1: Capture the flox activation environment (hook.on-activate runs,
-# but [profile] scripts do NOT run in non-interactive `bash -c`).
+# Checksum the flox manifest to auto-invalidate cache on env changes
+MANIFEST_HASH=""
+if [ -f "$FLOX_MANIFEST" ]; then
+  if command -v md5sum &>/dev/null; then
+    MANIFEST_HASH=$(md5sum "$FLOX_MANIFEST" | awk '{print $1}')
+  elif command -v md5 &>/dev/null; then
+    MANIFEST_HASH=$(md5 -q "$FLOX_MANIFEST")
+  fi
+fi
+
+# Fast path: reuse cached env if manifest hash matches
+if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
+  CACHED_HASH=$(head -1 "$CACHE_FILE" | sed 's/^# manifest-hash: //')
+  if [ "$CACHED_HASH" = "$MANIFEST_HASH" ]; then
+    tail -n +2 "$CACHE_FILE" >> "$CLAUDE_ENV_FILE"
+    exit 0
+  fi
+fi
+
+# Slow path: capture the flox activation environment
 FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/dev/null)
 
 if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
@@ -27,18 +47,18 @@ if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
   exit 0
 fi
 
-# Step 2: Extract key env vars from flox and write them to CLAUDE_ENV_FILE.
-# We capture PATH and all FLOX_* vars, plus project-specific vars from [vars].
-echo "$FLOX_ENV_SNAPSHOT" | grep -E "^(PATH|FLOX_|UV_PROJECT_ENVIRONMENT|OPENSSL_|LDFLAGS|CPPFLAGS|RUST_|LIBRARY_PATH|MANPATH|DOTENV_FILE|DEBUG|POSTHOG_SKIP_MIGRATION_CHECKS|FLAGS_REDIS_URL|RUSTC_WRAPPER|SCCACHE_)=" | while IFS='=' read -r key value; do
-  printf 'export %s=%q\n' "$key" "$value"
-done >> "$CLAUDE_ENV_FILE"
+ENV_CONTENT=""
+while IFS='=' read -r key value; do
+  ENV_CONTENT="${ENV_CONTENT}$(printf 'export %s=%q\n' "$key" "$value")"$'\n'
+done < <(echo "$FLOX_ENV_SNAPSHOT" | grep -E "^(PATH|FLOX_|UV_PROJECT_ENVIRONMENT|OPENSSL_|LDFLAGS|CPPFLAGS|RUST_|LIBRARY_PATH|MANPATH|DOTENV_FILE|DEBUG|POSTHOG_SKIP_MIGRATION_CHECKS|FLAGS_REDIS_URL|RUSTC_WRAPPER|SCCACHE_)=")
 
-# Step 3: The flox [profile] scripts also activate the uv venv, which adds
-# the venv's bin/ to PATH. Since [profile] doesn't run in `bash -c`, we do
-# this manually by prepending the venv bin dir to PATH.
 if [ -d "$VENV_DIR/bin" ]; then
-  echo "export PATH=\"${VENV_DIR}/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
-  echo "export VIRTUAL_ENV=\"${VENV_DIR}\"" >> "$CLAUDE_ENV_FILE"
+  ENV_CONTENT="${ENV_CONTENT}export PATH=\"${VENV_DIR}/bin:\$PATH\""$'\n'
+  ENV_CONTENT="${ENV_CONTENT}export VIRTUAL_ENV=\"${VENV_DIR}\""$'\n'
 fi
+
+mkdir -p "$(dirname "$CACHE_FILE")"
+printf '%s' "$ENV_CONTENT" >> "$CLAUDE_ENV_FILE"
+printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
 
 exit 0
