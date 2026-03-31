@@ -16,8 +16,10 @@ export enum MaxContextType {
     NOTEBOOK = 'notebook',
 }
 
-export type InsightWithQuery = Omit<Partial<QueryBasedInsightModel>, 'result'> &
-    Pick<Partial<QueryBasedInsightModel>, 'query'>
+export type InsightWithQuery = Pick<
+    Partial<QueryBasedInsightModel>,
+    'query' | 'short_id' | 'name' | 'derived_name' | 'description' | 'id'
+>
 
 export interface MaxInsightContext {
     type: MaxContextType.INSIGHT
@@ -150,6 +152,17 @@ export type MaxContextInput =
     | MaxEvaluationContextInput
     | MaxNotebookContextInput
 
+function pickInsightFields(insight: Partial<QueryBasedInsightModel>): InsightWithQuery {
+    return {
+        id: insight.id,
+        short_id: insight.short_id,
+        name: insight.name,
+        derived_name: insight.derived_name,
+        description: insight.description,
+        query: insight.query,
+    }
+}
+
 /**
  * Helper functions to create maxContext items safely
  * These ensure proper typing and consistent patterns across scene logics
@@ -159,13 +172,10 @@ export const createMaxContextHelpers = {
         type: MaxContextType.DASHBOARD,
         data: {
             ...dashboard,
-            tiles: dashboard.tiles.map((tile) => {
-                if (!tile.insight) {
-                    return tile
-                }
-                const { result: _, ...insightWithoutResult } = tile.insight
-                return { ...tile, insight: insightWithoutResult as QueryBasedInsightModel }
-            }),
+            tiles: dashboard.tiles.map((tile) => ({
+                ...tile,
+                insight: tile.insight ? pickInsightFields(tile.insight) : tile.insight,
+            })),
         },
     }),
 
@@ -180,16 +190,13 @@ export const createMaxContextHelpers = {
             variablesOverride?: Record<string, HogQLVariable>
             revenueAnalyticsQuery?: RevenueAnalyticsQuery
         } = {}
-    ): MaxInsightContextInput => {
-        const { result: _, ...insightWithoutResult } = insight as Partial<QueryBasedInsightModel>
-        return {
-            type: MaxContextType.INSIGHT,
-            data: insightWithoutResult as InsightWithQuery,
-            filtersOverride,
-            variablesOverride,
-            revenueAnalyticsQuery,
-        }
-    },
+    ): MaxInsightContextInput => ({
+        type: MaxContextType.INSIGHT,
+        data: pickInsightFields(insight),
+        filtersOverride,
+        variablesOverride,
+        revenueAnalyticsQuery,
+    }),
 
     event: (event: EventDefinition): MaxEventContextInput => ({
         type: MaxContextType.EVENT,
