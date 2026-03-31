@@ -126,10 +126,10 @@ export function EditorFiltersShell({
                             setQuery(node)
                         }}
                         initialMaxPrompt="Show me users who "
-                        className="h-full @min-[1100px]/insight-viz:mr-3 [&_button.absolute]:!-top-2.5 [&_button.absolute]:!-right-2.5"
+                        className="h-full @min-[900px]/insight-viz:mr-3 [&_button.absolute]:!-top-2.5 [&_button.absolute]:!-right-2.5"
                         active={maxToolActive}
                     >
-                        <div className="@min-[1100px]/insight-viz:h-full @min-[1100px]/insight-viz:overflow-y-auto pb-4">
+                        <div className="@min-[1100px]/insight-viz:h-full @min-[1100px]/insight-viz:overflow-y-auto pb-0.5">
                             {shouldShowSessionAnalysisWarning ? <SessionAnalysisWarning /> : null}
                             {children}
                             {previousQuery && (
@@ -142,7 +142,7 @@ export function EditorFiltersShell({
                         </div>
                     </MaxTool>
                 ) : null}
-                {showing && <Resizer {...resizerProps} />}
+                {showing && <Resizer {...resizerProps} className="hidden @min-[900px]/insight-viz:block" />}
             </div>
         )
     }

@@ -41,7 +41,7 @@
                     min-width: 0;
                 }
 
-                @container insight-viz (min-width: 1100px) {
+                @container insight-viz (min-width: 900px) {
                     width: var(--editor-panel-width, max(min(30%, 600px), 420px));
                     min-width: 320px;
                     max-width: 600px;
@@ -59,10 +59,12 @@
                 }
             }
 
-            @container (min-width: 768px) {
-                width: 30%;
-                min-width: 26rem;
-                max-width: 30rem;
+            &:not(.EditorFiltersWrapper--panels) {
+                @container (min-width: 768px) {
+                    width: 30%;
+                    min-width: 26rem;
+                    max-width: 30rem;
+                }
             }
         }
 
