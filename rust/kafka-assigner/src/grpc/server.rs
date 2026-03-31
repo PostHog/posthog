@@ -434,10 +434,11 @@ impl KafkaAssigner for KafkaAssignerService {
                 Status::internal(format!("failed to update consumer status to Draining: {e}"))
             })?;
 
-        // For now, always return SHUTDOWN_NOW. Stage 3 will wire in K8s
-        // awareness to return WAIT_FOR_DRAIN when appropriate (Deployment
-        // rollouts and downscales).
-        let action = proto::DeregisterAction::ShutdownNow;
+        // Always return WAIT_FOR_DRAIN so the consumer stays alive to
+        // complete handoffs via the handoff protocol.
+        // TODO: Wire in K8s awareness to return SHUTDOWN_NOW when the same
+        // pod name will come back (e.g. StatefulSet rollouts).
+        let action = proto::DeregisterAction::WaitForDrain;
 
         tracing::info!(
             consumer = %consumer_name,
