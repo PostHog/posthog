@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -167,6 +167,7 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
                     ) : (
                         <p className="text-xs text-muted-alt">No baseline paths configured</p>
                     )}
+                    {repo.enable_pr_comments && <div className="text-xs text-muted mt-1">PR comments enabled</div>}
                 </div>
                 <LemonButton icon={<IconPencil />} type="secondary" size="small" onClick={() => editRepo(repo.id)}>
                     Edit
@@ -207,6 +208,18 @@ function RepoEditForm(): JSX.Element {
                     paths={formValues.baseline_file_paths}
                     onChange={(paths) => setFormField('baseline_file_paths', paths)}
                 />
+            </div>
+
+            <div>
+                <LemonSwitch
+                    checked={formValues.enable_pr_comments}
+                    onChange={(checked) => setFormField('enable_pr_comments', checked)}
+                    label="Post PR comments"
+                    bordered
+                />
+                <p className="text-muted text-xs mt-1">
+                    Post a comment on pull requests when visual changes are detected, prompting reviewers to approve.
+                </p>
             </div>
 
             <div className="flex gap-2 pt-2">

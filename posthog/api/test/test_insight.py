@@ -92,8 +92,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["detail"], "Legacy insight endpoints are not available for this user.")
-        mock_feature_enabled.assert_called_once()
-        self.assertEqual(mock_feature_enabled.call_args[0][0], "legacy-insight-endpoints-disabled")
+        legacy_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-endpoints-disabled"
+        ]
+        self.assertEqual(len(legacy_calls), 1)
 
     def test_get_insight_items(self) -> None:
         filter_dict = {

@@ -12,8 +12,10 @@ import type {
     PaginatedSurveyListApi,
     PatchedSurveySerializerCreateUpdateOnlySchemaApi,
     SurveyApi,
+    SurveyGlobalStatsResponseApi,
     SurveySerializerCreateUpdateOnlyApi,
     SurveySerializerCreateUpdateOnlySchemaApi,
+    SurveyStatsResponseApi,
     SurveysListParams,
     SurveysStatsRetrieve2Params,
     SurveysStatsRetrieveParams,
@@ -270,8 +272,8 @@ export const surveysStatsRetrieve2 = async (
     id: string,
     params?: SurveysStatsRetrieve2Params,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSurveysStatsRetrieve2Url(projectId, id, params), {
+): Promise<SurveyStatsResponseApi> => {
+    return apiMutator<SurveyStatsResponseApi>(getSurveysStatsRetrieve2Url(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -375,8 +377,8 @@ export const surveysStatsRetrieve = async (
     projectId: string,
     params?: SurveysStatsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSurveysStatsRetrieveUrl(projectId, params), {
+): Promise<SurveyGlobalStatsResponseApi> => {
+    return apiMutator<SurveyGlobalStatsResponseApi>(getSurveysStatsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
