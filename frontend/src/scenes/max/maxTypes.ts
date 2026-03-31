@@ -115,7 +115,7 @@ type MaxInsightContextInput = {
 }
 type MaxDashboardContextInput = {
     type: MaxContextType.DASHBOARD
-    data: DashboardType<QueryBasedInsightModel>
+    data: DashboardType<InsightWithQuery>
 }
 type MaxEventContextInput = {
     type: MaxContextType.EVENT
