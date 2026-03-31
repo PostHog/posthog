@@ -60,7 +60,7 @@ locals {
             toStartOfHour(timestamp) AS event_hour,
             countIf(event = 'slo_operation_started') AS starts,
             countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
-            minIf(timestamp, event = 'slo_operation_started') AS first_start
+            min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
         FROM events
         WHERE event IN ('slo_operation_started', 'slo_operation_completed')
           AND properties.operation = '{{OPERATION}}'
@@ -77,7 +77,7 @@ locals {
                 starts AS total,
                 greatest(starts - successes, 0) AS failures
             FROM per_cid_hour
-            Where cid = ''
+            WHERE cid = ''
 
             UNION ALL
 
