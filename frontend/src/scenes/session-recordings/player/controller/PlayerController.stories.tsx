@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -13,7 +13,14 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { PlayerController } from './PlayerController'
 
-const meta: Meta = {
+interface ControllerStoryProps {
+    width: number
+    mode?: SessionRecordingPlayerMode
+    showPlayNext?: boolean
+}
+
+type Story = StoryObj<ControllerStoryProps>
+const meta: Meta<ControllerStoryProps> = {
     title: 'Replay/Player/Controller',
     component: PlayerController,
     parameters: {
@@ -59,49 +66,43 @@ const meta: Meta = {
             },
         }),
     ],
+    render: ({ width, mode, showPlayNext = false }: ControllerStoryProps) => {
+        return (
+            <div style={{ width: `${width}px` }} className="relative bg-surface-primary p-2 overflow-hidden min-h-20">
+                <BindLogic
+                    logic={sessionRecordingPlayerLogic}
+                    props={{
+                        playerKey: 'storybook',
+                        sessionRecordingId: '12345',
+                        mode: mode ?? SessionRecordingPlayerMode.Standard,
+                        playNextRecording: showPlayNext ? () => {} : undefined,
+                    }}
+                >
+                    <PlayerController />
+                </BindLogic>
+            </div>
+        )
+    },
 }
 
 export default meta
 
-interface ControllerStoryProps {
-    width: number
-    mode?: SessionRecordingPlayerMode
-    showPlayNext?: boolean
+export const Default: Story = {
+    args: { width: 800 },
 }
 
-const ControllerTemplate: StoryFn<ControllerStoryProps> = ({
-    width,
-    mode,
-    showPlayNext = false,
-}: ControllerStoryProps) => {
-    return (
-        <div style={{ width: `${width}px` }} className="relative bg-surface-primary p-2 overflow-hidden min-h-20">
-            <BindLogic
-                logic={sessionRecordingPlayerLogic}
-                props={{
-                    playerKey: 'storybook',
-                    sessionRecordingId: '12345',
-                    mode: mode ?? SessionRecordingPlayerMode.Standard,
-                    playNextRecording: showPlayNext ? () => {} : undefined,
-                }}
-            >
-                <PlayerController />
-            </BindLogic>
-        </div>
-    )
+export const Narrow: Story = {
+    args: { width: 400 },
 }
 
-export const Default = ControllerTemplate.bind({})
-Default.args = { width: 800 }
+export const Wide: Story = {
+    args: { width: 1200 },
+}
 
-export const Narrow = ControllerTemplate.bind({})
-Narrow.args = { width: 400 }
+export const NotebookMode: Story = {
+    args: { width: 600, mode: SessionRecordingPlayerMode.Notebook },
+}
 
-export const Wide = ControllerTemplate.bind({})
-Wide.args = { width: 1200 }
-
-export const NotebookMode = ControllerTemplate.bind({})
-NotebookMode.args = { width: 600, mode: SessionRecordingPlayerMode.Notebook }
-
-export const WithPlayNext = ControllerTemplate.bind({})
-WithPlayNext.args = { width: 800, showPlayNext: true }
+export const WithPlayNext: Story = {
+    args: { width: 800, showPlayNext: true },
+}

@@ -4,7 +4,7 @@ import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -50,11 +50,14 @@ from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Cohort, Dashboard, DashboardTile, FeatureFlag, Insight, InsightViewed
+from posthog.models import Action, Cohort, FeatureFlag, Insight, InsightViewed
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -72,14 +75,20 @@ from .taxonomy import (
     EVENT_DELETED_FILE,
     EVENT_DOWNGRADED_PLAN,
     EVENT_DOWNLOADED_FILE,
+    EVENT_LOGGED_IN,
     EVENT_PAID_BILL,
     EVENT_SHARED_FILE_LINK,
     EVENT_SIGNED_UP,
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
-    FILE_ENGAGEMENT_FLAG_KEY,
-    FILE_PREVIEWS_FLAG_KEY,
-    ONBOARDING_EXPERIMENT_FLAG_KEY,
+    FLAG_FILE_ENGAGEMENT_EXPERIMENT,
+    FLAG_FILE_PREVIEWS,
+    FLAG_ONBOARDING_EXPERIMENT,
+    FLAG_PRICING_PAGE_EXPERIMENT,
+    FLAG_RETENTION_NUDGE_EXPERIMENT,
+    FLAG_SHARING_INCENTIVE_EXPERIMENT,
+    FLAG_TEAM_COLLAB_EXPERIMENT,
+    FLAG_UPGRADE_PROMPT_EXPERIMENT,
     URL_HOME,
     URL_SIGNUP,
 )
@@ -145,16 +154,40 @@ class HedgeboxMatrix(Matrix):
     onboarding_experiment_start: dt.datetime
     onboarding_experiment_end: dt.datetime
     file_engagement_experiment_start: dt.datetime
+    pricing_experiment_start: dt.datetime
+    pricing_experiment_end: dt.datetime
+    sharing_experiment_start: dt.datetime
+    sharing_experiment_end: dt.datetime
+    upgrade_prompt_experiment_start: dt.datetime
+    team_collab_experiment_start: dt.datetime
+    team_collab_experiment_end: dt.datetime
     extended_end: dt.datetime
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        elapsed = self.now - self.start
+
         # Legacy experiment (complete) - runs from 30% to 60% of simulation
-        self.onboarding_experiment_start = self.start + (self.now - self.start) * 0.3
-        self.onboarding_experiment_end = self.start + (self.now - self.start) * 0.6
+        self.onboarding_experiment_start = self.start + elapsed * 0.3
+        self.onboarding_experiment_end = self.start + elapsed * 0.6
 
         # New experiment (running) - starts at 70% of simulation, extends beyond now
-        self.file_engagement_experiment_start = self.start + (self.now - self.start) * 0.7
+        self.file_engagement_experiment_start = self.start + elapsed * 0.7
+
+        # Pricing page redesign (inconclusive) - 15% to 45%
+        self.pricing_experiment_start = self.start + elapsed * 0.15
+        self.pricing_experiment_end = self.start + elapsed * 0.45
+
+        # File sharing incentive (lost) - 40% to 65%
+        self.sharing_experiment_start = self.start + elapsed * 0.4
+        self.sharing_experiment_end = self.start + elapsed * 0.65
+
+        # Upgrade prompt (running, recent) - 90% onward
+        self.upgrade_prompt_experiment_start = self.start + elapsed * 0.9
+
+        # Team collaboration boost (stopped early) - 50% to 70%
+        self.team_collab_experiment_start = self.start + elapsed * 0.5
+        self.team_collab_experiment_end = self.start + elapsed * 0.7
 
         # Extended simulation for running experiment
         self.extended_end = self.now + dt.timedelta(days=30)
@@ -212,25 +245,13 @@ class HedgeboxMatrix(Matrix):
                 }
             ],
         )
-        real_users_cohort = Cohort.objects.create(
-            team=team,
-            name="Real persons",
-            description="People who don't belong to the Hedgebox team.",
-            created_by=user,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@hedgebox.net$",
-                            "operator": "not_regex",
-                        }
-                    ]
-                }
-            ],
-        )
-        team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+        # Create the standard internal/test users cohort (same as non-demo teams get)
+        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+
+        test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=user.email)
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"},
+        ]
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
@@ -858,10 +879,25 @@ class HedgeboxMatrix(Matrix):
             pass  # This can happen if demo data generation is re-run for the same project
 
         # Feature flags
+        def create_experiment_flag(
+            key: str, name: str, variants: list[tuple[str, int]], created_at: dt.datetime
+        ) -> FeatureFlag:
+            return FeatureFlag.objects.create(
+                team=team,
+                key=key,
+                name=name,
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {"variants": [{"key": k, "rollout_percentage": pct} for k, pct in variants]},
+                },
+                created_by=user,
+                created_at=created_at,
+            )
+
         try:
             FeatureFlag.objects.create(
                 team=team,
-                key=FILE_PREVIEWS_FLAG_KEY,
+                key=FLAG_FILE_PREVIEWS,
                 name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
                 filters={
                     "groups": [
@@ -886,47 +922,58 @@ class HedgeboxMatrix(Matrix):
                 created_at=self.now - dt.timedelta(days=15),
             )
 
-            # LEGACY Experiment feature flag
-            onboarding_flag = FeatureFlag.objects.create(
-                team=team,
-                key=ONBOARDING_EXPERIMENT_FLAG_KEY,
-                name="Onboarding flow test",
-                filters={
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "rollout_percentage": 34},
-                            {"key": "red", "rollout_percentage": 33},
-                            {"key": "blue", "rollout_percentage": 33},
-                        ]
-                    },
-                },
-                created_by=user,
-                created_at=self.onboarding_experiment_start - dt.timedelta(hours=1),
+            # Experiment feature flags
+            onboarding_flag = create_experiment_flag(
+                FLAG_ONBOARDING_EXPERIMENT,
+                "Onboarding flow test",
+                [("control", 34), ("red", 33), ("blue", 33)],
+                self.onboarding_experiment_start - dt.timedelta(hours=1),
             )
-
-            # Experiment feature flag
-            file_engagement_flag = FeatureFlag.objects.create(
-                team=team,
-                key=FILE_ENGAGEMENT_FLAG_KEY,
-                name="File engagement boost",
-                filters={
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "rollout_percentage": 34},
-                            {"key": "red", "rollout_percentage": 33},
-                            {"key": "blue", "rollout_percentage": 33},
-                        ]
-                    },
-                },
-                created_by=user,
-                created_at=self.file_engagement_experiment_start - dt.timedelta(hours=2),
+            file_engagement_flag = create_experiment_flag(
+                FLAG_FILE_ENGAGEMENT_EXPERIMENT,
+                "File engagement boost",
+                [("control", 34), ("red", 33), ("blue", 33)],
+                self.file_engagement_experiment_start - dt.timedelta(hours=2),
+            )
+            pricing_flag = create_experiment_flag(
+                FLAG_PRICING_PAGE_EXPERIMENT,
+                "Pricing page redesign",
+                [("control", 50), ("test", 50)],
+                self.pricing_experiment_start - dt.timedelta(hours=1),
+            )
+            sharing_flag = create_experiment_flag(
+                FLAG_SHARING_INCENTIVE_EXPERIMENT,
+                "File sharing incentive",
+                [("control", 50), ("test", 50)],
+                self.sharing_experiment_start - dt.timedelta(hours=1),
+            )
+            upgrade_prompt_flag = create_experiment_flag(
+                FLAG_UPGRADE_PROMPT_EXPERIMENT,
+                "Upgrade prompt experiment",
+                [("control", 34), ("aggressive", 33), ("subtle", 33)],
+                self.upgrade_prompt_experiment_start - dt.timedelta(hours=1),
+            )
+            retention_nudge_flag = create_experiment_flag(
+                FLAG_RETENTION_NUDGE_EXPERIMENT,
+                "Retention nudge",
+                [("control", 50), ("test", 50)],
+                self.now - dt.timedelta(days=2),
+            )
+            team_collab_flag = create_experiment_flag(
+                FLAG_TEAM_COLLAB_EXPERIMENT,
+                "Team collaboration boost",
+                [("control", 50), ("test", 50)],
+                self.team_collab_experiment_start - dt.timedelta(hours=1),
             )
         except IntegrityError:
             # Flags already exist, fetch them
-            onboarding_flag = FeatureFlag.objects.get(team=team, key=ONBOARDING_EXPERIMENT_FLAG_KEY)
-            file_engagement_flag = FeatureFlag.objects.get(team=team, key=FILE_ENGAGEMENT_FLAG_KEY)
+            onboarding_flag = FeatureFlag.objects.get(team=team, key=FLAG_ONBOARDING_EXPERIMENT)
+            file_engagement_flag = FeatureFlag.objects.get(team=team, key=FLAG_FILE_ENGAGEMENT_EXPERIMENT)
+            pricing_flag = FeatureFlag.objects.get(team=team, key=FLAG_PRICING_PAGE_EXPERIMENT)
+            sharing_flag = FeatureFlag.objects.get(team=team, key=FLAG_SHARING_INCENTIVE_EXPERIMENT)
+            upgrade_prompt_flag = FeatureFlag.objects.get(team=team, key=FLAG_UPGRADE_PROMPT_EXPERIMENT)
+            retention_nudge_flag = FeatureFlag.objects.get(team=team, key=FLAG_RETENTION_NUDGE_EXPERIMENT)
+            team_collab_flag = FeatureFlag.objects.get(team=team, key=FLAG_TEAM_COLLAB_EXPERIMENT)
 
         # Experiments and shared metrics
 
@@ -1238,6 +1285,235 @@ class HedgeboxMatrix(Matrix):
                 experiment=new_experiment, saved_metric=metric, metadata={"type": "secondary"}
             )
 
+        # --- Additional experiments for coverage of various states ---
+
+        # Pricing page redesign (inconclusive) — uses high-volume pageview→signup funnel
+        Experiment.objects.create(
+            team=team,
+            name="Pricing page redesign",
+            description="Testing a simplified pricing page layout to improve signup conversion from the pricing page.",
+            feature_flag=pricing_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Pricing page to signup",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": EVENT_SIGNED_UP},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 14,
+                    "conversion_window_unit": "day",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Pageviews per user",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                    "goal": "increase",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.30),
+                "minimum_detectable_effect": 10,
+            },
+            start_date=self.pricing_experiment_start,
+            end_date=self.pricing_experiment_end,
+            conclusion="inconclusive",
+            conclusion_comment="No statistically significant difference detected between the control and test variants after the full run. Needs a larger sample size or bolder design change.",
+            created_at=pricing_flag.created_at,
+        )
+
+        # File sharing incentive (lost) — uses upload→download funnel and upload mean
+        Experiment.objects.create(
+            team=team,
+            name="File sharing incentive",
+            description="Testing whether a sharing prompt after upload increases file engagement and downloads.",
+            feature_flag=sharing_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Uploads per user",
+                    "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    "goal": "increase",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Upload to download",
+                    "series": [
+                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                        {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 7,
+                    "conversion_window_unit": "day",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.25),
+                "minimum_detectable_effect": 12,
+            },
+            start_date=self.sharing_experiment_start,
+            end_date=self.sharing_experiment_end,
+            conclusion="lost",
+            conclusion_comment="The sharing prompt annoyed users and led to fewer uploads overall. The test variant performed significantly worse than control.",
+            created_at=sharing_flag.created_at,
+        )
+
+        # Upgrade prompt experiment (running, recently started) — uses high-volume events
+        Experiment.objects.create(
+            team=team,
+            name="Upgrade prompt experiment",
+            description="Testing different prompt styles to increase user engagement and file activity.",
+            feature_flag=upgrade_prompt_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Login to upload",
+                    "series": [
+                        {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
+                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 7,
+                    "conversion_window_unit": "day",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Downloads per user",
+                    "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
+                    "goal": "increase",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 34},
+                    {"key": "aggressive", "rollout_percentage": 33},
+                    {"key": "subtle", "rollout_percentage": 33},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.35),
+                "minimum_detectable_effect": 15,
+            },
+            start_date=self.upgrade_prompt_experiment_start,
+            end_date=None,
+            created_at=upgrade_prompt_flag.created_at,
+        )
+
+        # Retention nudge (draft - not yet started)
+        Experiment.objects.create(
+            team=team,
+            name="Retention nudge",
+            description="Planning to test email and in-app nudges for users who haven't logged in for 3+ days.",
+            feature_flag=retention_nudge_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "7-day login retention",
+                    "goal": "increase",
+                    "start_event": {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
+                    "start_handling": "first_seen",
+                    "completion_event": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE, "math": "total"},
+                    "retention_window_start": 1,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Downloads per user",
+                    "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
+                    "goal": "increase",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.30),
+                "minimum_detectable_effect": 10,
+            },
+            start_date=None,
+            end_date=None,
+            created_at=retention_nudge_flag.created_at,
+        )
+
+        # Team collaboration boost (stopped early) — uses high-volume events
+        Experiment.objects.create(
+            team=team,
+            name="Team collaboration boost",
+            description="Testing a team activity feed to encourage more file uploads and engagement.",
+            feature_flag=team_collab_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Files uploaded per user",
+                    "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    "goal": "increase",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Signup to upload",
+                    "series": [
+                        {"kind": "EventsNode", "event": EVENT_SIGNED_UP},
+                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 7,
+                    "conversion_window_unit": "day",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.30),
+                "minimum_detectable_effect": 12,
+            },
+            start_date=self.team_collab_experiment_start,
+            end_date=self.team_collab_experiment_end,
+            conclusion="stopped_early",
+            conclusion_comment="Stopped early due to a bug in the activity feed causing excessive notifications. Need to fix the notification throttling before re-running.",
+            created_at=team_collab_flag.created_at,
+        )
+
         self._set_up_demo_data_warehouse_tables(team, user)
 
         # Endpoints
@@ -1461,6 +1737,11 @@ class HedgeboxMatrix(Matrix):
             except Exception as err:
                 capture_exception(err)
 
+        try:
+            self._upsert_demo_extended_person_properties_table(team, user, credential)
+        except Exception as err:
+            capture_exception(err)
+
     def _demo_data_warehouse_table_specs(self) -> tuple[DemoDataWarehouseTableSpec, ...]:
         return (
             DemoDataWarehouseTableSpec(
@@ -1530,6 +1811,121 @@ class HedgeboxMatrix(Matrix):
         )
         return [table_spec.row_builder(event, row_id) for row_id, event in enumerate(matching_events, start=1)]
 
+    @staticmethod
+    def _demo_extended_person_properties_columns() -> dict[str, str]:
+        return {
+            "id": "Int64",
+            "email": "String",
+            "hedgebox_user_id": "String",
+            "company_name": "String",
+            "industry": "String",
+            "account_kind": "String",
+            "current_plan": "String",
+            "team_size": "Int64",
+            "file_count": "Int64",
+            "used_mb": "Float64",
+            "allocation_used_fraction": "Float64",
+            "monthly_bill_usd": "Float64",
+            "lifecycle_stage": "String",
+            "onboarding_variant": "String",
+            "file_engagement_variant": "String",
+            "watches_marius_tech_tips": "Bool",
+            "is_invitable": "Bool",
+        }
+
+    def _collect_demo_extended_person_rows(self) -> list[tuple[Any, ...]]:
+        if not self.is_complete:
+            raise ValueError("Demo data warehouse tables require a completed simulation.")
+
+        rows: list[tuple[Any, ...]] = []
+        people = cast(list[HedgeboxPerson], self.people)
+
+        for person in sorted(people, key=lambda current_person: current_person.in_product_id):
+            if not hasattr(person, "properties_at_now"):
+                person.take_snapshot_at_now()
+
+            email = person.properties_at_now.get("email")
+            if not email:
+                continue
+
+            account = person.account
+            team_size = len(account.team_members) if account else 0
+            file_count = len(account.files) if account else 0
+
+            if file_count >= 5:
+                lifecycle_stage = "power_user"
+            elif file_count > 0:
+                lifecycle_stage = "activated"
+            else:
+                lifecycle_stage = "signed_up"
+
+            rows.append(
+                (
+                    len(rows) + 1,
+                    str(email),
+                    person.in_product_id,
+                    person.cluster.company.name if person.cluster.company else person.name,
+                    str(person.cluster.company.industry) if person.cluster.company else "consumer",
+                    "business" if person.cluster.company else "personal",
+                    str(account.plan) if account else "",
+                    team_size,
+                    file_count,
+                    float(account.current_used_mb) if account else 0.0,
+                    float(account.allocation_used_fraction) if account else 0.0,
+                    float(account.current_monthly_bill_usd) if account else 0.0,
+                    lifecycle_stage,
+                    person.onboarding_variant,
+                    person.file_engagement_variant,
+                    person.watches_marius_tech_tips,
+                    person.is_invitable,
+                )
+            )
+
+        return rows
+
+    def _upsert_demo_extended_person_properties_table(self, team: "Team", user: "User", credential) -> None:
+        table_name = "extended_properties"
+        rows = self._collect_demo_extended_person_rows()
+        self._upsert_demo_data_warehouse_table_contents(
+            team=team,
+            user=user,
+            credential=credential,
+            table_name=table_name,
+            columns=self._demo_extended_person_properties_columns(),
+            rows=rows,
+        )
+        self._upsert_demo_extended_person_properties_join(team, table_name)
+
+    @staticmethod
+    def _upsert_demo_extended_person_properties_join(team: "Team", table_name: str) -> None:
+        existing_join = (
+            DataWarehouseJoin.objects.filter(
+                team=team,
+                source_table_name="persons",
+                source_table_key="properties.email",
+                joining_table_name=table_name,
+                joining_table_key="email",
+                field_name=table_name,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if existing_join:
+            existing_join.deleted = False
+            existing_join.deleted_at = None
+            existing_join.save()
+            return
+
+        DataWarehouseJoin.objects.create(
+            team=team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=table_name,
+            joining_table_key="email",
+            field_name=table_name,
+        )
+
     def _upsert_demo_data_warehouse_table(
         self,
         team: "Team",
@@ -1538,19 +1934,38 @@ class HedgeboxMatrix(Matrix):
         table_spec: DemoDataWarehouseTableSpec,
         rows: list[tuple[Any, ...]],
     ) -> None:
-        s3_prefix = f"data-warehouse/demo_{table_spec.name}/team_{team.pk}"
-        object_key = f"{s3_prefix}/{table_spec.name}.csv"
-        object_storage.write(object_key, self._warehouse_rows_to_csv(rows, headers=tuple(table_spec.columns.keys())))
+        self._upsert_demo_data_warehouse_table_contents(
+            team=team,
+            user=user,
+            credential=credential,
+            table_name=table_spec.name,
+            columns=table_spec.columns,
+            rows=rows,
+        )
+
+    def _upsert_demo_data_warehouse_table_contents(
+        self,
+        team: "Team",
+        user: "User",
+        credential,
+        table_name: str,
+        columns: dict[str, str],
+        rows: list[tuple[Any, ...]],
+    ) -> None:
+        s3_prefix = f"data-warehouse/demo_{table_name}/team_{team.pk}"
+        object_key = f"{s3_prefix}/{table_name}.csv"
+        object_storage.write(object_key, self._warehouse_rows_to_csv(rows, headers=tuple(columns.keys())))
 
         url_pattern = f"{self._warehouse_endpoint()}/{settings.OBJECT_STORAGE_BUCKET}/{s3_prefix}/*.csv"
-        existing_table = DataWarehouseTable.objects.filter(team=team, name=table_spec.name).first()
+        existing_table = DataWarehouseTable.objects.filter(team=team, name=table_name).first()
         if existing_table:
             if existing_table.external_data_source is not None:
                 return
             existing_table.format = DataWarehouseTable.TableFormat.CSVWithNames
             existing_table.url_pattern = url_pattern
             existing_table.credential = credential
-            existing_table.columns = table_spec.columns
+            existing_table.columns = columns
+            existing_table.options = {**(existing_table.options or {}), "csv_allow_double_quotes": True}
             existing_table.deleted = False
             existing_table.deleted_at = None
             if existing_table.created_by_id is None:
@@ -1560,11 +1975,12 @@ class HedgeboxMatrix(Matrix):
 
         DataWarehouseTable.objects.create(
             team=team,
-            name=table_spec.name,
+            name=table_name,
             format=DataWarehouseTable.TableFormat.CSVWithNames,
             url_pattern=url_pattern,
             credential=credential,
-            columns=table_spec.columns,
+            columns=columns,
+            options={"csv_allow_double_quotes": True},
             created_by=user,
         )
 

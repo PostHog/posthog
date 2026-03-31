@@ -36,6 +36,13 @@ import type {
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
+export interface GroupType {
+    group_type: string
+    group_type_index: number
+    name_singular: string | null
+    name_plural: string | null
+}
+
 // Global search types
 export const SearchableEntitySchema = z.enum([
     'insight',
@@ -135,6 +142,8 @@ export class ApiClient {
         path: string
         body?: Record<string, unknown>
         query?: Record<string, string | number | boolean | (string | number)[] | undefined>
+        headers?: Record<string, string>
+        responseType?: 'json' | 'text'
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
@@ -147,10 +156,24 @@ export class ApiClient {
         const qs = searchParams.toString()
         const url = `${this.baseUrl}${opts.path}${qs ? `?${qs}` : ''}`
 
-        const result = await this.fetchJson<T>(url, {
+        const fetchOptions: RequestInit = {
             method: opts.method,
             ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
-        })
+            ...(opts.headers ? { headers: opts.headers } : {}),
+        }
+
+        if (opts.responseType === 'text') {
+            const response = await this.fetch(url, fetchOptions)
+            if (!response.ok) {
+                const errorText = await response.text()
+                throw new Error(
+                    `Request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
+                )
+            }
+            return (await response.text()) as T
+        }
+
+        const result = await this.fetchJson<T>(url, fetchOptions)
 
         if (!result.success) {
             throw new Error(result.error.message)
@@ -792,7 +815,7 @@ export class ApiClient {
 
                 return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
                     method: 'POST',
-                    body: JSON.stringify(validatedInput),
+                    body: JSON.stringify({ ...validatedInput, saved: true }),
                 })
             },
 
@@ -1037,5 +1060,13 @@ export class ApiClient {
                 return this.fetchJson<SearchResponse>(url)
             },
         }
+    }
+
+    async getGroupTypes(projectId: string): Promise<GroupType[]> {
+        const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data
     }
 }

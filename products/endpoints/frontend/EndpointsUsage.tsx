@@ -21,6 +21,7 @@ export function EndpointsUsage({ tabId }: { tabId: string }): JSX.Element {
         queryDurationTrendsQuery,
         errorRateTrendsQuery,
         endpointTableQuery,
+        refreshKey,
     } = useValues(endpointsUsageLogic({ tabId }))
 
     const tableContext: QueryContext<DataTableNode> = useMemo(
@@ -66,39 +67,40 @@ export function EndpointsUsage({ tabId }: { tabId: string }): JSX.Element {
             <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-x-4 gap-y-8">
                 <div className="col-span-1 md:col-span-4 flex flex-col">
                     <h2 className="mb-3">Overview</h2>
-                    <Query query={overviewQuery} readOnly />
+                    <Query key={`overview-${refreshKey}`} query={overviewQuery} readOnly />
                 </div>
 
                 {/* Row 1: Executions, Error rate, Query duration */}
                 <div className="col-span-1 md:col-span-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="flex flex-col">
                         <h2 className="mb-3">Executions over time</h2>
-                        <Query query={requestsTrendsQuery} readOnly />
+                        <Query key={`requests-${refreshKey}`} query={requestsTrendsQuery} readOnly />
                     </div>
                     <div className="flex flex-col">
                         <h2 className="mb-3">Error rate over time</h2>
-                        <Query query={errorRateTrendsQuery} readOnly />
+                        <Query key={`error-rate-${refreshKey}`} query={errorRateTrendsQuery} readOnly />
                     </div>
                     <div className="flex flex-col">
                         <h2 className="mb-3">Query duration over time</h2>
-                        <Query query={queryDurationTrendsQuery} readOnly />
+                        <Query key={`query-duration-${refreshKey}`} query={queryDurationTrendsQuery} readOnly />
                     </div>
                 </div>
 
                 {/* Row 2: CPU time, Bytes read */}
                 <div className="col-span-1 md:col-span-2 flex flex-col">
                     <h2 className="mb-3">CPU time over time</h2>
-                    <Query query={cpuSecondsTrendsQuery} readOnly />
+                    <Query key={`cpu-seconds-${refreshKey}`} query={cpuSecondsTrendsQuery} readOnly />
                 </div>
 
                 <div className="col-span-1 md:col-span-2 flex flex-col">
                     <h2 className="mb-3">Bytes read over time</h2>
-                    <Query query={bytesReadTrendsQuery} readOnly />
+                    <Query key={`bytes-read-${refreshKey}`} query={bytesReadTrendsQuery} readOnly />
                 </div>
 
                 <div className="col-span-1 md:col-span-4 flex flex-col">
                     <h2 className="mb-3">Endpoints breakdown</h2>
                     <Query
+                        key={`table-${refreshKey}`}
                         query={
                             {
                                 kind: NodeKind.DataTableNode,

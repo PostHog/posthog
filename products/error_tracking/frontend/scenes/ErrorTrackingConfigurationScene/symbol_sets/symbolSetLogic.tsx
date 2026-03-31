@@ -1,11 +1,11 @@
-import { actions, defaults, kea, listeners, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { actions, afterMount, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
+import { pluralize } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,13 +13,7 @@ import { Breadcrumb } from '~/types'
 
 import type { symbolSetLogicType } from './symbolSetLogicType'
 
-export type SymbolSetUpload = SourceMapUpload
 export const RESULTS_PER_PAGE = 20
-
-export type SourceMapUpload = {
-    minified: File
-    sourceMap: File
-}
 
 export type ErrorTrackingSymbolSetResponse = CountedPaginatedResponse<ErrorTrackingSymbolSet>
 export type SymbolSetOrder = 'created_at' | '-created_at' | 'last_used' | '-last_used'
@@ -29,25 +23,26 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
 
     actions({
         loadSymbolSets: () => {},
-        deleteSymbolSet: (id: string) => ({ id }),
-        setUploadSymbolSetId: (id: string | null) => ({ id }),
         setSymbolSetStatusFilter: (status: SymbolSetStatusFilter) => ({ status }),
         setSymbolSetOrder: (order: SymbolSetOrder) => ({ order }),
         setPage: (page: number) => ({ page }),
+        setSelectedSymbolSetIds: (ids: string[]) => ({ ids }),
+        setShiftKeyHeld: (shiftKeyHeld: boolean) => ({ shiftKeyHeld }),
+        setPreviouslyCheckedIndex: (index: number) => ({ index }),
     }),
 
     defaults({
         page: 1 as number,
         symbolSetResponse: null as ErrorTrackingSymbolSetResponse | null,
         symbolSetStatusFilter: 'all' as SymbolSetStatusFilter,
-        uploadSymbolSetId: null as string | null,
         symbolSetOrder: '-created_at' as SymbolSetOrder,
+        selectedSymbolSetIds: [] as string[],
+        deleteSymbolSetResponse: null as null,
+        shiftKeyHeld: false as boolean,
+        previouslyCheckedIndex: null as number | null,
     }),
 
     reducers({
-        uploadSymbolSetId: {
-            setUploadSymbolSetId: (_, { id }) => id,
-        },
         symbolSetStatusFilter: {
             setSymbolSetStatusFilter: (_, { status }) => status,
         },
@@ -59,9 +54,20 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         symbolSetOrder: {
             setSymbolSetOrder: (_, { order }) => order,
         },
+        selectedSymbolSetIds: {
+            setSelectedSymbolSetIds: (_, { ids }) => ids,
+            loadSymbolSets: () => [],
+        },
+        shiftKeyHeld: {
+            setShiftKeyHeld: (_, { shiftKeyHeld }) => shiftKeyHeld,
+        },
+        previouslyCheckedIndex: {
+            setPreviouslyCheckedIndex: (_, { index }) => index,
+            loadSymbolSets: () => null,
+        },
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         symbolSetResponse: {
             loadSymbolSets: async (_, breakpoint) => {
                 await breakpoint(100)
@@ -74,49 +80,30 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                 return res
             },
         },
-    })),
-
-    forms(({ values, actions }) => ({
-        uploadSymbolSet: {
-            defaults: { minified: [], sourceMap: [] } as { minified: File[]; sourceMap: File[] },
-            submit: async ({ minified, sourceMap }) => {
-                if (minified.length < 1 || sourceMap.length < 1) {
-                    lemonToast.error('Please select both a minified file and a source map file')
-                    return
-                }
-
-                const minifiedSrc = minified[0]
-                const sourceMapSrc = sourceMap[0]
-                const id = values.uploadSymbolSetId
-
-                if (id == null) {
-                    return
-                }
-
-                const formData = new FormData()
-                formData.append('minified', minifiedSrc)
-                formData.append('source_map', sourceMapSrc)
-                await api.errorTracking.symbolSets.update(id, formData)
-                actions.setUploadSymbolSetId(null)
+        deleteSymbolSetResponse: {
+            deleteSymbolSet: async (id: string) => {
+                await api.errorTracking.symbolSets.delete(id)
+                lemonToast.success('Symbol set deleted')
                 actions.loadSymbolSets()
-                actions.resetUploadSymbolSet()
-                lemonToast.success('Source map uploaded')
+                return null
+            },
+            bulkDeleteSymbolSets: async () => {
+                const ids = values.selectedSymbolSetIds
+                await api.errorTracking.symbolSets.bulkDelete(ids)
+                lemonToast.success(`${ids.length} ${pluralize(ids.length, 'symbol set', 'symbol sets', false)} deleted`)
+                actions.loadSymbolSets()
+                return null
             },
         },
     })),
 
     listeners(({ actions }) => ({
-        deleteSymbolSet: async ({ id }: { id: ErrorTrackingSymbolSet['id'] }) => {
-            await api.errorTracking.symbolSets.delete(id)
-            lemonToast.success('Symbol set deleted')
-            actions.loadSymbolSets()
-        },
         setSymbolSetStatusFilter: () => actions.loadSymbolSets(),
         setPage: () => actions.loadSymbolSets(),
         setSymbolSetOrder: () => actions.loadSymbolSets(),
     })),
 
-    selectors(({ actions }) => ({
+    selectors({
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -133,24 +120,19 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                 },
             ],
         ],
-        symbolSets: [
-            (s) => [s.symbolSetResponse],
-            (response: ErrorTrackingSymbolSetResponse): ErrorTrackingSymbolSet[] => {
-                return response?.results || []
-            },
-        ],
-        pagination: [
-            (s) => [s.page, s.symbolSetResponse],
-            (page: number, symbolSetResponse: ErrorTrackingSymbolSetResponse) => {
-                return {
-                    controlled: true,
-                    pageSize: RESULTS_PER_PAGE,
-                    currentPage: page,
-                    entryCount: symbolSetResponse?.count ?? 0,
-                    onBackward: () => actions.setPage(page - 1),
-                    onForward: () => actions.setPage(page + 1),
-                }
-            },
-        ],
-    })),
+    }),
+
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(() => {
+            const onKeyChange = (event: KeyboardEvent): void => {
+                actions.setShiftKeyHeld(event.shiftKey)
+            }
+            window.addEventListener('keydown', onKeyChange)
+            window.addEventListener('keyup', onKeyChange)
+            return () => {
+                window.removeEventListener('keydown', onKeyChange)
+                window.removeEventListener('keyup', onKeyChange)
+            }
+        }, 'shiftKeyListener')
+    }),
 ])

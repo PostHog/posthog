@@ -50,6 +50,8 @@ export interface SearchLogicProps {
 }
 
 export const RECENTS_LIMIT = 5
+/** Max starred shortcuts shown in quick search (folders excluded). */
+export const STARRED_LIMIT = 20
 const SEARCH_LIMIT = 5
 
 export const searchLogic = kea<searchLogicType>([
@@ -98,6 +100,20 @@ export const searchLogic = kea<searchLogicType>([
                         results: response.results.slice(0, RECENTS_LIMIT),
                         hasMore: response.results.length > RECENTS_LIMIT,
                     }
+                },
+            },
+        ],
+        starredShortcuts: [
+            [] as FileSystemEntry[],
+            {
+                loadStarredShortcuts: async (_, breakpoint) => {
+                    const response = await api.fileSystemShortcuts.list({
+                        ordering: '-created_at',
+                        limit: STARRED_LIMIT * 2,
+                    })
+                    breakpoint()
+                    // Server orders by created_at; over-fetch so we still have ~STARRED_LIMIT after dropping folders.
+                    return response.results.filter((e) => e.type !== 'folder').slice(0, STARRED_LIMIT)
                 },
             },
         ],
@@ -221,6 +237,13 @@ export const searchLogic = kea<searchLogicType>([
                 loadRecentsFailure: () => true,
             },
         ],
+        starredHasLoaded: [
+            false,
+            {
+                loadStarredShortcutsSuccess: () => true,
+                loadStarredShortcutsFailure: () => true,
+            },
+        ],
         sceneLogViewsHasLoaded: [
             false,
             {
@@ -291,6 +314,24 @@ export const searchLogic = kea<searchLogicType>([
                         href: item.href || '#',
                         lastViewedAt: item.last_viewed_at ?? null,
                         itemType: item.type ?? null,
+                        record: item as unknown as Record<string, unknown>,
+                    }
+                })
+            },
+        ],
+        starredItems: [
+            (s) => [s.starredShortcuts],
+            (starredShortcuts): SearchItem[] => {
+                return starredShortcuts.map((item) => {
+                    const name = splitPath(item.path).pop()
+                    return {
+                        id: `starred-${item.id}`,
+                        name: name ? unescapePath(name) : item.path,
+                        category: 'starred',
+                        href: item.href || '#',
+                        lastViewedAt: item.last_viewed_at ?? null,
+                        itemType: item.type ?? null,
+                        searchKeywords: ['starred', 'favorite', 'favourite', 'shortcut'],
                         record: item as unknown as Record<string, unknown>,
                     }
                 })
@@ -770,6 +811,8 @@ export const searchLogic = kea<searchLogicType>([
                 s.unifiedSearchResultsLoading,
                 s.recentsLoading,
                 s.recentsHasLoaded,
+                s.starredShortcutsLoading,
+                s.starredHasLoaded,
                 s.isAppsLoading,
                 s.personSearchResultsLoading,
                 s.groupSearchResultsLoading,
@@ -779,6 +822,8 @@ export const searchLogic = kea<searchLogicType>([
                 unifiedSearchResultsLoading: boolean,
                 recentsLoading: boolean,
                 recentsHasLoaded: boolean,
+                starredShortcutsLoading: boolean,
+                starredHasLoaded: boolean,
                 isAppsLoading: boolean,
                 personSearchResultsLoading: boolean,
                 groupSearchResultsLoading: boolean,
@@ -787,6 +832,8 @@ export const searchLogic = kea<searchLogicType>([
                 unifiedSearchResultsLoading,
                 recentsLoading,
                 recentsHasLoaded,
+                starredLoading: starredShortcutsLoading,
+                starredHasLoaded,
                 isAppsLoading,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
@@ -796,6 +843,7 @@ export const searchLogic = kea<searchLogicType>([
         allCategories: [
             (s) => [
                 s.recentItems,
+                s.starredItems,
                 s.appsItems,
                 s.dataManagementItems,
                 s.healthItems,
@@ -811,6 +859,7 @@ export const searchLogic = kea<searchLogicType>([
             ],
             (
                 recentItems: SearchItem[],
+                starredItems: SearchItem[],
                 appsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
                 healthItems: SearchItem[],
@@ -825,6 +874,8 @@ export const searchLogic = kea<searchLogicType>([
                     unifiedSearchResultsLoading: boolean
                     recentsLoading: boolean
                     recentsHasLoaded: boolean
+                    starredLoading: boolean
+                    starredHasLoaded: boolean
                     isAppsLoading: boolean
                     personSearchResultsLoading: boolean
                     groupSearchResultsLoading: boolean
@@ -836,6 +887,8 @@ export const searchLogic = kea<searchLogicType>([
                     unifiedSearchResultsLoading,
                     recentsLoading,
                     recentsHasLoaded,
+                    starredLoading,
+                    starredHasLoaded,
                     isAppsLoading,
                     personSearchResultsLoading,
                     groupSearchResultsLoading,
@@ -877,6 +930,13 @@ export const searchLogic = kea<searchLogicType>([
                     key: 'recents',
                     items: recentItems,
                     isLoading: isRecentsLoading,
+                })
+
+                const isStarredLoading = starredLoading || !starredHasLoaded
+                categories.push({
+                    key: 'starred',
+                    items: starredItems,
+                    isLoading: isStarredLoading,
                 })
 
                 // Filter apps and data management by search
@@ -1046,6 +1106,9 @@ export const searchLogic = kea<searchLogicType>([
             if (search.trim() === '' || !values.recentsHasLoaded) {
                 actions.loadRecents({ search: '' })
             }
+            if (search.trim() === '' || !values.starredHasLoaded) {
+                actions.loadStarredShortcuts(undefined)
+            }
 
             if (search.trim() !== '') {
                 actions.loadUnifiedSearchResults({ searchTerm: search })
@@ -1058,6 +1121,9 @@ export const searchLogic = kea<searchLogicType>([
             // Load recents only when modal opens, not on mount
             if (values.recents.results.length === 0) {
                 actions.loadRecents({ search: '' })
+            }
+            if (!values.starredHasLoaded) {
+                actions.loadStarredShortcuts(undefined)
             }
             // Load scene log views for app last viewed timestamps
             if (values.sceneLogViews.length === 0) {

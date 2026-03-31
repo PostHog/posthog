@@ -42,6 +42,11 @@ func NewStatsInRedis(cfg configs.RedisConfig) (*StatsInRedis, error) {
 	return &StatsInRedis{client: client}, nil
 }
 
+// Client returns the underlying Redis client.
+func (s *StatsInRedis) Client() rueidis.Client {
+	return s.client
+}
+
 // Adds a distinct user to a Redis sorted set for the given project token,
 // scored by the current timestamp. The key auto-expires after userKeyTTL.
 func (s *StatsInRedis) AddUser(ctx context.Context, token, distinctId string) error {

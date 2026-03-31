@@ -5,8 +5,6 @@ Provides hogli dev:* commands for managing the development environment.
 
 from __future__ import annotations
 
-import os
-
 import click
 from hogli.core.cli import cli
 
@@ -14,6 +12,7 @@ from .generator import (
     DevenvConfig,
     MprocsGenerator,
     build_docker_compose_command,
+    get_effective_docker_profiles,
     get_generated_mprocs_path,
     load_devenv_config,
 )
@@ -95,23 +94,15 @@ def dev_generate(
 
     generator.generate_and_save(resolved, output_path, saved_config)
 
-    # Emit devenv_started when called from bin/start (signaled via env var)
-    process_manager = os.environ.get("HOGLI_PROCESS_MANAGER")
-    if process_manager:
-        from hogli import telemetry
-
-        # Normalize "*/bin/phrocs" -> "phrocs"
-        pm_name = os.path.basename(process_manager)
-        telemetry.track(
-            "devenv_started",
-            {
-                "intents": sorted(resolved.intents),
-                "intent_count": len(resolved.intents),
-                "unit_count": len(resolved.units),
-                "docker_profiles": sorted(resolved.docker_profiles),
-                "process_manager": pm_name,
-            },
-        )
+    # Stash devenv-specific properties so _fire_telemetry includes them
+    # in the command_completed event for dev:generate.
+    ctx = click.get_current_context()
+    ctx.meta["hogli.devenv"] = {
+        "intents": sorted(resolved.intents),
+        "intent_count": len(resolved.intents),
+        "unit_count": len(resolved.units),
+        "docker_profiles": sorted(resolved.docker_profiles),
+    }
 
     click.echo("Generated mprocs config from saved config")
     click.echo(f"  Products: {', '.join(sorted(resolved.intents))}")
@@ -223,7 +214,7 @@ def _get_docker_profiles_from_config() -> list[str]:
             include_units=saved_config.include_units,
             exclude_units=saved_config.exclude_units,
         )
-        return sorted(resolved.docker_profiles)
+        return get_effective_docker_profiles(sorted(resolved.docker_profiles), resolved.units)
     except ValueError:
         return []
 

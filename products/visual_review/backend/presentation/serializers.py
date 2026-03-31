@@ -8,10 +8,13 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
+    AddSnapshotsInput,
+    AddSnapshotsResult,
     ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,
     AutoApproveResult,
+    CompleteRunInput,
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
@@ -91,6 +94,21 @@ class SnapshotManifestItemSerializer(DataclassSerializer):
 class CreateRunInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = CreateRunInput
+
+
+class AddSnapshotsInputSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = AddSnapshotsInput
+
+
+class AddSnapshotsResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = AddSnapshotsResult
+
+
+class CompleteRunInputSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CompleteRunInput
 
 
 class UpdateRepoInputSerializer(DataclassSerializer):

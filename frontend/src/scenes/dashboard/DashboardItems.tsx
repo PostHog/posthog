@@ -8,7 +8,6 @@ import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-
 import { GridBackground } from 'react-grid-layout/extras'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -18,7 +17,6 @@ import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunity
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
@@ -60,14 +58,13 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         moveToDashboard,
+        copyToDashboard,
         setTileOverride,
         setDashboardMode,
     } = useActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
@@ -138,11 +135,9 @@ export function DashboardItems(): JSX.Element {
     const canEnterEditModeFromEdge =
         !!dashboard && canEditDashboard && dashboardMode !== DashboardMode.Edit && !isMobileView && isEditablePlacement
 
-    const showDashboardGrid = useFeatureFlag('DASHBOARD_GRID')
-    const showLayoutZoom = useFeatureFlag('DASHBOARD_LAYOUT_ZOOM')
-    const isLayoutZoomToggled = dashboardMode === DashboardMode.Edit && showLayoutZoom && layoutZoom !== 1
+    const isLayoutZoomToggled = dashboardMode === DashboardMode.Edit && layoutZoom !== 1
 
-    const effectiveZoom = dashboardMode === DashboardMode.Edit && showLayoutZoom ? layoutZoom : 1
+    const effectiveZoom = dashboardMode === DashboardMode.Edit ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = BASE_MARGIN.map((m) => m * spacingFactor) as [number, number]
@@ -157,7 +152,7 @@ export function DashboardItems(): JSX.Element {
             )}
             {mounted && (
                 <div className="relative">
-                    {dashboardMode === DashboardMode.Edit && !isMobileView && showDashboardGrid && (
+                    {dashboardMode === DashboardMode.Edit && !isMobileView && (
                         <GridBackground
                             width={gridWidth}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
@@ -300,10 +295,10 @@ export function DashboardItems(): JSX.Element {
                                               return
                                           }
 
-                                          // Don't trigger when clicking obvious interactive controls
+                                          // Don't trigger when clicking obvious interactive controls or readonly rich text (TipTap/LemonMarkdown).
                                           if (
                                               target.closest(
-                                                  'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"]'
+                                                  'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown'
                                               )
                                           ) {
                                               return
@@ -319,6 +314,12 @@ export function DashboardItems(): JSX.Element {
                                         throw new Error('must be on a dashboard to move this tile')
                                     }
                                     moveToDashboard(tile, dashboard.id, id, name)
+                                },
+                                copyToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                    if (!dashboard) {
+                                        throw new Error('must be on a dashboard to copy this tile')
+                                    }
+                                    copyToDashboard(tile, dashboard.id, id, name)
                                 },
                                 removeFromDashboard: () => removeTile(tile),
                             }
@@ -375,7 +376,7 @@ export function DashboardItems(): JSX.Element {
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
-                                        otherDashboards={otherDashboards}
+                                        dashboardId={dashboard?.id}
                                         isDragging={isDragging.current}
                                         onEdit={() => {
                                             if (dashboard?.id) {
@@ -383,6 +384,12 @@ export function DashboardItems(): JSX.Element {
                                             }
                                         }}
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
+                                        onCopyToDashboard={({ id, name }) => {
+                                            if (!dashboard) {
+                                                throw new Error('must be on a dashboard to copy this tile')
+                                            }
+                                            copyToDashboard(tile, dashboard.id, id, name)
+                                        }}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
@@ -400,7 +407,7 @@ export function DashboardItems(): JSX.Element {
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
-                                        otherDashboards={otherDashboards}
+                                        dashboardId={dashboard?.id}
                                         isDraggingRef={isDragging}
                                         onEdit={() => {
                                             if (dashboard?.id) {

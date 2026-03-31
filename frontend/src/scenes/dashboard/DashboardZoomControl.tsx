@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -16,12 +15,7 @@ interface DashboardZoomControlProps {
 
 export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoomControlProps): JSX.Element | null {
     const { dashboard, currentLayoutSize } = useValues(dashboardLogic)
-    const showLayoutZoom = useFeatureFlag('DASHBOARD_LAYOUT_ZOOM')
     const isSmallLayout = currentLayoutSize === 'xs'
-
-    if (!showLayoutZoom) {
-        return null
-    }
 
     return (
         <div className="flex items-center gap-2 text-sm text-muted hidden md:flex">

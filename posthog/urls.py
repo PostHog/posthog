@@ -35,7 +35,6 @@ from posthog.api import (
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
-from posthog.api.survey import public_survey_page, surveys
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
@@ -47,13 +46,16 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
+from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.product_tours.backend.api import product_tours
+from products.signals.backend import views as signals_views
 from products.slack_app.backend.api import (
     posthog_code_event_handler,
     posthog_code_interactivity_handler,
     slack_event_handler,
 )
+from products.surveys.backend.api.survey import public_survey_page, surveys
 from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
@@ -238,6 +240,10 @@ urlpatterns = [
         "api/public_hog_flow_templates",
         hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
+    opt_slash_path(
+        "api/public_source_configs",
+        PublicSourceConfigViewSet.as_view({"get": "list"}),
+    ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
@@ -246,6 +252,10 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/signals/emit",
+        csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),

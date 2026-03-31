@@ -196,7 +196,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                         </LemonBanner>
                     )}
 
-                    <SceneStickyBar showBorderBottom={false} className="flex">
+                    <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />
                         {dashboardMode === DashboardMode.Edit &&
                             canEditDashboard &&
