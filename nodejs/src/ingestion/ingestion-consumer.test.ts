@@ -108,7 +108,6 @@ describe('IngestionConsumer', () => {
             hub,
             {
                 ...hub,
-                kafkaMetricsProducer: hub.kafkaProducer,
                 outputs,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
                 hogTransformer: createHogTransformerService(hub, {

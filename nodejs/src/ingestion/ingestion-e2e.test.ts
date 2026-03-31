@@ -252,7 +252,6 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             const outputs = createTestIngestionOutputs(hub.kafkaProducer)
             const ingester = new IngestionConsumer(hub, {
                 ...hub,
-                kafkaMetricsProducer: hub.kafkaProducer,
                 hogTransformer: createHogTransformerService(hub, {
                     ...hub,
                     monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
