@@ -67,7 +67,10 @@ export class PersonHogPersonOperations {
             return []
         }
 
-        // Group by team_id since GetPersonsByUuids is a single-team RPC
+        // Group by team_id since GetPersonsByUuids is a single-team RPC.
+        // In practice callers (e.g. CDP PersonsManager) almost always pass a single team,
+        // so multiple RPCs here is an edge case. If metrics show frequent multi-team batches,
+        // consider adding a cross-team UUID RPC (similar to GetPersonsByDistinctIds).
         const byTeam = new Map<number, string[]>()
         for (const { teamId, personId } of teamPersons) {
             const uuids = byTeam.get(teamId) ?? []
@@ -75,19 +78,18 @@ export class PersonHogPersonOperations {
             byTeam.set(teamId, uuids)
         }
 
-        const results: InternalPerson[] = []
-        for (const [teamId, uuids] of byTeam) {
-            const response = await this.client.getPersonsByUuids(
-                create(GetPersonsByUuidsRequestSchema, {
-                    teamId: BigInt(teamId),
-                    uuids,
-                    readOptions: eventualReadOptions(),
-                })
-            )
-            for (const person of response.persons) {
-                results.push(protoPersonToDomain(person))
-            }
-        }
-        return results
+        const allPersons = await Promise.all(
+            [...byTeam].map(async ([teamId, uuids]) => {
+                const response = await this.client.getPersonsByUuids(
+                    create(GetPersonsByUuidsRequestSchema, {
+                        teamId: BigInt(teamId),
+                        uuids,
+                        readOptions: eventualReadOptions(),
+                    })
+                )
+                return response.persons.map(protoPersonToDomain)
+            })
+        )
+        return allPersons.flat()
     }
 }
