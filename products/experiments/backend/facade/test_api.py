@@ -29,20 +29,44 @@ class TestCreateExperiment(BaseTest):
         self.team: Team = self.team
         self.user: User = self.user
 
-    def test_create_experiment_with_new_format(self):
-        """Test creating experiment using new feature_flag_filters format."""
+    @pytest.mark.parametrize(
+        "format_name,input_kwargs,expected_flag_name",
+        [
+            (
+                "new_format",
+                {
+                    "description": "Test description",
+                    "feature_flag_filters": CreateFeatureFlagInput(
+                        key="test-flag",
+                        name="Test Flag",
+                        variants=(
+                            FeatureFlagVariant(key="control", name="Control", rollout_percentage=50),
+                            FeatureFlagVariant(key="test", name="Test", rollout_percentage=50),
+                        ),
+                    ),
+                },
+                "Feature Flag for Experiment Test Experiment",
+            ),
+            (
+                "old_format",
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 50},
+                            {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        ]
+                    }
+                },
+                "Feature Flag for Experiment Test Experiment",
+            ),
+        ],
+    )
+    def test_create_experiment_with_variants(self, format_name, input_kwargs, expected_flag_name):
+        """Test creating experiment using different variant formats."""
         input_dto = CreateExperimentInput(
             name="Test Experiment",
             feature_flag_key="test-flag",
-            description="Test description",
-            feature_flag_filters=CreateFeatureFlagInput(
-                key="test-flag",
-                name="Test Flag",
-                variants=[
-                    FeatureFlagVariant(key="control", name="Control", rollout_percentage=50),
-                    FeatureFlagVariant(key="test", name="Test", rollout_percentage=50),
-                ],
-            ),
+            **input_kwargs,
         )
 
         result = create_experiment(team=self.team, user=self.user, input_dto=input_dto)
@@ -58,33 +82,11 @@ class TestCreateExperiment(BaseTest):
         assert experiment.name == "Test Experiment"
         assert experiment.feature_flag.key == "test-flag"
 
+        # Verify feature flag created
         flag = FeatureFlagModel.objects.get(id=result.feature_flag_id)
         # Note: Currently the service generates its own flag name
         # Full feature_flag_filters support (including name) will come in a later phase
-        assert flag.name == "Feature Flag for Experiment Test Experiment"
-        assert len(flag.filters["multivariate"]["variants"]) == 2
-
-    def test_create_experiment_with_old_format(self):
-        """Test creating experiment using old parameters format."""
-        input_dto = CreateExperimentInput(
-            name="Old Format Experiment",
-            feature_flag_key="old-flag",
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "name": "Control", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test", "rollout_percentage": 50},
-                ]
-            },
-        )
-
-        result = create_experiment(team=self.team, user=self.user, input_dto=input_dto)
-
-        assert isinstance(result, Experiment)
-        assert result.name == "Old Format Experiment"
-        assert result.feature_flag_key == "old-flag"
-
-        # Verify feature flag created with old format
-        flag = FeatureFlagModel.objects.get(id=result.feature_flag_id)
+        assert flag.name == expected_flag_name
         assert len(flag.filters["multivariate"]["variants"]) == 2
 
     def test_create_experiment_with_existing_flag(self):
@@ -123,7 +125,7 @@ class TestCreateExperiment(BaseTest):
             parameters={"feature_flag_variants": [{"key": "control", "rollout_percentage": 100}]},
             feature_flag_filters=CreateFeatureFlagInput(
                 key="both-flag",
-                variants=[FeatureFlagVariant(key="control", rollout_percentage=100)],
+                variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
             ),
         )
 
@@ -141,7 +143,7 @@ class TestCreateExperiment(BaseTest):
                 feature_flag_key="transaction-flag",
                 feature_flag_filters=CreateFeatureFlagInput(
                     key="transaction-flag",
-                    variants=[FeatureFlagVariant(key="control", rollout_percentage=100)],
+                    variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
                 ),
             )
 
