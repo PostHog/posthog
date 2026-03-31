@@ -27,6 +27,8 @@ from posthog.schema import (
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Cohort, Person
 from posthog.models.event.util import bulk_create_events
@@ -847,6 +849,10 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="step one"), EventsNode(event="step two")],
             dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
         )
+        # Verify the pre-filter is actually active for this query
+        context = FunnelQueryContext(query=funnels_query, team=self.team)
+        assert FunnelUDF(context=context)._should_apply_pre_filter()
+
         # Step 1 dropoff: persons who did step 1 but NOT step 2 (funnelStep=-2)
         actors = get_actors(funnels_query, self.team, funnel_step=-2)
         actor_ids = {val[0] for val in actors}
