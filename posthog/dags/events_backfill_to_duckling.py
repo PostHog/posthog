@@ -1251,7 +1251,6 @@ def export_persons_to_duckling_s3(
     """
     year = date.strftime("%Y")
     month = date.strftime("%m")
-    day = date.strftime("%d")
     date_str = date.strftime("%Y-%m-%d")
 
     path_without_scheme = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year={year}/month={month}/{run_id}.parquet"

@@ -1,5 +1,4 @@
 import os
-import tempfile
 from datetime import date, datetime, timedelta
 
 import pytest

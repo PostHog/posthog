@@ -295,6 +295,14 @@ def get_s3_path_for_partition(
     """Build S3 path for a partition file.
 
     Path structure: s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/{chunk_id}.parquet
+
+    TODO: These paths use plain segments, not Hive-style key=value. This means
+    ducklake_add_data_files will fail on partitioned tables (0 Hive keys vs N
+    partition fields). Fixing this requires restructuring the chunking strategy:
+    the table partitions by team_id (IDENTITY) but each file contains data from
+    multiple team_ids (team_id % total_chunks = chunk), so a single file can't
+    map to one team_id partition. Either remove team_id from the partition
+    expression or export one file per team_id instead of modular chunks.
     """
     year = date.strftime("%Y")
     month = date.strftime("%m")
