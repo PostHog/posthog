@@ -174,10 +174,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
-		// Only keep the spinner ticking when something needs it
-		if m.hasPendingProc() {
-			cmds = append(cmds, cmd)
-		}
+		cmds = append(cmds, cmd)
+
+	case process.MetricsMsg:
 		if m.infoMode {
 			m.refreshInfoContent()
 		}
@@ -430,7 +429,7 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.searchCursor = 0
 		m.activeLines = nil
 		m.infoMode = false
-		m.mgr.SetMetricsEnabled(false)
+		m.disableAllMetrics()
 		m.keys.LazyDocker.SetEnabled(true)
 		m.keys.ProcViewer.SetEnabled(false)
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
@@ -440,7 +439,9 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.containers = nil
 		m.keys.LazyDocker.SetEnabled(false)
 		m.keys.ProcViewer.SetEnabled(true)
+		m.disableAllMetrics()
 		if m.infoMode {
+			m.toggleMetricsOnSelectedProc()
 			m.refreshInfoContent()
 		} else {
 			m.reloadActiveLines()
@@ -456,6 +457,12 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.recomputeSearch()
 	}
 	return m, cmds
+}
+
+func (m *Model) disableAllMetrics() {
+	for _, p := range m.services {
+		p.SetMetricsEnabled(false)
+	}
 }
 
 // Reloads activeLines from the process buffer and pushes to the viewport.
@@ -557,11 +564,8 @@ func (m *Model) sortServices() {
 	m.ensureSidebarCursorVisible()
 }
 
-func (m Model) hasPendingProc() bool {
-	for _, p := range m.services {
-		if p.Status() == process.StatusPending {
-			return true
-		}
+func (m Model) toggleMetricsOnSelectedProc() {
+	if p := m.activeProc(); p != nil {
+		p.SetMetricsEnabled(true)
 	}
-	return false
 }

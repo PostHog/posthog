@@ -145,17 +145,12 @@ func statusIconColor(s process.Status) color.Color {
 	}
 }
 
-// Renders a single sidebar row with icon, name, and an htop-style CPU usage
-// bar as a background fill. cpuPct is the total CPU% for the process tree;
-// the filled portion scales to innerW (100% = full width).
-// Used by both the process sidebar and the container sidebar.
-// subtleBg returns a background/border color that provides gentle contrast
-// against the terminal's background in both light and dark themes.
+// Renders a single sidebar row with icon and name
 func subtleBg(isDark bool) color.Color {
 	if isDark {
-		return colorBrightBlack // ANSI 8: dark gray on dark bg
+		return colorBrightBlack
 	}
-	return colorBrightWhite // ANSI 7: light gray on light bg
+	return colorBrightWhite
 }
 
 // borderFor returns the border style with a foreground appropriate for the

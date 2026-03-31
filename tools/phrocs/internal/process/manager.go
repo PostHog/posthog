@@ -2,7 +2,6 @@ package process
 
 import (
 	"sync"
-	"sync/atomic"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
@@ -16,9 +15,6 @@ type Manager struct {
 	byName map[string]*Process
 	send   func(tea.Msg)
 
-	// When true, metrics samplers collect process tree stats.
-	// Toggled by the TUI when entering/exiting info mode.
-	metricsEnabled atomic.Bool
 }
 
 func NewManager(cfg *config.Config) *Manager {
@@ -35,7 +31,6 @@ func NewManager(cfg *config.Config) *Manager {
 			pcfg.Shell = docker.StripComposeLogsTail(pcfg.Shell)
 		}
 		proc := NewProcess(name, pcfg, cfg.Scrollback)
-		proc.metricsEnabled = &mgr.metricsEnabled
 		mgr.procs = append(mgr.procs, proc)
 		mgr.byName[name] = proc
 	}
@@ -106,12 +101,3 @@ func (m *Manager) Send() func(tea.Msg) {
 	return m.send
 }
 
-// SetMetricsEnabled toggles whether metrics samplers do expensive collection.
-func (m *Manager) SetMetricsEnabled(on bool) {
-	m.metricsEnabled.Store(on)
-}
-
-// MetricsEnabled returns true when metrics collection is active.
-func (m *Manager) MetricsEnabled() bool {
-	return m.metricsEnabled.Load()
-}

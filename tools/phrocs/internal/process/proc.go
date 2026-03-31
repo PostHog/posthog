@@ -19,7 +19,7 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
-const metricsSampleInterval = 5 * time.Second
+const metricsSampleInterval = 1 * time.Second
 const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
 
@@ -61,6 +61,9 @@ type OutputMsg struct {
 	Added   []string
 	Evicted int
 }
+
+// Sent after metrics are sampled so the TUI can refresh the info panel.
+type MetricsMsg struct{}
 
 // Metrics holds the most recent sampled resource usage for a process tree.
 type Metrics struct {
@@ -117,7 +120,7 @@ type Process struct {
 	readyAt        time.Time
 	exitCode       *int
 	metrics        *Metrics
-	metricsEnabled *atomic.Bool // shared with Manager; nil-safe (skips sampling)
+	metricsEnabled atomic.Bool
 }
 
 func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
@@ -139,6 +142,10 @@ func (p *Process) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.status
+}
+
+func (p *Process) SetMetricsEnabled(on bool) {
+	p.metricsEnabled.Store(on)
 }
 
 // CPUPercent returns the most recently sampled CPU usage, or 0 if not yet sampled.
@@ -359,7 +366,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	// Send initial status message
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
-	go p.startMetricsSampler(cmd.Process.Pid)
+	go p.startMetricsSampler(cmd.Process.Pid, send)
 
 	outChannel := make(chan tea.Msg, 256)
 
@@ -454,7 +461,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
-	go p.startMetricsSampler(cmd.Process.Pid)
+	go p.startMetricsSampler(cmd.Process.Pid, send)
 
 	outChannel := make(chan tea.Msg, 256)
 
@@ -672,7 +679,7 @@ func (p *Process) bufferLine(line string) (evicted bool, becameReady bool) {
 }
 
 // Sampling CPU/mem/threads every metricsSampleInterval when metrics are enabled.
-func (p *Process) startMetricsSampler(pid int) {
+func (p *Process) startMetricsSampler(pid int, send func(tea.Msg)) {
 	origPID := pid
 
 	ticker := time.NewTicker(metricsSampleInterval)
@@ -691,11 +698,12 @@ func (p *Process) startMetricsSampler(pid int) {
 			return
 		}
 
-		if p.metricsEnabled != nil && !p.metricsEnabled.Load() {
+		if !p.metricsEnabled.Load() {
 			continue
 		}
 
 		p.sampleMetrics()
+		send(MetricsMsg{})
 	}
 }
 
