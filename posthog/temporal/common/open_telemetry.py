@@ -1,7 +1,7 @@
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace import set_trace_provider
+from opentelemetry.trace import set_tracer_provider
 from temporalio.contrib.opentelemetry import create_tracer_provider
 
 
@@ -15,4 +15,4 @@ def initialize_otel(service_name: str) -> None:
     provider = create_tracer_provider(resource=resource)
 
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    set_trace_provider(provider)
+    set_tracer_provider(provider)
