@@ -1,5 +1,7 @@
 from typing import Optional, Union, cast
 
+from django.utils import timezone
+
 from posthog.schema import (
     ActionsNode,
     Breakdown,
@@ -19,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 
@@ -98,6 +101,12 @@ class ExperimentQueryBuilder:
         self.preaggregation_job_ids: list[str] | None = None
         self.force_precomputation = force_precomputation
 
+    # Experiment queries group by (variant, breakdown_values), so the row count is
+    # bounded by num_variants × num_breakdown_values.  The HogQL executor injects
+    # LIMIT 100 when no explicit limit is set, which silently truncates results for
+    # high-cardinality breakdowns.  Set a generous explicit limit to prevent this.
+    QUERY_RESULT_LIMIT = MAX_SELECT_RETURNED_ROWS
+
     def build_query(self) -> ast.SelectQuery:
         """
         Main entry point. Returns complete query built from HogQL with placeholders.
@@ -105,17 +114,20 @@ class ExperimentQueryBuilder:
         assert self.metric is not None, "metric is required for build_query()"
         match self.metric:
             case ExperimentFunnelMetric():
-                return self._build_funnel_query()
+                query = self._build_funnel_query()
             case ExperimentMeanMetric():
-                return self._build_mean_query()
+                query = self._build_mean_query()
             case ExperimentRatioMetric():
-                return self._build_ratio_query()
+                query = self._build_ratio_query()
             case ExperimentRetentionMetric():
-                return self._build_retention_query()
+                query = self._build_retention_query()
             case _:
                 raise NotImplementedError(
                     f"Only funnel, mean, ratio, and retention metrics are supported. Got {type(self.metric)}"
                 )
+
+        query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
+        return query
 
     def get_exposure_timeseries_query(self) -> ast.SelectQuery:
         """
@@ -223,6 +235,49 @@ class ExperimentQueryBuilder:
                 self.metric.conversion_window_unit,
             )
         return 0
+
+    def _get_maturity_window_seconds(self) -> int:
+        """
+        Returns the total maturity window in seconds.
+        For retention metrics: conversion_window + retention_window_end.
+        For other metrics: conversion_window.
+        Returns 0 if no conversion window is configured.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds == 0:
+            return 0
+
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            retention_window_end_seconds = conversion_window_to_seconds(
+                self.metric.retention_window_end,
+                self.metric.retention_window_unit,
+            )
+            return conversion_window_seconds + retention_window_end_seconds
+
+        return conversion_window_seconds
+
+    def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
+        """
+        Returns a HAVING clause expression to filter out users whose conversion window
+        hasn't elapsed yet, or None if the feature is not enabled.
+        """
+        if self.metric is None:
+            return None
+        if not getattr(self.metric, "only_count_matured_users", False):
+            return None
+
+        maturity_seconds = self._get_maturity_window_seconds()
+        if maturity_seconds == 0:
+            return None
+
+        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+        return parse_expr(
+            f"max({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
+            placeholders={
+                "maturity_seconds": ast.Constant(value=maturity_seconds),
+                "now": ast.Constant(value=now),
+            },
+        )
 
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
@@ -461,10 +516,10 @@ class ExperimentQueryBuilder:
             metric_events AS (
                 SELECT
                     {{entity_key}} AS entity_id,
-                    {source_info.timestamp_field} AS timestamp,
+                    {{metric_timestamp_field}} AS timestamp,
                     {{value_expr}} AS value
                     -- breakdown columns added programmatically below
-                FROM {source_info.table_name}
+                FROM {{metric_table}}
                 WHERE {{metric_predicate}}
             ),
 
@@ -517,6 +572,8 @@ class ExperimentQueryBuilder:
         placeholders: dict = {
             "exposure_select_query": exposure_query,
             "entity_key": source_info.entity_key,
+            "metric_timestamp_field": ast.Field(chain=[source_info.timestamp_field]),
+            "metric_table": ast.Field(chain=[source_info.table_name]),
             "metric_predicate": self._build_metric_predicate(table_alias=source_info.table_name),
             "value_expr": self._build_value_expr(),
             "value_agg": self._build_value_aggregation_expr(),
@@ -755,18 +812,18 @@ class ExperimentQueryBuilder:
             numerator_events AS (
                 SELECT
                     {{num_entity_key}} AS entity_id,
-                    {num_timestamp_field} AS timestamp,
+                    {{num_timestamp_field}} AS timestamp,
                     {{numerator_value_expr}} AS value
-                FROM {num_table}
+                FROM {{num_table}}
                 WHERE {{numerator_predicate}}
             ),
 
             denominator_events AS (
                 SELECT
                     {{denom_entity_key}} AS entity_id,
-                    {denom_timestamp_field} AS timestamp,
+                    {{denom_timestamp_field}} AS timestamp,
                     {{denominator_value_expr}} AS value
-                FROM {denom_table}
+                FROM {{denom_table}}
                 WHERE {{denominator_predicate}}
             ),
 
@@ -826,6 +883,10 @@ class ExperimentQueryBuilder:
                 "exposure_select_query": exposure_query,
                 "num_entity_key": num_entity_field,
                 "denom_entity_key": denom_entity_field,
+                "num_timestamp_field": ast.Field(chain=[num_timestamp_field]),
+                "num_table": ast.Field(chain=[num_table]),
+                "denom_timestamp_field": ast.Field(chain=[denom_timestamp_field]),
+                "denom_table": ast.Field(chain=[denom_table]),
                 "numerator_predicate": self._build_metric_predicate(
                     source=self.metric.numerator, table_alias=num_table
                 ),
@@ -1201,6 +1262,14 @@ class ExperimentQueryBuilder:
                 breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
                 exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause()
+        if maturity_having is not None:
+            if exposure_query.having is None:
+                exposure_query.having = maturity_having
+            else:
+                exposure_query.having = ast.And(exprs=[exposure_query.having, maturity_having])
+
         return exposure_query
 
     def _build_exposure_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
@@ -1254,6 +1323,15 @@ class ExperimentQueryBuilder:
             },
         )
         assert isinstance(query, ast.SelectQuery)
+
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause(timestamp_expr="t.last_exposure_time")
+        if maturity_having is not None:
+            if query.having is None:
+                query.having = maturity_having
+            else:
+                query.having = ast.And(exprs=[query.having, maturity_having])
+
         return query
 
     def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:

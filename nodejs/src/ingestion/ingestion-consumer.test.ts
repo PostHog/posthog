@@ -14,12 +14,14 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { createPrepareEventStep } from './event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -101,9 +103,19 @@ describe('IngestionConsumer', () => {
         hub: Hub,
         overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
     ) => {
+        const outputs = createTestIngestionOutputs(hub.kafkaProducer)
         const ingester = new IngestionConsumer(
             hub,
-            { ...hub, kafkaMetricsProducer: hub.kafkaProducer, hogTransformer: createHogTransformerService(hub, hub) },
+            {
+                ...hub,
+                kafkaMetricsProducer: hub.kafkaProducer,
+                outputs,
+                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+                hogTransformer: createHogTransformerService(hub, {
+                    ...hub,
+                    monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+                }),
+            },
             overrides
         )
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
@@ -189,8 +201,6 @@ describe('IngestionConsumer', () => {
             expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
             expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
             expect(ingester['topic']).toMatchInlineSnapshot(`"events_plugin_ingestion_test"`)
-            expect(ingester['dlqTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_dlq_test"`)
-            expect(ingester['overflowTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_overflow_test"`)
         })
 
         it('should process a standard event', async () => {

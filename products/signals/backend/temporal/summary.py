@@ -16,10 +16,22 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.actionability_judge import (
     ActionabilityChoice,
     ActionabilityJudgeInput,
     actionability_judge_activity,
+)
+from products.signals.backend.temporal.agentic.report import (
+    RunAgenticReportInput,
+    RunAgenticReportOutput,
+    SignalsLegacyReportGateInput,
+    run_agentic_report_activity,
+    signals_legacy_report_gate_activity,
+)
+from products.signals.backend.temporal.agentic.select_repository import (
+    SelectRepositoryInput,
+    select_repository_activity,
 )
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
@@ -34,6 +46,14 @@ from products.signals.backend.utils import EMBEDDING_MODEL
 logger = structlog.get_logger(__name__)
 
 
+@dataclass
+class ReportDecision:
+    title: str
+    summary: str
+    choice: ActionabilityChoice
+    explanation: str
+
+
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
     """
@@ -42,12 +62,9 @@ class SignalReportSummaryWorkflow:
     Flow:
     1. Fetch all signals for the report from ClickHouse
     2. Mark report as in_progress
-    3. Summarize signals into a title + summary via LLM
-    4. Safety judge: assess the report for prompt injection / manipulation attempts
-       - If unsafe -> mark report as failed, stop
-    5. Actionability judge: assess whether the report is actionable by a coding agent
-       - If not actionable -> reset report weight to 0 and status to potential, stop
-    6. Mark report as ready with the generated title and summary
+    3. If the feature flag is off: use the legacy summarize + safety + actionability flow
+    4. If the feature flag is on: run safety first, then the agentic report research flow
+    5. Apply the resulting actionability decision to transition the report
     """
 
     @staticmethod
@@ -61,13 +78,13 @@ class SignalReportSummaryWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        # 1. Fetch signals for the report
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-
         if not fetch_result.signals:
             workflow.logger.error(f"No signals found for report {inputs.report_id}, marking as failed")
             await workflow.execute_activity(
@@ -77,7 +94,7 @@ class SignalReportSummaryWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             return
-
+        # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
         await workflow.execute_activity(
             mark_report_in_progress_activity,
             MarkReportInProgressInput(
@@ -86,102 +103,178 @@ class SignalReportSummaryWorkflow:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-
         try:
-            summarize_result: SummarizeSignalsOutput = await workflow.execute_activity(
-                summarize_signals_activity,
-                SummarizeSignalsInput(report_id=inputs.report_id, signals=fetch_result.signals),
-                start_to_close_timeout=timedelta(minutes=5),
+            use_legacy_report: bool = await workflow.execute_activity(
+                signals_legacy_report_gate_activity,
+                SignalsLegacyReportGateInput(team_id=inputs.team_id),
+                start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-
-            safety_result, actionability_result = await asyncio.gather(
-                workflow.execute_activity(
+            decision: ReportDecision | None = None
+            if not use_legacy_report:
+                workflow.logger.info(f"Report {inputs.report_id} using agentic summary path")
+                # 3. Run safety judge first to avoid passing unsafe report into the agentic research
+                safety_result = await workflow.execute_activity(
                     report_safety_judge_activity,
                     SafetyJudgeInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        title=summarize_result.title,
-                        summary=summarize_result.summary,
                         signals=fetch_result.signals,
                     ),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
-                ),
-                workflow.execute_activity(
-                    actionability_judge_activity,
-                    ActionabilityJudgeInput(
+                )
+                if not safety_result.safe:
+                    workflow.logger.warning(
+                        f"Report {inputs.report_id} failed safety review: {safety_result.explanation}"
+                    )
+                    await workflow.execute_activity(
+                        mark_report_failed_activity,
+                        MarkReportFailedInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            error=f"Failed safety review: {safety_result.explanation}",
+                        ),
+                        start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    return
+                # 4. Select repository for the agentic research
+                repo_result: RepoSelectionResult = await workflow.execute_activity(
+                    select_repository_activity,
+                    SelectRepositoryInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        title=summarize_result.title,
-                        summary=summarize_result.summary,
                         signals=fetch_result.signals,
                     ),
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if repo_result.repository is None:
+                    workflow.logger.warning(f"Report {inputs.report_id} no repository selected: {repo_result.reason}")
+                    decision = ReportDecision(
+                        title="Repository selection required",
+                        summary=f"Could not automatically select a repository: {repo_result.reason}",
+                        choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+                        explanation=repo_result.reason,
+                    )
+                else:
+                    # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
+                    agentic_result: RunAgenticReportOutput = await workflow.execute_activity(
+                        run_agentic_report_activity,
+                        RunAgenticReportInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            signals=fetch_result.signals,
+                            repo_selection=repo_result,
+                        ),
+                        start_to_close_timeout=timedelta(hours=4),
+                        heartbeat_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+                    decision = ReportDecision(
+                        title=agentic_result.title,
+                        summary=agentic_result.summary,
+                        choice=agentic_result.choice,
+                        explanation=agentic_result.explanation,
+                    )
+            else:
+                # 4. Summarize signals
+                summarize_result: SummarizeSignalsOutput = await workflow.execute_activity(
+                    summarize_signals_activity,
+                    SummarizeSignalsInput(report_id=inputs.report_id, signals=fetch_result.signals),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
-                ),
-            )
-
-            if not safety_result.safe:
-                workflow.logger.warning(f"Report {inputs.report_id} failed safety review: {safety_result.explanation}")
-                await workflow.execute_activity(
-                    mark_report_failed_activity,
-                    MarkReportFailedInput(
-                        team_id=inputs.team_id,
-                        report_id=inputs.report_id,
-                        error=f"Failed safety review: {safety_result.explanation}",
+                )
+                safety_result, actionability_result = await asyncio.gather(
+                    # 5. Decide if the report is safe to process
+                    workflow.execute_activity(
+                        report_safety_judge_activity,
+                        SafetyJudgeInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            title=summarize_result.title,
+                            summary=summarize_result.summary,
+                            signals=fetch_result.signals,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
                     ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    # 6. Judge the report's actionability and priority
+                    workflow.execute_activity(
+                        actionability_judge_activity,
+                        ActionabilityJudgeInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            title=summarize_result.title,
+                            summary=summarize_result.summary,
+                            signals=fetch_result.signals,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    ),
                 )
-                return
-
-            if actionability_result.choice == ActionabilityChoice.NOT_ACTIONABLE:
-                workflow.logger.info(
-                    f"Report {inputs.report_id} deemed not actionable: {actionability_result.explanation}"
+                if not safety_result.safe:
+                    workflow.logger.warning(
+                        f"Report {inputs.report_id} failed safety review: {safety_result.explanation}"
+                    )
+                    await workflow.execute_activity(
+                        mark_report_failed_activity,
+                        MarkReportFailedInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            error=f"Failed safety review: {safety_result.explanation}",
+                        ),
+                        start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    return
+                decision = ReportDecision(
+                    title=summarize_result.title,
+                    summary=summarize_result.summary,
+                    choice=actionability_result.choice,
+                    explanation=actionability_result.explanation,
                 )
+            assert decision is not None
+            if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
+                workflow.logger.info(f"Report {inputs.report_id} deemed not actionable: {decision.explanation}")
                 await workflow.execute_activity(
                     reset_report_to_potential_activity,
                     ResetReportToPotentialInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        reason=f"Not actionable: {actionability_result.explanation}",
+                        reason=f"Not actionable: {decision.explanation}",
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
                 return
-
-            if actionability_result.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT:
-                workflow.logger.info(
-                    f"Report {inputs.report_id} requires human input: {actionability_result.explanation}"
-                )
+            if decision.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT:
+                workflow.logger.info(f"Report {inputs.report_id} requires human input: {decision.explanation}")
                 await workflow.execute_activity(
                     mark_report_pending_input_activity,
                     MarkReportPendingInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        title=summarize_result.title,
-                        summary=summarize_result.summary,
-                        reason=f"Requires human input: {actionability_result.explanation}",
+                        title=decision.title,
+                        summary=decision.summary,
+                        reason=f"Requires human input: {decision.explanation}",
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
                 return
-
             await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
-                    title=summarize_result.title,
-                    summary=summarize_result.summary,
+                    title=decision.title,
+                    summary=decision.summary,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-
         except Exception as e:
             await workflow.execute_activity(
                 mark_report_failed_activity,

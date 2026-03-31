@@ -14,14 +14,20 @@ function DialogPrimitive({
     open,
     onOpenChange,
     className,
+    disablePointerDismissal = false,
 }: {
     children: React.ReactNode
     open: boolean
     onOpenChange: (open: boolean, eventDetails?: Dialog.Root.ChangeEventDetails) => void
     className?: string
+    disablePointerDismissal?: boolean
 }): JSX.Element {
     return (
-        <Dialog.Root open={open} onOpenChange={(open, event) => onOpenChange(open, event)}>
+        <Dialog.Root
+            open={open}
+            onOpenChange={(open, event) => onOpenChange(open, event)}
+            disablePointerDismissal={disablePointerDismissal}
+        >
             <Dialog.Portal>
                 <Dialog.Backdrop className="fixed inset-0 min-h-dvh min-w-dvw bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 z-[var(--z-modal)]" />
                 <Dialog.Popup
@@ -68,4 +74,8 @@ function DialogClose({ className = '' }: { className?: string }): JSX.Element {
     )
 }
 
-export { DialogPrimitive, DialogPrimitiveTitle, DialogClose }
+function DialogTrigger({ children, ...rest }: React.ComponentProps<typeof Dialog.Trigger>): JSX.Element {
+    return <Dialog.Trigger {...rest}>{children}</Dialog.Trigger>
+}
+
+export { DialogPrimitive, DialogPrimitiveTitle, DialogClose, DialogTrigger }

@@ -118,6 +118,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -210,7 +211,8 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_flag.clone()],
             filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
+            cohorts: None,
         };
 
         // Should NOT record usage when only filtered-out flags are present
@@ -225,7 +227,8 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_flag.clone(), active_flag],
             filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
+            cohorts: None,
         };
 
         // Should record usage when at least one non-filtered, non-survey flag is present
@@ -240,7 +243,8 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_survey_flag.clone()],
             filtered_out_flag_ids: HashSet::from([disabled_survey_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
+            cohorts: None,
         };
 
         // Should NOT record usage for filtered-out survey flags
@@ -255,7 +259,8 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_flag.clone(), survey_flag],
             filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
+            cohorts: None,
         };
 
         // Should NOT record usage when only filtered-out and survey flags are present
@@ -298,7 +303,8 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_tour_flag.clone()],
             filtered_out_flag_ids: HashSet::from([disabled_tour_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
+            cohorts: None,
         };
 
         // Should NOT record usage for filtered-out product tour flags

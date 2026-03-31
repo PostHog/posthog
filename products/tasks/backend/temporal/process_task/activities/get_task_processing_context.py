@@ -27,8 +27,10 @@ class TaskProcessingContext:
     task_id: str
     run_id: str
     team_id: int
-    github_integration_id: int
-    repository: str
+    team_uuid: str
+    organization_id: str
+    github_integration_id: int | None
+    repository: str | None
     distinct_id: str
     create_pr: bool = True
     state: dict | None = None
@@ -42,6 +44,20 @@ class TaskProcessingContext:
     @property
     def interaction_origin(self) -> str | None:
         return (self.state or {}).get("interaction_origin")
+
+    @property
+    def sandbox_environment_id(self) -> str | None:
+        return (self.state or {}).get("sandbox_environment_id")
+
+    def get_sandbox_environment(self):
+        """Resolve the SandboxEnvironment, team-scoped via the TaskRun model."""
+        from products.tasks.backend.models import TaskRun
+
+        try:
+            task_run = TaskRun.objects.select_related("task").get(id=self.run_id)
+            return task_run.get_sandbox_environment()
+        except TaskRun.DoesNotExist:
+            return None
 
     @property
     def branch(self) -> str | None:
@@ -71,35 +87,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     log_with_activity_context("Fetching task processing context", run_id=run_id)
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except ObjectDoesNotExist as e:
         raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
 
     emit_agent_log(run_id, "info", "Fetching task details")
 
     task = task_run.task
-
-    if not task.github_integration_id:
-        raise TaskInvalidStateError(
-            f"Task {task.id} has no GitHub integration",
-            {"task_id": str(task.id), "run_id": run_id},
-            cause=RuntimeError(f"Task {task.id} missing github_integration_id"),
-        )
-
-    if not task.repository:
-        raise TaskInvalidStateError(
-            f"Task {task.id} has no repository configured",
-            {"task_id": str(task.id), "run_id": run_id},
-            cause=RuntimeError(f"Task {task.id} missing repository"),
-        )
-
-    repository_full_name = task.repository
-    if not repository_full_name:
-        raise TaskInvalidStateError(
-            f"Task {task.id} repository missing value",
-            {"task_id": str(task.id), "run_id": run_id},
-            cause=RuntimeError(f"Task {task.id} repository field is empty"),
-        )
 
     if not task.created_by:
         raise TaskInvalidStateError(
@@ -117,7 +111,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
-        repository=repository_full_name,
+        repository=task.repository,
         distinct_id=distinct_id,
     )
 
@@ -125,8 +119,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
+        team_uuid=str(task.team.uuid),
+        organization_id=str(task.team.organization_id),
         github_integration_id=task.github_integration_id,
-        repository=repository_full_name,
+        repository=task.repository,
         distinct_id=distinct_id,
         create_pr=input.create_pr,
         state=task_run.state,

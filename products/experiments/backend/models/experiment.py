@@ -104,16 +104,32 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.name or "Untitled"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        self.status = Experiment.compute_status(self.start_date, self.end_date)
+        self.status = self.computed_status
         if "update_fields" in kwargs:
             kwargs["update_fields"] = [*list(kwargs["update_fields"]), "status"]
         super().save(*args, **kwargs)
 
-    @staticmethod
-    def compute_status(start_date: Any, end_date: Any) -> "Experiment.Status":
-        if start_date is not None and end_date is not None:
+    @property
+    def is_launched(self) -> bool:
+        return self.start_date is not None
+
+    @property
+    def is_draft(self) -> bool:
+        return not self.is_launched
+
+    @property
+    def is_running(self) -> bool:
+        return self.is_launched and self.end_date is None
+
+    @property
+    def is_stopped(self) -> bool:
+        return self.is_launched and self.end_date is not None
+
+    @property
+    def computed_status(self) -> "Experiment.Status":
+        if self.is_stopped:
             return Experiment.Status.STOPPED
-        if start_date is not None:
+        if self.is_running:
             return Experiment.Status.RUNNING
         return Experiment.Status.DRAFT
 
@@ -130,7 +146,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "experiment_name": self.name,
             "feature_flag_key": self.get_feature_flag_key(),
             "type": self.type,
-            "status": self.status or Experiment.compute_status(self.start_date, self.end_date),
+            "status": self.status or self.computed_status,
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
             "has_description": bool(self.description),
@@ -140,10 +156,6 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     def get_stats_config(self, key: str):
         return self.stats_config.get(key) if self.stats_config else None
-
-    @property
-    def is_draft(self):
-        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.DRAFT
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
@@ -166,13 +178,34 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
 
 def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> dict:
-    """Return both legacy `holdout_groups` and new `holdout` fields for a feature flag's filters."""
+    """Return the `holdout` field for a feature flag's filters."""
     if not holdout_id or not filters:
-        return {"holdout_groups": None, "holdout": None}
+        return {"holdout": None}
     return {
-        "holdout_groups": filters,
         "holdout": {"id": holdout_id, "exclusion_percentage": filters[0]["rollout_percentage"]},
     }
+
+
+LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
+
+
+def experiment_has_legacy_metrics(experiment: "Experiment") -> bool:
+    """Check if experiment uses legacy metric formats."""
+    # Check inline metrics
+    all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+    if any(m.get("kind") in LEGACY_METRIC_KINDS for m in all_metrics):
+        return True
+
+    # Check saved metrics
+    if experiment.experimenttosavedmetric_set.filter(saved_metric__query__kind__in=LEGACY_METRIC_KINDS).exists():
+        return True
+
+    return False
+
+
+def saved_metric_has_legacy_query(saved_metric: "ExperimentSavedMetric") -> bool:
+    """Check if saved metric uses legacy query format."""
+    return saved_metric.query.get("kind") in LEGACY_METRIC_KINDS if saved_metric.query else False
 
 
 class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):

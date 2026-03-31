@@ -39,6 +39,7 @@ jobs:
     build:
         name: Build Package
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
 
@@ -92,12 +93,25 @@ jobs:
                     exit 1
                   fi
 
+            - name: Check generated UI apps are up to date
+              run: |
+                  cd services/mcp && pnpm run generate:ui-apps
+                  if ! git diff --exit-code -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts; then
+                    echo ""
+                    echo "::warning::The following generated files are out of date:"
+                    git diff --name-only -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts
+                    echo ""
+                    echo "::error::Generated UI app files are out of date. Run 'pnpm --filter=@posthog/mcp run generate:ui-apps' and commit the result."
+                    exit 1
+                  fi
+
             - name: Lint tool names
               run: cd services/mcp && pnpm lint-tool-names
 
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
         steps:
@@ -226,9 +240,9 @@ jobs:
                       exit 1
                   ) &
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
+            - name: Add service hostnames to /etc/hosts
               shell: bash
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -316,24 +330,6 @@ jobs:
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
 
-            - name: Create logs tables in ClickHouse
-              run: |
-                  python -c "
-                  import django, os
-                  os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
-                  django.setup()
-                  from posthog.clickhouse.client import sync_execute
-                  with open('products/logs/backend/test/test_logs_schema.sql') as f:
-                      schema_sql = f.read()
-                  schema_sql = schema_sql.replace('use database posthog_test;', '')
-                  for sql in schema_sql.split(';'):
-                      sql = sql.strip()
-                      if not sql:
-                          continue
-                      sync_execute(sql)
-                  print('Logs tables created successfully')
-                  "
-
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
 
@@ -344,7 +340,8 @@ jobs:
                   os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
                   django.setup()
                   from posthog.models import Organization, Team, User, EventDefinition
-                  from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+                  from posthog.models.personal_api_key import PersonalAPIKey
+                  from posthog.models.utils import hash_key_value
                   org = Organization.objects.first()
                   team = Team.objects.first()
                   user = User.objects.first()
@@ -403,6 +400,7 @@ jobs:
     handle-snapshots:
         name: Commit snapshot changes
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [changes, unit-tests]
         if: ${{ always() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
         permissions:
@@ -470,6 +468,7 @@ jobs:
         needs: [changes, build, unit-tests, integration-tests, handle-snapshots]
         name: MCP Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all MCP jobs

@@ -4,6 +4,7 @@ import { LemonButton, LemonInput, LemonSelect, LemonSegmentedButton, Tooltip } f
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 import {
+    AlertCalculationInterval,
     COPODDetectorConfig,
     DetectorConfig,
     DetectorType,
@@ -23,9 +24,28 @@ import {
     ZScoreDetectorConfig,
 } from '~/queries/schema/schema-general'
 
+/** Default anomaly probability threshold for all detectors. Higher = fewer alerts. */
+const DEFAULT_THRESHOLD = 0.95
+
+/** Default window size based on how often the alert checks.
+ *  Hourly: 168 (7 days), Daily: 90, Weekly: 26 (6 months), Monthly: 12 (1 year). */
+export function getDefaultWindow(interval?: AlertCalculationInterval): number {
+    switch (interval) {
+        case AlertCalculationInterval.HOURLY:
+            return 168
+        case AlertCalculationInterval.WEEKLY:
+            return 26
+        case AlertCalculationInterval.MONTHLY:
+            return 12
+        default:
+            return 90
+    }
+}
+
 interface DetectorSelectorProps {
     value: DetectorConfig | null
     onChange: (config: DetectorConfig | null) => void
+    calculationInterval?: AlertCalculationInterval
 }
 
 const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }> = [
@@ -99,39 +119,51 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
 
 const SINGLE_DETECTOR_OPTIONS = DETECTOR_OPTIONS.filter((o) => o.value !== 'ensemble')
 
-const DEFAULT_SINGLE_CONFIGS: Record<string, SingleDetectorConfig> = {
-    zscore: { type: 'zscore', threshold: 0.9, window: 30 },
-    mad: { type: 'mad', threshold: 0.9, window: 30 },
-    iqr: { type: 'iqr', multiplier: 1.5, window: 30 },
-    threshold: { type: 'threshold' },
-    ecod: { type: 'ecod', threshold: 0.9 },
-    copod: { type: 'copod', threshold: 0.9 },
-    isolation_forest: {
-        type: 'isolation_forest',
-        threshold: 0.9,
-        n_estimators: 100,
-        preprocessing: { diffs_n: 1, lags_n: 3 },
-    },
-    knn: {
-        type: 'knn',
-        threshold: 0.9,
-        n_neighbors: 5,
-        method: 'largest',
-        preprocessing: { diffs_n: 1, lags_n: 3 },
-    },
-    lof: { type: 'lof', threshold: 0.9, n_neighbors: 20, preprocessing: { diffs_n: 1, lags_n: 3 } },
-    hbos: { type: 'hbos', threshold: 0.9, n_bins: 10 },
-    ocsvm: { type: 'ocsvm', threshold: 0.9, preprocessing: { diffs_n: 1, lags_n: 3 } },
-    pca: { type: 'pca', threshold: 0.9, preprocessing: { diffs_n: 1, lags_n: 3 } },
+function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorConfig> {
+    return {
+        zscore: { type: 'zscore', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
+        mad: { type: 'mad', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
+        iqr: { type: 'iqr', multiplier: 1.5, window },
+        threshold: { type: 'threshold' },
+        ecod: { type: 'ecod', threshold: DEFAULT_THRESHOLD, window },
+        copod: { type: 'copod', threshold: DEFAULT_THRESHOLD, window },
+        isolation_forest: {
+            type: 'isolation_forest',
+            threshold: DEFAULT_THRESHOLD,
+            n_estimators: 100,
+            window,
+            preprocessing: { diffs_n: 1, lags_n: 3 },
+        },
+        knn: {
+            type: 'knn',
+            threshold: DEFAULT_THRESHOLD,
+            n_neighbors: 5,
+            method: 'largest',
+            window,
+            preprocessing: { diffs_n: 1, lags_n: 3 },
+        },
+        lof: {
+            type: 'lof',
+            threshold: DEFAULT_THRESHOLD,
+            n_neighbors: 20,
+            window,
+            preprocessing: { diffs_n: 1, lags_n: 3 },
+        },
+        hbos: { type: 'hbos', threshold: DEFAULT_THRESHOLD, n_bins: 10, window },
+        ocsvm: { type: 'ocsvm', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1, lags_n: 3 } },
+        pca: { type: 'pca', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1, lags_n: 3 } },
+    }
 }
 
-const DEFAULT_ENSEMBLE: EnsembleDetectorConfig = {
-    type: 'ensemble',
-    operator: EnsembleOperator.AND,
-    detectors: [
-        { type: 'zscore', threshold: 0.9, window: 30 },
-        { type: 'mad', threshold: 0.9, window: 30 },
-    ],
+function getDefaultEnsemble(window: number): EnsembleDetectorConfig {
+    return {
+        type: 'ensemble',
+        operator: EnsembleOperator.AND,
+        detectors: [
+            { type: 'zscore', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
+            { type: 'mad', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
+        ],
+    }
 }
 
 function Label({ text, tooltip }: { text: string; tooltip: string }): JSX.Element {
@@ -152,8 +184,10 @@ function getSelectedType(value: DetectorConfig | null): string {
     return value.type
 }
 
-export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JSX.Element {
+export function DetectorSelector({ value, onChange, calculationInterval }: DetectorSelectorProps): JSX.Element {
     const selectedType = getSelectedType(value)
+    const defaultWindow = getDefaultWindow(calculationInterval)
+    const defaultConfigs = getDefaultSingleConfigs(defaultWindow)
 
     const handleTypeChange = (type: string | null): void => {
         if (!type) {
@@ -162,11 +196,11 @@ export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JS
         }
 
         if (type === 'ensemble') {
-            onChange(DEFAULT_ENSEMBLE)
+            onChange(getDefaultEnsemble(defaultWindow))
             return
         }
 
-        const defaultConfig = DEFAULT_SINGLE_CONFIGS[type]
+        const defaultConfig = defaultConfigs[type]
         onChange(defaultConfig ?? null)
     }
 
@@ -187,11 +221,16 @@ export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JS
             </div>
 
             {selectedType === 'ensemble' && value?.type === 'ensemble' ? (
-                <EnsembleConfig config={value as EnsembleDetectorConfig} onChange={onChange} />
+                <EnsembleConfig
+                    config={value as EnsembleDetectorConfig}
+                    onChange={onChange}
+                    calculationInterval={calculationInterval}
+                />
             ) : value && value.type !== 'ensemble' ? (
                 <SingleDetectorConfigSection
                     config={value as SingleDetectorConfig}
                     onChange={(updated) => onChange(updated)}
+                    calculationInterval={calculationInterval}
                 />
             ) : null}
         </div>
@@ -201,11 +240,14 @@ export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JS
 function EnsembleConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: EnsembleDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     const { operator, detectors } = config
+    const defaults = getDefaultSingleConfigs(getDefaultWindow(calculationInterval))
 
     const handleOperatorChange = (newOperator: string): void => {
         onChange({ ...config, operator: newOperator as EnsembleOperator })
@@ -219,7 +261,7 @@ function EnsembleConfig({
 
     const handleDetectorTypeChange = (index: number, type: string): void => {
         const newDetectors = [...detectors]
-        newDetectors[index] = DEFAULT_SINGLE_CONFIGS[type] ?? DEFAULT_SINGLE_CONFIGS.zscore
+        newDetectors[index] = defaults[type] ?? defaults.zscore
         onChange({ ...config, detectors: newDetectors })
     }
 
@@ -228,7 +270,7 @@ function EnsembleConfig({
         const nextType =
             SINGLE_DETECTOR_OPTIONS.find((o) => !usedTypes.has(o.value as SingleDetectorConfig['type']))?.value ??
             'zscore'
-        onChange({ ...config, detectors: [...detectors, DEFAULT_SINGLE_CONFIGS[nextType]] })
+        onChange({ ...config, detectors: [...detectors, defaults[nextType]] })
     }
 
     const handleRemoveDetector = (index: number): void => {
@@ -288,6 +330,7 @@ function EnsembleConfig({
                     <SingleDetectorConfigSection
                         config={detector}
                         onChange={(updated) => handleDetectorChange(index, updated)}
+                        calculationInterval={calculationInterval}
                     />
                 </div>
             ))}
@@ -302,16 +345,18 @@ function EnsembleConfig({
 function SingleDetectorConfigSection({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: SingleDetectorConfig
     onChange: (config: SingleDetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div>
             {(config.type === 'zscore' || config.type === 'mad') && (
                 <div className="grid grid-cols-2 gap-3">
                     <SensitivityInput
-                        value={(config as ZScoreDetectorConfig | MADDetectorConfig).threshold ?? 0.9}
+                        value={(config as ZScoreDetectorConfig | MADDetectorConfig).threshold ?? DEFAULT_THRESHOLD}
                         onChange={(val) => onChange({ ...config, threshold: val } as SingleDetectorConfig)}
                         tooltip={
                             config.type === 'zscore'
@@ -322,6 +367,7 @@ function SingleDetectorConfigSection({
                     <WindowSizeInput
                         config={config as ZScoreDetectorConfig | MADDetectorConfig}
                         onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                        calculationInterval={calculationInterval}
                     />
                 </div>
             )}
@@ -335,48 +381,56 @@ function SingleDetectorConfigSection({
                 <ECODConfig
                     config={config as ECODDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'copod' && (
                 <COPODConfig
                     config={config as COPODDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'isolation_forest' && (
                 <IsolationForestConfig
                     config={config as IsolationForestDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'knn' && (
                 <KNNConfig
                     config={config as KNNDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'lof' && (
                 <LOFConfig
                     config={config as LOFDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'hbos' && (
                 <HBOSConfig
                     config={config as HBOSDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'ocsvm' && (
                 <OCSVMConfig
                     config={config as OCSVMDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'pca' && (
                 <PCAConfig
                     config={config as PCADetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             <PreprocessingSection config={config} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
@@ -402,7 +456,7 @@ function SensitivityInput({
                 max={0.99}
                 step={0.05}
                 value={value}
-                onChange={(val) => onChange(val ? parseFloat(String(val)) : 0.9)}
+                onChange={(val) => onChange(val ? parseFloat(String(val)) : DEFAULT_THRESHOLD)}
             />
         </div>
     )
@@ -411,9 +465,11 @@ function SensitivityInput({
 function IQRConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: IQRDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -433,7 +489,7 @@ function IQRConfig({
                 />
                 <p className="text-xs text-muted mt-1">1.5 = mild outliers (standard), 3.0 = extreme outliers only.</p>
             </div>
-            <WindowSizeInput config={config} onChange={onChange} />
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
         </div>
     )
 }
@@ -441,17 +497,20 @@ function IQRConfig({
 function ECODConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: ECODDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? 0.9}
+                value={config.threshold ?? DEFAULT_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">Empirical cumulative distribution — parameter-free and interpretable.</p>
         </div>
     )
@@ -460,17 +519,20 @@ function ECODConfig({
 function COPODConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: COPODDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? 0.9}
+                value={config.threshold ?? DEFAULT_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">Copula-based detection — efficient and parameter-free.</p>
         </div>
     )
@@ -479,14 +541,16 @@ function COPODConfig({
 function IsolationForestConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: IsolationForestDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? 0.9}
+                value={config.threshold ?? DEFAULT_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -502,6 +566,7 @@ function IsolationForestConfig({
                     fullWidth
                 />
             </div>
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">Isolates anomalies using random forest — good for complex patterns.</p>
         </div>
     )
@@ -510,14 +575,16 @@ function IsolationForestConfig({
 function KNNConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: KNNDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? 0.9}
+                value={config.threshold ?? DEFAULT_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -552,6 +619,7 @@ function KNNConfig({
                     fullWidth
                 />
             </div>
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
                 Uses distance to nearest neighbors — points far from others are anomalies.
             </p>
@@ -562,14 +630,16 @@ function KNNConfig({
 function LOFConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: LOFDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? 0.9}
+                value={config.threshold ?? DEFAULT_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -588,6 +658,7 @@ function LOFConfig({
                     fullWidth
                 />
             </div>
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
                 Density-based — compares local density of a point to its neighbors. Good for seasonal data.
             </p>
@@ -598,14 +669,16 @@ function LOFConfig({
 function HBOSConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: HBOSDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? 0.9}
+                value={config.threshold ?? DEFAULT_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -624,6 +697,7 @@ function HBOSConfig({
                     fullWidth
                 />
             </div>
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">Very fast histogram-based detection. Good for high-volume alerting.</p>
         </div>
     )
@@ -632,17 +706,20 @@ function HBOSConfig({
 function OCSVMConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: OCSVMDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? 0.9}
+                value={config.threshold ?? DEFAULT_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
                 One-class SVM — learns a boundary around normal data using a support vector machine.
             </p>
@@ -653,17 +730,20 @@ function OCSVMConfig({
 function PCAConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: PCADetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? 0.9}
+                value={config.threshold ?? DEFAULT_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
                 PCA-based — detects anomalies as points with high reconstruction error.
             </p>
@@ -674,10 +754,13 @@ function PCAConfig({
 function WindowSizeInput({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: { window?: number }
     onChange: (config: SingleDetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
+    const defWindow = getDefaultWindow(calculationInterval)
     return (
         <div>
             <Label
@@ -687,11 +770,11 @@ function WindowSizeInput({
             <LemonInput
                 type="number"
                 min={5}
-                max={100}
+                max={1000}
                 step={5}
-                value={config.window ?? 30}
+                value={config.window ?? defWindow}
                 onChange={(val) =>
-                    onChange({ ...config, window: val ? parseInt(String(val), 10) : 30 } as SingleDetectorConfig)
+                    onChange({ ...config, window: val ? parseInt(String(val), 10) : defWindow } as SingleDetectorConfig)
                 }
             />
         </div>

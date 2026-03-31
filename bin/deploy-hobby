@@ -224,6 +224,7 @@ echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
 cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml
+cp posthog/dev-services.env dev-services.env
 echo "Starting the stack!"
 # Retry docker-compose up with --pull always up to 3 times
 for attempt in 1 2 3; do

@@ -99,15 +99,15 @@ describe('DashboardHeader', () => {
             scenario: 'View mode, can edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: true,
-            visible: ['dashboard-share-button', 'add-text-tile-to-dashboard', 'dashboard-add-graph-header'],
+            visible: ['dashboard-share-button', 'dashboard-add-tile', 'dashboard-edit-mode-button'],
             notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
         },
         {
             scenario: 'View mode, cannot edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: false,
-            visible: ['dashboard-share-button', 'add-text-tile-to-dashboard', 'dashboard-add-graph-header'],
-            notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
+            visible: ['dashboard-share-button', 'dashboard-add-tile'],
+            notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-edit-mode-button'],
         },
         {
             scenario: 'Edit mode',

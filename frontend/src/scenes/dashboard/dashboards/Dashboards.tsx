@@ -22,7 +22,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
+import { DashboardTemplateChooser } from './templates/DashboardTemplateChooser'
 
 export const scene: SceneExport = {
     component: Dashboards,
