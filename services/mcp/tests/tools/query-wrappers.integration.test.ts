@@ -171,6 +171,54 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
     })
 
+    describe('query-lifecycle', () => {
+        it('should execute a basic lifecycle query and return formatted results', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-lifecycle'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-30d' },
+                interval: 'day',
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
+        })
+
+        it('should execute lifecycle with toggled lifecycles filter', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-lifecycle'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-30d' },
+                interval: 'day',
+                lifecycleFilter: {
+                    toggledLifecycles: ['new', 'dormant'],
+                },
+            })) as any
+
+            expect(result).toHaveProperty('results')
+        })
+
+        it('should execute lifecycle with weekly interval', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-lifecycle'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-90d' },
+                interval: 'week',
+            })) as any
+
+            expect(result).toHaveProperty('results')
+        })
+    })
+
     describe('query-traces-list', () => {
         it('should execute a traces query and return formatted results', async () => {
             const tool = getToolByName(

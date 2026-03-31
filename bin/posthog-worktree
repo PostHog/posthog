@@ -74,6 +74,24 @@ clone_path() {
     cp "${cp_args[@]}" "$source_path" "$destination_path"
 }
 
+# Clean up a stale worktree directory left over from a previous failed run.
+# Prunes git's internal tracking first, then removes the leftover directory —
+# but only if git doesn't consider it an active worktree.
+cleanup_stale_worktree() {
+    local worktree_path="$1"
+
+    git worktree prune 2>/dev/null || true
+
+    if [[ -d "${worktree_path}" ]]; then
+        # Safety: don't delete a directory that git still tracks as an active worktree
+        if git worktree list | awk '{print $1}' | grep -qxF "${worktree_path}"; then
+            fatal "Directory ${worktree_path} is an active worktree — cannot overwrite"
+        fi
+        print_color yellow "Removing stale worktree directory: ${worktree_path}"
+        rm -rf "${worktree_path}"
+    fi
+}
+
 # Function to create a new worktree
 create_worktree() {
     if [ -z "$BRANCH_NAME" ]; then
@@ -96,7 +114,9 @@ create_worktree() {
     fi
     
     success "Creating worktree for NEW branch: ${BRANCH_NAME} (from ${BASE_BRANCH})"
-    
+
+    cleanup_stale_worktree "${worktree_path}"
+
     # Create worktree with new branch from specified base
     mkdir -p "${WORKTREE_BASE}"
     git worktree add "${worktree_path}" -b "${BRANCH_NAME}" "${BASE_BRANCH}"
@@ -165,10 +185,12 @@ checkout_worktree() {
     fi
     
     success "Creating worktree for EXISTING branch: ${BRANCH_NAME}"
-    
+
+    cleanup_stale_worktree "${worktree_path}"
+
     # Create worktree
     mkdir -p "${WORKTREE_BASE}"
-    
+
     # Try to add worktree (will use existing branch)
     if git worktree add "${worktree_path}" "${BRANCH_NAME}" 2>/dev/null; then
         success "Using local branch ${BRANCH_NAME}"
@@ -218,10 +240,12 @@ checkout_pr_worktree() {
     
     success "Checking out PR #${pr_number}: ${pr_title}…"
     print_color blue "Author: ${pr_author}, Branch: ${pr_branch}"
-    
+
+    cleanup_stale_worktree "${worktree_path}"
+
     # Create worktree
     mkdir -p "${WORKTREE_BASE}"
-    
+
     # Fetch the PR and create worktree
     git fetch origin "pull/${pr_number}/head:pr-${pr_number}" || fatal "Failed to fetch PR #${pr_number}"
     git worktree add "${worktree_path}" "pr-${pr_number}" || fatal "Failed to create worktree for PR #${pr_number}"

@@ -144,7 +144,9 @@ def cli(ctx: click.Context) -> None:
     # Fire early so long-running commands (e.g. hogli start) are always counted
     # even if the process is killed without a clean exit.
     if ctx.invoked_subcommand and ctx.invoked_subcommand != "telemetry:off":
-        telemetry.track("command_started", {"command": ctx.invoked_subcommand})
+        telemetry.track(
+            "command_started", {"command": ctx.invoked_subcommand, **_env_properties(ctx.invoked_subcommand)}
+        )
 
 
 @cli.command(name="quickstart", help="Show getting started with PostHog development")
@@ -308,6 +310,34 @@ except ImportError:
     pass  # No developer commands yet
 
 
+def _infer_process_manager(command: str | None) -> str | None:
+    """Infer the active process manager for telemetry."""
+    pm = os.environ.get("HOGLI_PROCESS_MANAGER")
+    if pm:
+        return os.path.basename(pm)
+
+    if command == "start":
+        return "mprocs" if "--mprocs" in sys.argv[2:] else "phrocs"
+
+    return None
+
+
+def _env_properties(command: str | None = None) -> dict[str, Any]:
+    """Static environment properties shared across telemetry events."""
+    ci_env_vars = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
+    return {
+        "terminal_width": shutil.get_terminal_size().columns,
+        "os": platform.system(),
+        "arch": platform.machine(),
+        "python_version": platform.python_version(),
+        "is_ci": any(os.environ.get(v) for v in ci_env_vars),
+        "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
+        "in_flox": os.environ.get("FLOX_ENV") is not None,
+        "is_worktree": (REPO_ROOT / ".git").is_file(),
+        "process_manager": _infer_process_manager(command),
+    }
+
+
 def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
     """Send a command_completed telemetry event. Never raises."""
     command = ctx.invoked_subcommand
@@ -317,22 +347,18 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
     try:
         start_time: float = ctx.meta.get("hogli.start_time", 0.0)
         duration_s = _time.monotonic() - start_time
-        ci_env_vars = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
         props: dict[str, Any] = {
             "command": command,
             "command_category": get_category_for_command(command) if command else None,
             "duration_s": round(duration_s, 3),
             "exit_code": exit_code,
             "has_extra_argv": ctx.meta.get("hogli.has_extra_argv", False),
-            "terminal_width": shutil.get_terminal_size().columns,
-            "os": platform.system(),
-            "arch": platform.machine(),
-            "python_version": platform.python_version(),
-            "is_ci": any(os.environ.get(v) for v in ci_env_vars),
-            "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
-            "in_flox": os.environ.get("FLOX_ENV") is not None,
-            "is_worktree": (REPO_ROOT / ".git").is_file(),
+            **_env_properties(command),
         }
+        # Merge devenv-specific properties (set by dev:generate)
+        devenv = ctx.meta.get("hogli.devenv")
+        if devenv:
+            props.update(devenv)
         telemetry.track("command_completed", props)
     except Exception:
         pass

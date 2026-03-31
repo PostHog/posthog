@@ -36,7 +36,15 @@ The app slug is the URL-friendly name in your GitHub App URL (e.g., `github.com/
 
 Cloud runs create scoped OAuth tokens to give the agent access to the PostHog API. This requires an `OAuthApplication` record in the database.
 
-For **local development**, this is created automatically when you run `generate_demo_data`.
+For **local development**, run:
+
+```bash
+python manage.py setup_tasks_oauth
+```
+
+> **Note:** Running this command requires `OIDC_RSA_PRIVATE_KEY` and `SANDBOX_JWT_PRIVATE_KEY` to be set in your `.env` (see step 3 below).
+
+Alternatively, this is also created when you run `generate_demo_data`.
 
 The client ID `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` is the dev constant from `backend/temporal/oauth.py`. Tests create this automatically via the `autouse=True` fixture in `conftest.py`.
 

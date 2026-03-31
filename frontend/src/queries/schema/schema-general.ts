@@ -3244,6 +3244,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
+    only_count_matured_users?: boolean
     goal?: ExperimentMetricGoal
     isSharedMetric?: boolean
     sharedMetricId?: number

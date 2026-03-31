@@ -1,7 +1,5 @@
-import time
 import traceback
 from collections import defaultdict
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -19,12 +17,12 @@ from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
-from posthog.models import AlertConfiguration, User
+from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.slo.events import emit_slo_completed, emit_slo_started
-from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.alerts.trends import check_trends_alert, check_trends_alert_with_detector
 from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
@@ -164,7 +162,7 @@ def check_alerts_task() -> None:
         .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
         .filter(insight__deleted=False)
         .order_by(F("next_check_at").asc(nulls_first=True))
-        .only("id", "team", "calculation_interval")
+        .only("id", "team", "calculation_interval", "insight_id")
     )
 
     sorted_alerts = sorted(
@@ -174,16 +172,18 @@ def check_alerts_task() -> None:
         ),
     )
 
-    grouped_by_team: defaultdict[int, list[tuple[str, int, str | None]]] = defaultdict(list)
+    grouped_by_team: defaultdict[int, list[tuple[str, int, str | None, int]]] = defaultdict(list)
     for alert in sorted_alerts:
-        grouped_by_team[alert.team_id].append((str(alert.id), alert.team_id, alert.calculation_interval))
+        grouped_by_team[alert.team_id].append(
+            (str(alert.id), alert.team_id, alert.calculation_interval, alert.insight_id)
+        )
 
     for alert_data in grouped_by_team.values():
         # We chain the task execution to prevent queries *for a single team* running at the same time
         chain(
             *(
-                check_alert_task.si(alert_id, team_id, calculation_interval).set(expires=expire_after)
-                for alert_id, team_id, calculation_interval in alert_data
+                check_alert_task.si(alert_id, team_id, calculation_interval, insight_id).set(expires=expire_after)
+                for alert_id, team_id, calculation_interval, insight_id in alert_data
             )
         )()
 
@@ -194,45 +194,22 @@ def check_alerts_task() -> None:
     expires=60 * 60,
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
-def check_alert_task(alert_id: str, team_id: int = 0, calculation_interval: str | None = None) -> None:
-    outcome = SloOutcome.FAILURE
-    started_at = time.monotonic()
-    error_extra: dict | None = None
+def check_alert_task(
+    alert_id: str, team_id: int = 0, calculation_interval: str | None = None, insight_id: int = 0
+) -> None:
     with ph_scoped_capture() as capture_ph_event:
-        try:
-            emit_slo_started(
+        with slo_operation(
+            spec=SloSpec(
                 distinct_id=alert_id,
-                properties=SloStartedProperties(
-                    area=SloArea.ANALYTIC_PLATFORM,
-                    operation=SloOperation.ALERT_CHECK,
-                    team_id=team_id,
-                    resource_id=alert_id,
-                ),
-                extra_properties={"calculation_interval": calculation_interval},
-                capture=capture_ph_event,
-            )
-            check_alert(alert_id, capture_ph_event)
-            outcome = SloOutcome.SUCCESS
-        except Exception as exc:
-            error_extra = {
-                "error_type": type(exc).__name__,
-                "error_message": str(exc),
-            }
-            raise
-        finally:
-            emit_slo_completed(
-                distinct_id=alert_id,
-                properties=SloCompletedProperties(
-                    area=SloArea.ANALYTIC_PLATFORM,
-                    operation=SloOperation.ALERT_CHECK,
-                    team_id=team_id,
-                    resource_id=alert_id,
-                    outcome=outcome,
-                    duration_ms=(time.monotonic() - started_at) * 1000,
-                ),
-                extra_properties={"calculation_interval": calculation_interval, **(error_extra or {})},
-                capture=capture_ph_event,
-            )
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_CHECK,
+                team_id=team_id,
+                resource_id=alert_id,
+            ),
+            properties={"calculation_interval": calculation_interval, "insight_id": insight_id},
+            capture=capture_ph_event,
+        ):
+            check_alert(alert_id)
 
 
 @retry(
@@ -246,7 +223,7 @@ def check_alert_task(alert_id: str, team_id: int = 0, calculation_interval: str 
     ),
     reraise=True,
 )
-def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwargs: None) -> None:
+def check_alert(alert_id: str) -> None:
     try:
         alert = AlertConfiguration.objects.select_related("insight").get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -317,22 +294,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
     alert.save()
 
     try:
-        check_alert_and_notify_atomically(alert, capture_ph_event)
+        check_alert_and_notify_atomically(alert)
     except Exception as err:
-        user = cast(User, alert.created_by)
-
-        capture_ph_event(
-            distinct_id=user.distinct_id,
-            event="alert check failed",
-            properties={
-                "alert_id": alert.id,
-                "error": f"AlertCheckError: {err}",
-                "traceback": traceback.format_exc(),
-                "insight_id": alert.insight_id,
-                "team_id": alert.team_id,
-            },
-        )
-
         logger.exception(AlertCheckException(err))
         capture_exception(
             AlertCheckException(err),
@@ -357,7 +320,7 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
 
 
 @transaction.atomic
-def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_event: Callable) -> None:
+def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     """
     Computes insight results, checks alert for breaches and notifies user.
     Only commits updates to alert state if all of the above complete successfully.
@@ -365,19 +328,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         so we can retry notification without re-computing insight.
     """
     tag_queries(alert_config_id=str(alert.id))
-    user = cast(User, alert.created_by)
-
-    # Event to count alert checks
-    capture_ph_event(
-        distinct_id=user.distinct_id,
-        event="alert check",
-        properties={
-            "alert_id": alert.id,
-            "calculation_interval": alert.calculation_interval,
-            "insight_id": alert.insight_id,
-            "team_id": alert.team_id,
-        },
-    )
 
     value = breaches = error = None
     alert_evaluation_result = None
@@ -392,19 +342,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         raise
     except Exception as err:
         error_message = f"Alert id = {alert.id}, failed to evaluate"
-
-        capture_ph_event(
-            distinct_id=user.distinct_id,
-            event="alert check failed",
-            properties={
-                "alert_id": alert.id,
-                "error": error_message,
-                "traceback": traceback.format_exc(),
-                "insight_id": alert.insight_id,
-                "team_id": alert.team_id,
-            },
-        )
-
         logger.exception(error_message, exc_info=err)
         capture_exception(AlertCheckException(err))
 
