@@ -109,7 +109,8 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
         case ReadEventSamplePropertyValues():
             return toolkit.retrieve_event_or_action_property_values(query.event_name, query.property_name)
         case ReadActionProperties():
-            return toolkit.retrieve_event_or_action_properties(query.action_id)
+            result = toolkit.retrieve_event_or_action_properties(query.action_id)
+            return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
         case ReadActionSamplePropertyValues():
             return toolkit.retrieve_event_or_action_property_values(query.action_id, query.property_name)
         case ReadEntityProperties():

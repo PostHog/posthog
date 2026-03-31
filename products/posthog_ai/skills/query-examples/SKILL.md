@@ -27,6 +27,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Surveys](./references/models-surveys.md)
 - [SQL Variables](./references/models-variables.md)
 - [Skipped events in the read-data-schema tool](./references/taxonomy-skipped-events.md)
+- [Dynamic person and event properties](./references/taxonomy-dynamic-properties.md) — patterns like `$survey_dismissed/{id}`, `$feature/{key}` that don't appear in tool results
 
 ## HogQL References
 
