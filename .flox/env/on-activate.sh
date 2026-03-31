@@ -236,10 +236,15 @@ POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objec
 if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
   done_step "System hosts"
 else
-  # Remove any old posthog hosts entry, then add the current one
-  sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts 2>/dev/null || true
-  echo "$POSTHOG_HOSTS" | sudo tee -a /etc/hosts 1>/dev/null
-  done_step "System hosts (updated)"
+  warn_step "System hosts out of date"
+  echo -e "    ${C_DIM}PostHog services need hostnames in /etc/hosts to work. Run:${C_RESET}"
+  echo ""
+  echo -e "    ${C_BOLD}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
+  echo ""
+  if [[ -t 0 ]]; then
+    read -n 1 -s -r -p "    Press any key to continue..."
+    echo ""
+  fi
 fi
 
 # ── Step 4: Environment variables ───────────────────────────────────
