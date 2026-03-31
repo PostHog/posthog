@@ -1155,6 +1155,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         MAX_BATCH_SIZE = 200
         uuids = uuids[:MAX_BATCH_SIZE]
 
+        try:
+            uuids = [str(uuid.UUID(u)) for u in uuids]
+        except (ValueError, AttributeError):
+            raise ValidationError("One or more UUIDs are invalid.")
+
         persons = get_persons_by_uuids(self.team, uuids)
 
         results: dict[str, Any] = {}
