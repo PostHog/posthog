@@ -300,12 +300,11 @@ wrappers:
             - filterGroup
             - assignee
             - kind
-            - limit
-            - offset
             - searchQuery
         fixed_properties:
             volumeResolution: 1
         property_defaults:
+            limit: 10
             orderBy: occurrences
             dateRange:
                 date_from: '-7d'

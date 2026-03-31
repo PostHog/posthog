@@ -53,6 +53,13 @@
             "description": "Filter to a specific error tracking issue by ID.",
             "type": "string"
         },
+        "limit": {
+            "default": 10,
+            "type": "integer"
+        },
+        "offset": {
+            "type": "integer"
+        },
         "orderBy": {
             "default": "occurrences",
             "description": "Field to sort results by.",

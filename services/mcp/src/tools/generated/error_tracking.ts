@@ -130,6 +130,8 @@ const DateRange = z.object({
         .optional(),
 })
 
+const integer = z.coerce.number().int()
+
 const ErrorTrackingIssueStatus = z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
 
 const ErrorTrackingQueryStatus = z.union([ErrorTrackingIssueStatus, z.literal('all')])
@@ -138,6 +140,8 @@ const ErrorTrackingQuery = z.object({
     dateRange: DateRange.describe('Date range to filter results.'),
     filterTestAccounts: z.coerce.boolean().describe('Whether to filter out test accounts.').optional(),
     issueId: z.string().describe('Filter to a specific error tracking issue by ID.').optional(),
+    limit: integer.optional(),
+    offset: integer.optional(),
     orderBy: z
         .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
         .describe('Field to sort results by.'),
@@ -146,6 +150,7 @@ const ErrorTrackingQuery = z.object({
 })
 
 const ListErrorsSchema = ErrorTrackingQuery.extend({
+    limit: ErrorTrackingQuery.shape.limit.default(10).optional(),
     orderBy: ErrorTrackingQuery.shape.orderBy.default('occurrences').optional(),
     dateRange: ErrorTrackingQuery.shape.dateRange.default({ date_from: '-7d' }).optional(),
     filterTestAccounts: ErrorTrackingQuery.shape.filterTestAccounts.default(true).optional(),
@@ -155,6 +160,8 @@ const ListErrorsSchema = ErrorTrackingQuery.extend({
 
 const ErrorDetailsSchema = ErrorTrackingQuery.omit({
     orderBy: true,
+    offset: true,
+    limit: true,
     status: true,
     filterTestAccounts: true,
     orderDirection: true,
