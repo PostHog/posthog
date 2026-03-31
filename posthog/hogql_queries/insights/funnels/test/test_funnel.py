@@ -2055,7 +2055,15 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ids_to_compare,
         )
 
-    def test_funnel_exclusions_invalid_params(self):
+    @parameterized.expand(
+        [
+            ("same_step", 1, 1),
+            ("end_step_out_of_range", 1, 2),
+            ("reversed_steps", 2, 1),
+            ("start_step_zero", 0, 2),
+        ],
+    )
+    def test_funnel_exclusions_invalid_params(self, _name: str, from_step: int, to_step: int):
         query = FunnelsQuery(
             dateRange=DateRange(
                 date_from="2021-05-01 00:00:00",
@@ -2065,8 +2073,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 exclusions=[
                     FunnelExclusionEventsNode(
                         event="x",
-                        funnelFromStep=1,
-                        funnelToStep=1,
+                        funnelFromStep=from_step,
+                        funnelToStep=to_step,
                         name="x",
                     ),
                 ],
@@ -2083,90 +2091,6 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertRaises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
-
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=1,
-                        funnelToStep=2,
-                        name="x",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
-                ),
-                EventsNode(
-                    event="paid",
-                    name="paid",
-                ),
-            ],
-        )
-        self.assertRaises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
-
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=2,
-                        funnelToStep=1,
-                        name="x",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
-                ),
-                EventsNode(
-                    event="paid",
-                    name="paid",
-                ),
-            ],
-        )
-        self.assertRaises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
-
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=0,
-                        funnelToStep=2,
-                        name="x",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
-                ),
-                EventsNode(
-                    event="paid",
-                    name="paid",
-                ),
-            ],
-        )
         self.assertRaises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
 
     def test_funnel_exclusion_no_end_event(self):
@@ -2650,44 +2574,41 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(self._get_actor_ids_at_step(query, 2), [person1.uuid, person3.uuid])
 
     def test_advanced_funnel_exclusions_between_steps(self):
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=0,
-                        funnelToStep=1,
-                        name="x",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                ),
-                EventsNode(
-                    event="insight viewed",
-                    name="insight viewed",
-                ),
-                EventsNode(
-                    event="invite teammate",
-                    name="invite teammate",
-                ),
-                EventsNode(
-                    event="pageview2",
-                    name="pageview2",
-                ),
-            ],
+        date_range = DateRange(
+            date_from="2021-05-01 00:00:00",
+            date_to="2021-05-14 00:00:00",
         )
+        five_step_series = [
+            EventsNode(event="user signed up", name="user signed up"),
+            EventsNode(event="$pageview", name="$pageview"),
+            EventsNode(event="insight viewed", name="insight viewed"),
+            EventsNode(event="invite teammate", name="invite teammate"),
+            EventsNode(event="pageview2", name="pageview2"),
+        ]
+
+        def run_query(exclusions):
+            query = FunnelsQuery(
+                dateRange=date_range,
+                funnelsFilter=FunnelsFilter(exclusions=exclusions),
+                series=five_step_series,
+            )
+            return query, FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        def assert_results(results, expected_count):
+            if expected_count == 0:
+                # There should be no events. UDF funnels returns an empty array and says "no events"
+                # Old style funnels returns a count of 0
+                try:
+                    self.assertEqual([], results)
+                except AssertionError:
+                    self.assertEqual(results[0]["name"], "user signed up")
+                    self.assertEqual(results[0]["count"], 0)
+                    self.assertEqual(results[4]["count"], 0)
+                return
+
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], expected_count)
+            self.assertEqual(results[4]["count"], expected_count)
 
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
         # this dude is discarded when funnel_from_step = 1
@@ -2834,253 +2755,100 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             timestamp="2021-05-01 06:00:00",
         )
 
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
-
-        self.assertEqual(results[4]["count"], 2)
-
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person1.uuid, person2.uuid])
-
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=1,
-                        funnelToStep=2,
-                        name="x",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                ),
-                EventsNode(
-                    event="insight viewed",
-                    name="insight viewed",
-                ),
-                EventsNode(
-                    event="invite teammate",
-                    name="invite teammate",
-                ),
-                EventsNode(
-                    event="pageview2",
-                    name="pageview2",
-                ),
-            ],
-        )
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
-
-        self.assertEqual(results[4]["count"], 2)
-
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person2.uuid, person3.uuid])
-
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=2,
-                        funnelToStep=3,
-                        name="x",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                ),
-                EventsNode(
-                    event="insight viewed",
-                    name="insight viewed",
-                ),
-                EventsNode(
-                    event="invite teammate",
-                    name="invite teammate",
-                ),
-                EventsNode(
-                    event="pageview2",
-                    name="pageview2",
-                ),
-            ],
-        )
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 1)
-
-        self.assertEqual(results[4]["count"], 1)
-
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person3.uuid])
-
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=3,
-                        funnelToStep=4,
-                        name="x",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                ),
-                EventsNode(
-                    event="insight viewed",
-                    name="insight viewed",
-                ),
-                EventsNode(
-                    event="invite teammate",
-                    name="invite teammate",
-                ),
-                EventsNode(
-                    event="pageview2",
-                    name="pageview2",
-                ),
-            ],
-        )
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-        # There should be no events. UDF funnels returns an empty array and says "no events"
-        # Old style funnels returns a count of 0
-        try:
-            self.assertEqual([], results)
-        except AssertionError:
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 0)
-            self.assertEqual(results[4]["count"], 0)
-
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [])
-
-        #  bigger step window
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=1,
-                        funnelToStep=3,
-                        name="x",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                ),
-                EventsNode(
-                    event="insight viewed",
-                    name="insight viewed",
-                ),
-                EventsNode(
-                    event="invite teammate",
-                    name="invite teammate",
-                ),
-                EventsNode(
-                    event="pageview2",
-                    name="pageview2",
-                ),
-            ],
-        )
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 1)
-
-        self.assertEqual(results[4]["count"], 1)
-
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person3.uuid])
-
-    def test_advanced_funnel_multiple_exclusions_between_steps(self):
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
+        cases = [
+            (
+                "between steps 0 and 1",
+                [
                     FunnelExclusionEventsNode(
                         event="x",
                         funnelFromStep=0,
                         funnelToStep=1,
                         name="x",
-                    ),
+                    )
+                ],
+                2,
+                [person1.uuid, person2.uuid],
+            ),
+            (
+                "between steps 1 and 2",
+                [
                     FunnelExclusionEventsNode(
-                        event="y",
+                        event="x",
+                        funnelFromStep=1,
+                        funnelToStep=2,
+                        name="x",
+                    )
+                ],
+                2,
+                [person2.uuid, person3.uuid],
+            ),
+            (
+                "between steps 2 and 3",
+                [
+                    FunnelExclusionEventsNode(
+                        event="x",
                         funnelFromStep=2,
                         funnelToStep=3,
-                        name="y",
-                    ),
+                        name="x",
+                    )
                 ],
+                1,
+                [person3.uuid],
             ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                ),
-                EventsNode(
-                    event="insight viewed",
-                    name="insight viewed",
-                ),
-                EventsNode(
-                    event="invite teammate",
-                    name="invite teammate",
-                ),
-                EventsNode(
-                    event="pageview2",
-                    name="pageview2",
-                ),
-            ],
+            (
+                "between steps 3 and 4",
+                [
+                    FunnelExclusionEventsNode(
+                        event="x",
+                        funnelFromStep=3,
+                        funnelToStep=4,
+                        name="x",
+                    )
+                ],
+                0,
+                [],
+            ),
+            (
+                "between steps 1 and 3",
+                [
+                    FunnelExclusionEventsNode(
+                        event="x",
+                        funnelFromStep=1,
+                        funnelToStep=3,
+                        name="x",
+                    )
+                ],
+                1,
+                [person3.uuid],
+            ),
+        ]
+
+        for label, exclusions, expected_count, expected_actor_ids in cases:
+            with self.subTest(label):
+                query, results = run_query(exclusions)
+                assert_results(results, expected_count)
+                self.assertCountEqual(self._get_actor_ids_at_step(query, 1), expected_actor_ids)
+
+    def test_advanced_funnel_multiple_exclusions_between_steps(self):
+        date_range = DateRange(
+            date_from="2021-05-01 00:00:00",
+            date_to="2021-05-14 00:00:00",
         )
+        five_step_series = [
+            EventsNode(event="user signed up", name="user signed up"),
+            EventsNode(event="$pageview", name="$pageview"),
+            EventsNode(event="insight viewed", name="insight viewed"),
+            EventsNode(event="invite teammate", name="invite teammate"),
+            EventsNode(event="pageview2", name="pageview2"),
+        ]
+
+        def run_query(exclusions):
+            query = FunnelsQuery(
+                dateRange=date_range,
+                funnelsFilter=FunnelsFilter(exclusions=exclusions),
+                series=five_step_series,
+            )
+            return query, FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         _create_person(distinct_ids=["person1"], team_id=self.team.pk)
         _create_event(
@@ -3252,174 +3020,57 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             timestamp="2021-05-01 06:00:00",
         )
 
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 1)
-
-        self.assertEqual(results[4]["count"], 1)
-
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person4.uuid])
-
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=0,
-                        funnelToStep=1,
-                        name="x",
-                    ),
-                    FunnelExclusionEventsNode(
-                        event="y",
-                        funnelFromStep=0,
-                        funnelToStep=1,
-                        name="y",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
+        cases = [
+            [
+                FunnelExclusionEventsNode(
+                    event="x",
+                    funnelFromStep=0,
+                    funnelToStep=1,
+                    name="x",
                 ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                ),
-                EventsNode(
-                    event="insight viewed",
-                    name="insight viewed",
-                ),
-                EventsNode(
-                    event="invite teammate",
-                    name="invite teammate",
-                ),
-                EventsNode(
-                    event="pageview2",
-                    name="pageview2",
+                FunnelExclusionEventsNode(
+                    event="y",
+                    funnelFromStep=2,
+                    funnelToStep=3,
+                    name="y",
                 ),
             ],
-        )
-
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 1)
-
-        self.assertEqual(results[4]["count"], 1)
-
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person4.uuid])
-
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=0,
-                        funnelToStep=1,
-                        name="x",
-                    ),
-                    FunnelExclusionEventsNode(
-                        event="y",
-                        funnelFromStep=0,
-                        funnelToStep=1,
-                        name="y",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
+            [
+                FunnelExclusionEventsNode(
+                    event="x",
+                    funnelFromStep=0,
+                    funnelToStep=1,
+                    name="x",
                 ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                ),
-                EventsNode(
-                    event="insight viewed",
-                    name="insight viewed",
-                ),
-                EventsNode(
-                    event="invite teammate",
-                    name="invite teammate",
-                ),
-                EventsNode(
-                    event="pageview2",
-                    name="pageview2",
+                FunnelExclusionEventsNode(
+                    event="y",
+                    funnelFromStep=0,
+                    funnelToStep=1,
+                    name="y",
                 ),
             ],
-        )
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 1)
-
-        self.assertEqual(results[4]["count"], 1)
-
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person4.uuid])
-
-        query = FunnelsQuery(
-            dateRange=DateRange(
-                date_from="2021-05-01 00:00:00",
-                date_to="2021-05-14 00:00:00",
-            ),
-            funnelsFilter=FunnelsFilter(
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="x",
-                        funnelFromStep=0,
-                        funnelToStep=4,
-                        name="x",
-                    ),
-                    FunnelExclusionEventsNode(
-                        event="y",
-                        funnelFromStep=0,
-                        funnelToStep=4,
-                        name="y",
-                    ),
-                ],
-            ),
-            series=[
-                EventsNode(
-                    event="user signed up",
-                    name="user signed up",
+            [
+                FunnelExclusionEventsNode(
+                    event="x",
+                    funnelFromStep=0,
+                    funnelToStep=4,
+                    name="x",
                 ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                ),
-                EventsNode(
-                    event="insight viewed",
-                    name="insight viewed",
-                ),
-                EventsNode(
-                    event="invite teammate",
-                    name="invite teammate",
-                ),
-                EventsNode(
-                    event="pageview2",
-                    name="pageview2",
+                FunnelExclusionEventsNode(
+                    event="y",
+                    funnelFromStep=0,
+                    funnelToStep=4,
+                    name="y",
                 ),
             ],
-        )
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        ]
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 1)
-
-        self.assertEqual(results[4]["count"], 1)
-
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person4.uuid])
+        for exclusions in cases:
+            query, results = run_query(exclusions)
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[4]["count"], 1)
+            self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person4.uuid])
 
     @also_test_with_materialized_columns(["test_prop"])
     def test_funnel_with_denormalised_properties(self):
