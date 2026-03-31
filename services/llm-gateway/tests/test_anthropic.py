@@ -255,6 +255,93 @@ class TestAnthropicMessagesEndpoint:
         assert response.status_code == 400
         assert "Invalid product" in response.json()["detail"]
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_gateway_fields_stripped_from_request_data(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-3-5-sonnet-20241022",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "provider": "anthropic",
+                "use_bedrock_fallback": True,
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_anthropic.call_args.kwargs
+        assert "provider" not in call_kwargs
+        assert "use_bedrock_fallback" not in call_kwargs
+
+    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
+    @patch("llm_gateway.api.anthropic.get_settings")
+    def test_provider_bedrock_routes_to_bedrock(
+        self,
+        mock_get_settings: MagicMock,
+        mock_handle: AsyncMock,
+        authenticated_client: TestClient,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_get_settings.return_value = MagicMock(bedrock_region_name="us-east-1")
+        mock_handle.return_value = mock_anthropic_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "us.anthropic.claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "provider": "bedrock",
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        from llm_gateway.api.handler import BEDROCK_CONFIG
+
+        call_kwargs = mock_handle.call_args.kwargs
+        assert call_kwargs["provider_config"] is BEDROCK_CONFIG
+
+    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
+    @patch("llm_gateway.api.anthropic.get_settings")
+    def test_provider_bedrock_adds_anthropic_beta_header(
+        self,
+        mock_get_settings: MagicMock,
+        mock_handle: AsyncMock,
+        authenticated_client: TestClient,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_get_settings.return_value = MagicMock(bedrock_region_name="us-east-1")
+        mock_handle.return_value = mock_anthropic_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "us.anthropic.claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "provider": "bedrock",
+            },
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "anthropic-beta": "interleaved-thinking-2025-05-14, extended-thinking-2025-05-14",
+            },
+        )
+
+        assert response.status_code == 200
+        request_data = mock_handle.call_args.kwargs["request_data"]
+        assert request_data["anthropic_beta"] == [
+            "interleaved-thinking-2025-05-14",
+            "extended-thinking-2025-05-14",
+        ]
+
 
 class TestAnthropicCountTokensEndpoint:
     @pytest.fixture
@@ -518,3 +605,40 @@ class TestAnthropicCountTokensEndpoint:
 
             assert response.status_code == 200
             mock_litellm.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
+    def test_gateway_fields_stripped_from_count_tokens_data(
+        self,
+        mock_httpx_client_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        mock_count_tokens_response: httpx.Response,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = "test-anthropic-key"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_count_tokens_response)
+        mock_httpx_client_cls.return_value = mock_client
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={
+                "model": "claude-3-5-sonnet-20241022",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "provider": "anthropic",
+                "use_bedrock_fallback": True,
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_client.post.call_args
+        sent_json = call_kwargs[1]["json"]
+        assert "provider" not in sent_json
+        assert "use_bedrock_fallback" not in sent_json
