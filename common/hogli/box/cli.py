@@ -20,6 +20,7 @@ from .coder import (
     ensure_runtime_ready,
     ensure_tailscale_connected,
     extract_workspace_label,
+    get_default_git_identity,
     get_workspace,
     get_workspace_name,
     get_workspace_status,
@@ -38,6 +39,7 @@ from .coder import (
     stop_workspace,
     update_workspace_parameters,
 )
+from .config import load_config, save_git_identity
 
 
 def resolve_workspace_name(label: str | None, *, for_create: bool = False) -> str:
@@ -141,6 +143,53 @@ def _maybe_prompt_for_claude_oauth_token(configure_claude: bool | None) -> str |
     return token or None
 
 
+def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
+    """Optionally persist Git identity defaults for new workspaces."""
+    config = load_config()
+    existing_git_name = config.get("git_name")
+    existing_git_email = config.get("git_email")
+    coder_git_name, coder_git_email = get_default_git_identity()
+
+    default_git_name = existing_git_name or coder_git_name or ""
+    default_git_email = existing_git_email or coder_git_email or ""
+
+    if configure_git_identity is None:
+        prompt = (
+            "Update saved Git identity for new workspaces?"
+            if existing_git_name or existing_git_email
+            else "Save Git identity for new workspaces?"
+        )
+        configure_git_identity = click.confirm(
+            prompt,
+            default=not (existing_git_name or existing_git_email),
+        )
+
+    if not configure_git_identity:
+        if existing_git_name and existing_git_email:
+            click.echo(f"Keeping saved Git identity: {existing_git_name} <{existing_git_email}>")
+        elif coder_git_name or coder_git_email:
+            click.echo("Skipping saved Git identity setup. New workspaces will use your Coder profile defaults.")
+        else:
+            click.echo("Skipping saved Git identity setup.")
+        return
+
+    git_name = click.prompt(
+        "Git name",
+        default=default_git_name,
+        show_default=bool(default_git_name),
+    ).strip()
+    git_email = click.prompt(
+        "Git email",
+        default=default_git_email,
+        show_default=bool(default_git_email),
+    ).strip()
+    if not git_name or not git_email:
+        _fail("Git name and Git email are both required when configuring workspace Git identity.")
+
+    save_git_identity(git_name, git_email)
+    click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
+
+
 @cli.command(name="box", help="Show available Coder workspace commands")
 def box_help() -> None:
     """Show the available `hogli box:*` commands."""
@@ -167,12 +216,18 @@ def box_help() -> None:
     default=None,
     help="Configure local SSH host entries for Coder workspaces during setup",
 )
-def box_setup(configure_ssh: bool | None) -> None:
+@click.option(
+    "--configure-git-identity/--skip-configure-git-identity",
+    default=None,
+    help="Prompt for Git name/email defaults for new Coder workspaces",
+)
+def box_setup(configure_ssh: bool | None, configure_git_identity: bool | None) -> None:
     """Prepare this machine for Coder workspaces."""
     ensure_tailscale_connected("rerun `hogli box:setup`.")
     ensure_coder_installed()
     ensure_coder_authenticated()
     maybe_configure_ssh(configure_ssh=configure_ssh)
+    maybe_configure_git_identity(configure_git_identity)
     print_setup_summary()
 
 
@@ -258,9 +313,17 @@ def box_start(
         return
 
     token = claude_oauth_token or _maybe_prompt_for_claude_oauth_token(configure_claude)
+    config = load_config()
 
     click.echo(f"Creating devbox '{name}' (disk={disk}GiB)...")
-    create_workspace(name, int(disk), claude_oauth_token=token, verbose=verbose)
+    create_workspace(
+        name,
+        int(disk),
+        claude_oauth_token=token,
+        git_name=config.get("git_name"),
+        git_email=config.get("git_email"),
+        verbose=verbose,
+    )
     click.echo("Created.")
     click.echo()
     click.echo(

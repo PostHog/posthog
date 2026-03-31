@@ -24,10 +24,16 @@ TEMPLATE_NAME = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli box:setup`."
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
+GIT_NAME_PARAMETER = "git_name"
+GIT_EMAIL_PARAMETER = "git_email"
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
 _LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 _WORKSPACE_PREFIX = "devbox"
+
+
+class CoderUserInfo(dict[str, str]):
+    """Normalized subset of Coder user fields used by hogli."""
 
 
 def _fail(message: str) -> None:
@@ -207,6 +213,11 @@ def _coder_whoami() -> subprocess.CompletedProcess[str]:
     return _run(["coder", "whoami", "--output", "json"], capture_output=True)
 
 
+def _coder_user_show_me() -> subprocess.CompletedProcess[str]:
+    """Run `coder users show me` against the configured deployment."""
+    return _run(["coder", "users", "show", "me", "--output", "json"], capture_output=True)
+
+
 def coder_authenticated() -> bool:
     """Return whether the local machine is authenticated with Coder."""
     if not coder_installed():
@@ -270,24 +281,82 @@ def print_setup_summary() -> None:
     click.echo("Git inside the workspace should use HTTPS via Coder external auth.")
 
 
-def get_username() -> str:
-    """Get current Coder username."""
-    result = _coder_whoami()
-    if result.returncode == 0:
-        try:
-            data = json.loads(result.stdout)
-            if isinstance(data, list):
-                data = data[0]
-            return data["username"]
-        except (json.JSONDecodeError, KeyError):
-            pass
+def _first_non_empty_string(*values: Any) -> str | None:
+    """Return the first non-empty string value."""
+    for value in values:
+        if isinstance(value, str):
+            stripped_value = value.strip()
+            if stripped_value:
+                return stripped_value
+    return None
+
+
+def _parse_coder_user_info(payload: str) -> CoderUserInfo:
+    """Parse JSON user payloads returned by the Coder CLI."""
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return CoderUserInfo()
+
+    if isinstance(data, list):
+        if not data:
+            return CoderUserInfo()
+        data = data[0]
+
+    if not isinstance(data, dict):
+        return CoderUserInfo()
+
+    username = _first_non_empty_string(data.get("username"), data.get("name"))
+    full_name = _first_non_empty_string(data.get("full_name"), data.get("fullName"), data.get("name"))
+    email = _first_non_empty_string(data.get("email"))
+
+    user_info = CoderUserInfo()
+    if username:
+        user_info["username"] = username
+    if full_name:
+        user_info["full_name"] = full_name
+    if email:
+        user_info["email"] = email
+    return user_info
+
+
+def get_coder_user_info() -> CoderUserInfo:
+    """Return normalized user info for the authenticated Coder user when available."""
+    for command in (_coder_user_show_me, _coder_whoami):
+        result = command()
+        if result.returncode != 0:
+            continue
+
+        user_info = _parse_coder_user_info(result.stdout)
+        if user_info:
+            return user_info
 
     result = _run(["coder", "whoami"], capture_output=True)
     if result.returncode == 0:
         for line in result.stdout.strip().splitlines():
             stripped_line = line.strip()
             if stripped_line and not stripped_line.startswith("http"):
-                return stripped_line.split()[0].split("@")[0].lower()
+                username = stripped_line.split()[0].split("@")[0].lower()
+                if username:
+                    return CoderUserInfo(username=username)
+
+    return CoderUserInfo()
+
+
+def get_default_git_identity() -> tuple[str | None, str | None]:
+    """Return the default Git identity derived from the authenticated Coder profile."""
+    user_info = get_coder_user_info()
+    git_name = _first_non_empty_string(user_info.get("full_name"), user_info.get("username"))
+    git_email = _first_non_empty_string(user_info.get("email"))
+    return git_name, git_email
+
+
+def get_username() -> str:
+    """Get current Coder username."""
+    user_info = get_coder_user_info()
+    username = _first_non_empty_string(user_info.get("username"))
+    if username:
+        return username.lower()
 
     _fail("Failed to determine the Coder username.")
     return ""
@@ -367,6 +436,8 @@ def create_workspace(
     name: str,
     disk_size: int,
     claude_oauth_token: str | None = None,
+    git_name: str | None = None,
+    git_email: str | None = None,
     repo: str = "https://github.com/PostHog/posthog",
     *,
     verbose: bool = False,
@@ -377,6 +448,10 @@ def create_workspace(
         "repo": repo,
         CLAUDE_OAUTH_PARAMETER: claude_oauth_token or "",
     }
+    if git_name:
+        parameters[GIT_NAME_PARAMETER] = git_name
+    if git_email:
+        parameters[GIT_EMAIL_PARAMETER] = git_email
 
     args = [
         "coder",

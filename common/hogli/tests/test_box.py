@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch
 
@@ -9,10 +13,34 @@ from click.testing import CliRunner
 from hogli.box import (
     cli as box_cli,
     coder,
+    config as box_config,
 )
 from hogli.core.cli import cli
 
 runner = CliRunner()
+
+
+@pytest.fixture
+def box_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    config_path = tmp_path / "hogli_box.json"
+    monkeypatch.setattr(box_config, "get_config_path", lambda: config_path)
+    return config_path
+
+
+class TestBoxConfig:
+    """Test persisted box preferences."""
+
+    def test_save_git_identity_persists_trimmed_values(self, box_config_path: Path) -> None:
+        box_config.save_git_identity(" PostHog Engineer ", " test-user@example.com ")
+
+        assert box_config.load_config() == {
+            "git_name": "PostHog Engineer",
+            "git_email": "test-user@example.com",
+        }
+        assert json.loads(box_config_path.read_text()) == {
+            "git_name": "PostHog Engineer",
+            "git_email": "test-user@example.com",
+        }
 
 
 class TestCoderConfig:
@@ -67,39 +95,77 @@ class TestWorkspaceNaming:
     """Test workspace name derivation, label validation, and extraction."""
 
     def test_default_workspace_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(coder, "get_username", lambda: "raul")
-        assert coder.get_workspace_name() == "devbox-raul"
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        assert coder.get_workspace_name() == "devbox-test-user"
 
     def test_labeled_workspace_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(coder, "get_username", lambda: "raul")
-        assert coder.get_workspace_name("api") == "devbox-raul-api"
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        assert coder.get_workspace_name("api") == "devbox-test-user-api"
 
     def test_multi_segment_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(coder, "get_username", lambda: "raul")
-        assert coder.get_workspace_name("my-project") == "devbox-raul-my-project"
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        assert coder.get_workspace_name("my-project") == "devbox-test-user-my-project"
 
     @pytest.mark.parametrize("bad_label", ["", "UPPER", "has space", "-leading", "trailing-"])
     def test_invalid_label_rejected(self, monkeypatch: pytest.MonkeyPatch, bad_label: str) -> None:
-        monkeypatch.setattr(coder, "get_username", lambda: "raul")
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         with pytest.raises(SystemExit):
             coder.get_workspace_name(bad_label)
 
     def test_extract_label_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(coder, "get_username", lambda: "raul")
-        assert coder.extract_workspace_label("devbox-raul") is None
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        assert coder.extract_workspace_label("devbox-test-user") is None
 
     def test_extract_label_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(coder, "get_username", lambda: "raul")
-        assert coder.extract_workspace_label("devbox-raul-api") == "api"
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        assert coder.extract_workspace_label("devbox-test-user-api") == "api"
 
     def test_extract_label_hyphenated_username(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(coder, "get_username", lambda: "jean-luc")
-        assert coder.extract_workspace_label("devbox-jean-luc") is None
-        assert coder.extract_workspace_label("devbox-jean-luc-api") == "api"
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user-two")
+        assert coder.extract_workspace_label("devbox-test-user-two") is None
+        assert coder.extract_workspace_label("devbox-test-user-two-api") == "api"
 
     def test_extract_label_unrelated_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(coder, "get_username", lambda: "raul")
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         assert coder.extract_workspace_label("other-workspace") is None
+
+
+class TestWorkspaceCreation:
+    """Test Coder workspace creation parameter passing."""
+
+    def test_create_workspace_passes_git_identity_as_rich_parameters(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_with_rich_parameters(
+            args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
+        ) -> subprocess.CompletedProcess[str]:
+            captured["args"] = args
+            captured["parameters"] = parameters
+            captured["verbose"] = verbose
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder, "_run_with_rich_parameters", fake_run_with_rich_parameters)
+
+        coder.create_workspace(
+            "devbox-test-user",
+            50,
+            claude_oauth_token="oauth-token",
+            git_name="PostHog Engineer",
+            git_email="test-user@example.com",
+            verbose=True,
+        )
+
+        assert captured == {
+            "args": ["coder", "create", "devbox-test-user", "--template", "posthog-linux", "--yes"],
+            "parameters": {
+                "disk_size": "50",
+                "repo": "https://github.com/PostHog/posthog",
+                "claude_oauth_token": "oauth-token",
+                "git_name": "PostHog Engineer",
+                "git_email": "test-user@example.com",
+            },
+            "verbose": True,
+        }
 
 
 class TestResolveWorkspaceName:
@@ -107,38 +173,40 @@ class TestResolveWorkspaceName:
 
     def test_explicit_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            box_cli, "get_workspace_name", lambda label=None: f"devbox-raul-{label}" if label else "devbox-raul"
+            box_cli,
+            "get_workspace_name",
+            lambda label=None: f"devbox-test-user-{label}" if label else "devbox-test-user",
         )
         monkeypatch.setattr(box_cli, "list_user_workspaces", lambda: [])
-        assert box_cli.resolve_workspace_name("api") == "devbox-raul-api"
+        assert box_cli.resolve_workspace_name("api") == "devbox-test-user-api"
 
     def test_no_workspaces_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(box_cli, "get_workspace_name", lambda label=None: "devbox-raul")
+        monkeypatch.setattr(box_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
         monkeypatch.setattr(box_cli, "list_user_workspaces", lambda: [])
-        assert box_cli.resolve_workspace_name(None) == "devbox-raul"
+        assert box_cli.resolve_workspace_name(None) == "devbox-test-user"
 
     def test_single_workspace_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(box_cli, "list_user_workspaces", lambda: [{"name": "devbox-raul-api"}])
-        assert box_cli.resolve_workspace_name(None) == "devbox-raul-api"
+        monkeypatch.setattr(box_cli, "list_user_workspaces", lambda: [{"name": "devbox-test-user-api"}])
+        assert box_cli.resolve_workspace_name(None) == "devbox-test-user-api"
 
     def test_multiple_workspaces_prefers_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(box_cli, "get_workspace_name", lambda label=None: "devbox-raul")
+        monkeypatch.setattr(box_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
         monkeypatch.setattr(
             box_cli,
             "list_user_workspaces",
-            lambda: [{"name": "devbox-raul"}, {"name": "devbox-raul-api"}],
+            lambda: [{"name": "devbox-test-user"}, {"name": "devbox-test-user-api"}],
         )
-        assert box_cli.resolve_workspace_name(None) == "devbox-raul"
+        assert box_cli.resolve_workspace_name(None) == "devbox-test-user"
 
     def test_multiple_workspaces_no_default_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(box_cli, "get_workspace_name", lambda label=None: "devbox-raul")
+        monkeypatch.setattr(box_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
         monkeypatch.setattr(
             box_cli, "extract_workspace_label", lambda name: name.split("-", 2)[-1] if name.count("-") > 1 else None
         )
         monkeypatch.setattr(
             box_cli,
             "list_user_workspaces",
-            lambda: [{"name": "devbox-raul-api"}, {"name": "devbox-raul-web"}],
+            lambda: [{"name": "devbox-test-user-api"}, {"name": "devbox-test-user-web"}],
         )
         with pytest.raises(SystemExit):
             box_cli.resolve_workspace_name(None)
@@ -176,20 +244,54 @@ class TestBoxCommands:
             "maybe_configure_ssh",
             lambda configure_ssh: calls.append(f"ssh:{configure_ssh}"),
         )
+        monkeypatch.setattr(
+            box_cli,
+            "maybe_configure_git_identity",
+            lambda configure_git_identity: calls.append(f"git:{configure_git_identity}"),
+        )
         monkeypatch.setattr(box_cli, "print_setup_summary", lambda: calls.append("summary"))
 
-        result = runner.invoke(cli, ["box:setup", "--skip-configure-ssh"])
+        result = runner.invoke(cli, ["box:setup", "--skip-configure-ssh", "--skip-configure-git-identity"])
 
         assert result.exit_code == 0
-        assert calls == ["tailscale", "install", "login", "ssh:False", "summary"]
+        assert calls == ["tailscale", "install", "login", "ssh:False", "git:False", "summary"]
 
-    def test_box_start_creates_workspace_with_default_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_box_setup_uses_coder_profile_as_prompt_defaults(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        box_config_path: Path,
+    ) -> None:
+        monkeypatch.setattr(box_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
+        monkeypatch.setattr(box_cli, "ensure_coder_installed", lambda: None)
+        monkeypatch.setattr(box_cli, "ensure_coder_authenticated", lambda: None)
+        monkeypatch.setattr(box_cli, "maybe_configure_ssh", lambda configure_ssh: None)
+        monkeypatch.setattr(box_cli, "print_setup_summary", lambda: None)
+        monkeypatch.setattr(box_cli, "get_default_git_identity", lambda: ("Coder User", "coder@example.com"))
+
+        result = runner.invoke(
+            cli,
+            ["box:setup", "--skip-configure-ssh"],
+            input="y\n\n\n",
+        )
+
+        assert result.exit_code == 0
+        assert "Saved Git identity for new workspaces: Coder User <coder@example.com>" in result.output
+        assert json.loads(box_config_path.read_text()) == {
+            "git_name": "Coder User",
+            "git_email": "coder@example.com",
+        }
+
+    def test_box_start_creates_workspace_with_default_name(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-raul")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: None)
         monkeypatch.setattr(box_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(box_cli, "load_config", lambda: {})
         monkeypatch.setattr(
             box_cli,
             "_maybe_prompt_for_claude_oauth_token",
@@ -198,11 +300,18 @@ class TestBoxCommands:
         monkeypatch.setattr(
             box_cli,
             "create_workspace",
-            lambda name, disk_size, claude_oauth_token=None, verbose=False: captured.update(
+            lambda name,
+            disk_size,
+            claude_oauth_token=None,
+            git_name=None,
+            git_email=None,
+            verbose=False: captured.update(
                 {
                     "name": name,
                     "disk_size": str(disk_size),
                     "claude_oauth_token": claude_oauth_token,
+                    "git_name": git_name,
+                    "git_email": git_email,
                 }
             ),
         )
@@ -211,9 +320,11 @@ class TestBoxCommands:
 
         assert result.exit_code == 0
         assert captured == {
-            "name": "devbox-raul",
+            "name": "devbox-test-user",
             "disk_size": "50",
             "claude_oauth_token": "oauth-token",
+            "git_name": None,
+            "git_email": None,
         }
 
     def test_box_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,10 +334,15 @@ class TestBoxCommands:
         monkeypatch.setattr(
             box_cli,
             "resolve_workspace_name",
-            lambda label, for_create=False: f"devbox-raul-{label}" if label else "devbox-raul",
+            lambda label, for_create=False: f"devbox-test-user-{label}" if label else "devbox-test-user",
         )
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: None)
         monkeypatch.setattr(box_cli, "extract_workspace_label", lambda name: "api")
+        monkeypatch.setattr(
+            box_cli,
+            "load_config",
+            lambda: {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
+        )
         monkeypatch.setattr(
             box_cli,
             "_maybe_prompt_for_claude_oauth_token",
@@ -235,18 +351,31 @@ class TestBoxCommands:
         monkeypatch.setattr(
             box_cli,
             "create_workspace",
-            lambda name, disk_size, claude_oauth_token=None, verbose=False: captured.update({"name": name}),
+            lambda name,
+            disk_size,
+            claude_oauth_token=None,
+            git_name=None,
+            git_email=None,
+            verbose=False: captured.update(
+                {
+                    "name": name,
+                    "git_name": git_name,
+                    "git_email": git_email,
+                }
+            ),
         )
 
         result = runner.invoke(cli, ["box:start", "--name", "api"])
 
         assert result.exit_code == 0
-        assert captured["name"] == "devbox-raul-api"
+        assert captured["name"] == "devbox-test-user-api"
+        assert captured["git_name"] == "PostHog Engineer"
+        assert captured["git_email"] == "test-user@example.com"
         assert "--name api" in result.output
 
     def test_box_status_does_not_reference_missing_box_update(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-raul")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
         monkeypatch.setattr(
             box_cli,
             "get_workspace",
@@ -262,7 +391,7 @@ class TestBoxCommands:
 
     def test_box_claude_check_reports_ready(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-raul")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
         monkeypatch.setattr(box_cli, "get_workspace_status", lambda workspace: "running")
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: {"latest_build": {"status": "running"}})
 
@@ -278,7 +407,7 @@ class TestBoxCommands:
 
     def test_box_claude_check_reports_missing_auth(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-raul")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
         monkeypatch.setattr(box_cli, "get_workspace_status", lambda workspace: "running")
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: {"latest_build": {"status": "running"}})
 
@@ -296,7 +425,7 @@ class TestBoxCommands:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-raul")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
         monkeypatch.setattr(box_cli, "get_workspace_status", lambda workspace: "running")
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: {"latest_build": {"status": "running"}})
         monkeypatch.setattr(
@@ -313,13 +442,13 @@ class TestBoxCommands:
         result = runner.invoke(cli, ["box:claude", "--set-token"])
 
         assert result.exit_code == 0
-        assert captured == {"name": "devbox-raul", "parameters": {"claude_oauth_token": "oauth-token"}}
+        assert captured == {"name": "devbox-test-user", "parameters": {"claude_oauth_token": "oauth-token"}}
 
     def test_box_forward_forwards_when_local_port_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-raul")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
         monkeypatch.setattr(box_cli, "_local_port_is_available", lambda port: True)
         monkeypatch.setattr(
             box_cli,
@@ -332,12 +461,12 @@ class TestBoxCommands:
         result = runner.invoke(cli, ["box:forward"])
 
         assert result.exit_code == 0
-        assert "Forwarding devbox-raul:8010 -> localhost:8010" in result.output
-        assert captured == {"name": "devbox-raul", "local_port": 8010, "remote_port": 8010}
+        assert "Forwarding devbox-test-user:8010 -> localhost:8010" in result.output
+        assert captured == {"name": "devbox-test-user", "local_port": 8010, "remote_port": 8010}
 
     def test_box_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-raul")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
         monkeypatch.setattr(box_cli, "_local_port_is_available", lambda port: False)
 
         result = runner.invoke(cli, ["box:forward", "--port", "8010"])
@@ -366,8 +495,8 @@ class TestBoxList:
             box_cli,
             "list_user_workspaces",
             lambda: [
-                {"name": "devbox-raul", "latest_build": {"status": "running"}},
-                {"name": "devbox-raul-api", "latest_build": {"status": "stopped"}},
+                {"name": "devbox-test-user", "latest_build": {"status": "running"}},
+                {"name": "devbox-test-user-api", "latest_build": {"status": "stopped"}},
             ],
         )
 
@@ -376,4 +505,4 @@ class TestBoxList:
         assert result.exit_code == 0
         assert "(default)" in result.output
         assert "api" in result.output
-        assert "devbox-raul-api" in result.output
+        assert "devbox-test-user-api" in result.output
