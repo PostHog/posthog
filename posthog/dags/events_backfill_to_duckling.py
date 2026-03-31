@@ -1184,10 +1184,7 @@ def register_file_with_duckling(
             attach_catalog(conn, catalog_config, alias=alias)
 
             context.log.info(f"Registering file with DuckLake: {s3_path}")
-            conn.execute(
-                f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}',"
-                f" schema => 'posthog')"
-            )
+            conn.execute(f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')")
 
             context.log.info(f"Successfully registered: {s3_path}")
             logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
@@ -1409,8 +1406,7 @@ def register_persons_file_with_duckling(
 
             context.log.info(f"Registering persons file with DuckLake: {s3_path}")
             conn.execute(
-                f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}',"
-                f" schema => 'posthog')"
+                f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}', schema => 'posthog')"
             )
 
             context.log.info(f"Successfully registered persons: {s3_path}")

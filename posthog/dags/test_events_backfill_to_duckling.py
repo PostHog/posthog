@@ -853,9 +853,7 @@ class TestDuckLakeAddDataFilesPartitioning:
         conn = duckdb.connect()
         conn.execute("INSTALL ducklake")
         conn.execute("LOAD ducklake")
-        conn.execute(
-            f"ATTACH 'ducklake:{catalog_path}' AS test_lake (DATA_PATH '{data_path}')"
-        )
+        conn.execute(f"ATTACH 'ducklake:{catalog_path}' AS test_lake (DATA_PATH '{data_path}')")
         conn.execute("CREATE SCHEMA IF NOT EXISTS test_lake.posthog")
         conn.execute(EVENTS_TABLE_DDL.format(catalog="test_lake"))
         conn.execute(
@@ -914,9 +912,7 @@ class TestDuckLakeAddDataFilesPartitioning:
         )
 
         path = os.path.join(dest, "run1.parquet")
-        conn.execute(
-            f"CALL ducklake_add_data_files('test_lake', 'events', '{path}', schema => 'posthog')"
-        )
+        conn.execute(f"CALL ducklake_add_data_files('test_lake', 'events', '{path}', schema => 'posthog')")
 
         # Verify the data is queryable
         result = conn.execute("SELECT count(*) FROM test_lake.posthog.events").fetchone()
@@ -936,9 +932,7 @@ class TestDuckLakeAddDataFilesPartitioning:
 
         path = os.path.join(dest, "run1.parquet")
         with pytest.raises(duckdb.InvalidInputException, match="invalid partition value"):
-            conn.execute(
-                f"CALL ducklake_add_data_files('test_lake', 'events', '{path}', schema => 'posthog')"
-            )
+            conn.execute(f"CALL ducklake_add_data_files('test_lake', 'events', '{path}', schema => 'posthog')")
 
     def test_plain_path_no_hive_keys_fails(self, ducklake_env):
         """Path with no Hive keys at all: 0 partition values vs 3 fields -> error."""
@@ -954,9 +948,7 @@ class TestDuckLakeAddDataFilesPartitioning:
 
         path = os.path.join(dest, "run1.parquet")
         with pytest.raises(duckdb.InvalidInputException, match="invalid partition value"):
-            conn.execute(
-                f"CALL ducklake_add_data_files('test_lake', 'events', '{path}', schema => 'posthog')"
-            )
+            conn.execute(f"CALL ducklake_add_data_files('test_lake', 'events', '{path}', schema => 'posthog')")
 
     def test_hive_partitioning_false_with_plain_path_still_fails(self, ducklake_env):
         """hive_partitioning => false skips parsing entirely: 0 partition values vs 3 fields -> error."""

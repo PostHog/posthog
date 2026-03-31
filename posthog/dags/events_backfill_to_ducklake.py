@@ -534,8 +534,7 @@ def register_files_with_ducklake(
                 context.log.info(f"Registering file with DuckLake: {s3_path}")
                 # Use escape() to prevent SQL injection
                 conn.execute(
-                    f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}',"
-                    f" schema => 'posthog')"
+                    f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')"
                 )
                 registered_count += 1
                 context.log.info(f"Successfully registered: {s3_path}")
