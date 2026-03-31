@@ -1,4 +1,5 @@
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import OAuthApplication
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
@@ -8,6 +9,9 @@ class Command(BaseCommand):
     help = "Create the Array OAuth application for local cloud runs development"
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            raise CommandError("This command can only be run with DEBUG=1")
+
         app, created = OAuthApplication.objects.get_or_create(
             client_id=ARRAY_APP_CLIENT_ID_DEV,
             defaults={
