@@ -56,12 +56,12 @@ export function AttributionSettings(): JSX.Element {
 
     // Get attribution settings from config with defaults
     const attribution_window_days = marketingAnalyticsConfig?.attribution_window_days ?? DEFAULT_ATTRIBUTION_WINDOW_DAYS
-    const raw_attribution_mode = marketingAnalyticsConfig?.attribution_mode ?? DEFAULT_ATTRIBUTION_MODE
+    const rawAttributionMode = marketingAnalyticsConfig?.attribution_mode ?? DEFAULT_ATTRIBUTION_MODE
     // Fall back to last touch if the stored mode is multi-touch but the flag is off
     const attribution_mode =
-        !hasMultiTouchAttribution && MULTI_TOUCH_MODES.has(raw_attribution_mode)
+        !hasMultiTouchAttribution && MULTI_TOUCH_MODES.has(rawAttributionMode)
             ? AttributionMode.LastTouch
-            : raw_attribution_mode
+            : rawAttributionMode
 
     // Local state for immediate UI updates
     const [localDays, setLocalDays] = useState(attribution_window_days)
@@ -205,11 +205,11 @@ export function AttributionSettings(): JSX.Element {
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium mb-2 flex items-center gap-1">
+                    <label className="text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Mode
                         <Tooltip
                             delayMs={0}
-                            title="Attribution mode determines how credit for a conversion is distributed across marketing touchpoints. First touch: 100% credit to the first touchpoint. Last touch: 100% credit to the last touchpoint. Linear: Equal credit across all touchpoints. Time decay: More credit to recent touchpoints (half-life = attribution window / 4). Position based: 40% first, 40% last, 20% distributed among middle touchpoints."
+                            title="Attribution mode determines how credit for a conversion is distributed across marketing touchpoints. First touch: 100% credit to the first touchpoint. Last touch: 100% credit to the last touchpoint. Linear: Equal credit across all touchpoints. Time decay: More credit to recent touchpoints, with credit halving at regular intervals. Position based: 40% first, 40% last, 20% distributed among middle touchpoints."
                         >
                             <IconInfo className="text-muted-alt hover:text-default cursor-help" />
                         </Tooltip>
@@ -239,7 +239,7 @@ export function AttributionSettings(): JSX.Element {
                               : localAttributionMode === AttributionMode.Linear
                                 ? 'Distribute credit equally across all touchpoints'
                                 : localAttributionMode === AttributionMode.TimeDecay
-                                  ? 'More credit to touchpoints closer to the conversion (half-life scales with attribution window)'
+                                  ? `More credit to touchpoints closer to the conversion. Credit halves every ${Math.round(localDays / 4)} days.`
                                   : 'First and last touchpoints get 40% each, remaining 20% split among middle touchpoints'}
                     </p>
                 </div>

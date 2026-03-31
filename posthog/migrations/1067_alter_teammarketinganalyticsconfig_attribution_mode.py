@@ -2,8 +2,6 @@
 
 from django.db import migrations, models
 
-import posthog.schema
-
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -22,7 +20,7 @@ class Migration(migrations.Migration):
                     ("time_decay", "Time Decay"),
                     ("position_based", "Position Based"),
                 ],
-                default=posthog.schema.AttributionMode["LAST_TOUCH"],
+                default="last_touch",
                 help_text="Attribution mode: first_touch, last_touch, linear, time_decay, or position_based",
                 max_length=20,
             ),

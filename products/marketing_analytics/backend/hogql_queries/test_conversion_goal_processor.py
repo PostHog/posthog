@@ -99,7 +99,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     Query Result Structure: [campaign_name, source_name, conversion_count]
     """
 
-    maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False  # Prevents test contamination in ClickHouse
 
     def setUp(self):
@@ -5588,12 +5587,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         query_from_date: str,
         expected_weights: dict[str, float],
     ):
-        """Helper for multi-touch attribution tests.
-
-        Args:
-            touchpoints: list of (campaign, source, date) tuples
-            expected_weights: dict of campaign -> expected credit value
-        """
         for i, (campaign, source, date) in enumerate(touchpoints):
             with freeze_time(date):
                 if i == 0:
@@ -5689,7 +5682,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
     def test_time_decay_attribution_recent_gets_more_credit(self):
-        """Time-decay attribution should give more credit to recent touchpoints."""
         with freeze_time("2023-01-01"):
             _create_person(distinct_ids=["decay_user"], team=self.team)
             _create_event(
@@ -5757,6 +5749,14 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (
+                "single_touchpoint",
+                "position1_user",
+                [("only_ad", "email", "2023-03-15")],
+                "2023-04-15",
+                "2023-04-01",
+                {"only_ad": 1.0},
+            ),
+            (
                 "two_touchpoints",
                 "position2_user",
                 [("first_ad", "email", "2023-03-01"), ("second_ad", "google", "2023-04-01")],
@@ -5805,12 +5805,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
     def test_multi_touch_no_touchpoints_returns_no_results(self):
-        """Multi-touch attribution with no UTM touchpoints produces no attributed results.
-
-        When there are no UTM pageviews, the touchpoint array is empty and ARRAY JOIN
-        produces no rows. This is correct behavior — conversions without marketing
-        touchpoints cannot be attributed to any campaign in multi-touch mode.
-        """
         with freeze_time("2023-04-01"):
             _create_person(distinct_ids=["no_utm_user"], team=self.team)
             _create_event(
@@ -5856,7 +5850,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # ── Multi-touch attribution snapshot tests ──────────────────────────
 
     def _create_multi_touch_scenario(self):
-        """Helper: creates a user with 3 touchpoints before a conversion."""
         with freeze_time("2023-03-01"):
             _create_person(distinct_ids=["mt_user"], team=self.team)
             _create_event(
@@ -5925,7 +5918,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_multi_touch_linear_attribution_snapshot(self):
-        """Snapshot: Linear attribution distributes credit equally across 3 touchpoints."""
         self._create_multi_touch_scenario()
         cte_query = self._build_multi_touch_query(AttributionMode.LINEAR)
         response = execute_hogql_query(query=cte_query, team=self.team)
@@ -5937,7 +5929,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_multi_touch_time_decay_attribution_snapshot(self):
-        """Snapshot: Time-decay attribution gives more credit to recent touchpoints."""
         self._create_multi_touch_scenario()
         cte_query = self._build_multi_touch_query(AttributionMode.TIME_DECAY)
         response = execute_hogql_query(query=cte_query, team=self.team)
@@ -5954,7 +5945,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_multi_touch_position_based_attribution_snapshot(self):
-        """Snapshot: Position-based gives 40% first, 40% last, 20% middle."""
         self._create_multi_touch_scenario()
         cte_query = self._build_multi_touch_query(AttributionMode.POSITION_BASED)
         response = execute_hogql_query(query=cte_query, team=self.team)
@@ -5970,3 +5960,356 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert abs(by_campaign["closing"] - 0.4) < 0.05, f"Last touch should get ~0.4, got {by_campaign['closing']}"
         assert abs(by_campaign["retarget"] - 0.2) < 0.05, f"Middle touch should get ~0.2, got {by_campaign['retarget']}"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    # ── Multi-touch + math type interaction tests ──────────────────────────
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_linear_attribution_with_sum_math_distributes_revenue(self):
+        self._create_multi_touch_scenario()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="mt_sum",
+            conversion_goal_name="Multi Touch SUM",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.LINEAR
+        config.attribution_window_days = 90
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+
+        date_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-31")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # $300 purchase split equally across 3 touchpoints = $100 each
+        assert len(response.results) == 3, f"Expected 3 rows (one per touchpoint), got {len(response.results)}"
+        total_revenue = sum(row[4] for row in response.results)
+        assert abs(total_revenue - 300.0) < 1.0, f"Total revenue should be ~$300, got {total_revenue}"
+        for row in response.results:
+            assert abs(row[4] - 100.0) < 1.0, f"Each touchpoint should get ~$100, got {row[4]}"
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    def test_multi_touch_dau_counts_unique_users_per_campaign(self):
+        self._create_multi_touch_scenario()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="mt_dau",
+            conversion_goal_name="Multi Touch DAU",
+            math=BaseMathType.DAU,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.LINEAR
+        config.attribution_window_days = 90
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+
+        date_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-31")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # DAU with multi-touch: each campaign row shows uniq(person_id)
+        # One user touched all 3 campaigns, so each campaign shows 1 unique user
+        assert len(response.results) == 3, f"Expected 3 rows, got {len(response.results)}"
+        for row in response.results:
+            assert row[4] == 1, f"Each campaign should have 1 unique user, got {row[4]}"
+        # Total across campaigns (3) > actual unique users (1) — this is expected
+        # behavior for multi-touch DAU: a user who converted via N campaigns appears in each
+
+    def test_multi_touch_with_zero_attribution_window_falls_back_to_direct(self):
+        self._create_multi_touch_scenario()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="mt_zero_window",
+            conversion_goal_name="Zero Window",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.LINEAR
+        config.attribution_window_days = 0
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+
+        date_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-31")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # attribution_window_days=0 bypasses multi-touch, falls back to direct query
+        # The purchase event has no UTM params, so it shows as organic
+        assert len(response.results) >= 1, f"Should have results, got {len(response.results)}"
+
+    def test_multi_touch_linear_with_actions_node(self):
+        # 3 touchpoints → action-based conversion (sign_up OR activate_account)
+        with freeze_time("2023-03-01"):
+            _create_person(distinct_ids=["mt_action_user"], team=self.team)
+            _create_event(
+                distinct_id="mt_action_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "awareness", "utm_source": "facebook"},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-03-10"):
+            _create_event(
+                distinct_id="mt_action_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "retarget", "utm_source": "google"},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-03-20"):
+            _create_event(distinct_id="mt_action_user", event="sign_up", team=self.team)
+            flush_persons_and_events_in_batches()
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Signup Flow",
+            steps_json=[{"event": "sign_up"}, {"event": "activate_account"}],
+        )
+
+        goal = ConversionGoalFilter2(
+            kind="ActionsNode",
+            id=action.pk,
+            conversion_goal_id="mt_actions_linear",
+            conversion_goal_name="Multi Touch Actions Linear",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.LINEAR
+        config.attribution_window_days = 90
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+
+        date_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-31")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # Linear attribution across 2 touchpoints for sign_up action
+        assert len(response.results) == 2, f"Expected 2 rows (one per touchpoint), got {len(response.results)}"
+        total = sum(row[4] for row in response.results)
+        assert abs(total - 1.0) < 0.01, f"Linear weights should sum to ~1.0, got {total}"
+
+    def test_position_based_no_touchpoints_in_window_returns_no_rows(self):
+        # Touchpoint exists but outside the attribution window → 0 results
+        with freeze_time("2023-01-01"):
+            _create_person(distinct_ids=["outside_window_user"], team=self.team)
+            _create_event(
+                distinct_id="outside_window_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "old_ad", "utm_source": "google"},
+            )
+            flush_persons_and_events_in_batches()
+
+        # Conversion 1 year later — touchpoint is outside the 90-day window
+        with freeze_time("2024-01-01"):
+            _create_event(
+                distinct_id="outside_window_user",
+                event="purchase",
+                team=self.team,
+                properties={"revenue": 100},
+            )
+            flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="outside_window",
+            conversion_goal_name="Outside Window",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.POSITION_BASED
+        config.attribution_window_days = 90
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+
+        date_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-12-01")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # No touchpoints within the 90-day window → empty weights → ARRAY JOIN produces 0 rows.
+        # Without the n==0 guard in position-based weights, a phantom "organic" row appears
+        # because [1.0] weights produce 1 ARRAY JOIN row with empty UTM data.
+        assert len(response.results) == 0, (
+            f"Expected 0 results when touchpoints are outside attribution window, got {response.results}"
+        )
+
+    def test_time_decay_same_timestamp_produces_equal_weights(self):
+        # When all touchpoints share the exact same timestamp, exp(0) = 1 for each,
+        # producing equal weights (degrades to linear behavior).
+        timestamp = "2023-03-15 12:00:00"
+        with freeze_time(timestamp):
+            _create_person(distinct_ids=["same_ts_user"], team=self.team)
+            _create_event(
+                distinct_id="same_ts_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "campaign_a", "utm_source": "google"},
+            )
+            _create_event(
+                distinct_id="same_ts_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "campaign_b", "utm_source": "facebook"},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-03-20"):
+            _create_event(distinct_id="same_ts_user", event="purchase", team=self.team)
+            flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="same_ts_decay",
+            conversion_goal_name="Same TS Decay",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.TIME_DECAY
+        config.attribution_window_days = 90
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+        date_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-01")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 2, f"Expected 2 rows, got {len(response.results)}"
+        weights = [row[4] for row in response.results]
+        # Same timestamp → equal decay → equal weights (each ~0.5)
+        assert abs(weights[0] - weights[1]) < 0.01, f"Same-timestamp touchpoints should get equal weight, got {weights}"
+        assert abs(sum(weights) - 1.0) < 0.01, f"Weights should sum to ~1.0, got {sum(weights)}"
+
+    def test_position_based_duplicate_timestamps_normalizes_correctly(self):
+        # When two touchpoints share the same timestamp as min, both get 0.4 before
+        # normalization. With 3 touchpoints (two at min, one at max), pre-normalization
+        # sum = 0.4 + 0.4 + 0.4 = 1.2, which normalizes to 0.333 each.
+        with freeze_time("2023-03-01 12:00:00"):
+            _create_person(distinct_ids=["dup_ts_user"], team=self.team)
+            _create_event(
+                distinct_id="dup_ts_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "ad_1", "utm_source": "google"},
+            )
+            _create_event(
+                distinct_id="dup_ts_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "ad_2", "utm_source": "facebook"},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-03-15"):
+            _create_event(
+                distinct_id="dup_ts_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "ad_3", "utm_source": "email"},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-03-20"):
+            _create_event(distinct_id="dup_ts_user", event="purchase", team=self.team)
+            flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="dup_ts_position",
+            conversion_goal_name="Dup TS Position",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.POSITION_BASED
+        config.attribution_window_days = 90
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+        date_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-01")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 3, f"Expected 3 rows, got {len(response.results)}"
+        total = sum(row[4] for row in response.results)
+        # Normalization ensures weights sum to 1.0 regardless of duplicate timestamps
+        assert abs(total - 1.0) < 0.01, f"Weights should sum to ~1.0 after normalization, got {total}"
