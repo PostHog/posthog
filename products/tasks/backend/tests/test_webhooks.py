@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+from typing import ClassVar
 
 from unittest.mock import patch
 
@@ -29,30 +30,35 @@ def generate_github_signature(payload: bytes, secret: str) -> str:
 
 
 class TestGitHubPRWebhook(TestCase):
-    def setUp(self):
-        self.client = APIClient()
-        self.webhook_secret = "test-webhook-secret"
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
 
-        # Create test organization, team, and user
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create(email="test@example.com", distinct_id="user-123")
-
-        # Create a task and task run with a PR URL
-        self.task = Task.objects.create(
-            team=self.team,
-            created_by=self.user,
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="test@example.com", distinct_id="user-123")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            created_by=cls.user,
             title="Test Task",
             description="Test description",
             origin_product=Task.OriginProduct.USER_CREATED,
             repository="posthog/posthog",
         )
-        self.task_run = TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
+        cls.task_run = TaskRun.objects.create(
+            task=cls.task,
+            team=cls.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
         )
+
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
 
     def _make_webhook_request(self, payload: dict, event_type: str = "pull_request"):
         """Helper to make a webhook request with proper signature."""

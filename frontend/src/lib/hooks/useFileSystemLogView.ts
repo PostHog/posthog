@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 
 import api, { ApiConfig } from 'lib/api'
 
+import { recentItemsModel } from '~/models/recentItemsModel'
+
 type FileSystemLogViewType =
     | 'experiment'
     | 'feature_flag'
@@ -28,6 +30,7 @@ export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileS
         return
     }
 
+    recentItemsModel.findMounted()?.actions.recordView(type, String(ref))
     void api.fileSystemLogView.create({ type, ref: String(ref) })
 }
 

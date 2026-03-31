@@ -75,6 +75,7 @@ GITHUB_APP_SLUG=your-app-slug
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 
 # Optional: for local agent development (see step 8)
+# SANDBOX_PROVIDER=MODAL_DOCKER
 # LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
 ```
 
@@ -127,20 +128,42 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 To test changes to `@posthog/agent` before publishing:
 
 ```bash
-# Set this as an environment variable in the PostHog monorepo root (in your .env)
+# In your .env:
+SANDBOX_PROVIDER=MODAL_DOCKER
 LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
-
-# Build the @posthog/agent package OR run pnpm dev in Posthog Code
-cd /path/to/posthog-code/packages/agent && pnpm build
-
-OR
-
-pnpm dev
-
-# Run a task from the UI
 ```
 
-This builds a `posthog-sandbox-base-local` Docker image that overlays your local `packages/agent`, `packages/shared`, and `packages/git` onto the base image. The local image is rebuilt each time; the base image is cached. If you make changes to the base image, you can rebuild it.
+Then build the agent package and restart the temporal worker:
+
+```bash
+cd /path/to/posthog-code/packages/agent && pnpm build
+```
+
+### Sandbox providers
+
+| Provider          | `.env` value                    | When to use                                                                                                                                                                                                                                                                            |
+| ----------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modal` (default) | `SANDBOX_PROVIDER=modal`        | Production. Uses the published `@posthog/agent` npm package from the GHCR image.                                                                                                                                                                                                       |
+| `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development with Modal.** Same as `modal` but uses a separate Modal app (`posthog-sandbox-modal-docker-*`) so local image builds don't pollute the production app cache. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, the local agent packages are overlaid onto the image. |
+| `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed.                                                                                                                                                                                                         |
+
+### How `MODAL_DOCKER` works
+
+When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` are set:
+
+1. The Dockerfile is built in a temp context with your local `packages/agent`, `packages/shared`, and `packages/git` copied in
+2. `pnpm pack` + `pnpm install` replaces the published npm package with your local build
+3. The image is pushed to a separate Modal app (`posthog-sandbox-modal-docker-default`) so it doesn't affect production
+4. The first build takes a few minutes; subsequent builds reuse Modal's layer cache
+
+After changing agent-server code, rebuild and restart the worker:
+
+```bash
+cd /path/to/posthog-code/packages/agent && pnpm build
+```
+
+> **Note:** The build context is cached for the lifetime of the worker process (`lru_cache`).
+> You must restart the temporal worker to pick up new local package changes.
 
 ## Troubleshooting
 
