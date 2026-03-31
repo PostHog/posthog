@@ -6,8 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When, BooleanField, Exists, OuterRef
-from django.db.models.expressions import RawSQL
+from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When, Exists, OuterRef
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -309,20 +308,16 @@ class SignalReportViewSet(
         github_login = self._get_github_login(self.request.user)
         if github_login:
             # github_login comes from our own UserSocialAuth DB, not user input.
-            # RawSQL is parameterized — the login is bound via %s, not interpolated.
-            contains_login = RawSQL(
-                "content::jsonb @> %s::jsonb",
-                (json.dumps([{"github_login": github_login}]),),
-                output_field=BooleanField(),
-            )
+            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra
             qs = qs.annotate(
                 is_suggested_reviewer=Exists(
                     SignalReportArtefact.objects.filter(
                         report_id=OuterRef("id"),
                         type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                    ).extra(
+                        where=["content::jsonb @> %s::jsonb"],
+                        params=[json.dumps([{"github_login": github_login}])],
                     )
-                    .annotate(_has_login=contains_login)
-                    .filter(_has_login=True)
                 )
             )
         else:
