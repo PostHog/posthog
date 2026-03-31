@@ -125,7 +125,7 @@ class ClickHousePrinter(HogQLPrinter):
             if self.settings is None:
                 self.settings = HogQLGlobalSettings(enable_analyzer=True)
             elif self.settings.enable_analyzer is None:
-                self.settings.enable_analyzer = True
+                self.settings = self.settings.model_copy(update={"enable_analyzer": True})
 
         return super().visit_join_expr(node)
 

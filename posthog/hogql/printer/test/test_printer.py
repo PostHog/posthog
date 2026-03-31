@@ -1552,50 +1552,17 @@ class TestPrinter(BaseTest):
         self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
         self.assertIn(f"equals(e2.team_id, {self.team.pk})", where_clause)
 
-    def test_non_equality_join_enables_analyzer(self):
-        # Non-equality JOIN ON conditions (>=, <=, >, <, !=) require enable_analyzer=1
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        settings = HogQLGlobalSettings()
-
-        select_query = ast.SelectQuery(
-            select=[ast.Constant(value=1)],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-                next_join=ast.JoinExpr(
-                    join_type="LEFT JOIN",
-                    table=ast.Field(chain=["events"]),
-                    alias="e2",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.And(
-                            exprs=[
-                                ast.CompareOperation(
-                                    op=ast.CompareOperationOp.Eq,
-                                    left=ast.Field(chain=["events", "event"]),
-                                    right=ast.Field(chain=["e2", "event"]),
-                                ),
-                                ast.CompareOperation(
-                                    op=ast.CompareOperationOp.GtEq,
-                                    left=ast.Field(chain=["e2", "timestamp"]),
-                                    right=ast.Field(chain=["events", "timestamp"]),
-                                ),
-                            ]
-                        ),
-                        constraint_type="ON",
-                    ),
-                ),
-            ),
-        )
-
-        prepared = cast(
-            ast.SelectQuery,
-            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
-        )
-        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
-
-        self.assertIn("enable_analyzer=1", result)
-
-    def test_equality_only_join_does_not_enable_analyzer(self):
-        # Equality-only JOIN ON conditions should not force enable_analyzer
+    @parameterized.expand(
+        [
+            ("gte", ast.CompareOperationOp.GtEq, True),
+            ("gt", ast.CompareOperationOp.Gt, True),
+            ("lte", ast.CompareOperationOp.LtEq, True),
+            ("lt", ast.CompareOperationOp.Lt, True),
+            ("not_eq", ast.CompareOperationOp.NotEq, True),
+            ("eq", ast.CompareOperationOp.Eq, False),
+        ],
+    )
+    def test_join_analyzer_by_comparison_op(self, _name: str, op: ast.CompareOperationOp, expects_analyzer: bool):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         settings = HogQLGlobalSettings()
 
@@ -1609,7 +1576,7 @@ class TestPrinter(BaseTest):
                     alias="e2",
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
+                            op=op,
                             left=ast.Field(chain=["events", "event"]),
                             right=ast.Field(chain=["e2", "event"]),
                         ),
@@ -1625,7 +1592,10 @@ class TestPrinter(BaseTest):
         )
         result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
 
-        self.assertNotIn("enable_analyzer=1", result)
+        if expects_analyzer:
+            self.assertIn("enable_analyzer=1", result)
+        else:
+            self.assertNotIn("enable_analyzer=1", result)
 
     def test_select_array_join(self):
         self.assertEqual(
