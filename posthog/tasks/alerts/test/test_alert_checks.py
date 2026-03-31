@@ -1171,8 +1171,8 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
             ),
         ]
     )
-    @patch("posthog.tasks.alerts.checks.emit_slo_completed")
-    @patch("posthog.tasks.alerts.checks.emit_slo_started")
+    @patch("posthog.slo.context.emit_slo_completed")
+    @patch("posthog.slo.context.emit_slo_started")
     @patch("posthog.tasks.alerts.checks.check_alert")
     def test_slo_emits_correct_events(
         self,
@@ -1185,38 +1185,51 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
         mock_slo_started: MagicMock,
         mock_slo_completed: MagicMock,
     ) -> None:
-        mock_check_alert.return_value = None
         mock_check_alert.side_effect = side_effect
+        insight_id = 42
 
         if side_effect is not None:
             with pytest.raises(type(side_effect)):
-                check_alert_task(self.alert_id, self.team.id, calculation_interval)
+                check_alert_task(self.alert_id, self.team.id, calculation_interval, insight_id)
         else:
-            check_alert_task(self.alert_id, self.team.id, calculation_interval)
+            check_alert_task(self.alert_id, self.team.id, calculation_interval, insight_id)
 
-        mock_slo_started.assert_called_once_with(
-            distinct_id=self.alert_id,
-            properties=SloStartedProperties(
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.ALERT_CHECK,
-                team_id=self.team.id,
-                resource_id=self.alert_id,
-            ),
-            extra_properties={"calculation_interval": calculation_interval},
+        mock_slo_started.assert_called_once()
+        started_kwargs = mock_slo_started.call_args.kwargs
+        assert started_kwargs["distinct_id"] == self.alert_id
+        assert started_kwargs["properties"] == SloStartedProperties(
+            area=SloArea.ANALYTIC_PLATFORM,
+            operation=SloOperation.ALERT_CHECK,
+            team_id=self.team.id,
+            resource_id=self.alert_id,
         )
-        mock_slo_completed.assert_called_once_with(
-            distinct_id=self.alert_id,
-            properties=SloCompletedProperties(
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.ALERT_CHECK,
-                team_id=self.team.id,
-                resource_id=self.alert_id,
-                outcome=expected_outcome,
-                duration_ms=mock_slo_completed.call_args.kwargs["properties"].duration_ms,
-            ),
-            extra_properties={
-                "calculation_interval": calculation_interval,
-                **(expected_error_extra or {}),
-            },
+        assert started_kwargs["extra_properties"]["calculation_interval"] == calculation_interval
+        assert started_kwargs["extra_properties"]["insight_id"] == insight_id
+        assert "correlation_id" in started_kwargs["extra_properties"]
+        assert started_kwargs["capture"] is not None  # ph_scoped_capture callable
+
+        mock_slo_completed.assert_called_once()
+        completed_kwargs = mock_slo_completed.call_args.kwargs
+        assert started_kwargs["capture"] is completed_kwargs["capture"]  # same scoped client for both
+        assert completed_kwargs["distinct_id"] == self.alert_id
+        assert completed_kwargs["properties"] == SloCompletedProperties(
+            area=SloArea.ANALYTIC_PLATFORM,
+            operation=SloOperation.ALERT_CHECK,
+            team_id=self.team.id,
+            resource_id=self.alert_id,
+            outcome=expected_outcome,
+            duration_ms=completed_kwargs["properties"].duration_ms,
         )
+        assert (
+            completed_kwargs["extra_properties"]["correlation_id"]
+            == started_kwargs["extra_properties"]["correlation_id"]
+        )
+        assert completed_kwargs["extra_properties"]["calculation_interval"] == calculation_interval
+        assert completed_kwargs["extra_properties"]["insight_id"] == insight_id
+        for key, value in (expected_error_extra or {}).items():
+            assert completed_kwargs["extra_properties"][key] == value
+        if side_effect is not None:
+            assert completed_kwargs["extra_properties"]["error_origin"]
+        else:
+            assert "error_origin" not in completed_kwargs["extra_properties"]
         assert mock_slo_completed.call_args.kwargs["properties"].duration_ms >= 0

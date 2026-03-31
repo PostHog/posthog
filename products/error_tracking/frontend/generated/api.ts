@@ -1305,6 +1305,23 @@ export const errorTrackingSymbolSetsFinishUploadUpdate = async (
     })
 }
 
+export const getErrorTrackingSymbolSetsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/bulk_delete/`
+}
+
+export const errorTrackingSymbolSetsBulkDeleteCreate = async (
+    projectId: string,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
+}
+
 export const getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/symbol_sets/bulk_finish_upload/`
 }
@@ -1600,6 +1617,23 @@ export const errorTrackingSymbolSetsFinishUploadUpdate2 = async (
     return apiMutator<void>(getErrorTrackingSymbolSetsFinishUploadUpdate2Url(projectId, id), {
         ...options,
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
+}
+
+export const getErrorTrackingSymbolSetsBulkDeleteCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_delete/`
+}
+
+export const errorTrackingSymbolSetsBulkDeleteCreate2 = async (
+    projectId: string,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsBulkDeleteCreate2Url(projectId), {
+        ...options,
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(errorTrackingSymbolSetApi),
     })

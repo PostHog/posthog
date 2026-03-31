@@ -53,8 +53,6 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
     Cohort,
-    Dashboard,
-    DashboardTile,
     Filter,
     Insight,
     InsightViewed,
@@ -62,13 +60,15 @@ from posthog.models import (
     Person,
     SharingConfiguration,
     Team,
-    Text,
     User,
 )
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -92,8 +92,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["detail"], "Legacy insight endpoints are not available for this user.")
-        mock_feature_enabled.assert_called_once()
-        self.assertEqual(mock_feature_enabled.call_args[0][0], "legacy-insight-endpoints-disabled")
+        legacy_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-endpoints-disabled"
+        ]
+        self.assertEqual(len(legacy_calls), 1)
 
     def test_get_insight_items(self) -> None:
         filter_dict = {
@@ -2674,6 +2676,49 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # insight 3 is not included in response
         self.assertCountEqual(ids_in_response, [insight.id, insight2.id])
 
+    def test_get_recent_insights_with_feature_flag_query_based(self) -> None:
+        """Query-based insights store breakdown config in the query JSON field, not filters."""
+        query_with_flag = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                "breakdownFilter": {
+                    "breakdown_type": "event",
+                    "breakdown": "$feature/my-test-flag",
+                },
+            },
+        }
+        query_without_flag = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                "breakdownFilter": {
+                    "breakdown_type": "event",
+                    "breakdown": "email",
+                },
+            },
+        }
+
+        insight_with_flag = Insight.objects.create(
+            query=query_with_flag,
+            team=self.team,
+            short_id="query_flag1",
+        )
+        Insight.objects.create(
+            query=query_without_flag,
+            team=self.team,
+            short_id="query_noflag",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?feature_flag=my-test-flag")
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids_in_response = [r["id"] for r in response_data["results"]]
+        self.assertCountEqual(ids_in_response, [insight_with_flag.id])
+
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(
         self,
     ) -> None:
@@ -2840,6 +2885,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
 
         self.maxDiff = None
         assert activity == expected

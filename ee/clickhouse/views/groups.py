@@ -694,11 +694,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     def related(self, request: request.Request, pk=None, **kw) -> response.Response:
         group_type_index = request.GET.get("group_type_index")
         actor_id = request.GET.get("id")
-        variant = request.GET.get("variant", "control")
         if not actor_id:
             raise ValidationError({"id": ["This query parameter is required."]})
 
-        results = RelatedActorsQuery(self.team, group_type_index, actor_id).run(variant=variant)
+        results = RelatedActorsQuery(self.team, group_type_index, actor_id).run()
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])

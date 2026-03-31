@@ -7,7 +7,7 @@ import { pluralize } from 'lib/utils'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { DashboardTemplateChooser } from './DashboardTemplateChooser'
+import { DashboardTemplateChooser } from './dashboards/templates/DashboardTemplateChooser'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 
@@ -17,6 +17,7 @@ export function NewDashboardModal(): JSX.Element {
         useActions(newDashboardLogic)
     const { newDashboardModalVisible, activeDashboardTemplate, variableSelectModalVisible } =
         useValues(newDashboardLogic)
+
     const { variables } = useValues(dashboardTemplateVariablesLogic)
 
     const templatesLogic = dashboardTemplatesLogic({

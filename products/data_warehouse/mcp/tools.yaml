@@ -7,6 +7,7 @@
 category: Data warehouse
 feature: data_warehouse
 url_prefix: /sql
+ui_apps: {}
 tools:
     fix-hogql-retrieve:
         operation: fix_hogql_retrieve
@@ -159,7 +160,6 @@ tools:
             List all data warehouse saved queries (views) in the project. Returns each view's name, materialization
             status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available
             views before querying them in HogQL.
-
     view-create:
         operation: warehouse_saved_queries_create
         enabled: true
@@ -213,7 +213,6 @@ tools:
         description: >
             Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL
             query, column schema, materialization status, sync frequency, and run history metadata.
-
     warehouse-saved-queries-update:
         operation: warehouse_saved_queries_update
         enabled: false
@@ -353,7 +352,6 @@ tools:
         description: >
             Get the 5 most recent materialization run statuses for a saved query. Each entry includes the run status and
             timestamp. Use this to monitor whether materialization is running successfully.
-
     warehouse-saved-queries-resume-schedules-create:
         operation: warehouse_saved_queries_resume_schedules_create
         enabled: false

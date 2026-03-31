@@ -8,14 +8,12 @@ import {
     ProxyRecordsRetrieveParams,
     ProxyRecordsRetryCreateParams,
 } from '@/generated/proxy-records/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ProxyListSchema = z.object({})
 
-const proxyList = (): ToolBase<
-    typeof ProxyListSchema,
-    Schemas.ProxyRecordListResponse[] & { _posthogUrl: string }
-> => ({
+const proxyList = (): ToolBase<typeof ProxyListSchema, WithPostHogUrl<Schemas.ProxyRecordListResponse[]>> => ({
     name: 'proxy-list',
     schema: ProxyListSchema,
     // eslint-disable-next-line no-unused-vars
@@ -25,10 +23,7 @@ const proxyList = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${orgId}/proxy_records/`,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl('@current')}/settings/organization-proxy`,
-        }
+        return await withPostHogUrl(context, result, '/settings/organization-proxy')
     },
 })
 

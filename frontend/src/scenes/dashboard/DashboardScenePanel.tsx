@@ -152,6 +152,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                             keybind={[keyBinds.edit]}
                             intent="Toggle edit mode"
                             interaction="click"
+                            disabled={tiles.length === 0 && dashboardMode !== DashboardMode.Edit}
                         >
                             <ButtonPrimitive
                                 onClick={() => {
@@ -167,6 +168,11 @@ export function DashboardScenePanel(): JSX.Element | null {
                                 data-attr={`${RESOURCE_TYPE}-edit-layout`}
                                 tooltip="Toggle edit mode"
                                 tooltipPlacement="left"
+                                disabled={tiles.length === 0 && dashboardMode !== DashboardMode.Edit}
+                                disabledReasons={{
+                                    'Add at least one tile to edit layout':
+                                        tiles.length === 0 && dashboardMode !== DashboardMode.Edit,
+                                }}
                             >
                                 <IconGridMasonry />
                                 {currentLayoutSize === 'xs' ? 'Edit dashboard' : 'Edit layout'}

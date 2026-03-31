@@ -51,12 +51,27 @@ procs:
         ready_pattern: 'All systems go'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, error_tracking, traces, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
+
+    ingestion-errortracking:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
+        capability: nodejs_error_tracking
+        ready_pattern: 'All systems go'
 
     ingestion:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
         capability: event_ingestion
+        ready_pattern: 'All systems go'
+
+    ingestion-sessionreplay:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recordings-blob-ingestion-v2 HTTP_SERVER_PORT=6740 ./bin/posthog-node'
+        capability: nodejs_session_replay
+        ready_pattern: 'All systems go'
+
+    recording-api:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recording-api HTTP_SERVER_PORT=6741 ./bin/posthog-node'
+        capability: nodejs_session_replay
         ready_pattern: 'All systems go'
 
     frontend:
@@ -83,6 +98,11 @@ procs:
             fi
         capability: temporal_workflows
 
+    stripe-mock:
+        shell: 'bin/start-stripe-mock'
+        capability: stripe_mock
+        ready_pattern: 'Application startup complete'
+
     recording-rasterizer:
         shell: |-
             bin/wait-for-docker temporal && \
@@ -105,7 +125,7 @@ procs:
         ready_pattern: 'Launching Dagster services'
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f'
+        shell: 'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox: infra managed by docker compose externally" && echo "docker-compose ready" && sleep infinity; else docker compose -f docker-compose.dev.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f; fi'
         capability: core_infra
         ready_pattern: 'docker-compose ready'
 
@@ -258,6 +278,15 @@ procs:
             ./manage.py sync_feature_flags
         autostart: false
         ready_pattern: 'Feature flag sync complete'
+        # no capability - manual start
+
+    sync-hog-function-templates:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/check_ducklake_up && \
+            ./manage.py sync_hog_function_templates
+        autostart: false
+        ready_pattern: 'Hog function template sync complete'
         # no capability - manual start
 
     storybook:

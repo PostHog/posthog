@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
@@ -41,6 +41,8 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         setMaterializationType: (materializationType: 'materialized' | 'inline' | null) => ({ materializationType }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setBreakdownBy: (breakdownBy: EndpointsUsageBreakdown | null) => ({ breakdownBy }),
+        refresh: true,
+        clearCooldown: true,
     }),
 
     reducers({
@@ -77,6 +79,19 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                 setBreakdownBy: (_, { breakdownBy }) => breakdownBy,
             },
         ],
+        cooldownActive: [
+            false,
+            {
+                refresh: () => true,
+                clearCooldown: () => false,
+            },
+        ],
+        refreshKey: [
+            0,
+            {
+                refresh: (state) => state + 1,
+            },
+        ],
     }),
 
     selectors({
@@ -89,6 +104,7 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                     .sort(),
         ],
         endpointNamesLoading: [(s) => [s.allEndpointsLoading], (loading: boolean): boolean => loading],
+        canRefresh: [(s) => [s.cooldownActive], (cooldownActive: boolean): boolean => !cooldownActive],
         dateRange: [
             (s) => [s.dateFilter],
             (dateFilter): { date_from: string | null; date_to: string | null } => {
@@ -191,6 +207,17 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
             }),
         ],
     }),
+
+    listeners(({ actions }) => ({
+        refresh: () => {
+            setTimeout(
+                () => {
+                    actions.clearCooldown()
+                },
+                15 * 60 * 1000
+            )
+        },
+    })),
 
     tabAwareActionToUrl(({ values }) => {
         const actionToUrl = ({

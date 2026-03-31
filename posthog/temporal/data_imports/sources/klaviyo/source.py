@@ -62,7 +62,6 @@ Make sure to grant the following read permissions:
                     ),
                 ],
             ),
-            featureFlag="dwh_klaviyo",
         )
 
     def get_schemas(

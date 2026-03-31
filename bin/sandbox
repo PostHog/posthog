@@ -1,0 +1,1121 @@
+#!/usr/bin/env python3
+"""
+Manages isolated dev sandboxes — each branch gets its own
+Docker Compose project with fully independent infrastructure.
+
+Usage: sandbox <command> [arguments]
+Run `sandbox --help` for details.
+
+Managed by bin/sandbox — not intended for direct invocation of
+docker-compose.sandbox.yml. See `sandbox --help` for usage.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import webbrowser
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import NoReturn
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
+WORKTREE_CMD = REPO_ROOT / "bin" / "posthog-worktree"
+
+REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
+REGISTRY_FILE = REGISTRY_DIR / "registry.json"
+CONFIG_FILE = REGISTRY_DIR / "config.json"
+
+PORT_BASE = 48001
+
+INFRA_SERVICES = [
+    "db",
+    "redis7",
+    "clickhouse",
+    "kafka",
+    "zookeeper",
+    "objectstorage",
+    "elasticsearch",
+    "temporal",
+]
+
+DB_CACHE_VOLUME = "sandbox-db-cache"
+
+SHARED_VOLUMES = [
+    "sandbox-uv-cache",
+    "sandbox-pnpm-store",
+    DB_CACHE_VOLUME,
+    "sandbox-cargo-target",
+    "sandbox-intellij",
+    "sandbox-pycharm",
+]
+
+# These need 777 so that containers running as different UIDs
+# (clickhouse=101, app=host UID) can all write.
+WORLD_WRITABLE_VOLUMES = [
+    DB_CACHE_VOLUME,
+    "sandbox-cargo-target",
+    "sandbox-intellij",
+    "sandbox-pycharm",
+]
+
+SANDBOX_BACKUP_XML = REPO_ROOT / "docker/clickhouse/config.d/sandbox-backup.xml"
+
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+_COLORS = {"red": "31", "green": "32", "yellow": "33", "blue": "34"}
+
+
+def _colored(color: str, text: str, *, stream: object = sys.stdout) -> str:
+    if not hasattr(stream, "isatty") or not stream.isatty():
+        return text
+    code = _COLORS.get(color, "0")
+    return f"\033[{code}m{text}\033[0m"
+
+
+def _ts() -> str:
+    return time.strftime("%H:%M:%S", time.gmtime())
+
+
+def info(msg: str) -> None:
+    print(f"[{_ts()}] {_colored('blue', msg)}")
+
+
+def success(msg: str) -> None:
+    print(f"[{_ts()}] {_colored('green', f'✓ {msg}')}")
+
+
+def warn(msg: str) -> None:
+    print(f"[{_ts()}] {_colored('yellow', f'Warning: {msg}', stream=sys.stderr)}", file=sys.stderr)
+
+
+def error(msg: str) -> None:
+    print(f"[{_ts()}] {_colored('red', f'Error: {msg}', stream=sys.stderr)}", file=sys.stderr)
+
+
+def fatal(msg: str) -> NoReturn:
+    error(msg)
+    sys.exit(1)
+
+
+def dump_container_logs(container: str, *, tail: int = 200) -> None:
+    """Print the last N lines of a container's logs (both stdout and stderr)."""
+    logs = run(
+        ["docker", "logs", "--tail", str(tail), container],
+        check=False, capture=True,
+    )
+    for line in (logs.stdout or "").strip().splitlines():
+        print(f"  {line}")
+    for line in (logs.stderr or "").strip().splitlines():
+        print(f"  {line}")
+
+
+# ---------------------------------------------------------------------------
+# Registry — persistent JSON store at ~/.posthog-sandboxes/registry.json
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SandboxEntry:
+    slug: str
+    port: int
+    worktree: str
+
+
+class Registry:
+    """Process-safe JSON registry of sandbox metadata.
+
+    Uses file locking so concurrent `sandbox create` calls
+    cannot allocate the same port.
+    """
+
+    def __init__(self, path: Path = REGISTRY_FILE) -> None:
+        self._path = path
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._path.exists():
+            self._path.write_text("{}\n")
+
+    @contextmanager
+    def _locked(self):
+        """Acquire an exclusive lock for read-modify-write operations."""
+        with open(self._path, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                yield f
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+
+    def _read(self) -> dict[str, dict]:
+        try:
+            return json.loads(self._path.read_text())
+        except (json.JSONDecodeError, FileNotFoundError):
+            return {}
+
+    def _write(self, f, data: dict) -> None:
+        f.seek(0)
+        f.truncate()
+        json.dump(data, f, indent=2)
+        f.write("\n")
+
+    def list_all(self) -> dict[str, SandboxEntry]:
+        return {branch: SandboxEntry(**entry) for branch, entry in self._read().items()}
+
+    def get(self, branch: str) -> SandboxEntry | None:
+        entry = self._read().get(branch)
+        return SandboxEntry(**entry) if entry else None
+
+    def allocate(self, branch: str, slug: str, worktree: str) -> SandboxEntry:
+        """Atomically allocate a port and save the entry under the file lock."""
+        with self._locked() as f:
+            data = json.loads(f.read() or "{}")
+            used = {e["port"] for e in data.values() if "port" in e}
+            port = PORT_BASE
+            while port in used:
+                port += 1
+            entry = SandboxEntry(slug=slug, port=port, worktree=worktree)
+            data[branch] = asdict(entry)
+            self._write(f, data)
+            return entry
+
+    def save(self, branch: str, entry: SandboxEntry) -> None:
+        with self._locked() as f:
+            data = json.loads(f.read() or "{}")
+            data[branch] = asdict(entry)
+            self._write(f, data)
+
+    def remove(self, branch: str) -> None:
+        with self._locked() as f:
+            data = json.loads(f.read() or "{}")
+            data.pop(branch, None)
+            self._write(f, data)
+
+
+# ---------------------------------------------------------------------------
+# Shell / Docker helpers
+# ---------------------------------------------------------------------------
+
+
+def run(
+    cmd: list[str],
+    *,
+    check: bool = True,
+    capture: bool = False,
+    env_extra: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    """Run a subprocess, optionally merging extra env vars."""
+    full_env = {**os.environ, **(env_extra or {})} if env_extra else None
+    return subprocess.run(
+        cmd,
+        check=check,
+        capture_output=capture,
+        text=capture,
+        env=full_env,
+    )
+
+
+def slugify(branch: str) -> str:
+    return re.sub(r"[^a-z0-9-]", "-", branch.lower().replace("/", "-"))
+
+
+def project_name(slug: str) -> str:
+    return f"sandbox-{slug}"
+
+
+def _claude_auth_dir() -> str:
+    """Assemble only the Claude Code files needed to authenticate and configure."""
+    auth_dir = REGISTRY_DIR / "claude-auth"
+    auth_dir.mkdir(parents=True, exist_ok=True)
+    claude_dir = Path.home() / ".claude"
+    for filename in ("settings.json", "settings.local.json"):
+        src = claude_dir / filename
+        if src.exists():
+            shutil.copy2(src, auth_dir / filename)
+
+    # Claude Code credentials: check disk first, fall back to macOS keychain.
+    creds_file = auth_dir / ".credentials.json"
+    creds_src = claude_dir / ".credentials.json"
+    if creds_src.exists():
+        shutil.copy2(creds_src, creds_file)
+    elif sys.platform == "darwin":
+        result = run(
+            ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            check=False, capture=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            creds_file.write_text(result.stdout.strip())
+
+    return str(auth_dir)
+
+
+def _ssh_authorized_keys_path() -> str:
+    """Collect SSH public keys into a file that can be mounted into containers."""
+    keys_file = REGISTRY_DIR / "authorized_keys"
+    ssh_dir = Path.home() / ".ssh"
+    keys = []
+    if ssh_dir.is_dir():
+        for pub in ssh_dir.glob("*.pub"):
+            keys.append(pub.read_text().strip())
+    keys_file.write_text("\n".join(keys) + "\n" if keys else "")
+    return str(keys_file)
+
+
+def _load_config() -> dict:
+    """Load persistent user preferences from ~/.posthog-sandboxes/config.json."""
+    try:
+        return json.loads(CONFIG_FILE.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_config(config: dict) -> None:
+    CONFIG_FILE.write_text(json.dumps(config, indent=2) + "\n")
+
+
+JETBRAINS_PRODUCTS = {
+    "intellij": {"code": "IIU", "key": "IIU", "name": "IntelliJ IDEA Ultimate"},
+    "pycharm": {"code": "PCP", "key": "PCP", "name": "PyCharm Professional"},
+}
+
+
+def _setup_jetbrains(product: str) -> None:
+    """Download a JetBrains IDE and populate the shared volume."""
+    meta = JETBRAINS_PRODUCTS[product]
+    info(f"Fetching latest {meta['name']} release info...")
+    api_url = f"https://data.services.jetbrains.com/products/releases?code={meta['code']}&latest=true&type=release"
+    result = run(["curl", "-sfL", api_url], capture=True)
+    data = json.loads(result.stdout)
+
+    release = data[meta["key"]][0]
+    version = release["version"]
+    # Check Docker's architecture, not the host's — macOS ARM may run amd64 containers
+    docker_arch = run(
+        ["docker", "info", "--format", "{{.Architecture}}"],
+        capture=True,
+    ).stdout.strip()
+    arch = "linuxARM64" if docker_arch == "aarch64" else "linux"
+    download = release["downloads"][arch]
+    download_url = download["link"]
+    size_mb = download["size"] // (1024 * 1024)
+
+    volume = f"sandbox-{product}"
+    info(f"Downloading {meta['name']} {version} ({size_mb} MB)...")
+    run([
+        "docker", "run", "--rm",
+        "-v", f"{volume}:/opt/idea",
+        "alpine", "sh", "-c",
+        f"apk add --no-cache curl && "
+        f"curl -fSL '{download_url}' | tar -xzf - -C /opt/idea --strip-components=1",
+    ])
+
+    success(f"{meta['name']} {version} installed into sandbox-{product} volume")
+
+
+def _ensure_jetbrains() -> None:
+    """Prompt for JetBrains IDE preference on first run and download if needed."""
+    config = _load_config()
+
+    if "jetbrains" not in config:
+        while True:
+            answer = input("Do you use JetBrains for development? (P)yCharm / (I)ntelliJ / (N)o: ").strip().lower()
+            if answer in ("p", "pycharm"):
+                config["jetbrains"] = "pycharm"
+                break
+            elif answer in ("i", "intellij"):
+                config["jetbrains"] = "intellij"
+                break
+            elif answer in ("n", "no"):
+                config["jetbrains"] = None
+                break
+            else:
+                print("Please enter P, I, or N.")
+        _save_config(config)
+
+    if not config.get("jetbrains"):
+        return
+
+    wanted = config["jetbrains"]
+    volume = f"sandbox-{wanted}"
+
+    # Check if the volume is already populated
+    result = run(
+        ["docker", "run", "--rm", "-v", f"{volume}:/opt/idea",
+         "alpine", "sh", "-c", "test -x /opt/idea/bin/remote-dev-server.sh && echo yes"],
+        capture=True, check=False,
+    )
+    if result.stdout.strip() == "yes":
+        return
+
+    _setup_jetbrains(wanted)
+
+
+def _compose_env(port: int, worktree_path: str) -> dict[str, str]:
+    """Env vars threaded through every docker compose invocation."""
+    config = _load_config()
+    ide = config.get("jetbrains")
+    return {
+        "SANDBOX_PORT": str(port),
+        "SANDBOX_VITE_PORT": str(port + 1000),
+        "SANDBOX_SSH_PORT": str(port + 2000),
+        "SANDBOX_SSH_AUTHORIZED_KEYS": _ssh_authorized_keys_path(),
+        "SANDBOX_CLAUDE_AUTH": _claude_auth_dir(),
+        "SANDBOX_IDE_VOLUME": f"sandbox-{ide}" if ide else "sandbox-intellij",
+        "SANDBOX_CODE": worktree_path,
+        "SANDBOX_UID": str(os.getuid()),
+        "SANDBOX_GID": str(os.getgid()),
+        "SANDBOX_GIT_DIR": str(REPO_ROOT / ".git"),
+        "SANDBOX_CLAUDE_JSON": str(_claude_json) if (_claude_json := Path.home() / ".claude.json").is_file() else "/dev/null",
+    }
+
+
+def compose(
+    project: str,
+    port: int,
+    worktree_path: str,
+    *args: str,
+    check: bool = True,
+    capture: bool = False,
+) -> subprocess.CompletedProcess:
+    """Run `docker compose` with sandbox env vars."""
+    return run(
+        ["docker", "compose", "--progress=quiet", "-p", project, "-f", str(COMPOSE_FILE), *args],
+        check=check,
+        capture=capture,
+        env_extra=_compose_env(port, worktree_path),
+    )
+
+
+def docker_volume_run(volume: str, shell_cmd: str) -> None:
+    """Run a one-shot alpine container with a volume mounted at /data."""
+    run(["docker", "run", "--rm", "-v", f"{volume}:/data", "alpine", "sh", "-c", shell_cmd], capture=True)
+
+
+def clear_volume(volume: str) -> None:
+    """Delete all contents of a Docker volume."""
+    docker_volume_run(volume, "find /data -mindepth 1 -delete")
+
+
+def wait_for_health(
+    url: str,
+    container: str,
+    *,
+    timeout: int = 1800,
+    interval: int = 2,
+) -> bool:
+    """Poll a URL until HTTP 200, showing entrypoint progress and detecting crash loops."""
+    elapsed = 0
+    prev_restart_count: int | None = None
+    seen_steps: set[str] = set()
+
+    while elapsed < timeout:
+        result = run(["curl", "-sf", url], check=False, capture=True)
+        if result.returncode == 0:
+            return True
+
+        # Detect crash loops via restart count
+        inspect = run(
+            ["docker", "inspect", "--format", "{{.RestartCount}}", container],
+            check=False, capture=True,
+        )
+        restart_count = int(inspect.stdout.strip() or "0") if inspect.returncode == 0 else 0
+        if prev_restart_count is not None and restart_count > prev_restart_count:
+            print()
+            error(f"App container is crash-looping (restart #{restart_count}). Last logs:")
+            dump_container_logs(container)
+            return False
+        prev_restart_count = restart_count
+
+        # Read entrypoint progress from a dedicated file (not docker logs,
+        # which contains the raw PTY stream including phrocs TUI output).
+        progress = run(
+            ["docker", "exec", container, "cat", "/tmp/sandbox-progress"],
+            check=False, capture=True,
+        )
+        for line in (progress.stdout or "").splitlines():
+            step = line.strip()
+            if step and step not in seen_steps:
+                seen_steps.add(step)
+                print(f"  {step}")
+
+        time.sleep(interval)
+        elapsed += interval
+
+    print()
+    error(f"Container {container} did not become healthy within {timeout}s. Last logs:")
+    dump_container_logs(container)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Git worktree helpers
+# ---------------------------------------------------------------------------
+
+
+def find_worktree(branch: str) -> str | None:
+    """Return the filesystem path of an existing worktree for *branch*, or None."""
+    result = run(["git", "worktree", "list", "--porcelain"], capture=True, check=False)
+    # Porcelain format: blocks separated by blank lines, each block has
+    # "worktree <path>", "branch refs/heads/<name>", etc.
+    current_path: str | None = None
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            current_path = line[len("worktree "):]
+        elif line == f"branch refs/heads/{branch}":
+            return current_path
+    return None
+
+
+def ensure_worktree(branch: str, base_branch: str) -> str:
+    """Create or find a git worktree. Returns its absolute path."""
+    existing = find_worktree(branch)
+    if existing:
+        info(f"Reusing existing worktree at {existing}")
+        return existing
+
+    run(["git", "fetch", "origin", "--quiet"])
+    run(
+        ["git", "update-ref", f"refs/heads/{base_branch}", f"origin/{base_branch}"],
+        check=False,
+    )
+
+    has_branch = any(
+        run(["git", "show-ref", "--verify", "--quiet", ref], check=False).returncode == 0
+        for ref in [f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"]
+    )
+
+    if has_branch:
+        info(f"Checking out existing branch {branch}...")
+        run([str(WORKTREE_CMD), "checkout", branch])
+    else:
+        info(f"Creating new branch {branch} from {base_branch}...")
+        run([str(WORKTREE_CMD), "create", branch, base_branch])
+
+    path = find_worktree(branch)
+    if not path:
+        fatal(f"Worktree not found for branch '{branch}'")
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Database cache
+# ---------------------------------------------------------------------------
+
+
+def _is_cache_ready() -> bool:
+    result = run(
+        [
+            "docker", "run", "--rm",
+            "-v", f"{DB_CACHE_VOLUME}:/cache:ro",
+            "alpine", "sh", "-c",
+            "[ -f /cache/.cache-ready ] && echo yes || echo no",
+        ],
+        capture=True,
+        check=False,
+    )
+    return result.stdout.strip() == "yes"
+
+
+def _ensure_cache_volumes() -> None:
+    """Create shared Docker volumes and set permissions."""
+    for vol in SHARED_VOLUMES:
+        run(["docker", "volume", "create", vol], capture=True, check=False)
+    for vol in WORLD_WRITABLE_VOLUMES:
+        docker_volume_run(vol, "chmod 777 /data")
+
+
+def _copy_sandbox_backup_xml(worktree_path: str) -> None:
+    """Ensure ClickHouse backup config exists in the worktree."""
+    dest_dir = Path(worktree_path) / "docker/clickhouse/config.d"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(SANDBOX_BACKUP_XML, dest_dir / "sandbox-backup.xml")
+
+
+def _init_cache_cleanup(port: int, worktree: str) -> None:
+    info("Cleaning up cache init containers...")
+    compose("sandbox-cache-init", port, worktree, "down", "-v", check=False, capture=True)
+    shutil.rmtree(worktree, ignore_errors=True)
+    run(["git", "worktree", "prune"], check=False)
+
+
+def init_cache_from_master() -> None:
+    """Boot a temporary master stack, generate demo data, and snapshot both databases."""
+    info("No database cache found. Building from master (one-time setup, ~10 min)...")
+
+    init_project = "sandbox-cache-init"
+    init_port = 47999
+    init_worktree = "/tmp/sandbox-cache-init"
+
+    # Tear down any leftover containers/volumes from a previous interrupted run
+    _init_cache_cleanup(init_port, init_worktree)
+
+    run(["git", "fetch", "origin", "--quiet"], capture=True)
+    # Use the PR branch for cache init if it exists (for testing before merge),
+    # otherwise fall back to master.
+    cache_branch = "origin/aspicer/sandbox-dev-environment-wip"
+    if run(["git", "rev-parse", "--verify", cache_branch], check=False, capture=True).returncode != 0:
+        cache_branch = "origin/master"
+    if run(["git", "worktree", "add", "--force", "--detach", init_worktree, cache_branch], check=False, capture=True).returncode != 0:
+        fatal("Could not check out cache branch for cache init.")
+
+    try:
+        _copy_sandbox_backup_xml(init_worktree)
+        info("Building and starting containers...")
+        compose(init_project, init_port, init_worktree, "up", "-d", "--build", capture=True)
+
+        info("Waiting for master to boot...")
+        if not wait_for_health(f"http://localhost:{init_port}/_health", f"{init_project}-app-1"):
+            fatal("Cache init failed. See logs above.")
+
+        # Snapshot postgres (stop first for consistency)
+        info("Snapshotting databases...")
+        compose(init_project, init_port, init_worktree, "stop", "db", capture=True)
+        run([
+            "docker", "run", "--rm",
+            "-v", f"{init_project}_postgres-data:/src:ro",
+            "-v", f"{DB_CACHE_VOLUME}:/dst",
+            "alpine", "sh", "-c", "rm -rf /dst/postgres && cp -a /src /dst/postgres",
+        ], capture=True)
+
+        # Snapshot ClickHouse
+        ch = f"{init_project}-clickhouse-1"
+        if run(["docker", "exec", ch, "clickhouse-client", "--query",
+                "BACKUP DATABASE posthog TO Disk('sandbox_cache', 'posthog/')"], check=False, capture=True).returncode != 0:
+            fatal("ClickHouse backup failed during cache init.")
+
+        # Record migration versions for staleness detection
+        run([
+            "docker", "run", "--rm",
+            "-v", f"{init_worktree}:/src:ro",
+            "-v", f"{DB_CACHE_VOLUME}:/dst",
+            "alpine", "sh", "-c", """
+                mkdir -p /dst/migrations
+                find /src -name max_migration.txt -not -path '*/node_modules/*' | while read f; do
+                    key=$(echo "$f" | sed 's|^/src/||;s|/max_migration.txt||;s|/|__|g')
+                    cp "$f" "/dst/migrations/${key}"
+                done
+                touch /dst/.cache-ready
+            """,
+        ], capture=True)
+    finally:
+        _init_cache_cleanup(init_port, init_worktree)
+
+    success("Database cache built from master.")
+
+
+def check_migration_staleness(worktree_path: str) -> str | None:
+    """Compare cached migration versions against the branch.
+
+    Returns a human-readable description of stale migrations, or None if fresh.
+    """
+    result = run(
+        [
+            "docker", "run", "--rm",
+            "-v", f"{DB_CACHE_VOLUME}:/cache:ro",
+            "alpine", "sh", "-c",
+            'for f in /cache/migrations/*; do '
+            '  key=$(basename "$f"); '
+            '  num=$(grep -oE "^[0-9]+" "$f" 2>/dev/null || echo 0); '
+            '  printf "%s\\t%s\\n" "$key" "$num"; '
+            "done",
+        ],
+        capture=True,
+        check=False,
+    )
+
+    behind: list[str] = []
+    for line in result.stdout.strip().splitlines():
+        if "\t" not in line:
+            continue
+        key, cached_num_str = line.split("\t", 1)
+        cached_num = int(cached_num_str)
+
+        branch_file = Path(worktree_path) / key.replace("__", "/") / "max_migration.txt"
+        branch_num = 0
+        if branch_file.exists():
+            match = re.match(r"^(\d+)", branch_file.read_text())
+            if match:
+                branch_num = int(match.group(1))
+
+        if cached_num > branch_num:
+            label = key.replace("__", "/")
+            behind.append(f"  {label}: cache={cached_num} branch={branch_num}")
+
+    return "\n".join(behind) if behind else None
+
+
+def _prompt_migration_choice(stale_info: str) -> str:
+    """Ask the user what to do about stale migrations.
+
+    Auto-selects 'c' after 10 seconds if no input is given.
+    """
+    import select
+
+    warn("The cache has newer migrations than your branch:")
+    print(stale_info)
+    print("This can cause issues if those migrations deleted or renamed columns.")
+    print()
+    print("  [c] Use cache anyway (usually fine for small differences)")
+    print("  [f] Skip cache and build from scratch (~10 min)")
+    print("  [q] Quit and merge master first")
+    print()
+
+    timeout = 10
+    while timeout > 0:
+        print(f"\rChoice [c/f/q] (auto-selecting c in {timeout}s): ", end="", flush=True)
+        ready, _, _ = select.select([sys.stdin], [], [], 1)
+        if ready:
+            choice = sys.stdin.readline().strip().lower()
+            if choice in ("c", "f", "q"):
+                return choice
+            print("Please enter c, f, or q.")
+        timeout -= 1
+
+    print("\rAuto-selecting: use cache anyway.                    ")
+    return "c"
+
+
+# ---------------------------------------------------------------------------
+# Service startup helpers
+# ---------------------------------------------------------------------------
+
+
+def _wait_for_clickhouse(project: str, timeout: int = 120) -> None:
+    info("Waiting for ClickHouse to be ready...")
+    container = f"{project}-clickhouse-1"
+    attempts = timeout // 2
+    result = run(
+        ["docker", "exec", container, "sh", "-c",
+         f"for i in $(seq 1 {attempts}); do "
+         "clickhouse-client --query 'SELECT 1' 2>/dev/null && exit 0; "
+         "sleep 2; done; exit 1"],
+        check=False, capture=True,
+    )
+    if result.returncode != 0:
+        warn("ClickHouse did not become ready within timeout -- continuing anyway.")
+
+
+def _restore_and_start(
+    project: str, port: int, worktree_path: str, use_cache: bool
+) -> None:
+    """Restore databases from cache (if available) and bring up the stack."""
+    vite_port = port + 1000
+
+    if not use_cache:
+        info("Building and starting containers...")
+        compose(project, port, worktree_path, "up", "-d", "--build", capture=True)
+        return
+
+    # Restore postgres from volume snapshot
+    info("Restoring Postgres from cache...")
+    run([
+        "docker", "run", "--rm",
+        "-v", f"{DB_CACHE_VOLUME}:/src:ro",
+        "-v", f"{project}_postgres-data:/dst",
+        "alpine", "sh", "-c", "cp -a /src/postgres/. /dst/",
+    ], capture=True)
+
+    # Start infra first — we need ClickHouse up before restoring its backup,
+    # and both must finish before the app runs migrations.
+    info("Starting infrastructure...")
+    compose(project, port, worktree_path, "up", "-d", *INFRA_SERVICES, capture=True)
+
+    _wait_for_clickhouse(project)
+
+    info("Restoring ClickHouse from cache...")
+    ch = f"{project}-clickhouse-1"
+    result = run(
+        ["docker", "exec", ch, "clickhouse-client", "--query",
+         "RESTORE DATABASE posthog FROM Disk('sandbox_cache', 'posthog/')"],
+        check=False, capture=True,
+    )
+    if result.returncode == 0:
+        info("ClickHouse restored.")
+    else:
+        warn("ClickHouse restore failed — migrations will recreate tables.")
+
+    # Drop the cached DuckLake catalog — the extension version in the cache
+    # may not match the branch's extension, causing check_ducklake_up to
+    # spin forever. It gets recreated automatically on first boot.
+    db = f"{project}-db-1"
+    run(["docker", "exec", db, "psql", "-U", "posthog", "-c", "DROP DATABASE IF EXISTS ducklake"],
+        check=False, capture=True)
+
+    # Now start the app + proxy on top of restored infra
+    info("Building and starting app...")
+    compose(project, port, worktree_path, "up", "-d", "--build", capture=True)
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_create(branch: str, base_branch: str = "master") -> None:
+    registry = Registry()
+    slug = slugify(branch)
+    project = project_name(slug)
+
+    existing = registry.get(branch)
+    if existing:
+        error(f"Sandbox already exists for branch '{branch}' on port {existing.port}")
+        print(f"Use 'sandbox start {branch}' to start it, or 'sandbox destroy {branch}' first.")
+        sys.exit(1)
+
+    worktree_path = ensure_worktree(branch, base_branch)
+
+    if Path(worktree_path).resolve() == REPO_ROOT.resolve():
+        fatal(
+            f"Cannot create a sandbox on the branch currently checked out in the main repo.\n"
+            f"  Either check out a different branch first, or create the sandbox on a new branch:\n"
+            f"  sandbox create my-feature-branch"
+        )
+
+    if not (Path(worktree_path) / "manage.py").exists():
+        fatal(f"Worktree at {worktree_path} does not contain PostHog code")
+
+    # Atomically allocate a port and register — prevents races between
+    # concurrent `sandbox create` calls.
+    entry = registry.allocate(branch, slug, worktree_path)
+    port = entry.port
+    _ensure_cache_volumes()
+    _ensure_jetbrains()
+    _copy_sandbox_backup_xml(worktree_path)
+
+    # Build or verify the database cache
+    cache_ready = _is_cache_ready()
+    if not cache_ready:
+        init_cache_from_master()
+        cache_ready = True
+
+    # Let the user decide if the cache is stale relative to their branch
+    use_cache = cache_ready
+    if cache_ready:
+        stale = check_migration_staleness(worktree_path)
+        if stale:
+            choice = _prompt_migration_choice(stale)
+            if choice == "q":
+                registry.remove(branch)
+                sys.exit(0)
+            if choice == "f":
+                use_cache = False
+
+    _restore_and_start(project, port, worktree_path, use_cache)
+
+    info("Waiting for PostHog to start...")
+    if not wait_for_health(f"http://localhost:{port}/_health", f"{project}-app-1"):
+        cmd_destroy(branch)
+        fatal("Sandbox creation failed. See logs above.")
+
+    url = f"http://localhost:{port}"
+    print()
+    success(f"PostHog running at {url}")
+    info(f"Worktree:  {worktree_path}")
+    info(f"Shell:     sandbox shell {branch}")
+    info(f"VSCode:    sandbox code {branch}")
+    if _load_config().get("jetbrains"):
+        info(f"JetBrains: sandbox idea {branch}")
+    info(f"SSH:       ssh -p {port + 2000} sandbox@localhost")
+    info(f"Logs:      sandbox logs {branch}")
+    webbrowser.open(url)
+
+
+def cmd_start(branch: str) -> None:
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    project = project_name(entry.slug)
+    vite_port = entry.port + 1000
+
+    info(f"Starting sandbox '{project}' on port {entry.port} (Vite: {vite_port})...")
+    compose(project, entry.port, entry.worktree, "up", "-d", capture=True)
+
+    # Clear stale progress from the previous boot
+    run(["docker", "exec", f"{project}-app-1", "rm", "-f", "/tmp/sandbox-progress"], check=False, capture=True)
+
+    info("Waiting for PostHog to start...")
+    if not wait_for_health(f"http://localhost:{entry.port}/_health", f"{project}-app-1"):
+        fatal("Sandbox failed to start. See logs above.")
+
+    url = f"http://localhost:{entry.port}"
+    success(f"PostHog running at {url}")
+    info(f"VSCode:    sandbox code {branch}")
+    if _load_config().get("jetbrains"):
+        info(f"JetBrains: sandbox idea {branch}")
+    info(f"SSH:       ssh -p {entry.port + 2000} sandbox@localhost")
+    webbrowser.open(url)
+
+
+def cmd_stop(branch: str) -> None:
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    project = project_name(entry.slug)
+
+    info(f"Stopping sandbox '{project}'...")
+    compose(project, entry.port, entry.worktree, "stop", capture=True)
+    success("Sandbox stopped. Volumes preserved.")
+
+
+def cmd_destroy(branch: str) -> None:
+    registry = Registry()
+    entry = registry.get(branch)
+    slug = entry.slug if entry else slugify(branch)
+    project = project_name(slug)
+    port = entry.port if entry else 0
+    worktree = entry.worktree if entry else "."
+
+    warn(f"Destroying sandbox '{project}'...")
+
+    # Tear down containers and per-sandbox volumes
+    compose(project, port, worktree, "down", "-v", check=False, capture=True)
+
+    # Remove worktree — containers may have created root-owned files,
+    # so we use a container to delete, then rmdir the empty directory.
+    # NEVER delete the main repo even if the sandbox was created on the current branch.
+    if entry and entry.worktree and Path(entry.worktree).is_dir():
+        if Path(entry.worktree).resolve() == REPO_ROOT.resolve():
+            info("Worktree is the main repo — skipping directory cleanup.")
+        else:
+            run(
+                ["docker", "run", "--rm", "-v", f"{entry.worktree}:/cleanup",
+                 "alpine", "sh", "-c", "find /cleanup -mindepth 1 -delete"],
+                check=False, capture=True,
+            )
+            try:
+                Path(entry.worktree).rmdir()
+            except OSError:
+                pass
+
+    run(["git", "worktree", "prune"], check=False)
+    registry.remove(branch)
+    success("Sandbox destroyed.")
+
+
+def cmd_list() -> None:
+    registry = Registry()
+    entries = registry.list_all()
+
+    if not entries:
+        print("No sandboxes found. Create one with: sandbox create <branch>")
+        return
+
+    print(f"{'BRANCH':<40} {'PORT':<8} {'STATUS':<10} URL")
+    print(f"{'------':<40} {'----':<8} {'------':<10} ---")
+
+    for branch, entry in entries.items():
+        project = project_name(entry.slug)
+        result = compose(
+            project, entry.port, entry.worktree,
+            "ps", "--status", "running", "-q",
+            check=False, capture=True,
+        )
+        running = len(result.stdout.strip().splitlines()) if result.stdout.strip() else 0
+        status = "running" if running > 0 else "stopped"
+        url = f"http://localhost:{entry.port}" if running > 0 else "-"
+        print(f"{branch:<40} {entry.port:<8} {status:<10} {url}")
+
+
+def cmd_code(branch: str) -> None:
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    container = f"sandbox-{entry.slug}-app-1"
+
+    config_json = json.dumps({"containerName": f"/{container}"})
+    hex_config = config_json.encode().hex()
+    uri = f"vscode-remote://attached-container+{hex_config}/workspace"
+
+    code_cmd = shutil.which("code")
+    if not code_cmd:
+        info("VSCode 'code' CLI not found on PATH.")
+        info("Install it from VSCode: Ctrl+Shift+P → 'Shell Command: Install code command'")
+        info(f"Then run: code --folder-uri \"{uri}\"")
+        return
+
+    info(f"Opening VSCode attached to {container}...")
+    subprocess.Popen([code_cmd, "--folder-uri", uri])
+
+
+def cmd_idea(branch: str) -> None:
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    ssh_port = entry.port + 2000
+
+    from urllib.parse import quote
+    uri = (
+        f"jetbrains-gateway://connect#type=ssh&deploy=false"
+        f"&host=localhost&port={ssh_port}&user=sandbox"
+        f"&projectPath={quote('/workspace')}"
+        f"&idePath={quote('/opt/idea')}"
+    )
+
+    # Try gateway CLI, xdg-open (Linux), or open (macOS) to handle the URI
+    for cmd_name in ["gateway", "jetbrains-gateway", "xdg-open", "open"]:
+        cmd = shutil.which(cmd_name)
+        if cmd:
+            info(f"Opening JetBrains Gateway for sandbox on port {ssh_port}...")
+            subprocess.Popen([cmd, uri])
+            return
+
+    info("Could not auto-open Gateway.")
+    info(f"Connect manually: File → Remote Development → SSH")
+    info(f"  Host: localhost  Port: {ssh_port}  User: sandbox")
+    info(f"  Project: /workspace")
+
+
+def cmd_shell(branch: str) -> None:
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    container = f"sandbox-{entry.slug}-app-1"
+
+    info(f"Attaching to mprocs in {container}... (detach with Ctrl-b d)")
+    os.execvp("docker", [
+        "docker", "exec", "-it", "-u", f"{os.getuid()}:{os.getgid()}",
+        container,
+        "tmux", "-L", "sandbox", "attach-session", "-t", "posthog",
+    ])
+
+
+def cmd_logs(branch: str) -> None:
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    project = project_name(entry.slug)
+
+    compose(project, entry.port, entry.worktree, "logs", "-f", "app")
+
+
+def cmd_rebuild_cache() -> None:
+    info("Clearing database cache...")
+    clear_volume(DB_CACHE_VOLUME)
+    docker_volume_run(DB_CACHE_VOLUME, "chmod 777 /data")
+    init_cache_from_master()
+
+
+def cmd_nuke() -> None:
+    warn("Destroying all sandboxes and clearing cache...")
+    registry = Registry()
+    for branch in list(registry.list_all()):
+        cmd_destroy(branch)
+    # Don't rebuild the cache here — it will be rebuilt on the next `sandbox create`.
+    clear_volume(DB_CACHE_VOLUME)
+    success("All sandboxes destroyed and cache cleared.")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _require_registered(registry: Registry, branch: str) -> SandboxEntry:
+    entry = registry.get(branch)
+    if not entry:
+        fatal(f"No sandbox found for branch '{branch}'. Create one with: sandbox create {branch}")
+    return entry
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="sandbox",
+        description="PostHog Dev Sandbox Manager",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+examples:
+  sandbox create aspicer/cool-feature
+  sandbox create aspicer/bugfix main
+  sandbox list
+  sandbox shell aspicer/cool-feature
+  sandbox stop aspicer/cool-feature
+  sandbox start aspicer/cool-feature
+  sandbox destroy aspicer/cool-feature""",
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    p = sub.add_parser("create", help="Create a new isolated sandbox")
+    p.add_argument("branch")
+    p.add_argument("base_branch", nargs="?", default="master")
+    p.add_argument(
+        "--intents",
+        default="product_analytics",
+        help="Comma-separated hogli intents (default: product_analytics)",
+    )
+
+    for name, help_text in [
+        ("start", "Start a stopped sandbox"),
+        ("stop", "Stop a sandbox (preserves state)"),
+        ("destroy", "Destroy a sandbox and clean up"),
+        ("shell", "Attach to the mprocs UI"),
+        ("code", "Open VSCode attached to the sandbox container"),
+        ("idea", "Open JetBrains Gateway for the sandbox"),
+        ("logs", "Tail logs from a sandbox"),
+    ]:
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument("branch")
+
+    sub.add_parser("list", aliases=["ls"], help="List all sandboxes")
+    sub.add_parser("rebuild-cache", help="Rebuild the database cache from master")
+    sub.add_parser("nuke", help="Destroy all sandboxes and clear the cache")
+
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return
+
+    if args.command == "create":
+        os.environ["SANDBOX_INTENTS"] = args.intents
+
+    dispatch = {
+        "create": lambda: cmd_create(args.branch, args.base_branch),
+        "start": lambda: cmd_start(args.branch),
+        "stop": lambda: cmd_stop(args.branch),
+        "destroy": lambda: cmd_destroy(args.branch),
+        "list": cmd_list,
+        "ls": cmd_list,
+        "shell": lambda: cmd_shell(args.branch),
+        "code": lambda: cmd_code(args.branch),
+        "idea": lambda: cmd_idea(args.branch),
+        "logs": lambda: cmd_logs(args.branch),
+        "rebuild-cache": cmd_rebuild_cache,
+        "nuke": cmd_nuke,
+    }
+
+    try:
+        dispatch[args.command]()
+    except KeyboardInterrupt:
+        print()
+        sys.exit(130)
+    except subprocess.CalledProcessError as e:
+        cmd_str = " ".join(str(a) for a in e.cmd)
+        error(f"Command failed (exit {e.returncode}): {cmd_str}")
+        for line in (e.stdout or "").strip().splitlines():
+            print(f"  {line}")
+        for line in (e.stderr or "").strip().splitlines():
+            print(f"  {line}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

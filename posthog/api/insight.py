@@ -43,6 +43,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_suggestions import generate_insight_metadata, get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_dict, process_query_model
@@ -71,7 +72,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import Cohort, DashboardTile, Filter, Insight, User
+from posthog.models import Cohort, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -82,7 +83,6 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import AlertConfiguration
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.insight_variable import InsightVariable
@@ -110,6 +110,9 @@ from posthog.utils import (
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
 )
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from common.hogvm.python.utils import HogVMException
 
@@ -1017,6 +1020,7 @@ Background calculation can be tracked using the `query_status` response field.""
     ),
 )
 class InsightViewSet(
+    QueryCoalescingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -1234,9 +1238,16 @@ class InsightViewSet(
                     queryset = queryset.filter(Q(saved=False))
             elif key == "feature_flag":
                 feature_flag = request.GET["feature_flag"]
+                feature_flag_breakdown = f"$feature/{feature_flag}"
+                # Legacy insights store breakdown in `filters.breakdown` and reference
+                # the flag name in `filters.properties`. Query-based insights store
+                # breakdown config in the `query` JSON field (e.g. inside
+                # `breakdownFilter.breakdown`). The properties search uses the raw flag
+                # name because legacy filters reference it without the `$feature/` prefix.
                 queryset = queryset.filter(
-                    Q(filters__breakdown__icontains=f"$feature/{feature_flag}")
+                    Q(filters__breakdown__icontains=feature_flag_breakdown)
                     | Q(filters__properties__icontains=feature_flag)
+                    | Q(query__icontains=feature_flag_breakdown)
                 )
             elif key == "events":
                 events_filter = request.GET["events"]
