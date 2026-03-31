@@ -1410,10 +1410,9 @@ class SessionRecordingViewSet(
         except Exception as e:
             # Capture detailed exception server-side while returning a generic error to the client
             capture_exception(e)
-            error_payload = {"status": "error", "message": "Failed to generate session summary."}
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
-                event_data=json.dumps(error_payload),
+                event_data="Something went wrong while generating the summary. Please try again.",
             )
 
     @extend_schema(exclude=True)

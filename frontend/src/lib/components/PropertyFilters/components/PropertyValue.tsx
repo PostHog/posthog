@@ -376,7 +376,7 @@ export function PropertyValue({
                         propertyKey,
                         eventNames,
                         properties: [],
-                        forceRefresh: true,
+                        refresh: 'force_blocking',
                     })
                 }
                 noPadding

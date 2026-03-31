@@ -35,8 +35,15 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
-import { AiEventOutput, AsyncOutput, EventOutput, HeatmapsOutput } from './analytics/outputs'
-import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from './common/outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    HeatmapsOutput,
+    PersonDistinctIdsOutput,
+    PersonsOutput,
+} from './analytics/outputs'
+import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from './common/outputs'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
@@ -66,6 +73,9 @@ export interface IngestionConsumerDeps {
         | DlqOutput
         | OverflowOutput
         | AsyncOutput
+        | GroupsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
@@ -171,7 +181,7 @@ export class IngestionConsumer {
 
         this.hogTransformer = deps.hogTransformer
 
-        this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.deps.kafkaProducer, {
+        this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.deps.outputs, {
             dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             useBatchUpdates: this.config.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
             maxConcurrentUpdates: this.config.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -181,7 +191,7 @@ export class IngestionConsumer {
         })
 
         this.groupStore = new BatchWritingGroupStore(
-            this.deps.kafkaProducer,
+            this.deps.outputs,
             this.deps.groupRepository,
             this.deps.clickhouseGroupRepository,
             {
@@ -258,7 +268,6 @@ export class IngestionConsumer {
             },
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
-            kafkaProducer: this.kafkaProducer!,
             personsStore: this.personsStore,
             groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,

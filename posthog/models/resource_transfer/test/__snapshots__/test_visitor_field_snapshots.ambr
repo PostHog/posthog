@@ -197,6 +197,7 @@
     'metrics',
     'metrics_secondary',
     'name',
+    'only_count_matured_users',
     'parameters',
     'primary_metrics_ordered_uuids',
     'scheduling_config',
@@ -451,6 +452,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    '__annotations__',
     '__doc__',
     '__module__',
     '__repr__',

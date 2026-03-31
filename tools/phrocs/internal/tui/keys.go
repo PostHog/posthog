@@ -137,14 +137,14 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 		}
 		m.applyCopyStyle()
 
-	case key.Matches(msg, m.keys.NextProc):
+	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
 		if m.copyCursor < m.viewport.TotalLineCount()-1 {
 			m.copyCursor++
 			m.ensureCopyCursorVisible()
 			m.applyCopyStyle()
 		}
 
-	case key.Matches(msg, m.keys.PrevProc):
+	case key.Matches(msg, m.keys.PrevProc), key.Matches(msg, m.keys.KeyUp):
 		if m.copyCursor > 0 {
 			m.copyCursor--
 			m.ensureCopyCursorVisible()
@@ -175,7 +175,13 @@ func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 	case key.Matches(msg, m.keys.Info), msg.Code == tea.KeyEscape:
 		m.infoMode = false
 		if !m.isDockerMode() {
-			m.viewport.SetContent(m.buildContent())
+			m.activeContent = m.buildContent()
+			if m.activeContent == "" {
+				m.activeLineCount = 0
+			} else {
+				m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
+			}
+			m.viewport.SetContent(m.activeContent)
 			m.viewport.GotoBottom()
 			m.viewportAtBottom = true
 		}
@@ -208,6 +214,50 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 }
 
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// When the active process is waiting for input, buffer keystrokes and send them on Enter.
+	p := m.activeProc()
+	procHasPrompt := p != nil && m.focusedPane == focusOutput && p.HasPrompt()
+	// Control keys are excluded so navigation still works.
+	isControlKey := key.Matches(msg, m.keys.KeyDown) ||
+		key.Matches(msg, m.keys.KeyUp) ||
+		key.Matches(msg, m.keys.NextPane) ||
+		key.Matches(msg, m.keys.PrevPane) ||
+		key.Matches(msg, m.keys.GotoTop) ||
+		key.Matches(msg, m.keys.GotoBottom) ||
+		key.Matches(msg, m.keys.ScrollDown) ||
+		key.Matches(msg, m.keys.ScrollUp)
+
+	if procHasPrompt && !isControlKey {
+		var input []byte
+
+		switch msg.Code {
+		case tea.KeyEnter:
+			input = []byte(m.inputBuffer + "\r")
+			m.inputBuffer = ""
+		case tea.KeyBackspace:
+			if len(m.inputBuffer) > 0 {
+				runes := []rune(m.inputBuffer)
+				m.inputBuffer = string(runes[:len(runes)-1])
+			}
+		case tea.KeySpace:
+			m.inputBuffer += " "
+		default:
+			s := msg.String()
+			if runes := []rune(s); len(runes) == 1 && runes[0] >= 32 {
+				m.inputBuffer += s
+			}
+		}
+
+		if input != nil {
+			if err := p.WriteInput(input); err != nil {
+				m.dbg("pty write error: %v", err)
+			} else {
+				m.dbg("pty send: %q", input)
+			}
+		}
+		return m, tea.Batch(cmds...)
+	}
+
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		m.mgr.StopAll()
@@ -224,7 +274,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 	case key.Matches(msg, m.keys.PrevPane):
 		m.cyclePane(-1)
 
-	case key.Matches(msg, m.keys.NextProc):
+	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
 		if m.focusedPane == focusServices {
 			if m.servicesCursor < len(m.services)-1 {
 				prev := m.servicesCursor
@@ -246,7 +296,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 
-	case key.Matches(msg, m.keys.PrevProc):
+	case key.Matches(msg, m.keys.PrevProc), key.Matches(msg, m.keys.KeyUp):
 		if m.focusedPane == focusServices {
 			if m.servicesCursor > 0 {
 				prev := m.servicesCursor

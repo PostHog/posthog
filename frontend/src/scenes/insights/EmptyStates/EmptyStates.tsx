@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -67,6 +67,23 @@ export function InsightEmptyState({
             {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
             <p className="text-sm text-tertiary">{detail}</p>
+        </div>
+    )
+}
+
+/** Shown when the chart area would otherwise be blank (e.g. cache miss + aborted refresh). */
+export function InsightRefreshDataHint({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div
+            data-attr="insight-refresh-data-hint"
+            className="flex flex-col flex-1 rounded px-4 py-6 w-full items-center justify-center text-center text-balance gap-3"
+        >
+            <IconInfo className="text-5xl mb-2 text-tertiary" />
+            <h2 className="text-xl leading-tight">Chart data didn&apos;t load</h2>
+            <p className="text-sm text-tertiary max-w-md">Refresh to get the latest data.</p>
+            <LemonButton type="primary" size="small" onClick={onRetry} icon={<IconRefresh />}>
+                Refresh
+            </LemonButton>
         </div>
     )
 }

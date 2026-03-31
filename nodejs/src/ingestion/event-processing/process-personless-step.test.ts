@@ -6,10 +6,21 @@ import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writi
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../config/kafka-topics'
 import { Hub, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { UUIDT } from '../../utils/utils'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
+import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { ProcessPersonlessInput, createProcessPersonlessStep } from './process-personless-step'
+
+function createPersonOutputs(hub: Hub) {
+    return new IngestionOutputs({
+        [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: hub.kafkaProducer },
+        [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer },
+    })
+}
 
 async function createPerson(
     hub: Hub,
@@ -40,7 +51,8 @@ async function createPerson(
     if (!result.success) {
         throw new Error('Failed to create person')
     }
-    await hub.kafkaProducer.queueMessages(result.messages)
+    const personOutputs = createPersonOutputs(hub)
+    await Promise.all(result.messages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null })))
     return result.person
 }
 
@@ -60,7 +72,10 @@ describe('createProcessPersonlessStep', () => {
         team = (await getTeam(hub.postgres, teamId))!
 
         const personRepository = new PostgresPersonRepository(hub.postgres)
-        personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
+        const ingestionWarningsOutputs = new IngestionOutputs({
+            [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: hub.kafkaProducer },
+        })
+        personsStore = new BatchWritingPersonsStore(personRepository, ingestionWarningsOutputs)
 
         pluginEvent = {
             distinct_id: 'test-user-123',

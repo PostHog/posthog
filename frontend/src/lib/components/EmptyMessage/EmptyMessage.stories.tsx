@@ -1,8 +1,8 @@
 import { Meta } from '@storybook/react'
 
-import { EmptyMessage } from './EmptyMessage'
+import { EmptyMessage, EmptyMessageProps } from './EmptyMessage'
 
-const meta: Meta<typeof EmptyMessage> = {
+const meta: Meta<EmptyMessageProps> = {
     title: 'Components/Empty Message',
     component: EmptyMessage,
 }
