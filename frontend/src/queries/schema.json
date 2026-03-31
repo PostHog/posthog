@@ -1242,6 +1242,14 @@
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for the query",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
                 "searchQuery": {
                     "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
@@ -14514,6 +14522,13 @@
                 },
                 "personId": {
                     "type": "string"
+                },
+                "properties": {
+                    "description": "Property filters (flat list, alternative to filterGroup). Merged with filterGroup if both are present.",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"

@@ -2550,6 +2550,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
+    /** Property filters (flat list, alternative to filterGroup). Merged with filterGroup if both are present. */
+    properties?: AnyPropertyFilter[]
     /** Whether to filter out test accounts. */
     filterTestAccounts?: boolean
     /** Free-text search across exception type, message, and stack frames. */

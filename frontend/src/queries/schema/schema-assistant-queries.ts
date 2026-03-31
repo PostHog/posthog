@@ -1227,6 +1227,12 @@ export interface AssistantErrorTrackingQuery {
     filterTestAccounts?: boolean
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string
+    /**
+     * Property filters for the query
+     *
+     * @default []
+     */
+    properties?: AssistantPropertyFilter[]
     /** Controls volume chart granularity. Use 1 for sparklines, 0 for counts only. */
     volumeResolution?: integer
     limit?: integer

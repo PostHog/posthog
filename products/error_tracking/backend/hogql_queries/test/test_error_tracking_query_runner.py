@@ -175,6 +175,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
         filterTestAccounts=False,
         searchQuery=None,
         filterGroup=None,
+        properties=None,
         orderBy="last_seen",
         status=None,
         volumeResolution=1,
@@ -195,6 +196,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
                     filterTestAccounts=filterTestAccounts,
                     searchQuery=searchQuery,
                     filterGroup=filterGroup,
+                    properties=properties,
                     orderBy=orderBy,  # pyright: ignore[reportArgumentType]
                     status=status,
                     volumeResolution=volumeResolution,
@@ -465,6 +467,16 @@ class ErrorTrackingQueryRunnerTestsMixin:
             )
         )["results"]
         # two errors exist for person with distinct_id_two
+        self.assertEqual(len(results), 2)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_flat_properties_filter(self):
+        results = self._calculate(
+            properties=[
+                PersonPropertyFilter(key="email", value="email@posthog.com", operator=PropertyOperator.EXACT),
+            ]
+        )["results"]
+        # same as test_hogql_filters: two errors exist for person with distinct_id_two
         self.assertEqual(len(results), 2)
 
     @freeze_time("2022-01-10T12:11:00")
