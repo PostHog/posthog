@@ -4,7 +4,10 @@ from typing import Any
 import structlog
 from rest_framework import serializers
 
-from posthog.temporal.ai.session_summary.types.video import SENTIMENT_OUTCOME_TYPES, SENTIMENT_SIGNAL_TYPES
+from posthog.temporal.ai.session_summary.types.sentiment_constants import (
+    SENTIMENT_OUTCOME_TYPES,
+    SENTIMENT_SIGNAL_TYPES,
+)
 
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import HALLUCINATED_EVENTS_MIN_RATIO

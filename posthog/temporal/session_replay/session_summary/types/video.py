@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from posthog.schema import ReplayInactivityPeriod
 
+from posthog.temporal.ai.session_summary.types.sentiment_constants import SentimentOutcomeType, SentimentSignalType
+
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
 
@@ -133,35 +135,6 @@ class VideoFixSuggestion(BaseModel):
     issue: str = Field(description="What went wrong — specific error, failure, or friction point")
     evidence: str = Field(description="What was observed: exact error message, failed action, or user behavior")
     suggestion: str = Field(description="Actionable fix or improvement")
-
-
-SENTIMENT_SIGNAL_TYPES = (
-    "rage_click",
-    "repeated_error",
-    "backtracking",
-    "long_pause",
-    "abandonment",
-    "dead_click",
-    "confusion_loop",
-    "error_cascade",
-    "other",
-)
-
-SENTIMENT_OUTCOME_TYPES = ("successful", "friction", "frustrated", "blocked")
-
-SentimentSignalType = Literal[
-    "rage_click",
-    "repeated_error",
-    "backtracking",
-    "long_pause",
-    "abandonment",
-    "dead_click",
-    "confusion_loop",
-    "error_cascade",
-    "other",
-]
-
-SentimentOutcomeType = Literal["successful", "friction", "frustrated", "blocked"]
 
 
 class SentimentSignal(BaseModel):
