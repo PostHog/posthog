@@ -1065,18 +1065,17 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         </div>
                     )}
 
-                    {editOperationType === ScheduledChangeOperationType.AddReleaseCondition &&
-                        editingSchedule && (
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs font-medium text-muted">Release condition</label>
-                                <div className="rounded border p-2 bg-bg-light text-sm">
-                                    {groupFilters(editingSchedule.payload.value, undefined, aggregationLabel)}
-                                </div>
-                                <span className="text-xs text-muted">
-                                    To change the release condition, delete this schedule and create a new one.
-                                </span>
+                    {editOperationType === ScheduledChangeOperationType.AddReleaseCondition && editingSchedule && (
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-muted">Release condition</label>
+                            <div className="rounded border p-2 bg-bg-light text-sm">
+                                {groupFilters(editingSchedule.payload.value, undefined, aggregationLabel)}
                             </div>
-                        )}
+                            <span className="text-xs text-muted">
+                                To change the release condition, delete this schedule and create a new one.
+                            </span>
+                        </div>
+                    )}
                 </div>
             </LemonModal>
         </div>
