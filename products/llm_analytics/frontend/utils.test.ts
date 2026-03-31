@@ -424,53 +424,23 @@ describe('LLM Analytics utils', () => {
             ])
         })
 
-        it('parses web_search_call as an assistant tool call', () => {
-            const message = {
-                type: 'web_search_call',
-                id: 'ws_123',
-                status: 'completed',
-            }
-
+        it.each([
+            ['web_search_call', 'ws_123', { type: 'web_search_call', id: 'ws_123', status: 'completed' }],
+            [
+                'code_interpreter_call',
+                'ci_123',
+                { type: 'code_interpreter_call', id: 'ci_123', status: 'completed', code: 'print("hello")' },
+            ],
+            ['image_generation_call', 'ig_123', { type: 'image_generation_call', id: 'ig_123', status: 'completed' }],
+            ['mcp_call', 'mcp_123', { type: 'mcp_call', id: 'mcp_123', status: 'completed' }],
+            ['file_search_call', 'fs_123', { type: 'file_search_call', id: 'fs_123', status: 'completed' }],
+            ['computer_call', 'cc_123', { type: 'computer_call', id: 'cc_123', status: 'completed' }],
+        ])('parses %s as an assistant tool call', (toolType, toolId, message) => {
             expect(normalizeMessage(message, 'user')).toEqual([
                 {
                     role: 'assistant',
                     content: JSON.stringify(message),
-                    tool_calls: [
-                        {
-                            type: 'function',
-                            id: 'ws_123',
-                            function: {
-                                name: 'web_search_call',
-                                arguments: {},
-                            },
-                        },
-                    ],
-                },
-            ])
-        })
-
-        it('parses code_interpreter_call as an assistant tool call', () => {
-            const message = {
-                type: 'code_interpreter_call',
-                id: 'ci_123',
-                status: 'completed',
-                code: 'print("hello")',
-            }
-
-            expect(normalizeMessage(message, 'user')).toEqual([
-                {
-                    role: 'assistant',
-                    content: JSON.stringify(message),
-                    tool_calls: [
-                        {
-                            type: 'function',
-                            id: 'ci_123',
-                            function: {
-                                name: 'code_interpreter_call',
-                                arguments: {},
-                            },
-                        },
-                    ],
+                    tool_calls: [{ type: 'function', id: toolId, function: { name: toolType, arguments: {} } }],
                 },
             ])
         })
