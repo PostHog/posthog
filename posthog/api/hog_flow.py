@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import Optional, cast
 
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -243,6 +244,12 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
 
         return data
 
+    def update(self, instance, validated_data):
+        if any(field in validated_data for field in ("rrule", "starts_at", "timezone")):
+            # Force the scheduler to recalculate the next occurrence on its next poll
+            instance.next_run_at = None
+        return super().update(instance, validated_data)
+
 
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
@@ -450,7 +457,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         instance_id = serializer.instance.id
 
         try:
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance_id)
         except HogFlow.DoesNotExist:
             before_update = None
@@ -672,4 +679,139 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+
+    def internal_process_due_schedules(self, request: Request, **kwargs) -> Response:
+        """
+        Internal endpoint called by the scheduler service to process due schedules.
+        Handles both executing due schedules and initializing next_run_at for new ones.
+        """
+        from django.db import transaction
+
+        from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+        from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
+
+        def advance_next_run(schedule, after=None):
+            """Compute and set next_run_at, or mark completed if RRULE is exhausted."""
+            occurrences = compute_next_occurrences(
+                rrule_string=schedule.rrule,
+                starts_at=schedule.starts_at,
+                timezone_str=schedule.timezone,
+                after=after,
+                count=1,
+            )
+            if occurrences:
+                schedule.next_run_at = occurrences[0]
+                schedule.save(update_fields=["next_run_at", "updated_at"])
+            else:
+                schedule.status = HogFlowSchedule.Status.COMPLETED
+                schedule.next_run_at = None
+                schedule.save(update_fields=["status", "next_run_at", "updated_at"])
+            return occurrences
+
+        def resolve_variables(hog_flow, schedule):
+            """Build default variables from HogFlow schema, then merge schedule overrides."""
+            variables = {}
+            for var in hog_flow.variables or []:
+                variables[var.get("key")] = var.get("default")
+            variables.update(schedule.variables or {})
+            return variables
+
+        processed = []
+        initialized = []
+        failed = []
+
+        try:
+            # 1. Process due schedules (next_run_at <= now)
+            # nosemgrep: semgrep.rules.idor-lookup-without-team (internal endpoint processes all teams)
+            due_schedule_ids = list(
+                HogFlowSchedule.objects.filter(
+                    status=HogFlowSchedule.Status.ACTIVE, next_run_at__lte=timezone.now()
+                ).values_list("id", flat=True)
+            )
+
+            for schedule_id in due_schedule_ids:
+                try:
+                    with transaction.atomic():
+                        # Per-schedule transaction: lock only one row at a time to minimize
+                        # lock duration and allow concurrent replicas via skip_locked.
+                        # Re-checks conditions since the schedule may have been processed
+                        # between the ID scan and this lock.
+                        schedule = (
+                            # nosemgrep: semgrep.rules.idor-lookup-without-team
+                            HogFlowSchedule.objects.select_for_update(skip_locked=True)
+                            .select_related("hog_flow")
+                            .filter(
+                                id=schedule_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__lte=timezone.now()
+                            )
+                            .first()
+                        )
+                        if not schedule:
+                            continue
+
+                        hog_flow = schedule.hog_flow
+                        trigger_type = (hog_flow.trigger or {}).get("type")
+
+                        if hog_flow.status != "active" or trigger_type != "batch":
+                            schedule.next_run_at = None
+                            schedule.save(update_fields=["next_run_at", "updated_at"])
+                            continue
+
+                        advance_next_run(schedule, after=schedule.next_run_at)
+
+                        processed.append(
+                            {
+                                "schedule_id": str(schedule.id),
+                                "team_id": schedule.team_id,
+                                "hog_flow_id": str(schedule.hog_flow_id),
+                                "filters": (hog_flow.trigger or {}).get("filters", {}),
+                                "variables": resolve_variables(hog_flow, schedule),
+                            }
+                        )
+                except Exception:
+                    logger.exception("Error processing schedule", schedule_id=str(schedule_id))
+                    failed.append(str(schedule_id))
+
+            # 2. Initialize next_run_at for schedules that need it
+            # nosemgrep: semgrep.rules.idor-lookup-without-team (internal endpoint processes all teams)
+            uninitialized_ids = list(
+                HogFlowSchedule.objects.filter(
+                    status=HogFlowSchedule.Status.ACTIVE,
+                    next_run_at__isnull=True,
+                    hog_flow__status="active",
+                    hog_flow__trigger__type="batch",
+                ).values_list("id", flat=True)
+            )
+
+            for schedule_id in uninitialized_ids:
+                try:
+                    with transaction.atomic():
+                        # Per-schedule transaction: lock only one row at a time to minimize
+                        # lock duration and allow concurrent replicas via skip_locked.
+                        # Re-checks conditions since the schedule may have been initialized
+                        # between the ID scan and this lock.
+                        schedule = (
+                            # nosemgrep: semgrep.rules.idor-lookup-without-team
+                            HogFlowSchedule.objects.select_for_update(skip_locked=True)
+                            .filter(id=schedule_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__isnull=True)
+                            .first()
+                        )
+                        if not schedule:
+                            continue
+
+                        if advance_next_run(schedule):
+                            initialized.append(str(schedule.id))
+                except Exception:
+                    logger.exception("Error initializing schedule", schedule_id=str(schedule_id))
+                    failed.append(str(schedule_id))
+
+            return Response(
+                {
+                    "processed": processed,
+                    "initialized": initialized,
+                    "failed": failed,
+                }
+            )
+        except Exception as e:
+            logger.exception("Error in internal_process_due_schedules", error=str(e))
             return Response({"error": "Internal server error"}, status=500)

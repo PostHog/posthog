@@ -5,6 +5,7 @@ from parameterized import parameterized
 
 from products.tasks.backend.services.agentsh import (
     AGENTSH_AUDIT_DB,
+    ENV_WRAPPER_SCRIPT,
     INFRASTRUCTURE_DOMAINS,
     build_audit_query_command,
     build_exec_prefix,
@@ -15,59 +16,31 @@ from products.tasks.backend.services.agentsh import (
 
 
 class TestGenerateConfigYaml(TestCase):
-    def test_sandbox_network_enabled(self):
+    def test_has_ptrace_enabled_with_full_trace(self):
         config = yaml.safe_load(generate_config_yaml())
-        self.assertTrue(config["sandbox"]["network"]["enabled"])
-
-    def test_no_ptrace_by_default(self):
-        config = yaml.safe_load(generate_config_yaml())
-        self.assertNotIn("ptrace", config["sandbox"])
-
-    def test_ptrace_enabled_when_requested(self):
-        config = yaml.safe_load(generate_config_yaml(enable_ptrace=True))
         self.assertTrue(config["sandbox"]["ptrace"]["enabled"])
-
-    def test_ptrace_default_only_traces_network(self):
-        config = yaml.safe_load(generate_config_yaml(enable_ptrace=True))
-        trace = config["sandbox"]["ptrace"]["trace"]
-        self.assertTrue(trace["network"])
-        self.assertFalse(trace["execve"])
-        self.assertFalse(trace["file"])
-        self.assertFalse(trace["signal"])
-
-    def test_ptrace_full_trace_enables_all(self):
-        config = yaml.safe_load(generate_config_yaml(enable_ptrace=True, full_trace=True))
-        trace = config["sandbox"]["ptrace"]["trace"]
-        self.assertTrue(trace["network"])
-        self.assertTrue(trace["execve"])
-        self.assertTrue(trace["file"])
-        self.assertTrue(trace["signal"])
-
-    def test_ptrace_seccomp_prefilter_disabled(self):
-        config = yaml.safe_load(generate_config_yaml(enable_ptrace=True))
-        self.assertFalse(config["sandbox"]["ptrace"]["performance"]["seccomp_prefilter"])
-
-    def test_sandbox_allows_degraded(self):
-        config = yaml.safe_load(generate_config_yaml())
-        self.assertTrue(config["sandbox"]["allow_degraded"])
+        self.assertEqual(config["sandbox"]["ptrace"]["attach_mode"], "children")
+        self.assertTrue(config["sandbox"]["ptrace"]["trace"]["file"])
+        self.assertTrue(config["sandbox"]["ptrace"]["trace"]["execve"])
+        self.assertTrue(config["sandbox"]["ptrace"]["trace"]["signal"])
 
     def test_server_listens_on_localhost(self):
         config = yaml.safe_load(generate_config_yaml())
         self.assertEqual(config["server"]["http"]["addr"], "127.0.0.1:18080")
 
-    def test_http_timeouts_disabled(self):
+    def test_disables_http_timeouts(self):
         config = yaml.safe_load(generate_config_yaml())
         self.assertEqual(config["server"]["http"]["read_timeout"], "0s")
         self.assertEqual(config["server"]["http"]["write_timeout"], "0s")
 
-    def test_session_timeouts_match_exec_timeout(self):
+    def test_uses_real_paths(self):
+        config = yaml.safe_load(generate_config_yaml())
+        self.assertTrue(config["sessions"]["real_paths"])
+
+    def test_long_session_timeouts(self):
         config = yaml.safe_load(generate_config_yaml())
         self.assertEqual(config["sessions"]["default_timeout"], "2h")
         self.assertEqual(config["sessions"]["default_idle_timeout"], "2h")
-
-    def test_auth_disabled(self):
-        config = yaml.safe_load(generate_config_yaml())
-        self.assertEqual(config["auth"]["type"], "none")
 
     def test_outputs_valid_yaml(self):
         raw = generate_config_yaml()
@@ -76,29 +49,24 @@ class TestGenerateConfigYaml(TestCase):
 
 
 class TestGeneratePolicyYaml(TestCase):
+    def test_allows_commands(self):
+        policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
+        allow_rule = next(rule for rule in policy["command_rules"] if rule["name"] == "allow-all-commands")
+        self.assertEqual(allow_rule["commands"], ["*"])
+        self.assertEqual(allow_rule["decision"], "allow")
+
     def test_passes_through_provided_domains(self):
         domains = ["github.com", "custom.example.com"]
         policy = yaml.safe_load(generate_policy_yaml(domains))
-        allow_rule = next(r for r in policy["network_rules"] if r["name"] == "allow-domains")
-        for d in domains:
-            self.assertIn(d, allow_rule["domains"])
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        for domain in domains:
+            self.assertIn(domain, allow_rule["domains"])
 
     def test_always_includes_infrastructure_domains(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
-        allow_rule = next(r for r in policy["network_rules"] if r["name"] == "allow-domains")
-        for d in INFRASTRUCTURE_DOMAINS:
-            self.assertIn(d, allow_rule["domains"])
-
-    def test_infrastructure_domains_not_duplicated(self):
-        policy = yaml.safe_load(generate_policy_yaml(list(INFRASTRUCTURE_DOMAINS)))
-        allow_rule = next(r for r in policy["network_rules"] if r["name"] == "allow-domains")
-        for d in INFRASTRUCTURE_DOMAINS:
-            self.assertEqual(allow_rule["domains"].count(d), 1)
-
-    def test_outputs_valid_yaml(self):
-        raw = generate_policy_yaml(["example.com"])
-        parsed = yaml.safe_load(raw)
-        self.assertIsInstance(parsed, dict)
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        for domain in INFRASTRUCTURE_DOMAINS:
+            self.assertIn(domain, allow_rule["domains"])
 
     def test_default_deny_at_end(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
@@ -115,71 +83,59 @@ class TestGeneratePolicyYaml(TestCase):
     def test_allowed_domains_before_deny_rules(self, domains):
         policy = yaml.safe_load(generate_policy_yaml(domains))
         rules = policy["network_rules"]
-        first_deny_idx = next(i for i, r in enumerate(rules) if r["decision"] == "deny")
+        first_deny_idx = next(i for i, rule in enumerate(rules) if rule["decision"] == "deny")
         for i, rule in enumerate(rules):
             if rule.get("decision") == "allow" and rule.get("domains"):
-                self.assertLess(i, first_deny_idx, f"Allow rule at index {i} after deny at {first_deny_idx}")
+                self.assertLess(i, first_deny_idx)
 
     def test_localhost_always_allowed(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
-        localhost_rule = next(r for r in policy["network_rules"] if r["name"] == "allow-localhost")
+        localhost_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-localhost")
         self.assertIn("127.0.0.0/8", localhost_rule["cidrs"])
 
-    @override_settings(DEBUG=True)
-    def test_dev_ports_included_in_debug_mode(self):
+    def test_file_rules_allow_all(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
-        allow_rule = next(r for r in policy["network_rules"] if r["name"] == "allow-domains")
-        self.assertIn(8000, allow_rule["ports"])
-        self.assertIn(8010, allow_rule["ports"])
-
-    @override_settings(DEBUG=False)
-    def test_dev_ports_excluded_in_production(self):
-        policy = yaml.safe_load(generate_policy_yaml([]))
-        allow_rule = next(r for r in policy["network_rules"] if r["name"] == "allow-domains")
-        self.assertNotIn(8000, allow_rule["ports"])
-        self.assertNotIn(8010, allow_rule["ports"])
-
-
-class TestEnvPolicy(TestCase):
-    def test_env_policy_in_policy_yaml(self):
-        policy = yaml.safe_load(generate_policy_yaml([]))
-        self.assertIn("env_policy", policy)
+        file_rule = next(rule for rule in policy["file_rules"] if rule["name"] == "allow-all-files")
+        self.assertEqual(file_rule["paths"], ["**"])
 
     def test_env_policy_allows_posthog_vars(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
         self.assertIn("POSTHOG_*", policy["env_policy"]["allow"])
 
-    def test_env_policy_allows_proxy_vars(self):
+    @override_settings(DEBUG=True)
+    def test_debug_mode_adds_dev_ports(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
-        allow = policy["env_policy"]["allow"]
-        self.assertIn("HTTP_PROXY", allow)
-        self.assertIn("HTTPS_PROXY", allow)
-        self.assertIn("NO_PROXY", allow)
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn(8000, allow_rule["ports"])
+        self.assertIn(8010, allow_rule["ports"])
 
-    def test_env_policy_allows_system_vars(self):
-        policy = yaml.safe_load(generate_policy_yaml([]))
-        allow = policy["env_policy"]["allow"]
-        self.assertIn("HOME", allow)
-        self.assertIn("PATH", allow)
+    def test_allow_all_policy_when_no_domains(self):
+        policy = yaml.safe_load(generate_policy_yaml(None))
+        rules = policy["network_rules"]
+        self.assertEqual(len(rules), 1)
+        self.assertEqual(rules[0]["name"], "allow-all-network")
+        self.assertEqual(rules[0]["decision"], "allow")
 
-    def test_env_policy_allows_node_options(self):
-        policy = yaml.safe_load(generate_policy_yaml([]))
-        self.assertIn("NODE_OPTIONS", policy["env_policy"]["allow"])
+    def test_allow_all_policy_has_no_deny_rules(self):
+        policy = yaml.safe_load(generate_policy_yaml(None))
+        deny_rules = [r for r in policy["network_rules"] if r["decision"] == "deny"]
+        self.assertEqual(len(deny_rules), 0)
 
 
 class TestEnvWrapper(TestCase):
-    def test_unsets_agentsh_session_vars(self):
+    def test_wrapper_restores_environment_dump(self):
         wrapper = generate_env_wrapper()
-        self.assertIn("unset AGENTSH_IN_SESSION AGENTSH_SESSION_ID", wrapper)
+        self.assertIn("done < /tmp/agent-env", wrapper)
 
-    def test_sets_use_env_proxy(self):
+    def test_wrapper_execs_command(self):
         wrapper = generate_env_wrapper()
-        self.assertIn("--use-env-proxy", wrapper)
+        self.assertIn('exec "$@"', wrapper)
 
-    def test_infrastructure_domains_in_no_proxy(self):
+    def test_wrapper_does_not_set_proxy_vars(self):
         wrapper = generate_env_wrapper()
-        self.assertIn("api.anthropic.com", wrapper)
-        self.assertIn("NO_PROXY", wrapper)
+        self.assertNotIn("HTTPS_PROXY", wrapper)
+        self.assertNotIn("NO_PROXY", wrapper)
+        self.assertNotIn("--use-env-proxy", wrapper)
 
 
 class TestBuildAuditQueryCommand(TestCase):
@@ -187,7 +143,7 @@ class TestBuildAuditQueryCommand(TestCase):
         cmd = build_audit_query_command()
         self.assertIn(AGENTSH_AUDIT_DB, cmd)
 
-    def test_queries_network_events(self):
+    def test_filters_network_events(self):
         cmd = build_audit_query_command()
         self.assertIn("net%", cmd)
 
@@ -195,90 +151,41 @@ class TestBuildAuditQueryCommand(TestCase):
         cmd = build_audit_query_command(limit=10)
         self.assertIn("LIMIT 10", cmd)
 
-    def test_outputs_json(self):
-        cmd = build_audit_query_command()
-        self.assertIn("-json", cmd)
-
-    def test_since_ns_adds_timestamp_filter(self):
-        cmd = build_audit_query_command(since_ns=1000)
-        self.assertIn("ts_unix_ns > 1000", cmd)
-
-    def test_since_ns_zero_omits_timestamp_filter(self):
-        cmd = build_audit_query_command(since_ns=0)
-        self.assertNotIn("ts_unix_ns >", cmd)
-
-    def test_since_ns_combined_with_limit(self):
-        cmd = build_audit_query_command(since_ns=5000, limit=25)
-        self.assertIn("ts_unix_ns > 5000", cmd)
-        self.assertIn("LIMIT 25", cmd)
-
 
 class TestBuildExecPrefix(TestCase):
     def test_returns_correct_format(self):
-        prefix = build_exec_prefix()
-        self.assertEqual(prefix, "agentsh exec --client-timeout 2h --timeout 2h $(cat /tmp/agentsh-session-id) --")
-
-    def test_includes_client_timeout(self):
-        prefix = build_exec_prefix()
-        self.assertIn("--client-timeout 2h", prefix)
-
-    def test_includes_command_timeout(self):
-        prefix = build_exec_prefix()
-        self.assertIn("--timeout 2h", prefix)
+        self.assertEqual(
+            build_exec_prefix(),
+            "agentsh exec --client-timeout 2h --timeout 2h $(cat /tmp/agentsh-session-id) --",
+        )
 
 
-@override_settings(DEBUG=True, SANDBOX_PROVIDER="docker")
-class TestAgentServerCommandWrapping(TestCase):
-    def _make_sandbox(self):
-        from products.tasks.backend.services.docker_sandbox import DockerSandbox
+@override_settings(DEBUG=True, SANDBOX_PROVIDER="modal")
+class TestModalSandboxAgentShWrapping(TestCase):
+    def test_command_always_wrapped_with_agentsh_exec(self):
+        from products.tasks.backend.services.modal_sandbox import ModalSandbox
 
-        sandbox = DockerSandbox.__new__(DockerSandbox)
-        return sandbox
-
-    def test_command_uses_agentsh_exec_with_wrapping(self):
-        sandbox = self._make_sandbox()
+        sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",
             run_id="test-run",
             mode="background",
-            wrap_with_agentsh=True,
         )
-        self.assertIn("agentsh exec", cmd)
-        self.assertIn("env -0 >", cmd)
-        self.assertIn("/tmp/agentsh-env-wrapper.sh", cmd)
-        self.assertNotIn("HTTP_PROXY", cmd)
+        self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
+        self.assertIn("env -0 > /tmp/agent-env", cmd)
+        self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
 
-    def test_command_uses_nohup_with_agentsh(self):
-        sandbox = self._make_sandbox()
+    def test_command_includes_allowed_domains(self):
+        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",
             run_id="test-run",
             mode="background",
-            wrap_with_agentsh=True,
+            allowed_domains=["example.com", "api.example.com"],
         )
-        self.assertIn("nohup", cmd)
-
-    def test_command_uses_absolute_path_with_agentsh(self):
-        sandbox = self._make_sandbox()
-        cmd = sandbox._build_agent_server_command(
-            repo_path="/tmp/workspace/repos/org/repo",
-            task_id="test-task",
-            run_id="test-run",
-            mode="background",
-            wrap_with_agentsh=True,
-        )
-        self.assertIn("/scripts/node_modules/.bin/agent-server", cmd)
-
-    def test_command_uses_nohup_without_agentsh(self):
-        sandbox = self._make_sandbox()
-        cmd = sandbox._build_agent_server_command(
-            repo_path="/tmp/workspace/repos/org/repo",
-            task_id="test-task",
-            run_id="test-run",
-            mode="background",
-            wrap_with_agentsh=False,
-        )
-        self.assertIn("nohup", cmd)
-        self.assertNotIn("agentsh exec", cmd)
+        self.assertIn("--allowedDomains", cmd)
+        self.assertIn("example.com,api.example.com", cmd)

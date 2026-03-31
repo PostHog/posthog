@@ -97,6 +97,12 @@ class EndpointVersion(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        null=True,
+        help_text="Team this version belongs to (denormalized from endpoint for HogQL system table access)",
+    )
     version = models.IntegerField()
     query = models.JSONField(help_text="Immutable query snapshot")
     description = models.TextField(blank=True, default="", help_text="Optional description for this endpoint version")
@@ -357,6 +363,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
             columns = None
         version = EndpointVersion.objects.create(
             endpoint=self,
+            team=self.team,
             version=self.current_version,
             query=query,
             created_by=user,

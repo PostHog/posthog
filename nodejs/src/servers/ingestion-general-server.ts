@@ -190,17 +190,6 @@ export class IngestionGeneralServer implements NodeServer {
                 return consumer.service
             })
         } else {
-            const hogTransformerDeps: HogTransformerServiceDeps = {
-                geoipService,
-                postgres: this.postgres,
-                pubSub: this.pubsub,
-                encryptedFields,
-                integrationManager,
-                kafkaProducer: this.kafkaMetricsProducer,
-                teamManager,
-                internalCaptureService,
-            }
-
             // Resolve ingestion outputs — producer creation blocks until the broker
             // is reachable (rdkafka retries indefinitely), so the server will hang
             // here if a broker is down and the pod never becomes healthy.
@@ -213,6 +202,17 @@ export class IngestionGeneralServer implements NodeServer {
                 INGESTION_OUTPUT_DEFINITIONS
             )
             const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
+
+            const hogTransformerDeps: HogTransformerServiceDeps = {
+                geoipService,
+                postgres: this.postgres,
+                pubSub: this.pubsub,
+                encryptedFields,
+                integrationManager,
+                monitoringOutputs: ingestionOutputs,
+                teamManager,
+                internalCaptureService,
+            }
 
             const ingestionDeps: IngestionConsumerDeps = {
                 postgres: this.postgres,

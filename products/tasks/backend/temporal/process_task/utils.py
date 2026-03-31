@@ -90,6 +90,14 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
+def format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
+    preview = ", ".join(domains[:limit])
+    remaining = len(domains) - limit
+    if remaining > 0:
+        return f"{preview}, +{remaining} more"
+    return preview
+
+
 def get_sandbox_name_for_task(task_id: str) -> str:
     return f"task-sandbox-{task_id}"
 

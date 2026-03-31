@@ -156,8 +156,8 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
-              run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+            - name: Add service hostnames to /etc/hosts
+              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Create Dagster test database
               run: |

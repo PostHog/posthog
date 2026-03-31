@@ -1,3 +1,4 @@
+import os
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -832,3 +833,137 @@ class TestGetClusterRetry:
             _get_cluster()
 
         assert mock_get_cluster.call_count == 3
+
+
+class TestDuckLakeAddDataFilesPartitioning:
+    """Integration tests proving that ducklake_add_data_files succeeds/fails
+    based on whether the S3 path Hive keys match the table's partition fields.
+
+    These tests use a real DuckLake catalog (local DuckDB file) to exercise
+    the exact code path that produces the "invalid partition value" error.
+    """
+
+    @pytest.fixture
+    def ducklake_env(self, tmp_path):
+        """Create a DuckLake catalog with a partitioned events table and a sample parquet file."""
+        catalog_path = str(tmp_path / "test.ducklake")
+        data_path = str(tmp_path / "data")
+        os.makedirs(data_path)
+
+        conn = duckdb.connect()
+        conn.execute("INSTALL ducklake")
+        conn.execute("LOAD ducklake")
+        conn.execute(f"ATTACH 'ducklake:{catalog_path}' AS test_lake (DATA_PATH '{data_path}')")
+        conn.execute("CREATE SCHEMA IF NOT EXISTS test_lake.posthog")
+        conn.execute(EVENTS_TABLE_DDL.format(catalog="test_lake"))
+        conn.execute(
+            "ALTER TABLE test_lake.posthog.events "
+            "SET PARTITIONED BY (year(timestamp), month(timestamp), day(timestamp))"
+        )
+
+        # Write a minimal parquet file with the same columns as the events table
+        parquet_dir = str(tmp_path / "parquet")
+        os.makedirs(parquet_dir)
+        conn.execute(f"""
+            COPY (
+                SELECT
+                    'abc-123'::VARCHAR AS uuid,
+                    '$pageview'::VARCHAR AS event,
+                    '{{}}'::VARCHAR AS properties,
+                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS timestamp,
+                    2::BIGINT AS team_id,
+                    2::BIGINT AS project_id,
+                    'user1'::VARCHAR AS distinct_id,
+                    ''::VARCHAR AS elements_chain,
+                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS created_at,
+                    'person-1'::VARCHAR AS person_id,
+                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS person_created_at,
+                    '{{}}'::VARCHAR AS person_properties,
+                    '{{}}'::VARCHAR AS group0_properties,
+                    '{{}}'::VARCHAR AS group1_properties,
+                    '{{}}'::VARCHAR AS group2_properties,
+                    '{{}}'::VARCHAR AS group3_properties,
+                    '{{}}'::VARCHAR AS group4_properties,
+                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS group0_created_at,
+                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS group1_created_at,
+                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS group2_created_at,
+                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS group3_created_at,
+                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS group4_created_at,
+                    'full'::VARCHAR AS person_mode,
+                    false::BOOLEAN AS historical_migration,
+                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS _inserted_at
+            ) TO '{parquet_dir}/events.parquet' (FORMAT PARQUET)
+        """)
+
+        yield conn, parquet_dir
+
+        conn.close()
+
+    def test_new_path_format_succeeds(self, ducklake_env):
+        """Path with plain team_id + Hive year/month/day keys: 3 partition values = 3 fields."""
+        conn, parquet_dir = ducklake_env
+
+        # Simulate the new path format: {team_id}/year={year}/month={month}/day={day}/
+        dest = os.path.join(parquet_dir, "2", "year=2026", "month=03", "day=30")
+        os.makedirs(dest)
+        os.link(
+            os.path.join(parquet_dir, "events.parquet"),
+            os.path.join(dest, "run1.parquet"),
+        )
+
+        path = os.path.join(dest, "run1.parquet")
+        conn.execute(f"CALL ducklake_add_data_files('test_lake', 'events', '{path}', schema => 'posthog')")
+
+        # Verify the data is queryable
+        result = conn.execute("SELECT count(*) FROM test_lake.posthog.events").fetchone()
+        assert result[0] == 1
+
+    def test_old_path_format_with_hive_team_id_fails(self, ducklake_env):
+        """Path with Hive team_id=X: 4 partition values vs 3 fields -> error."""
+        conn, parquet_dir = ducklake_env
+
+        # Simulate the old path format: team_id={team_id}/year={year}/month={month}/day={day}/
+        dest = os.path.join(parquet_dir, "team_id=2", "year=2026", "month=03", "day=30")
+        os.makedirs(dest)
+        os.link(
+            os.path.join(parquet_dir, "events.parquet"),
+            os.path.join(dest, "run1.parquet"),
+        )
+
+        path = os.path.join(dest, "run1.parquet")
+        with pytest.raises(duckdb.InvalidInputException, match="invalid partition value"):
+            conn.execute(f"CALL ducklake_add_data_files('test_lake', 'events', '{path}', schema => 'posthog')")
+
+    def test_plain_path_no_hive_keys_fails(self, ducklake_env):
+        """Path with no Hive keys at all: 0 partition values vs 3 fields -> error."""
+        conn, parquet_dir = ducklake_env
+
+        # Simulate the intermediate "fix" path format: {team_id}/{year}/{month}/{day}/
+        dest = os.path.join(parquet_dir, "2", "2026", "03", "30")
+        os.makedirs(dest)
+        os.link(
+            os.path.join(parquet_dir, "events.parquet"),
+            os.path.join(dest, "run1.parquet"),
+        )
+
+        path = os.path.join(dest, "run1.parquet")
+        with pytest.raises(duckdb.InvalidInputException, match="invalid partition value"):
+            conn.execute(f"CALL ducklake_add_data_files('test_lake', 'events', '{path}', schema => 'posthog')")
+
+    def test_hive_partitioning_false_with_plain_path_still_fails(self, ducklake_env):
+        """hive_partitioning => false skips parsing entirely: 0 partition values vs 3 fields -> error."""
+        conn, parquet_dir = ducklake_env
+
+        dest = os.path.join(parquet_dir, "2", "2026", "03", "30")
+        os.makedirs(dest, exist_ok=True)
+        os.link(
+            os.path.join(parquet_dir, "events.parquet"),
+            os.path.join(dest, "run2.parquet"),
+        )
+
+        path = os.path.join(dest, "run2.parquet")
+        with pytest.raises(duckdb.InvalidInputException, match="invalid partition value"):
+            conn.execute(
+                f"CALL ducklake_add_data_files('test_lake', 'events', '{path}',"
+                f" schema => 'posthog', hive_partitioning => false)"
+            )

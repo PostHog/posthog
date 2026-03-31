@@ -145,7 +145,7 @@ export class ErrorTrackingServer implements NodeServer {
             pubSub: this.pubsub,
             encryptedFields,
             integrationManager,
-            kafkaProducer: this.kafkaMetricsProducer,
+            monitoringOutputs: outputs,
             teamManager,
             internalCaptureService,
         }

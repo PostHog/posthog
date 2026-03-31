@@ -1092,7 +1092,7 @@ def export_events_to_duckling_s3(
     date_str = date.strftime("%Y-%m-%d")
 
     # Path without s3:// scheme for the HTTPS URL
-    path_without_scheme = f"{BACKFILL_EVENTS_S3_PREFIX}/{team_id}/{year}/{month}/{day}/{run_id}.parquet"
+    path_without_scheme = f"{BACKFILL_EVENTS_S3_PREFIX}/{team_id}/year={year}/month={month}/day={day}/{run_id}.parquet"
 
     # ClickHouse needs HTTPS URL format for cross-account S3 access
     s3_url = get_s3_url_for_clickhouse(catalog.bucket, catalog.bucket_region, path_without_scheme)
@@ -1248,10 +1248,9 @@ def export_persons_to_duckling_s3(
     """
     year = date.strftime("%Y")
     month = date.strftime("%m")
-    day = date.strftime("%d")
     date_str = date.strftime("%Y-%m-%d")
 
-    path_without_scheme = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/{year}/{month}/{day}/{run_id}.parquet"
+    path_without_scheme = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year={year}/month={month}/{run_id}.parquet"
     s3_url = get_s3_url_for_clickhouse(catalog.bucket, catalog.bucket_region, path_without_scheme)
     s3_path = f"s3://{catalog.bucket}/{path_without_scheme}"
 
