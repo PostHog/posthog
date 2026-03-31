@@ -288,7 +288,7 @@ class TestBoxCommands:
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: None)
         monkeypatch.setattr(box_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(box_cli, "load_config", lambda: {})
@@ -334,7 +334,7 @@ class TestBoxCommands:
         monkeypatch.setattr(
             box_cli,
             "resolve_workspace_name",
-            lambda label, for_create=False: f"devbox-test-user-{label}" if label else "devbox-test-user",
+            lambda label: f"devbox-test-user-{label}" if label else "devbox-test-user",
         )
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: None)
         monkeypatch.setattr(box_cli, "extract_workspace_label", lambda name: "api")
@@ -375,7 +375,7 @@ class TestBoxCommands:
 
     def test_box_status_does_not_reference_missing_box_update(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
         monkeypatch.setattr(
             box_cli,
             "get_workspace",
@@ -391,7 +391,7 @@ class TestBoxCommands:
 
     def test_box_claude_check_reports_ready(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
         monkeypatch.setattr(box_cli, "get_workspace_status", lambda workspace: "running")
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: {"latest_build": {"status": "running"}})
 
@@ -407,7 +407,7 @@ class TestBoxCommands:
 
     def test_box_claude_check_reports_missing_auth(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
         monkeypatch.setattr(box_cli, "get_workspace_status", lambda workspace: "running")
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: {"latest_build": {"status": "running"}})
 
@@ -425,7 +425,7 @@ class TestBoxCommands:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
         monkeypatch.setattr(box_cli, "get_workspace_status", lambda workspace: "running")
         monkeypatch.setattr(box_cli, "get_workspace", lambda name: {"latest_build": {"status": "running"}})
         monkeypatch.setattr(
@@ -448,7 +448,7 @@ class TestBoxCommands:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
         monkeypatch.setattr(box_cli, "_local_port_is_available", lambda port: True)
         monkeypatch.setattr(
             box_cli,
@@ -466,7 +466,7 @@ class TestBoxCommands:
 
     def test_box_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(box_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label, for_create=False: "devbox-test-user")
+        monkeypatch.setattr(box_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
         monkeypatch.setattr(box_cli, "_local_port_is_available", lambda port: False)
 
         result = runner.invoke(cli, ["box:forward", "--port", "8010"])

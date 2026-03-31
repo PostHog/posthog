@@ -64,6 +64,15 @@ def _run(args: list[str], *, capture_output: bool = False) -> subprocess.Complet
     return subprocess.run(args, capture_output=capture_output, text=True)
 
 
+def _run_or_exit(args: list[str]) -> None:
+    """Replace the current process with a Coder command or exit with its status."""
+    coder_path = shutil.which("coder")
+    if coder_path:
+        os.execvp(coder_path, args)
+
+    sys.exit(_run(args).returncode)
+
+
 def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a Coder build command with a spinner.
 
@@ -381,6 +390,20 @@ def get_default_workspace_prefix() -> str:
     return f"{_WORKSPACE_PREFIX}-{get_username()}"
 
 
+def _list_workspaces() -> list[dict[str, Any]]:
+    """Return raw workspace payloads from the Coder CLI."""
+    result = _run(["coder", "list", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return []
+
+    try:
+        workspaces = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+
+    return workspaces if isinstance(workspaces, list) else []
+
+
 def extract_workspace_label(workspace_name: str) -> str | None:
     """Extract the label suffix from a full workspace name.
 
@@ -396,31 +419,13 @@ def extract_workspace_label(workspace_name: str) -> str | None:
 
 def list_user_workspaces() -> list[dict[str, Any]]:
     """Return all workspaces belonging to the current user with the devbox prefix."""
-    result = _run(["coder", "list", "--output", "json"], capture_output=True)
-    if result.returncode != 0:
-        return []
-
-    try:
-        workspaces = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return []
-
     prefix = get_default_workspace_prefix()
-    return [ws for ws in workspaces if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
+    return [ws for ws in _list_workspaces() if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
 def get_workspace(name: str) -> dict[str, Any] | None:
     """Get workspace info by name, or None if it does not exist."""
-    result = _run(["coder", "list", "--output", "json"], capture_output=True)
-    if result.returncode != 0:
-        return None
-
-    try:
-        workspaces = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-
-    for workspace in workspaces:
+    for workspace in _list_workspaces():
         if workspace.get("name") == name:
             return workspace
 
@@ -496,21 +501,12 @@ def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
 
 def ssh_replace(name: str) -> None:
     """SSH into a workspace and replace the current process."""
-    coder_path = shutil.which("coder")
-    if coder_path:
-        os.execvp(coder_path, ["coder", "ssh", name])
-
-    sys.exit(_run(["coder", "ssh", name]).returncode)
+    _run_or_exit(["coder", "ssh", name])
 
 
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
     """Port-forward to a workspace and replace the current process."""
-    args = ["coder", "port-forward", name, f"--tcp={local_port}:{remote_port}"]
-    coder_path = shutil.which("coder")
-    if coder_path:
-        os.execvp(coder_path, args)
-
-    sys.exit(_run(args).returncode)
+    _run_or_exit(["coder", "port-forward", name, f"--tcp={local_port}:{remote_port}"])
 
 
 def logs_replace(name: str, follow: bool) -> None:
@@ -519,11 +515,7 @@ def logs_replace(name: str, follow: bool) -> None:
     if follow:
         args.append("--follow")
 
-    coder_path = shutil.which("coder")
-    if coder_path:
-        os.execvp(coder_path, args)
-
-    sys.exit(_run(args).returncode)
+    _run_or_exit(args)
 
 
 def run_in_workspace(
@@ -536,12 +528,7 @@ def run_in_workspace(
 
 def replace_with_workspace_command(name: str, command: list[str]) -> None:
     """Run a workspace command and replace the current process."""
-    args = ["coder", "ssh", name, "--", *command]
-    coder_path = shutil.which("coder")
-    if coder_path:
-        os.execvp(coder_path, args)
-
-    sys.exit(_run(args).returncode)
+    _run_or_exit(["coder", "ssh", name, "--", *command])
 
 
 def open_in_browser(name: str) -> None:
@@ -552,11 +539,7 @@ def open_in_browser(name: str) -> None:
 
 def open_vscode(name: str) -> None:
     """Open the workspace in VS Code Desktop via Coder."""
-    coder_path = shutil.which("coder")
-    if coder_path:
-        os.execvp(coder_path, ["coder", "open", "vscode", name])
-
-    sys.exit(_run(["coder", "open", "vscode", name]).returncode)
+    _run_or_exit(["coder", "open", "vscode", name])
 
 
 def open_web_ide(name: str) -> None:

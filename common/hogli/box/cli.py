@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import socket
+from typing import Any
 
 import click
 from hogli.core.cli import cli
@@ -41,13 +42,19 @@ from .coder import (
 )
 from .config import load_config, save_git_identity
 
+WORKSPACE_STATUS_COLORS = {
+    "running": "green",
+    "stopped": "yellow",
+    "starting": "cyan",
+    "stopping": "yellow",
+    "failed": "red",
+    "deleting": "red",
+}
+PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
-def resolve_workspace_name(label: str | None, *, for_create: bool = False) -> str:
-    """Resolve a workspace name from an optional label.
 
-    When *for_create* is True and no workspaces exist yet, returns the
-    default name so the create flow can proceed.
-    """
+def resolve_workspace_name(label: str | None) -> str:
+    """Resolve a workspace name from an optional label."""
     if label is not None:
         return get_workspace_name(label)
 
@@ -102,18 +109,66 @@ def workspace_name_option(fn):  # type: ignore[no-untyped-def]
 
 def _print_connection_info(name: str) -> None:
     """Print connection commands after workspace is ready."""
-    label = extract_workspace_label(name)
-    suffix = f" --name {label}" if label else ""
+    suffix = _workspace_label_suffix(name)
+    commands = [
+        ("SSH", "box:ssh"),
+        ("Open", "box:open"),
+        ("VS Code", "box:open --vscode"),
+        ("Web IDE", "box:open --web"),
+        ("Claude", "box:claude"),
+        ("Forward", "box:forward"),
+        ("Logs", "box:logs -f"),
+        ("Status", "box:status"),
+        ("Stop", "box:stop"),
+    ]
+
     click.echo()
-    click.echo(f"  SSH:      hogli box:ssh{suffix}")
-    click.echo(f"  Open:     hogli box:open{suffix}")
-    click.echo(f"  VS Code:  hogli box:open --vscode{suffix}")
-    click.echo(f"  Web IDE:  hogli box:open --web{suffix}")
-    click.echo(f"  Claude:   hogli box:claude{suffix}")
-    click.echo(f"  Forward:  hogli box:forward{suffix}")
-    click.echo(f"  Logs:     hogli box:logs -f{suffix}")
-    click.echo(f"  Status:   hogli box:status{suffix}")
-    click.echo(f"  Stop:     hogli box:stop{suffix}")
+    for label, command in commands:
+        click.echo(f"  {label:<8} hogli {command}{suffix}")
+
+
+def _workspace_label_suffix(name: str) -> str:
+    """Return the optional CLI suffix for a named workspace."""
+    label = extract_workspace_label(name)
+    return f" --name {label}" if label else ""
+
+
+def _get_workspace_or_fail(name: str) -> dict[str, Any]:
+    """Return a workspace or exit with a consistent message when missing."""
+    workspace = get_workspace(name)
+    if workspace is None:
+        _fail("No devbox found. Run 'hogli box:start' to create one.")
+    return workspace
+
+
+def _workspace_status_color(status: str) -> str:
+    """Return the display color for a workspace status."""
+    return WORKSPACE_STATUS_COLORS.get(status, "white")
+
+
+def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: bool) -> None:
+    """Handle `box:start` when the workspace already exists."""
+    status = get_workspace_status(workspace)
+    if status == "running":
+        click.echo(f"Devbox '{name}' is already running.")
+        _print_connection_info(name)
+        return
+
+    if status == "stopped":
+        click.echo(f"Starting devbox '{name}'...")
+        start_workspace(name, verbose=verbose)
+        click.echo("Started.")
+        _print_connection_info(name)
+        return
+
+    click.echo(f"Devbox '{name}' is in state: {status}")
+    if status in PENDING_WORKSPACE_STATES:
+        click.echo("Wait for the current operation to complete.")
+        return
+
+    click.echo("Attempting to start...")
+    start_workspace(name, verbose=verbose)
+    _print_connection_info(name)
 
 
 def _maybe_prompt_for_claude_oauth_token(configure_claude: bool | None) -> str | None:
@@ -246,15 +301,7 @@ def box_list() -> None:
         ws_name = ws.get("name", "")
         label = extract_workspace_label(ws_name) or "(default)"
         status = get_workspace_status(ws)
-        color = {
-            "running": "green",
-            "stopped": "yellow",
-            "starting": "cyan",
-            "stopping": "yellow",
-            "failed": "red",
-            "deleting": "red",
-        }.get(status, "white")
-        click.echo(f"  {label:<14} {click.style(status, fg=color):<20} {ws_name}")
+        click.echo(f"  {label:<14} {click.style(status, fg=_workspace_status_color(status)):<20} {ws_name}")
 
 
 @cli.command(name="box:start", help="Start or create your remote devbox")
@@ -285,31 +332,11 @@ def box_start(
 ) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label, for_create=True)
+    name = resolve_workspace_name(workspace_label)
     ws = get_workspace(name)
 
     if ws is not None:
-        status = get_workspace_status(ws)
-        if status == "running":
-            click.echo(f"Devbox '{name}' is already running.")
-            _print_connection_info(name)
-            return
-
-        if status == "stopped":
-            click.echo(f"Starting devbox '{name}'...")
-            start_workspace(name, verbose=verbose)
-            click.echo("Started.")
-            _print_connection_info(name)
-            return
-
-        click.echo(f"Devbox '{name}' is in state: {status}")
-        if status in ("starting", "stopping", "deleting"):
-            click.echo("Wait for the current operation to complete.")
-            return
-
-        click.echo("Attempting to start...")
-        start_workspace(name, verbose=verbose)
-        _print_connection_info(name)
+        _start_existing_workspace(name, ws, verbose=verbose)
         return
 
     token = claude_oauth_token or _maybe_prompt_for_claude_oauth_token(configure_claude)
@@ -325,12 +352,7 @@ def box_start(
         verbose=verbose,
     )
     click.echo("Created.")
-    click.echo()
-    click.echo(
-        f"  SSH:   hogli box:ssh{' --name ' + extract_workspace_label(name) if extract_workspace_label(name) else ''}"
-    )
-    click.echo()
-    click.echo("  Run `hogli box --help` for more commands.")
+    _print_connection_info(name)
 
 
 @cli.command(name="box:stop", help="Stop your devbox (preserves disk, stops billing)")
@@ -340,11 +362,7 @@ def box_stop(workspace_label: str | None, verbose: bool) -> None:
     """Stop the devbox. State is preserved on the EBS volume."""
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
-
-    ws = get_workspace(name)
-    if ws is None:
-        click.echo("No devbox found. Run 'hogli box:start' to create one.")
-        raise SystemExit(1)
+    ws = _get_workspace_or_fail(name)
 
     status = get_workspace_status(ws)
     if status == "stopped":
@@ -414,11 +432,7 @@ def box_claude(workspace_label: str | None, check: bool, set_token: bool, claude
 
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
-    workspace = get_workspace(name)
-
-    if workspace is None:
-        click.echo("No devbox found. Run 'hogli box:start' to create one.")
-        raise SystemExit(1)
+    workspace = _get_workspace_or_fail(name)
 
     status = get_workspace_status(workspace)
     if status != "running":
@@ -493,17 +507,9 @@ def box_status(workspace_label: str | None) -> None:
         return
 
     status = get_workspace_status(ws)
-    color = {
-        "running": "green",
-        "stopped": "yellow",
-        "starting": "cyan",
-        "stopping": "yellow",
-        "failed": "red",
-        "deleting": "red",
-    }.get(status, "white")
 
     click.echo(f"  Name:    {name}")
-    click.echo(f"  Status:  {click.style(status, fg=color)}")
+    click.echo(f"  Status:  {click.style(status, fg=_workspace_status_color(status))}")
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))
