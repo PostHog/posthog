@@ -161,15 +161,7 @@ export class CyclotronJobQueuePostgresV2 {
                     await job.ack()
                 } else {
                     const stateBuffer = serializeState(result.invocation)
-                    const delayMs = result.invocation.queueScheduledAt
-                        ? Math.max(
-                              0,
-                              DateTime.isDateTime(result.invocation.queueScheduledAt)
-                                  ? result.invocation.queueScheduledAt.diff(DateTime.now()).as('milliseconds')
-                                  : new Date(result.invocation.queueScheduledAt as unknown as string).getTime() -
-                                        Date.now()
-                          ) || 0 // NaN safety: invalid dates produce NaN, fall back to 0
-                        : 0
+                    const delayMs = computeDelayMs(result.invocation.queueScheduledAt)
                     await job.retry({ state: stateBuffer, delayMs })
                 }
             })
@@ -211,6 +203,20 @@ export class CyclotronJobQueuePostgresV2 {
             })
         )
     }
+}
+
+function computeDelayMs(scheduledAt: CyclotronJobInvocation['queueScheduledAt']): number {
+    if (!scheduledAt) {
+        return 0
+    }
+    const nowMs = Date.now()
+    const targetMs = DateTime.isDateTime(scheduledAt)
+        ? scheduledAt.toMillis()
+        : new Date(scheduledAt as unknown as string).getTime()
+    if (isNaN(targetMs)) {
+        return 0
+    }
+    return Math.max(0, targetMs - nowMs)
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {

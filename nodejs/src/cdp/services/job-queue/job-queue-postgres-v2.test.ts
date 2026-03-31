@@ -167,53 +167,38 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect(parsed.state).toEqual(baseInvocation.state)
         })
 
-        it('should pass delayMs when queueScheduledAt is set in the future', async () => {
+        it.each([
+            {
+                label: 'future queueScheduledAt',
+                scheduledAt: () => DateTime.now().plus({ seconds: 30 }),
+                check: (delayMs: number) => {
+                    expect(delayMs).toBeGreaterThan(25_000)
+                    expect(delayMs).toBeLessThanOrEqual(30_000)
+                },
+            },
+            {
+                label: 'past queueScheduledAt',
+                scheduledAt: () => DateTime.now().minus({ seconds: 10 }),
+                check: (delayMs: number) => expect(delayMs).toBe(0),
+            },
+            {
+                label: 'no queueScheduledAt',
+                scheduledAt: () => undefined,
+                check: (delayMs: number) => expect(delayMs).toBe(0),
+            },
+        ])('should compute correct delayMs for $label', async ({ scheduledAt, check }) => {
             const { queue } = createQueue()
             const job = createDequeuedJob()
             ;(queue as any).pendingJobs.set(job.id, job)
 
-            const scheduledAt = DateTime.now().plus({ seconds: 30 })
-
             await queue.queueInvocationResults([
                 createResult({
-                    invocation: { ...baseInvocation, id: job.id, queueScheduledAt: scheduledAt },
+                    invocation: { ...baseInvocation, id: job.id, queueScheduledAt: scheduledAt() },
                 }),
             ])
 
             expect(job.retry).toHaveBeenCalledTimes(1)
-            const retryArg = job.retry.mock.calls[0][0]
-            expect(retryArg.delayMs).toBeGreaterThan(25_000)
-            expect(retryArg.delayMs).toBeLessThanOrEqual(30_000)
-        })
-
-        it('should pass delayMs of 0 when queueScheduledAt is not set', async () => {
-            const { queue } = createQueue()
-            const job = createDequeuedJob()
-            ;(queue as any).pendingJobs.set(job.id, job)
-
-            await queue.queueInvocationResults([createResult({ invocation: { ...baseInvocation, id: job.id } })])
-
-            expect(job.retry).toHaveBeenCalledTimes(1)
-            const retryArg = job.retry.mock.calls[0][0]
-            expect(retryArg.delayMs).toBe(0)
-        })
-
-        it('should pass delayMs of 0 when queueScheduledAt is in the past', async () => {
-            const { queue } = createQueue()
-            const job = createDequeuedJob()
-            ;(queue as any).pendingJobs.set(job.id, job)
-
-            const scheduledAt = DateTime.now().minus({ seconds: 10 })
-
-            await queue.queueInvocationResults([
-                createResult({
-                    invocation: { ...baseInvocation, id: job.id, queueScheduledAt: scheduledAt },
-                }),
-            ])
-
-            expect(job.retry).toHaveBeenCalledTimes(1)
-            const retryArg = job.retry.mock.calls[0][0]
-            expect(retryArg.delayMs).toBe(0)
+            check(job.retry.mock.calls[0][0].delayMs)
         })
 
         it('should create new job when no pending job found and not finished/errored', async () => {
