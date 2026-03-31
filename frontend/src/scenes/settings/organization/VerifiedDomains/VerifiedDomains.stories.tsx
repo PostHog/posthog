@@ -10,9 +10,9 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { AvailableFeature, OrganizationDomainType } from '~/types'
+import { AvailableFeature, BillingFeatureType, OrganizationDomainType } from '~/types'
 
-function makeFeatures(...features: AvailableFeature[]): { key: string; name: string }[] {
+function makeFeatures(...features: AvailableFeature[]): BillingFeatureType[] {
     return features.map((f) => ({ key: f, name: f }))
 }
 
