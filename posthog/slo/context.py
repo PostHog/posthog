@@ -28,6 +28,7 @@ from os import sep
 from pathlib import Path
 from time import monotonic
 from typing import Any
+from uuid import uuid4
 
 from posthog.slo.events import emit_slo_completed, emit_slo_started
 from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
@@ -115,6 +116,7 @@ def slo_operation(
 
     handle = SloHandle()
     base_properties = dict(properties or {})
+    base_properties["correlation_id"] = str(uuid4())
     started_at = monotonic()
     token = _current_slo.set(handle)
 

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -30,9 +30,6 @@ import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
-import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
-import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
-import { LegacySharedMetricModal } from '../Metrics/LegacySharedMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
@@ -282,6 +279,11 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
             ) : (
                 <>
                     <ExperimentWarningBanner />
+                    {!usesNewQueryRunner && (
+                        <LemonBanner type="warning" className="mb-4">
+                            This is a legacy experiment. Metrics can no longer be edited.
+                        </LemonBanner>
+                    )}
                     {experiment.feature_flag?.id && (
                         <PendingChangeRequestBanner
                             resourceType="feature_flag"
@@ -422,16 +424,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             />
                             <RunningTimeCalculatorModal />
                         </>
-                    ) : (
-                        <>
-                            <LegacyMetricSourceModal isSecondary={true} />
-                            <LegacyMetricSourceModal isSecondary={false} />
-                            <LegacySharedMetricModal isSecondary={true} />
-                            <LegacySharedMetricModal isSecondary={false} />
-                            <LegacyMetricModal isSecondary={true} />
-                            <LegacyMetricModal isSecondary={false} />
-                        </>
-                    )}
+                    ) : null}
 
                     <DistributionModal />
                     <ReleaseConditionsModal />

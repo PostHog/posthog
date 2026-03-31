@@ -6,7 +6,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
-import { createTestIngestionOutputs } from '../../tests/helpers/ingestion-outputs'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
@@ -253,7 +253,10 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             const ingester = new IngestionConsumer(hub, {
                 ...hub,
                 kafkaMetricsProducer: hub.kafkaProducer,
-                hogTransformer: createHogTransformerService(hub, hub),
+                hogTransformer: createHogTransformerService(hub, {
+                    ...hub,
+                    monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+                }),
                 outputs,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
             })
