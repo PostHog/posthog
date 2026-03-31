@@ -13,6 +13,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.webhooks import find_task_run
 
 
 def generate_github_signature(payload: bytes, secret: str) -> str:
@@ -67,9 +68,8 @@ class TestGitHubPRWebhook(TestCase):
         )
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_merged_webhook(self, mock_capture, mock_get_secret):
-        """Test that a PR merged webhook creates a log entry and analytics event."""
         mock_get_secret.return_value = self.webhook_secret
 
         payload = {
@@ -84,7 +84,6 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-        # Verify analytics was called
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_merged")
@@ -93,9 +92,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_closed_without_merge_webhook(self, mock_capture, mock_get_secret):
-        """Test that a PR closed (not merged) webhook creates correct events."""
         mock_get_secret.return_value = self.webhook_secret
 
         payload = {
@@ -110,15 +108,13 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-        # Verify analytics was called with pr_closed event
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_closed")
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_opened_webhook(self, mock_capture, mock_get_secret):
-        """Test that a PR opened webhook creates correct events."""
         mock_get_secret.return_value = self.webhook_secret
 
         payload = {
@@ -133,7 +129,6 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-        # Verify analytics was called with pr_created event
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_created")
@@ -173,9 +168,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 403)
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_unknown_pr_url_returns_200(self, mock_capture, mock_get_secret):
-        """Test that webhooks for unknown PR URLs return 200 but don't emit events."""
         mock_get_secret.return_value = self.webhook_secret
 
         payload = {
@@ -237,3 +231,79 @@ class TestGitHubPRWebhook(TestCase):
         """Test that non-POST methods are rejected."""
         response = self.client.get("/webhooks/github/pr/")
         self.assertEqual(response.status_code, 405)
+
+
+class TestFindTaskRun(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="test@example.com", distinct_id="user-123")
+        self.task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            description="Test description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+
+    def test_finds_by_pr_url(self):
+        task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+        )
+        result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
+        self.assertEqual(result, task_run)
+
+    def test_finds_by_branch_when_no_pr_url_match(self):
+        task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/my-branch",
+        )
+        result = find_task_run(branch="feature/my-branch")
+        self.assertEqual(result, task_run)
+
+    def test_pr_url_takes_priority_over_branch(self):
+        pr_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+            branch="feature/other-branch",
+        )
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/my-branch",
+        )
+        result = find_task_run(
+            pr_url="https://github.com/posthog/posthog/pull/123",
+            branch="feature/my-branch",
+        )
+        self.assertEqual(result, pr_run)
+
+    def test_falls_back_to_branch_when_pr_url_not_found(self):
+        branch_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/my-branch",
+        )
+        result = find_task_run(
+            pr_url="https://github.com/posthog/posthog/pull/999",
+            branch="feature/my-branch",
+        )
+        self.assertEqual(result, branch_run)
+
+    def test_returns_none_when_no_match(self):
+        result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/999")
+        self.assertIsNone(result)
+
+    def test_returns_none_with_no_args(self):
+        result = find_task_run()
+        self.assertIsNone(result)

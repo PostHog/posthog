@@ -168,13 +168,64 @@ services:
         profiles:
             - ingestion
 
+    ingestion-sessionreplay:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-sessionreplay
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6740:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
+    recording-api:
+        extends:
+            file: docker-compose.base.yml
+            service: recording-api
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6741:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+            CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+        depends_on:
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
     ingestion-error-tracking:
         extends:
             file: docker-compose.base.yml
             service: ingestion-error-tracking
         image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
         ports:
-            - '6740:6738'
+            - '6742:6738'
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
             PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
