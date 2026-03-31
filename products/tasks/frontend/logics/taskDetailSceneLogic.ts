@@ -102,7 +102,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     }
                     const last = state[state.length - 1]
                     const first = entries[0]
-                    if (last?.type === 'agent' && first.type === 'agent') {
+                    if (last?.type === first.type && (first.type === 'agent' || first.type === 'thinking')) {
                         return [
                             ...state.slice(0, -1),
                             { ...last, message: (last.message || '') + (first.message || '') },
@@ -333,9 +333,12 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                                     const event = JSON.parse(jsonStr) as Record<string, unknown>
                                     const entry = parseLogEvent(event, eventIndex++, toolMap)
                                     if (entry) {
-                                        // Merge consecutive agent messages
+                                        // Merge consecutive agent/thinking messages
                                         const last = batch[batch.length - 1]
-                                        if (entry.type === 'agent' && last?.type === 'agent') {
+                                        if (
+                                            last?.type === entry.type &&
+                                            (entry.type === 'agent' || entry.type === 'thinking')
+                                        ) {
                                             last.message = (last.message || '') + (entry.message || '')
                                         } else {
                                             batch.push(entry)

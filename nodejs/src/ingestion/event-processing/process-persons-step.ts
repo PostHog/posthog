@@ -2,9 +2,8 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Person, Team } from '../../types'
-import { PersonContext } from '../../worker/ingestion/persons/person-context'
+import { PersonContext, PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../worker/ingestion/persons/person-merge-service'
 import { determineMergeMode } from '../../worker/ingestion/persons/person-merge-types'
@@ -28,7 +27,7 @@ export type ProcessPersonsOutput = {
 
 export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
     options: EventPipelineRunnerOptions,
-    kafkaProducer: KafkaProducerWrapper,
+    personOutputs: PersonOutputs,
     personsStore: PersonsStore
 ): ProcessingStep<TInput, TInput & ProcessPersonsOutput, AsyncOutput> {
     const mergeMode = determineMergeMode(
@@ -54,7 +53,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             String(normalizedEvent.distinct_id),
             timestamp,
             true,
-            kafkaProducer,
+            personOutputs,
             personsStore,
             options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
             mergeMode,

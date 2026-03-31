@@ -1,5 +1,4 @@
 import { CommonConfig } from './common/config'
-import { SessionRecordingConfig } from './session-recording/config'
 import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
 import { isDevEnv } from './utils/env-utils'
 
@@ -32,22 +31,6 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
 export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
     cdpPrecalculatedFilters: true,
     cdpCohortMembership: true,
-}
-
-/** Session Replay - recording ingestion + serving */
-export const CAPABILITIES_SESSION_REPLAY: PluginServerCapabilities = {
-    sessionRecordingBlobIngestionV2: true,
-    recordingApi: true,
-}
-
-/** Session Replay Overflow - overflow recording ingestion */
-export const CAPABILITIES_SESSION_REPLAY_OVERFLOW: PluginServerCapabilities = {
-    sessionRecordingBlobIngestionV2Overflow: true,
-}
-
-/** Recording API - decryption and serving of encrypted recordings */
-export const CAPABILITIES_RECORDING_API: PluginServerCapabilities = {
-    recordingApi: true,
 }
 
 /** Logs - log ingestion */
@@ -87,17 +70,13 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     cdp: CAPABILITIES_CDP,
     cdp_workflows: CAPABILITIES_CDP_WORKFLOWS,
     realtime_cohorts: CAPABILITIES_REALTIME_COHORTS,
-    session_replay: CAPABILITIES_SESSION_REPLAY,
-    recording_api: CAPABILITIES_RECORDING_API,
     logs: CAPABILITIES_LOGS,
     traces: CAPABILITIES_TRACES,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
-// TODO: SESSION_RECORDING_OVERFLOW_ENABLED leaks session recording config into capability resolution — remove once overflow is handled within the session recording consumer
 export function getPluginServerCapabilities(
-    config: Pick<CommonConfig, 'PLUGIN_SERVER_MODE' | 'NODEJS_CAPABILITY_GROUPS'> &
-        Pick<SessionRecordingConfig, 'SESSION_RECORDING_OVERFLOW_ENABLED'>
+    config: Pick<CommonConfig, 'PLUGIN_SERVER_MODE' | 'NODEJS_CAPABILITY_GROUPS'>
 ): PluginServerCapabilities {
     const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
         ? stringToPluginServerMode[config.PLUGIN_SERVER_MODE]
@@ -120,23 +99,13 @@ export function getPluginServerCapabilities(
                     }
                 }
 
-                // Add overflow config if session_replay is enabled
-                if (requestedGroups.includes('session_replay')) {
-                    capabilities.push({
-                        sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
-                    })
-                }
-
                 return mergeCapabilities(...capabilities)
             }
 
-            // Default local dev: run everything except ingestion (ingestion runs in a separate process)
+            // Default local dev: run everything except ingestion and recordings (they run in separate processes)
             return mergeCapabilities(
                 CAPABILITIES_CDP_WORKFLOWS,
                 CAPABILITIES_REALTIME_COHORTS,
-                CAPABILITIES_SESSION_REPLAY,
-                { sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED },
-                CAPABILITIES_RECORDING_API,
                 CAPABILITIES_LOGS,
                 CAPABILITIES_ERROR_TRACKING,
                 CAPABILITIES_FEATURE_FLAGS
@@ -147,16 +116,6 @@ export function getPluginServerCapabilities(
             return mergeCapabilities(CAPABILITIES_CDP_WORKFLOWS, CAPABILITIES_REALTIME_COHORTS)
 
         // Production modes - granular control for dedicated pods
-        // NOTE: ingestion_v2 and ingestion_v2_testing are handled by IngestionGeneralServer (see index.ts)
-        case PluginServerMode.recordings_blob_ingestion_v2:
-            return {
-                sessionRecordingBlobIngestionV2: true,
-            }
-        case PluginServerMode.recordings_blob_ingestion_v2_overflow:
-            return {
-                sessionRecordingBlobIngestionV2Overflow: true,
-            }
-
         case PluginServerMode.cdp_processed_events:
             return {
                 cdpProcessedEvents: true,
@@ -223,16 +182,14 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronV2Janitor: true,
             }
-        case PluginServerMode.recording_api:
-            return {
-                recordingApi: true,
-            }
-
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
-            // These modes are handled by IngestionGeneralServer (see index.ts) and should
-            // never reach this function
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
+
+        case PluginServerMode.recordings_blob_ingestion_v2:
+        case PluginServerMode.recordings_blob_ingestion_v2_overflow:
+        case PluginServerMode.recording_api:
+            throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }
 }

@@ -23,12 +23,14 @@ import {
     IngestionConsumerConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
+    PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
+import { buildGroupRepository } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
@@ -63,6 +65,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
+    PersonHogConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -143,7 +146,14 @@ export class IngestionGeneralServer implements NodeServer {
         const personRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
-        const groupRepository = new PostgresGroupRepository(this.postgres)
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
+
+        const groupRepository = buildGroupRepository(
+            this.config,
+            postgresGroupRepository,
+            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        )
+
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
         const internalCaptureService = new InternalCaptureService(this.config)
@@ -180,17 +190,6 @@ export class IngestionGeneralServer implements NodeServer {
                 return consumer.service
             })
         } else {
-            const hogTransformerDeps: HogTransformerServiceDeps = {
-                geoipService,
-                postgres: this.postgres,
-                pubSub: this.pubsub,
-                encryptedFields,
-                integrationManager,
-                kafkaProducer: this.kafkaMetricsProducer,
-                teamManager,
-                internalCaptureService,
-            }
-
             // Resolve ingestion outputs — producer creation blocks until the broker
             // is reachable (rdkafka retries indefinitely), so the server will hang
             // here if a broker is down and the pod never becomes healthy.
@@ -203,6 +202,17 @@ export class IngestionGeneralServer implements NodeServer {
                 INGESTION_OUTPUT_DEFINITIONS
             )
             const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
+
+            const hogTransformerDeps: HogTransformerServiceDeps = {
+                geoipService,
+                postgres: this.postgres,
+                pubSub: this.pubsub,
+                encryptedFields,
+                integrationManager,
+                monitoringOutputs: ingestionOutputs,
+                teamManager,
+                internalCaptureService,
+            }
 
             const ingestionDeps: IngestionConsumerDeps = {
                 postgres: this.postgres,

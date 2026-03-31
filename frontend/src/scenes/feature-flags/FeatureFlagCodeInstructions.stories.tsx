@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -88,7 +88,7 @@ const MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG: FeatureFlagType = {
     },
 }
 
-const meta: Meta<typeof CodeInstructions> = {
+const meta: Meta<CodeInstructionsProps> = {
     title: 'Scenes-App/Feature Flags/Code Examples',
     component: CodeInstructions,
     args: {
@@ -106,62 +106,78 @@ const meta: Meta<typeof CodeInstructions> = {
 }
 export default meta
 
-export const CodeInstructionsOverview = (props: CodeInstructionsProps): JSX.Element => {
-    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
+type Story = StoryObj<CodeInstructionsProps>
 
-    return <CodeInstructions {...props} />
+export const CodeInstructionsOverview: Story = {
+    render: (props) => {
+        useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
+
+        return <CodeInstructions {...props} />
+    },
 }
 
-export const CodeInstructionsReactNativeWithBootstrap = (): JSX.Element => {
-    return <CodeInstructions selectedLanguage={SDKKey.REACT_NATIVE} options={OPTIONS} showBootstrap={true} />
+export const CodeInstructionsReactNativeWithBootstrap: Story = {
+    render: () => {
+        return <CodeInstructions selectedLanguage={SDKKey.REACT_NATIVE} options={OPTIONS} showBootstrap={true} />
+    },
 }
 
-export const CodeInstructionsPythonWithLocalEvaluation = (): JSX.Element => {
-    return <CodeInstructions selectedLanguage={SDKKey.PYTHON} options={OPTIONS} showLocalEval={true} />
+export const CodeInstructionsPythonWithLocalEvaluation: Story = {
+    render: () => {
+        return <CodeInstructions selectedLanguage={SDKKey.PYTHON} options={OPTIONS} showLocalEval={true} />
+    },
 }
 
-export const CodeInstructionsRubyWithGroupFlagLocalEvaluation = (): JSX.Element => {
-    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
-    useStorybookMocks({
-        get: {
-            '/api/projects/:team_id/groups_types/': [
-                { group_type: 'project', group_type_index: 0, name_singular: null, name_plural: null },
-                { group_type: 'organization', group_type_index: 1, name_singular: null, name_plural: null },
-                { group_type: 'instance', group_type_index: 2, name_singular: null, name_plural: null },
-            ],
-        },
-    })
-    return (
-        <CodeInstructions
-            selectedLanguage={SDKKey.RUBY}
-            options={OPTIONS}
-            showLocalEval={true}
-            featureFlag={GROUP_FEATURE_FLAG}
-        />
-    )
+export const CodeInstructionsRubyWithGroupFlagLocalEvaluation: Story = {
+    render: () => {
+        useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
+        useStorybookMocks({
+            get: {
+                '/api/projects/:team_id/groups_types/': [
+                    { group_type: 'project', group_type_index: 0, name_singular: null, name_plural: null },
+                    { group_type: 'organization', group_type_index: 1, name_singular: null, name_plural: null },
+                    { group_type: 'instance', group_type_index: 2, name_singular: null, name_plural: null },
+                ],
+            },
+        })
+        return (
+            <CodeInstructions
+                selectedLanguage={SDKKey.RUBY}
+                options={OPTIONS}
+                showLocalEval={true}
+                featureFlag={GROUP_FEATURE_FLAG}
+            />
+        )
+    },
 }
 
-export const CodeInstructionsiOSWithMultivariateFlag = (): JSX.Element => {
-    return <CodeInstructions selectedLanguage={SDKKey.IOS} options={OPTIONS} featureFlag={MULTIVARIATE_FEATURE_FLAG} />
+export const CodeInstructionsiOSWithMultivariateFlag: Story = {
+    render: () => {
+        return (
+            <CodeInstructions selectedLanguage={SDKKey.IOS} options={OPTIONS} featureFlag={MULTIVARIATE_FEATURE_FLAG} />
+        )
+    },
 }
 
-export const CodeInstructionsNodeWithGroupMultivariateFlagLocalEvaluation = (): JSX.Element => {
-    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
-    useStorybookMocks({
-        get: {
-            '/api/projects/:team_id/groups_types/': [
-                { group_type: 'project', group_type_index: 0, name_singular: null, name_plural: null },
-                { group_type: 'organization', group_type_index: 1, name_singular: null, name_plural: null },
-                { group_type: 'instance', group_type_index: 2, name_singular: null, name_plural: null },
-            ],
-        },
-    })
-    return (
-        <CodeInstructions
-            selectedLanguage={SDKKey.NODE_JS}
-            options={OPTIONS}
-            showLocalEval={true}
-            featureFlag={MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG}
-        />
-    )
+export const CodeInstructionsNodeWithGroupMultivariateFlagLocalEvaluation: Story = {
+    render: () => {
+        useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
+        useStorybookMocks({
+            get: {
+                '/api/projects/:team_id/groups_types/': [
+                    { group_type: 'project', group_type_index: 0, name_singular: null, name_plural: null },
+                    { group_type: 'organization', group_type_index: 1, name_singular: null, name_plural: null },
+                    { group_type: 'instance', group_type_index: 2, name_singular: null, name_plural: null },
+                ],
+            },
+        })
+        return (
+            <CodeInstructions
+                selectedLanguage={SDKKey.NODE_JS}
+                options={OPTIONS}
+                showLocalEval={true}
+                featureFlag={MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG}
+            />
+        )
+    },
 }

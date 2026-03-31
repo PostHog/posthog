@@ -101,7 +101,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._update_task_run_status("in_progress")
 
             await self._track_workflow_event(
-                "process_task_workflow_started",
+                "task_run_started",
                 {
                     "run_id": run_id,
                     "task_id": self.context.task_id,
@@ -125,17 +125,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             agent_server_output = await self._start_agent_server(sandbox_output)
 
             await self._track_workflow_event(
-                "process_task_agent_server_started",
+                "sandbox_started",
                 {
+                    "run_id": run_id,
                     "task_id": self.context.task_id,
                     "sandbox_id": sandbox_id,
                     "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
+                    "repository": self.context.repository,
                 },
             )
 
             if self._context and self._context.mode == "interactive":
-                relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output))
+                relay_task = asyncio.ensure_future(
+                    self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
+                )
             else:
                 relay_task = asyncio.ensure_future(asyncio.sleep(0))  # no-op future
 
@@ -191,6 +195,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         except asyncio.CancelledError:
+            if self._context:
+                await self._track_workflow_event(
+                    "task_run_cancelled",
+                    {
+                        "run_id": run_id,
+                        "task_id": self.context.task_id,
+                        "repository": self.context.repository,
+                        "team_id": self.context.team_id,
+                    },
+                )
             await self._update_task_run_status("cancelled")
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
@@ -201,7 +215,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             error_message = str(e)[:500]
             if self._context:
                 await self._track_workflow_event(
-                    "process_task_workflow_failed",
+                    "task_run_failed",
                     {
                         "run_id": run_id,
                         "task_id": self.context.task_id,
@@ -262,7 +276,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         try:
             logs = await workflow.execute_activity(
                 read_sandbox_logs,
-                ReadSandboxLogsInput(sandbox_id=sandbox_id),
+                ReadSandboxLogsInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
@@ -298,6 +312,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             event_name=event_name,
             distinct_id=self.context.distinct_id,
             properties=properties,
+            groups={
+                "organization": self.context.organization_id,
+                "project": self.context.team_uuid,
+            },
         )
         await workflow.execute_activity(
             track_workflow_event,
@@ -318,7 +336,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _relay_sandbox_events(self, agent_server_output: StartAgentServerOutput) -> None:
+    async def _relay_sandbox_events(
+        self, agent_server_output: StartAgentServerOutput, sandbox_id: str | None = None
+    ) -> None:
         """Start the SSE relay activity as a concurrent task (best-effort)."""
         try:
             relay_input = RelaySandboxEventsInput(
@@ -328,6 +348,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_connect_token=agent_server_output.connect_token,
                 team_id=self.context.team_id,
                 distinct_id=self.context.distinct_id,
+                sandbox_id=sandbox_id,
             )
             await workflow.execute_activity(
                 relay_sandbox_events,
@@ -437,3 +458,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 error=str(e),
             )
+            # Mark the run as failed so _poll_for_turn sees a terminal status
+            # immediately instead of waiting for the inactivity timeout.
+            self._completion_status = "failed"
+            self._completion_error = f"Follow-up delivery failed: {e}"
+            self._task_completed = True

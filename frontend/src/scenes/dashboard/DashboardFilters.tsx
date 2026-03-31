@@ -31,7 +31,7 @@ export function DashboardPrimaryFilters(): JSX.Element {
 
     return (
         <>
-            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+            <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
                 <AppShortcut
                     name="DashboardDateFilter"
                     keybind={[keyBinds.dateFilter]}
@@ -160,7 +160,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
 
     return (
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <div className="flex gap-2 justify-between">
+            <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
                 <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:justify-between items-start lg:items-center">
                     {![
                         DashboardPlacement.Public,
@@ -176,7 +176,8 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                     <div
                         className={clsx(
-                            'flex flex-col lg:flex-row items-end lg:items-center shrink-0 gap-4 dashoard-items-actions ml-auto',
+                            'flex flex-col lg:flex-row items-end lg:items-center gap-4 dashoard-items-actions',
+                            'min-w-0 max-lg:basis-full max-lg:w-full max-lg:ml-0 shrink-0 lg:ml-auto',
                             {
                                 'mt-7': hasVariables,
                             }

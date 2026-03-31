@@ -932,7 +932,7 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     from temporalio import common
 
     from posthog.temporal.common.client import async_connect
-    from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithTeamInput
+    from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithTeamInput
 
     config = DeletionConfig(deleted_by=deleted_by, reason="team deletion")
 

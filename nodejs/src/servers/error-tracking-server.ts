@@ -15,10 +15,15 @@ import {
     DatabaseConnectionConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
+    PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
 import { ErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
+import { ERROR_TRACKING_OUTPUT_DEFINITIONS } from '../ingestion/error-tracking/config/outputs'
+import { PRODUCER_CONFIG_MAP, ProducerName } from '../ingestion/error-tracking/config/producers'
 import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
+import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
+import { buildGroupRepository } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
@@ -50,6 +55,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
+    PersonHogConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -66,7 +72,7 @@ export class ErrorTrackingServer implements NodeServer {
     private config: ErrorTrackingServerConfig
 
     private postgres?: PostgresRouter
-    private kafkaProducer?: KafkaProducerWrapper
+    private producerRegistry?: KafkaProducerRegistry<ProducerName>
     private kafkaMetricsProducer?: KafkaProducerWrapper
     private redisPool?: RedisPool
     private pubsub?: PubSub
@@ -100,8 +106,9 @@ export class ErrorTrackingServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        this.producerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK, PRODUCER_CONFIG_MAP)
         this.kafkaMetricsProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        const outputs = await resolveIngestionOutputs(this.producerRegistry, ERROR_TRACKING_OUTPUT_DEFINITIONS)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
@@ -122,7 +129,12 @@ export class ErrorTrackingServer implements NodeServer {
         await geoipService.get()
 
         const personRepository = new PostgresPersonRepository(this.postgres)
-        const groupRepository = new PostgresGroupRepository(this.postgres)
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
+        const groupRepository = buildGroupRepository(
+            this.config,
+            postgresGroupRepository,
+            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        )
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
         const internalCaptureService = new InternalCaptureService(this.config)
@@ -133,7 +145,7 @@ export class ErrorTrackingServer implements NodeServer {
             pubSub: this.pubsub,
             encryptedFields,
             integrationManager,
-            kafkaProducer: this.kafkaMetricsProducer,
+            monitoringOutputs: outputs,
             teamManager,
             internalCaptureService,
         }
@@ -151,6 +163,7 @@ export class ErrorTrackingServer implements NodeServer {
                     outputTopic: this.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
                     cymbalBaseUrl: this.config.ERROR_TRACKING_CYMBAL_BASE_URL,
                     cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+                    cymbalMaxBodyBytes: this.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
                     lane: this.config.INGESTION_LANE ?? 'main',
                     overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
                     overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
@@ -161,7 +174,7 @@ export class ErrorTrackingServer implements NodeServer {
                     pipeline: this.config.INGESTION_PIPELINE ?? 'error_tracking',
                 },
                 {
-                    kafkaProducer: this.kafkaProducer!,
+                    outputs,
                     kafkaMetricsProducer: this.kafkaMetricsProducer!,
                     teamManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
@@ -186,10 +199,13 @@ export class ErrorTrackingServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
+            additionalCleanup: async () => {
+                await this.producerRegistry?.disconnectAll()
+            },
         }
     }
 }

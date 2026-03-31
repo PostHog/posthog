@@ -521,7 +521,7 @@ class RemoteConfig(UUIDTModel):
         """
         array_js = get_js_content(resolved_version)
         config_js = cls._build_config_js(config, token, request=request, resolved_version=resolved_version)
-        return f"""{array_js}\n\n{config_js}"""
+        return f"""{config_js}\n\n{array_js}"""
 
     def sync(self, force: bool = False):
         """

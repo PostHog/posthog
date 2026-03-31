@@ -36,7 +36,15 @@ The app slug is the URL-friendly name in your GitHub App URL (e.g., `github.com/
 
 Cloud runs create scoped OAuth tokens to give the agent access to the PostHog API. This requires an `OAuthApplication` record in the database.
 
-For **local development**, this is created automatically when you run `generate_demo_data`.
+For **local development**, run:
+
+```bash
+python manage.py setup_tasks_oauth
+```
+
+> **Note:** Running this command requires `OIDC_RSA_PRIVATE_KEY` and `SANDBOX_JWT_PRIVATE_KEY` to be set in your `.env` (see step 3 below).
+
+Alternatively, this is also created when you run `generate_demo_data`.
 
 The client ID `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` is the dev constant from `backend/temporal/oauth.py`. Tests create this automatically via the `autouse=True` fixture in `conftest.py`.
 
@@ -66,7 +74,7 @@ GITHUB_APP_CLIENT_ID=your_app_id
 GITHUB_APP_SLUG=your-app-slug
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 
-# Optional: for local agent development (see step 7)
+# Optional: for local agent development (see step 8)
 # LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
 ```
 
@@ -81,7 +89,17 @@ Create a `tasks` feature flag at 100% rollout:
 
 This is the feature flag used on the endpoints and in the temporal worker.
 
-## 5. Temporal worker
+## 5. Skills
+
+In order to populate the skills folder for the sandbox, run the following command in the flox activated environment:
+
+```shell
+hogli build:skills
+```
+
+This performs the same skill build as the CI/CD system and correctly creates and populates the `dist/skills` directory.
+
+## 6. Temporal worker
 
 Temporal and the temporal-django-worker start automatically via phrocs when you run `./bin/start`.
 
@@ -95,7 +113,7 @@ The `process-task` workflow defined in `products/tasks/backend/temporal/process_
 
 The activities live in `products/tasks/backend/temporal/process_task/activities/`.
 
-## 6. Running via the UI
+## 7. Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what is happening with a background cloud run.
 
@@ -104,7 +122,7 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 3. Click "Run task"
 4. Watch logs stream in the session view
 
-## 7. Testing with local agent packages
+## 8. Testing with local agent packages
 
 To test changes to `@posthog/agent` before publishing:
 
