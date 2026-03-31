@@ -193,7 +193,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         )
 
 
-class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse], TraceSpansQueryRunnerMixin):
+class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     query: TraceSpansQuery
     cached_response: CachedTraceSpansQueryResponse
     paginator: HogQLHasMorePaginator
@@ -264,11 +264,12 @@ class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse], Trace
         """,
                 placeholders={
                     "where": self.where(),
-                    "limit": self.query.limit,
+                    "limit": ast.Constant(value=self.query.limit),
                 },
             )
         )
 
+        assert isinstance(trace_id_query, ast.SelectQuery)
         trace_id_query.order_by = [
             parse_order_expr(f"timestamp {order_dir}"),
             parse_order_expr(f"uuid {order_dir}"),
@@ -295,7 +296,7 @@ class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse], Trace
             placeholders={
                 "where": self.where(),
                 "trace_id_query": trace_id_query,
-                "limit": self.query.limit * limit_by_n,
+                "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -319,9 +320,6 @@ def run_service_names_query(
     search: str = "",
 ) -> list[dict]:
     """Return distinct service names from trace spans."""
-    if date_range is None:
-        date_range = DateRange(date_from="-1h")
-
     query_date_range = QueryDateRange(
         date_range=date_range,
         team=team,
@@ -385,9 +383,6 @@ def run_attribute_names_query(
     offset: int = 0,
 ) -> tuple[list[dict], int]:
     """Return attribute names from trace_attributes table."""
-    if date_range is None:
-        date_range = DateRange(date_from="-1h")
-
     query_date_range = QueryDateRange(
         date_range=date_range,
         team=team,
@@ -459,9 +454,6 @@ def run_attribute_values_query(
     offset: int = 0,
 ) -> list[dict]:
     """Return attribute values for a given key from trace_attributes table."""
-    if date_range is None:
-        date_range = DateRange(date_from="-1h")
-
     query_date_range = QueryDateRange(
         date_range=date_range,
         team=team,
