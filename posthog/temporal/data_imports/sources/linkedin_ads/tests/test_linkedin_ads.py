@@ -124,11 +124,11 @@ class TestFlattenLinkedinRecord:
 
     def test_flatten_float_fields(self):
         """Test conversion of float fields."""
-        record = {"costInUsd": "25.50"}
+        record = {"costInUsd": "25.50", "costInLocalCurrency": "30.75"}
         schema = LinkedinAdsSchema(
             name="test",
             primary_keys=[],
-            field_names=["costInUsd"],
+            field_names=["costInUsd", "costInLocalCurrency"],
             partition_keys=[],
             partition_mode=None,
             partition_format=None,
@@ -139,6 +139,7 @@ class TestFlattenLinkedinRecord:
         result = _flatten_linkedin_record(record, schema)
 
         assert result["costInUsd"] == 25.50
+        assert result["costInLocalCurrency"] == 30.75
 
     def test_flatten_change_audit_stamps(self):
         """Test flattening changeAuditStamps field."""
