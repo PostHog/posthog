@@ -74,6 +74,14 @@ class TestBoxCommands:
         assert "box:open" in result.output
         assert "box:logs" in result.output
 
+    def test_plain_box_command_lists_available_workspace_commands(self) -> None:
+        result = runner.invoke(cli, ["box"])
+
+        assert result.exit_code == 0
+        assert "hogli box:setup" in result.output
+        assert "hogli box:start" in result.output
+        assert "hogli box:destroy" in result.output
+
     def test_box_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
 

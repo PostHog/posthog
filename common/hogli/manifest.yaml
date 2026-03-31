@@ -96,6 +96,7 @@ metadata:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
 box:
+    box: null
     box:setup: null
     box:start: null
     box:stop: null

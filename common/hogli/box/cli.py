@@ -44,6 +44,24 @@ def _print_connection_info(name: str) -> None:
     click.echo("  Stop:     hogli box:stop")
 
 
+@cli.command(name="box", help="Show available Coder workspace commands")
+def box_help() -> None:
+    """Show the available `hogli box:*` commands."""
+    click.echo("Available workspace commands:")
+    click.echo()
+    click.echo("  hogli box:setup       install and configure local access")
+    click.echo("  hogli box:start       create or start your workspace")
+    click.echo("  hogli box:ssh         open a shell in the workspace")
+    click.echo("  hogli box:open        open the workspace in the browser")
+    click.echo("  hogli box:forward     forward the PostHog UI to localhost")
+    click.echo("  hogli box:logs        stream workspace logs")
+    click.echo("  hogli box:status      show current workspace status")
+    click.echo("  hogli box:stop        stop the workspace")
+    click.echo("  hogli box:destroy     delete the workspace and its data")
+    click.echo()
+    click.echo("Run `hogli <command> --help` for command-specific options.")
+
+
 @cli.command(name="box:setup", help="Install and configure local access to Coder devboxes")
 @click.option(
     "--configure-ssh/--skip-configure-ssh",

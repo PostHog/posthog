@@ -230,6 +230,11 @@ The devcontainer lifecycle scripts handle everything automatically:
 
 To get practical test data, run `hogli dev:demo-data`.
 
+## Option 3: Developing with Coder workspaces (PostHog employees only)
+
+If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](../../../internal/coder-workspaces.md).
+It covers `hogli box:setup`, the `hogli box` command overview, and the expected auth flow.
+
 ## Testing
 
 For a PostHog PR to be merged, all tests must be green, and ideally you should be introducing new ones as well – that's why you must be able to run tests with ease.
