@@ -1971,6 +1971,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     date_to="2020-01-08",
                 ),
                 funnelsFilter=FunnelsFilter(
+                    breakdownAttributionType=BreakdownAttributionType.FIRST_TOUCH,
                     funnelOrderType=funnel_order_type,
                 ),
                 series=[
@@ -2570,6 +2571,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     date_to="2020-01-08",
                 ),
                 funnelsFilter=FunnelsFilter(
+                    breakdownAttributionType=BreakdownAttributionType.FIRST_TOUCH,
                     funnelOrderType=funnel_order_type,
                 ),
                 series=[
@@ -2743,6 +2745,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     date_to="2020-01-08",
                 ),
                 funnelsFilter=FunnelsFilter(
+                    breakdownAttributionType=BreakdownAttributionType.FIRST_TOUCH,
                     funnelOrderType=funnel_order_type,
                 ),
                 series=[
@@ -3112,6 +3115,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     date_to="2020-01-08",
                 ),
                 funnelsFilter=FunnelsFilter(
+                    breakdownAttributionType=BreakdownAttributionType.FIRST_TOUCH,
                     funnelOrderType=funnel_order_type,
                 ),
                 series=[
@@ -3194,6 +3198,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     date_to="2020-01-08",
                 ),
                 funnelsFilter=FunnelsFilter(
+                    breakdownAttributionType=BreakdownAttributionType.FIRST_TOUCH,
                     funnelOrderType=funnel_order_type,
                 ),
                 series=[
