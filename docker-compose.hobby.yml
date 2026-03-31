@@ -149,9 +149,6 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
-            LOGS_REDIS_HOST: redis7
-            LOGS_REDIS_PORT: 6379
-            LOGS_REDIS_TLS: 'false'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -218,6 +215,26 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+        depends_on:
+            - db
+            - redis7
+            - kafka
+
+    ingestion-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-logs
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        depends_on:
+            - db
+            - redis7
+            - kafka
+
+    ingestion-traces:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-traces
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         depends_on:
             - db
             - redis7

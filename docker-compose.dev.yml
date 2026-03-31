@@ -245,6 +245,56 @@ services:
         profiles:
             - ingestion
 
+    ingestion-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-logs
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6743:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
+    ingestion-traces:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-traces
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6744:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
     db:
         extends:
             file: docker-compose.base.yml
