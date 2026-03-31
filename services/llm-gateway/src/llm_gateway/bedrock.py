@@ -133,13 +133,6 @@ def get_bedrock_model_access_candidates(model: str, region_name: str | None = No
     return frozenset({model.lower(), mapped_model.lower()})
 
 
-def build_bedrock_invoke_model_body(request_data: dict[str, Any]) -> dict[str, Any]:
-    body = {key: value for key, value in request_data.items() if key != "model"}
-    body.setdefault("anthropic_version", BEDROCK_ANTHROPIC_VERSION)
-    body.setdefault("max_tokens", DEFAULT_BEDROCK_MAX_TOKENS)
-    return body
-
-
 @functools.lru_cache
 def get_bedrock_runtime_client(region_name: str, timeout_seconds: float):
     return boto3.client(
@@ -163,12 +156,11 @@ def count_tokens_with_bedrock(
     # CountTokens API does not support regional model prefixes ("us.anthropic.", "eu.anthropic.")
     count_tokens_model = model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
 
-    # Rebuild a minimal body instead of using build_bedrock_invoke_model_body() —
-    # the Bedrock CountTokens API rejects unknown fields (e.g. thinking, tools)
-    # but still requires anthropic_version, max_tokens, and messages.
+    # Build the minimal invoke body Bedrock CountTokens accepts. Unlike invoke_model,
+    # CountTokens rejects extra fields such as thinking and tools.
     body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": request_data.get("max_tokens", 4096),
+        "anthropic_version": BEDROCK_ANTHROPIC_VERSION,
+        "max_tokens": request_data.get("max_tokens", DEFAULT_BEDROCK_MAX_TOKENS),
         "messages": request_data.get("messages"),
     }
 

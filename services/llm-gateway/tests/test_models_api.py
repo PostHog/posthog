@@ -79,18 +79,6 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "us.anthropic.claude-sonnet-4-5-20250929-v1:0": {
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 200000,
-        "supports_vision": True,
-        "mode": "chat",
-    },
-    "us.meta.llama3-2-90b-instruct-v1:0": {
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 128000,
-        "supports_vision": False,
-        "mode": "chat",
-    },
     "gemini-2.0-flash": {
         "litellm_provider": "vertex_ai",
         "max_input_tokens": 1048576,
@@ -131,7 +119,6 @@ def create_mock_settings() -> MagicMock:
     settings.openai_api_key = "sk-test"
     settings.anthropic_api_key = "sk-ant-test"
     settings.gemini_api_key = "gemini-test"
-    settings.bedrock_region_name = "us-east-1"
     settings.openrouter_api_key = "or-test"
     settings.fireworks_api_key = "fw-test"
     return settings
@@ -199,8 +186,6 @@ class TestListModelsForProductEndpoint:
         assert "o1" in model_ids
         assert "claude-sonnet-4-5" in model_ids
         assert "claude-3-5-sonnet-20241022" in model_ids
-        assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in model_ids
-        assert "us.meta.llama3-2-90b-instruct-v1:0" not in model_ids
 
     def test_posthog_code_filters_models_by_allowed_list(self, client: TestClient):
         response = client.get("/posthog_code/v1/models")

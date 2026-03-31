@@ -52,14 +52,6 @@ MOCK_MODEL_COSTS = {
         "input_cost_per_token": 0.000000075,
         "output_cost_per_token": 0.0000003,
     },
-    "us.anthropic.claude-haiku-4-5-20251001-v1:0": {
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 200000,
-        "supports_vision": True,
-        "mode": "chat",
-        "input_cost_per_token": 0.0000008,
-        "output_cost_per_token": 0.000004,
-    },
     "openrouter/anthropic/claude-3.5-sonnet": {
         "litellm_provider": "openrouter",
         "max_input_tokens": 200000,

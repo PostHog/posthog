@@ -16,8 +16,6 @@ PROVIDER_ENV_VARS = [
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "GEMINI_API_KEY",
-    "AWS_REGION",
-    "AWS_DEFAULT_REGION",
     "OPENROUTER_API_KEY",
     "FIREWORKS_API_KEY",
 ]
@@ -101,18 +99,6 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "us.anthropic.claude-sonnet-4-5-20250929-v1:0": {
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 200000,
-        "supports_vision": True,
-        "mode": "chat",
-    },
-    "us.meta.llama3-2-90b-instruct-v1:0": {
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 128000,
-        "supports_vision": False,
-        "mode": "chat",
-    },
     "gemini-2.0-flash": {
         "litellm_provider": "vertex_ai",
         "max_input_tokens": 1048576,
@@ -158,7 +144,6 @@ def create_mock_settings(
     openai: bool = True,
     anthropic: bool = True,
     gemini: bool = True,
-    bedrock: bool = False,
     openrouter: bool = False,
     fireworks: bool = False,
 ) -> MagicMock:
@@ -166,7 +151,6 @@ def create_mock_settings(
     settings.openai_api_key = "sk-test" if openai else None
     settings.anthropic_api_key = "sk-ant-test" if anthropic else None
     settings.gemini_api_key = "gemini-test" if gemini else None
-    settings.bedrock_region_name = "us-east-1" if bedrock else None
     settings.openrouter_api_key = "or-test" if openrouter else None
     settings.fireworks_api_key = "fw-test" if fireworks else None
     return settings
@@ -231,7 +215,6 @@ class TestGetModel:
         [
             ("gpt-4o", "openai"),
             ("claude-sonnet-4-5", "anthropic"),
-            ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "bedrock"),
             ("gemini-2.0-flash", "vertex_ai"),
             ("openrouter/anthropic/claude-3.5-sonnet", "openrouter"),
             ("fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct", "fireworks_ai"),
@@ -302,21 +285,6 @@ class TestProviderFiltering:
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
             assert providers == {"openai", "anthropic"}
-
-    def test_bedrock_configuration_enables_anthropic_models(self):
-        with patch.dict(os.environ, {}, clear=False):
-            for var in PROVIDER_ENV_VARS:
-                os.environ.pop(var, None)
-            with patch(
-                "llm_gateway.services.model_registry.get_settings",
-                return_value=create_mock_settings(openai=False, anthropic=False, gemini=False, bedrock=True),
-            ):
-                models = get_available_models("llm_gateway")
-                providers = {m.provider for m in models}
-                assert providers == {"bedrock"}
-                model_ids = {m.id for m in models}
-                assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in model_ids
-                assert "us.meta.llama3-2-90b-instruct-v1:0" not in model_ids
 
     @pytest.mark.parametrize(
         "provider_kwargs,expected_provider,expected_model_id",
@@ -415,14 +383,3 @@ class TestIsModelAvailable:
             ):
                 assert is_model_available("gpt-4o", "llm_gateway") is False
                 assert is_model_available("claude-sonnet-4-5", "llm_gateway") is True
-
-    def test_bedrock_model_available_when_bedrock_configured(self):
-        with patch.dict(os.environ, {}, clear=False):
-            for var in PROVIDER_ENV_VARS:
-                os.environ.pop(var, None)
-            with patch(
-                "llm_gateway.services.model_registry.get_settings",
-                return_value=create_mock_settings(openai=False, anthropic=False, gemini=False, bedrock=True),
-            ):
-                assert is_model_available("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "llm_gateway") is True
-                assert is_model_available("us.meta.llama3-2-90b-instruct-v1:0", "llm_gateway") is False

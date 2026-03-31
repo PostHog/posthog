@@ -393,66 +393,6 @@ class TestAnthropicMessagesEndpoint:
         assert "provider" not in call_kwargs
         assert "use_bedrock_fallback" not in call_kwargs
 
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
-    @patch("llm_gateway.api.anthropic.get_settings")
-    def test_provider_bedrock_routes_to_bedrock(
-        self,
-        mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
-        authenticated_client: TestClient,
-        mock_anthropic_response: dict,
-    ) -> None:
-        mock_get_settings.return_value = MagicMock(bedrock_region_name="us-east-1")
-        mock_handle.return_value = mock_anthropic_response
-
-        response = authenticated_client.post(
-            "/v1/messages",
-            json={
-                "model": "us.anthropic.claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
-            },
-            headers={"Authorization": "Bearer phx_test_key"},
-        )
-
-        assert response.status_code == 200
-        from llm_gateway.api.handler import BEDROCK_CONFIG
-
-        call_kwargs = mock_handle.call_args.kwargs
-        assert call_kwargs["provider_config"] is BEDROCK_CONFIG
-
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
-    @patch("llm_gateway.api.anthropic.get_settings")
-    def test_provider_bedrock_adds_anthropic_beta_header(
-        self,
-        mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
-        authenticated_client: TestClient,
-        mock_anthropic_response: dict,
-    ) -> None:
-        mock_get_settings.return_value = MagicMock(bedrock_region_name="us-east-1")
-        mock_handle.return_value = mock_anthropic_response
-
-        response = authenticated_client.post(
-            "/v1/messages",
-            json={
-                "model": "us.anthropic.claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
-            },
-            headers={
-                "Authorization": "Bearer phx_test_key",
-                "anthropic-beta": "interleaved-thinking-2025-05-14, extended-thinking-2025-05-14",
-            },
-        )
-
-        assert response.status_code == 200
-        request_data = mock_handle.call_args.kwargs["request_data"]
-        assert request_data["anthropic_beta"] == [
-            "interleaved-thinking-2025-05-14",
-            "extended-thinking-2025-05-14",
-        ]
-
 
 class TestAnthropicCountTokensEndpoint:
     @pytest.fixture

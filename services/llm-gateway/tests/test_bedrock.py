@@ -644,28 +644,6 @@ class TestModelMapping:
 
         assert map_to_bedrock_model("claude-opus-4-6", region_name="eu-west-1") == "eu.anthropic.claude-opus-4-6-v1"
 
-    def test_build_bedrock_invoke_model_body_preserves_request_fields(self) -> None:
-        from llm_gateway.bedrock import BEDROCK_ANTHROPIC_VERSION, build_bedrock_invoke_model_body
-
-        body = build_bedrock_invoke_model_body(
-            {
-                "model": "claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "system": "Be brief.",
-                "tools": [{"name": "get_weather"}],
-                "tool_choice": {"type": "tool", "name": "get_weather"},
-                "max_tokens": 2048,
-            }
-        )
-
-        assert "model" not in body
-        assert body["messages"] == [{"role": "user", "content": "Hello"}]
-        assert body["system"] == "Be brief."
-        assert body["tools"] == [{"name": "get_weather"}]
-        assert body["tool_choice"] == {"type": "tool", "name": "get_weather"}
-        assert body["max_tokens"] == 2048
-        assert body["anthropic_version"] == BEDROCK_ANTHROPIC_VERSION
-
     def test_raises_for_unknown_model(self) -> None:
         from llm_gateway.api.anthropic import map_to_bedrock_model
 
