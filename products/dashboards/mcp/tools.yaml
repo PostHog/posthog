@@ -7,6 +7,7 @@
 category: Dashboards
 feature: dashboards
 url_prefix: /dashboard
+ui_apps: {}
 tools:
     data-color-themes-list:
         operation: data_color_themes_list

@@ -1700,11 +1700,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                     }
                     // Deferred — quick filters wait for quickFiltersUrlRestoreComplete,
-                    // variables wait for getVariablesSuccess. Explicitly trigger
-                    // the variable fetch since variableDataLogic uses lazyLoaders
-                    // and may not load until a component subscribes to its values.
+                    // variables wait for loadVariablesSuccess. Explicitly trigger
+                    // the variable fetch to ensure variables are loaded before
+                    // the dashboard loads.
                     if (hasVariablesInUrl) {
-                        variableDataLogic.actions.getVariables()
+                        variableDataLogic.actions.loadVariables()
                     } else {
                         // No URL variables to wait for — mark as loaded so the
                         // urlVariables selector is active for runtime overrides
@@ -2458,7 +2458,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setInitialQuickFiltersLoaded(true)
 
             // If variables are also in the URL and haven't loaded yet, let
-            // getVariablesSuccess trigger the load — by then filtersOverrideForLoad
+            // loadVariablesSuccess trigger the load — by then filtersOverrideForLoad
             // will already include the restored quick filter properties.
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !values.initialVariablesLoaded) {
                 return
@@ -2473,7 +2473,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
         },
-        [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
+        [variableDataLogic.actionTypes.loadVariablesSuccess]: () => {
             // Only run this handler once on startup
             // This ensures variables are loaded before the dashboard is loaded and insights are refreshed
             if (values.initialVariablesLoaded) {

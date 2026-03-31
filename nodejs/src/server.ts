@@ -21,6 +21,7 @@ import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { buildGroupRepository } from './ingestion/personhog'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
@@ -36,6 +37,7 @@ import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
+import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
 
@@ -373,7 +375,7 @@ export class PluginServer implements NodeServer {
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
         personRepository: PostgresPersonRepository
-        groupRepository: PostgresGroupRepository
+        groupRepository: GroupRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
@@ -384,7 +386,13 @@ export class PluginServer implements NodeServer {
         const personRepository = new PostgresPersonRepository(this.postgres!, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
-        const groupRepository = new PostgresGroupRepository(this.postgres!)
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
+        const groupRepository = buildGroupRepository(
+            this.config,
+            postgresGroupRepository,
+            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        )
+
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
         const internalCaptureService = new InternalCaptureService(this.config)

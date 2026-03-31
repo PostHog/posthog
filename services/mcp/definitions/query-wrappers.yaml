@@ -62,6 +62,24 @@ wrappers:
             - modifiers
             - samplingFactor
 
+    query-stickiness:
+        schema_ref: AssistantStickinessQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a stickiness query
+        description_file: ./prompts/query-stickiness.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
     query-paths:
         schema_ref: AssistantPathsQuery
         enabled: true
@@ -74,6 +92,24 @@ wrappers:
         mcp_version: 2
         title: Run a paths query
         description_file: ./prompts/query-paths.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-lifecycle:
+        schema_ref: AssistantLifecycleQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a lifecycle query
+        description_file: ./prompts/query-lifecycle.md
         ui_resource_uri: ui://posthog/query-results.html
         exclude_properties:
             - response

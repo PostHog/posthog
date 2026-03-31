@@ -7,6 +7,22 @@
 category: Surveys
 feature: surveys
 url_prefix: /surveys
+ui_apps:
+    survey:
+        type: detail
+        view_prop: survey
+    survey-list:
+        type: list
+        detail_tool: survey-get
+        detail_args: '{ surveyId: item.id }'
+    survey-stats:
+        type: detail
+        view_prop: data
+    survey-global-stats:
+        type: detail
+        view_prop: data
+        data_type: SurveyStatsData
+        view_component: SurveyStatsView
 tools:
     surveys-get-all:
         operation: surveys_list
@@ -22,8 +38,7 @@ tools:
         title: Get all surveys in the project with optional filtering.
         description: |
             Get all surveys in the project with optional filtering. Can filter by search term or use pagination.
-
-        ui_resource_uri: ui://posthog/survey-list.html
+        ui_app: survey-list
     survey-get:
         operation: surveys_retrieve
         enabled: true
@@ -38,8 +53,7 @@ tools:
         description: >
             Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling
             details.
-
-        ui_resource_uri: ui://posthog/survey.html
+        ui_app: survey
     survey-create:
         operation: surveys_create
         enabled: true
@@ -68,7 +82,7 @@ tools:
             - enable_partial_responses
             - linked_flag_id
             - targeting_flag_filters
-        ui_resource_uri: ui://posthog/survey.html
+        ui_app: survey
     survey-update:
         operation: surveys_partial_update
         enabled: true
@@ -103,7 +117,7 @@ tools:
             - targeting_flag_id
             - targeting_flag_filters
             - remove_targeting_flag
-        ui_resource_uri: ui://posthog/survey.html
+        ui_app: survey
     survey-delete:
         operation: surveys_destroy
         enabled: true
@@ -131,7 +145,7 @@ tools:
         description: >
             Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent),
             unique respondents, conversion rates, and timing data. Supports optional date filtering.
-        ui_resource_uri: ui://posthog/survey-stats.html
+        ui_app: survey-stats
     surveys-global-stats:
         operation: surveys_stats_retrieve
         enabled: true
@@ -145,7 +159,7 @@ tools:
         description: >
             Get aggregated response statistics across all surveys in the project. Includes event counts (shown,
             dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.
-        ui_resource_uri: ui://posthog/survey-global-stats.html
+        ui_app: survey-global-stats
     surveys-update:
         operation: surveys_update
         enabled: false

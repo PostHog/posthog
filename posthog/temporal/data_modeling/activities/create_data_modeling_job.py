@@ -21,6 +21,7 @@ class CreateDataModelingJobInputs:
     node_id: str
     dag_id: str
     engine: str = DataModelingJobEngine.CLICKHOUSE
+    parent_workflow_id: str | None = None
 
 
 @database_sync_to_async
@@ -35,6 +36,7 @@ def _create_data_modeling_job(inputs: CreateDataModelingJobInputs, workflow_id: 
         engine=inputs.engine,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
+        parent_workflow_id=inputs.parent_workflow_id,
         created_by_id=node.saved_query.created_by_id if node.saved_query else None,
     )
     return str(job.id)

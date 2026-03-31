@@ -12,11 +12,15 @@ import {
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
 } from '@/generated/dashboards/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DashboardsGetAllSchema = DashboardsListQueryParams.omit({ format: true })
 
-const dashboardsGetAll = (): ToolBase<typeof DashboardsGetAllSchema, unknown> => ({
+const dashboardsGetAll = (): ToolBase<
+    typeof DashboardsGetAllSchema,
+    WithPostHogUrl<Schemas.PaginatedDashboardBasicList>
+> => ({
     name: 'dashboards-get-all',
     schema: DashboardsGetAllSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardsGetAllSchema>) => {
@@ -29,21 +33,22 @@ const dashboardsGetAll = (): ToolBase<typeof DashboardsGetAllSchema, unknown> =>
                 offset: params.offset,
             },
         })
-        const items = (result as any).results ?? result
-        return {
-            ...(result as any),
-            results: (items as any[]).map((item: any) => ({
-                ...item,
-                _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/dashboard/${item.id}`,
-            })),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/dashboard`,
-        }
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    result.results.map((item) => withPostHogUrl(context, item, `/dashboard/${item.id}`))
+                ),
+            },
+            '/dashboard'
+        )
     },
 })
 
 const DashboardCreateSchema = DashboardsCreateBody
 
-const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, Schemas.Dashboard & { _posthogUrl: string }> => ({
+const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-create',
     schema: DashboardCreateSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardCreateSchema>) => {
@@ -87,16 +92,13 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, Schemas.Dashb
             path: `/api/projects/${projectId}/dashboards/`,
             body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/dashboard/${(result as any).id}`,
-        }
+        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
     },
 })
 
 const DashboardGetSchema = DashboardsRetrieveParams.omit({ project_id: true })
 
-const dashboardGet = (): ToolBase<typeof DashboardGetSchema, Schemas.Dashboard & { _posthogUrl: string }> => ({
+const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-get',
     schema: DashboardGetSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardGetSchema>) => {
@@ -105,10 +107,7 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, Schemas.Dashboard &
             method: 'GET',
             path: `/api/projects/${projectId}/dashboards/${params.id}/`,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/dashboard/${(result as any).id}`,
-        }
+        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
     },
 })
 
@@ -116,7 +115,7 @@ const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: t
     DashboardsPartialUpdateBody.shape
 )
 
-const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, Schemas.Dashboard & { _posthogUrl: string }> => ({
+const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-update',
     schema: DashboardUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardUpdateSchema>) => {
@@ -160,21 +159,18 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, Schemas.Dashb
             path: `/api/projects/${projectId}/dashboards/${params.id}/`,
             body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/dashboard/${(result as any).id}`,
-        }
+        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
     },
 })
 
 const DashboardDeleteSchema = DashboardsDestroyParams.omit({ project_id: true })
 
-const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, unknown> => ({
+const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashboard> => ({
     name: 'dashboard-delete',
     schema: DashboardDeleteSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.Dashboard>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/dashboards/${params.id}/`,
             body: { deleted: true },
@@ -187,10 +183,7 @@ const DashboardReorderTilesSchema = DashboardsReorderTilesCreateParams.omit({ pr
     DashboardsReorderTilesCreateBody.shape
 )
 
-const dashboardReorderTiles = (): ToolBase<
-    typeof DashboardReorderTilesSchema,
-    Schemas.Dashboard & { _posthogUrl: string }
-> => ({
+const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-reorder-tiles',
     schema: DashboardReorderTilesSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardReorderTilesSchema>) => {
@@ -204,10 +197,7 @@ const dashboardReorderTiles = (): ToolBase<
             path: `/api/projects/${projectId}/dashboards/${params.id}/reorder_tiles/`,
             body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/dashboard/${(result as any).id}`,
-        }
+        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
     },
 })
 
