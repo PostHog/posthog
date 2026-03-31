@@ -273,5 +273,51 @@ describe('PersonsManagerService + PersonHogPersonRepository integration', () => 
             expect(mockGrpc.persons.fetchPersonsByPersonIds).toHaveBeenCalled()
             expect(mockPostgres.fetchPersonsByPersonIds).toHaveBeenCalled()
         })
+
+        it('produces identical output on fallback as on direct postgres path', async () => {
+            // First: get the postgres-only result
+            const postgresRepo = new PersonHogPersonRepository(
+                mockPostgres,
+                mockGrpc as unknown as PersonHogClient,
+                0,
+                'test'
+            )
+            const postgresManager = new PersonsManagerService(mockTeamManager, postgresRepo, 'http://localhost:8000')
+
+            const postgresResult = await postgresManager.getCyclotronPerson(TEAM_1, 'alice-distinct', 'distinct_id')
+
+            // Second: get the fallback result (gRPC fails)
+            mockGrpc.persons.fetchPersonsByDistinctIds.mockRejectedValue(new Error('down'))
+            mockGrpc.persons.fetchPersonsByPersonIds.mockRejectedValue(new Error('down'))
+
+            const fallbackResult = await manager.getCyclotronPerson(TEAM_1, 'alice-distinct', 'distinct_id')
+
+            expect(fallbackResult).toEqual(postgresResult)
+        })
+    })
+
+    describe('concurrent multi-team lookup', () => {
+        it('resolves persons from multiple teams concurrently', async () => {
+            const mockPostgres = createMockPostgres(MOCK_PERSONS)
+            const mockGrpc = createMockGrpcClient(MOCK_PERSONS)
+
+            const personhogRepo = new PersonHogPersonRepository(
+                mockPostgres,
+                mockGrpc as unknown as PersonHogClient,
+                100,
+                'test'
+            )
+            const manager = new PersonsManagerService(mockTeamManager, personhogRepo, 'http://localhost:8000')
+
+            const [team1Result, team2Result] = await Promise.all([
+                manager.getCyclotronPerson(TEAM_1, 'alice-distinct', 'distinct_id'),
+                manager.getCyclotronPerson(TEAM_2, 'alice-distinct', 'distinct_id'),
+            ])
+
+            expect(team1Result!.properties).toEqual({ name: 'Alice', email: 'alice@example.com' })
+            expect(team2Result!.properties).toEqual({ name: 'Alice Team 2' })
+
+            expect(mockGrpc.persons.fetchPersonsByDistinctIds).toHaveBeenCalled()
+        })
     })
 })

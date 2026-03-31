@@ -103,14 +103,20 @@ type MockPersonHogClient = {
 }
 
 function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeof MOCK_GROUPS): MockPersonHogClient {
-    const groupsMock: MockPersonHogClient['groups'] = {
-        fetchGroup: jest.fn(),
-        fetchGroupsByKeys: jest.fn(),
-        fetchGroupTypesByTeamIds: jest.fn(),
-        fetchGroupTypesByProjectIds: jest.fn(),
+    const mock: MockPersonHogClient = {
+        groups: {
+            fetchGroup: jest.fn(),
+            fetchGroupsByKeys: jest.fn(),
+            fetchGroupTypesByTeamIds: jest.fn(),
+            fetchGroupTypesByProjectIds: jest.fn(),
+        },
+        persons: {
+            fetchPersonsByDistinctIds: jest.fn(),
+            fetchPersonsByPersonIds: jest.fn(),
+        },
     }
 
-    groupsMock.fetchGroupTypesByTeamIds.mockImplementation((teamIds: number[]) => {
+    mock.groups.fetchGroupTypesByTeamIds.mockImplementation((teamIds: number[]) => {
         const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
         for (const teamId of teamIds) {
             result[teamId.toString()] = []
@@ -126,7 +132,7 @@ function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeo
         return Promise.resolve(result)
     })
 
-    groupsMock.fetchGroupsByKeys.mockImplementation(
+    mock.groups.fetchGroupsByKeys.mockImplementation(
         (teamIds: number[], groupIndexes: number[], groupKeys: string[]) => {
             const results = groups.filter((group) => {
                 for (let i = 0; i < teamIds.length; i++) {
@@ -144,13 +150,7 @@ function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeo
         }
     )
 
-    return {
-        groups: groupsMock,
-        persons: {
-            fetchPersonsByDistinctIds: jest.fn(),
-            fetchPersonsByPersonIds: jest.fn(),
-        },
-    }
+    return mock
 }
 
 describe('GroupsManagerService + PersonHogGroupRepository integration', () => {

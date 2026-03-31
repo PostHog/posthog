@@ -1,9 +1,30 @@
+import { create } from '@bufbuild/protobuf'
 import { Transport, createClient } from '@connectrpc/connect'
 import { createGrpcTransport } from '@connectrpc/connect-node'
+import { DateTime } from 'luxon'
 
 import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
+import { ConsistencyLevel, ReadOptionsSchema } from '../../generated/personhog/personhog/types/v1/common_pb'
+import { parseJSON } from '../../utils/json-parse'
 import { PersonHogGroupOperations } from './groups'
 import { PersonHogPersonOperations } from './persons'
+
+const textDecoder = new TextDecoder()
+
+export function parseJsonBytes(bytes: Uint8Array): any {
+    if (bytes.length === 0) {
+        return null
+    }
+    return parseJSON(textDecoder.decode(bytes))
+}
+
+export function epochMsToDateTime(epochMs: bigint): DateTime {
+    return DateTime.fromMillis(Number(epochMs), { zone: 'utc' })
+}
+
+export function eventualReadOptions() {
+    return create(ReadOptionsSchema, { consistency: ConsistencyLevel.EVENTUAL })
+}
 
 export interface PersonHogClientConfig {
     addr: string

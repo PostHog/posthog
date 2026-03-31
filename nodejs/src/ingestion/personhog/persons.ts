@@ -1,35 +1,16 @@
 import { create } from '@bufbuild/protobuf'
 import { Client } from '@connectrpc/connect'
-import { DateTime } from 'luxon'
 
 import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
-import { ConsistencyLevel } from '../../generated/personhog/personhog/types/v1/common_pb'
-import { ReadOptionsSchema, TeamDistinctIdSchema } from '../../generated/personhog/personhog/types/v1/common_pb'
+import { TeamDistinctIdSchema } from '../../generated/personhog/personhog/types/v1/common_pb'
 import {
     GetPersonsByDistinctIdsRequestSchema,
     GetPersonsByUuidsRequestSchema,
 } from '../../generated/personhog/personhog/types/v1/person_pb'
 import type { Person as ProtoPerson } from '../../generated/personhog/personhog/types/v1/person_pb'
 import { InternalPerson } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
 import { InternalPersonWithDistinctId } from '../../worker/ingestion/persons/repositories/person-repository'
-
-const textDecoder = new TextDecoder()
-
-function parseJsonBytes(bytes: Uint8Array): any {
-    if (bytes.length === 0) {
-        return null
-    }
-    return parseJSON(textDecoder.decode(bytes))
-}
-
-function epochMsToDateTime(epochMs: bigint): DateTime {
-    return DateTime.fromMillis(Number(epochMs), { zone: 'utc' })
-}
-
-function eventualReadOptions() {
-    return create(ReadOptionsSchema, { consistency: ConsistencyLevel.EVENTUAL })
-}
+import { epochMsToDateTime, eventualReadOptions, parseJsonBytes } from './client'
 
 function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
     return {
