@@ -35,6 +35,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    experiment_has_legacy_metrics,
     holdout_filters_for_flag,
 )
 
@@ -1147,6 +1148,28 @@ class ExperimentService:
 
     def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
         """Validate update payload before any database mutations occur."""
+        # Check for legacy metrics first
+        if experiment_has_legacy_metrics(experiment):
+            allowed_fields = {"name", "description", "end_date"}
+            update_fields = set(update_data.keys())
+
+            # Remove internal fields that are handled separately
+            update_fields.discard("get_feature_flag_key")
+
+            disallowed_fields = update_fields - allowed_fields
+            if disallowed_fields:
+                raise ValidationError(
+                    f"This experiment uses legacy metric formats and can only have its name, description, or end_date updated. "
+                    f"Cannot update: {', '.join(sorted(disallowed_fields))}"
+                )
+
+            # Validate end_date if present
+            if "end_date" in update_data:
+                self.validate_experiment_date_range(experiment.start_date, update_data["end_date"])
+
+            # If only allowed fields are being updated, skip the rest of the validation
+            return
+
         if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
             raise ValidationError(
                 "Cannot restore experiment: the linked feature flag has been deleted. "
