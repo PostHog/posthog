@@ -262,7 +262,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: seaweedfs
-        profiles: [replay]
         command: ['server', '-s3', '-s3.port=8333', '-filer', '-dir=/data']
         volumes:
             - seaweedfs-data:/data
@@ -271,13 +270,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: elasticsearch
-        profiles: [temporal]
 
     temporal:
         extends:
             file: docker-compose.base.yml
             service: temporal
-        profiles: [temporal]
         volumes:
             - ${SANDBOX_CODE:-.}/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
 
@@ -285,7 +282,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal-admin-tools
-        profiles: [temporal]
         depends_on:
             - temporal
 
@@ -293,7 +289,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal-ui
-        profiles: [temporal]
         restart: on-failure
         # No host ports — avoid conflicts between sandboxes
         depends_on:
@@ -308,7 +303,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: otel-collector
-        profiles: [observability]
         restart: on-failure
         environment:
             # Scope container log collection to this sandbox's compose project
@@ -324,7 +318,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: jaeger
-        profiles: [observability]
         restart: on-failure
         # No host ports — avoid conflicts between sandboxes
         networks:
@@ -334,7 +327,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture-logs
-        profiles: [observability]
         depends_on:
             - kafka
         networks:
@@ -347,7 +339,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: kafka_ui
-        profiles: [dev_tools]
         # No host ports — avoid conflicts between sandboxes
         depends_on:
             - kafka
@@ -356,19 +347,16 @@ services:
         extends:
             file: docker-compose.base.yml
             service: flower
-        profiles: [dev_tools]
         # No host ports — avoid conflicts between sandboxes
 
     maildev:
         extends:
             file: docker-compose.base.yml
             service: maildev
-        profiles: [dev_tools]
         # No host ports — avoid conflicts between sandboxes
 
     webhook-tester:
         image: tarampampam/webhook-tester:2.2.6
-        profiles: [dev_tools]
         restart: on-failure
         environment:
             - AUTO_CREATE_SESSIONS=true
@@ -377,7 +365,6 @@ services:
 
     etcd:
         image: quay.io/coreos/etcd:v3.6.8
-        profiles: [etcd]
         restart: on-failure
         environment:
             ETCD_NAME: etcd0
@@ -396,7 +383,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: localstack
-        profiles: [localstack]
         restart: on-failure
         # No host ports — avoid conflicts between sandboxes
 
@@ -406,14 +392,12 @@ services:
         extends:
             file: docker-compose.base.yml
             service: objectstorage-azure
-        profiles: [azure]
         # No host ports — avoid conflicts between sandboxes
 
     # --- duckgres profile ---
 
     duckgres:
         image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
-        profiles: [duckgres]
         restart: on-failure
         # No host ports — avoid conflicts between sandboxes
         volumes:

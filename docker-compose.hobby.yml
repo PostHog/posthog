@@ -232,6 +232,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: seaweedfs
+        container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
         restart: on-failure
         ports:
             - '127.0.0.1:8333:8333' # S3 API

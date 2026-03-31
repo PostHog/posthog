@@ -40,6 +40,7 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
+PROFILES_FILE = REPO_ROOT / "docker-compose.profiles.yml"
 WORKTREE_CMD = REPO_ROOT / "bin" / "posthog-worktree"
 
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
@@ -493,7 +494,7 @@ def compose(
     for p in profiles or []:
         profile_flags.extend(["--profile", p])
     return run(
-        ["docker", "compose", "--progress=quiet", "-p", project, "-f", str(COMPOSE_FILE), *profile_flags, *args],
+        ["docker", "compose", "--progress=quiet", "-p", project, "-f", str(COMPOSE_FILE), "-f", str(PROFILES_FILE), *profile_flags, *args],
         check=check,
         capture=capture,
         env_extra=_compose_env(port, worktree_path),
