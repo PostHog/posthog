@@ -274,7 +274,12 @@ echo ''
 printf '{gray}  ─────────────────────────────────────{reset}\\n'
 printf '  {bold}Products:{reset}  {blue}{", ".join(products)}{reset}\\n'
 printf '  {bold}Processes:{reset} {process_count} active\\n'
-printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'"""
+printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
+echo ''
+printf '{gray}  ─────────────────────────────────────{reset}\\n'
+printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
+printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
+"""
         return {"shell": shell}
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:

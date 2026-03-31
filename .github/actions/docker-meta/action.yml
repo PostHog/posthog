@@ -1,0 +1,105 @@
+name: Docker meta and registry login
+description: Log in to GHCR, DockerHub, and ECR, then generate standardized Docker image tags and labels.
+
+inputs:
+    image-name:
+        required: true
+        description: 'Image name without registry prefix (e.g., posthog-node, capture, llm-gateway)'
+    aws-role-to-assume:
+        required: true
+        description: 'AWS IAM role ARN for ECR access'
+    github-token:
+        required: true
+        description: 'GitHub token for GHCR login'
+    dockerhub-username:
+        required: true
+        description: 'DockerHub username'
+    dockerhub-password:
+        required: true
+        description: 'DockerHub password/token'
+    ecr-image-name:
+        required: false
+        default: ''
+        description: 'ECR image name if different from image-name (e.g., posthog-cloud). Defaults to image-name.'
+    legacy-images:
+        required: false
+        default: ''
+        description: 'Additional legacy image destinations (newline-separated) to publish to during migration. Remove once consumers are updated to the standard paths.'
+    push-to-dockerhub:
+        required: false
+        default: 'false'
+        description: 'Whether to also push to DockerHub as posthog/<image-name>. Only needed for the main posthog-cloud image.'
+
+outputs:
+    tags:
+        description: 'Docker metadata tags'
+        value: ${{ steps.meta.outputs.tags }}
+    labels:
+        description: 'Docker metadata labels'
+        value: ${{ steps.meta.outputs.labels }}
+    ecr-registry:
+        description: 'ECR registry URL'
+        value: ${{ steps.aws-ecr.outputs.registry }}
+
+runs:
+    using: 'composite'
+    steps:
+        - name: Configure AWS credentials
+          uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+          with:
+              role-to-assume: ${{ inputs.aws-role-to-assume }}
+              aws-region: us-east-1
+
+        - name: Login to Amazon ECR
+          id: aws-ecr
+          uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+        - name: Login to ghcr.io
+          uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+          with:
+              registry: ghcr.io
+              username: ${{ github.actor }}
+              password: ${{ inputs.github-token }}
+              logout: false
+
+        - name: Login to DockerHub
+          uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+          with:
+              username: ${{ inputs.dockerhub-username }}
+              password: ${{ inputs.dockerhub-password }}
+
+        # Build the images list: standard paths + any legacy paths for backwards compatibility
+        - name: Build images list
+          id: images
+          shell: bash
+          run: |
+              {
+                echo "list<<EOF"
+                echo "ghcr.io/posthog/$IMAGE_NAME"
+                if [ "$PUSH_TO_DOCKERHUB" = "true" ]; then
+                  echo "posthog/$IMAGE_NAME"
+                fi
+                echo "$ECR_REGISTRY/${ECR_IMAGE_NAME:-$IMAGE_NAME}"
+                if [ -n "$LEGACY_IMAGES" ]; then
+                  echo "$LEGACY_IMAGES"
+                fi
+                echo "EOF"
+              } >> "$GITHUB_OUTPUT"
+          env:
+              IMAGE_NAME: ${{ inputs.image-name }}
+              ECR_REGISTRY: ${{ steps.aws-ecr.outputs.registry }}
+              LEGACY_IMAGES: ${{ inputs.legacy-images }}
+              ECR_IMAGE_NAME: ${{ inputs.ecr-image-name }}
+              PUSH_TO_DOCKERHUB: ${{ inputs.push-to-dockerhub }}
+
+        - name: Docker meta
+          id: meta
+          uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+          with:
+              images: ${{ steps.images.outputs.list }}
+              tags: |
+                  type=ref,event=pr
+                  type=ref,event=branch
+                  type=sha
+                  type=raw,value=${{ github.sha }}
+                  type=raw,value=latest,enable={{is_default_branch}}

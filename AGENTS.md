@@ -57,7 +57,10 @@ Examples:
 
 ### PR descriptions
 
-Follow the PR description template in `.github/pull_request_template.md` when creating or updating PR descriptions. Keep the descriptions of changes higher-level, focusing on key details for the human reviewer to evaluate the rationale for the approach, and the overall architecture.
+**Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
+Do not invent a different format.
+Always uncomment and fill the `## LLM context` section for agent-authored PRs.
+Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 
 ### Rules
 
@@ -106,12 +109,11 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 
 ## Agent automation
 
-Prefer these approaches in order:
+When automating a convention, try these in order — only fall back to the next if the previous isn't suitable:
 
-1. **AGENTS.md / CLAUDE.md instructions** — try this first
-2. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
-3. **lint-staged / husky** — file-level validation at commit time
-4. **CI checks** — PR-level enforcement
-5. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement
+1. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement, always paired with CI
+2. **lint-staged / husky** — file-level validation or warnings at commit time
+3. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
+4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
 
 Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.

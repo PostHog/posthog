@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from django.conf import settings
 
 import yaml
@@ -6,51 +8,60 @@ AGENTSH_DAEMON_PORT = 18080
 SESSION_ID_FILE = "/tmp/agentsh-session-id"
 ENV_FILE = "/tmp/agent-env"
 ENV_WRAPPER_SCRIPT = "/tmp/agentsh-env-wrapper.sh"
+AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
 INFRASTRUCTURE_DOMAINS = [
     "*.posthog.com",
     "api.anthropic.com",
 ]
 
 
-def generate_env_wrapper() -> str:
-    """Generate the env wrapper script for agentsh exec.
+def _hostname_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    return parsed.hostname
 
-    agentsh exec creates a clean environment, stripping container env vars.
-    This wrapper restores them from a null-delimited dump created before exec,
-    then configures Node.js to use the agentsh HTTP proxy
-    """
-    no_proxy_domains = ",".join(INFRASTRUCTURE_DOMAINS)
+
+def _get_infrastructure_domains() -> list[str]:
+    domains = list(INFRASTRUCTURE_DOMAINS)
+
+    for candidate in [
+        getattr(settings, "SANDBOX_API_URL", None),
+        getattr(settings, "SANDBOX_LLM_GATEWAY_URL", None),
+    ]:
+        hostname = _hostname_from_url(candidate)
+        if hostname and hostname not in domains:
+            domains.append(hostname)
+
     if getattr(settings, "DEBUG", False):
-        no_proxy_domains += ",localhost,host.docker.internal"
+        for hostname in ["localhost", "host.docker.internal"]:
+            if hostname not in domains:
+                domains.append(hostname)
 
+    return domains
+
+
+def generate_env_wrapper() -> str:
+    """Generate a wrapper that restores the full sandbox environment.
+
+    ``agentsh exec`` starts child processes with a heavily stripped
+    environment.  We capture the sandbox env (via ``env -0``) *before*
+    ``agentsh exec`` runs, then this wrapper re-exports every variable so
+    the agent-server sees the same env it would without agentsh.
+
+    Network policy enforcement happens at the syscall level (ptrace) —
+    it does not depend on proxy environment variables.
+    """
     return f"""\
 #!/bin/bash
 while IFS= read -r -d $'\\0' line; do
   export "$line"
 done < {ENV_FILE}
-# Prevent the agent-server from calling agentsh exec for tool execution.
-# The outer agentsh exec already enforces network rules on all children.
-unset AGENTSH_IN_SESSION AGENTSH_SESSION_ID
-# agentsh exec routes traffic through an HTTP proxy (HTTP_PROXY/HTTPS_PROXY).
-# Node.js fetch() ignores proxy env vars by default; --use-env-proxy fixes this.
-export NODE_OPTIONS="${{NODE_OPTIONS:+$NODE_OPTIONS }}--use-env-proxy"
-# Infrastructure domains bypass the proxy — the agentsh proxy may not handle
-# streaming connections well, and these domains are always allowed in the policy.
-export NO_PROXY="${{NO_PROXY:+$NO_PROXY,}}{no_proxy_domains}"
-export no_proxy="${{no_proxy:+$no_proxy,}}{no_proxy_domains}"
 exec "$@"
 """
 
 
-def generate_config_yaml(*, enable_ptrace: bool = False, full_trace: bool = False) -> str:
-    """Generate agentsh config YAML.
-
-    Args:
-        enable_ptrace: Explicitly enable ptrace-based enforcement
-        full_trace: When True, trace all syscall types (execve, file, network, signal).
-                    When False (default), only trace network — avoids process-killing
-                    issues observed in Docker containers with full tracing.
-    """
+def generate_config_yaml(*, enable_ptrace: bool = True, full_trace: bool = True) -> str:
     sandbox: dict = {
         "enabled": True,
         "allow_degraded": True,
@@ -71,7 +82,6 @@ def generate_config_yaml(*, enable_ptrace: bool = False, full_trace: bool = Fals
                 "signal": full_trace,
             },
             "performance": {
-                # gVisor doesn't support seccomp BPF injection
                 "seccomp_prefilter": False,
                 "max_tracees": 500,
                 "max_hold_ms": 5000,
@@ -104,7 +114,7 @@ def generate_config_yaml(*, enable_ptrace: bool = False, full_trace: bool = Fals
         },
         "audit": {
             "enabled": True,
-            "storage": {"sqlite_path": "/var/lib/agentsh/events.db"},
+            "storage": {"sqlite_path": AGENTSH_AUDIT_DB},
         },
         "sandbox": sandbox,
         "policies": {
@@ -123,56 +133,55 @@ def generate_config_yaml(*, enable_ptrace: bool = False, full_trace: bool = Fals
     return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
 
-def _get_infrastructure_domains() -> list[str]:
-    """Domains that must always be reachable for the agent to function."""
-    domains = list(INFRASTRUCTURE_DOMAINS)
-    if getattr(settings, "DEBUG", False):
-        domains.extend(["localhost", "host.docker.internal"])
-    return domains
-
-
-def generate_policy_yaml(allowed_domains: list[str]) -> str:
+def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
     """Generate agentsh policy YAML.
 
-    allowed_domains should be the pre-computed effective domain list
-    from SandboxEnvironment.get_effective_domains(). Infrastructure
-    domains (PostHog API, LLM gateway) are always injected.
+    When allowed_domains is set, only those domains (plus infrastructure) are
+    reachable and everything else is denied.  When None, all network traffic
+    is allowed (audit-only mode).
     """
-    merged = list(allowed_domains)
-    for d in _get_infrastructure_domains():
-        if d not in merged:
-            merged.append(d)
+    if allowed_domains is not None:
+        merged_domains = list(allowed_domains)
+        for domain in _get_infrastructure_domains():
+            if domain not in merged_domains:
+                merged_domains.append(domain)
 
-    # In dev for PostHog API
-    allowed_ports = [443, 80, 22]
-    if getattr(settings, "DEBUG", False):
-        allowed_ports.extend([8000, 8010])
+        allowed_ports = [443, 80, 22]
+        if getattr(settings, "DEBUG", False):
+            allowed_ports.extend([8000, 8010])
 
-    policy: dict = {
-        "version": 1,
-        "name": "default",
-        "description": "Agent sandbox policy with domain allowlisting",
-        "network_rules": [
+        network_rules: list[dict] = [
             {
                 "name": "allow-localhost",
-                "description": "Allow localhost connections (includes Docker DNS at 127.0.0.11)",
                 "cidrs": ["127.0.0.0/8", "::1/128"],
                 "decision": "allow",
             },
             {
                 "name": "allow-domains",
-                "description": "Allowed domains for this sandbox",
-                "domains": merged,
+                "domains": merged_domains,
                 "ports": allowed_ports,
                 "decision": "allow",
             },
             {
                 "name": "default-deny-network",
-                "description": "Deny all other network connections",
                 "domains": ["*"],
                 "decision": "deny",
             },
-        ],
+        ]
+    else:
+        network_rules = [
+            {
+                "name": "allow-all-network",
+                "domains": ["*"],
+                "decision": "allow",
+            },
+        ]
+
+    policy: dict = {
+        "version": 1,
+        "name": "default",
+        "description": "Agent sandbox policy",
+        "network_rules": network_rules,
         "command_rules": [
             {
                 "name": "allow-all-commands",
@@ -192,7 +201,6 @@ def generate_policy_yaml(allowed_domains: list[str]) -> str:
         ],
         "env_policy": {
             "allow": [
-                # System
                 "HOME",
                 "PATH",
                 "USER",
@@ -204,7 +212,6 @@ def generate_policy_yaml(allowed_domains: list[str]) -> str:
                 "PWD",
                 "OLDPWD",
                 "HOSTNAME",
-                # Proxy (set by agentsh exec)
                 "HTTP_PROXY",
                 "HTTPS_PROXY",
                 "NO_PROXY",
@@ -213,13 +220,10 @@ def generate_policy_yaml(allowed_domains: list[str]) -> str:
                 "https_proxy",
                 "no_proxy",
                 "all_proxy",
-                # agentsh
                 "AGENTSH_*",
-                # Node.js
                 "NODE_OPTIONS",
                 "NODE_ENV",
                 "NODE_PATH",
-                # PostHog agent-server
                 "POSTHOG_*",
                 "JWT_PUBLIC_KEY",
                 "GITHUB_TOKEN",
@@ -234,11 +238,7 @@ def generate_policy_yaml(allowed_domains: list[str]) -> str:
     return yaml.dump(policy, default_flow_style=False, sort_keys=False)
 
 
-AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
-
-
 def build_audit_query_command(since_ns: int = 0, limit: int = 50) -> str:
-    """Shell command to query agentsh audit DB for network policy events."""
     where_parts = []
     if since_ns > 0:
         where_parts.append(f"ts_unix_ns > {since_ns}")
@@ -249,7 +249,7 @@ def build_audit_query_command(since_ns: int = 0, limit: int = 50) -> str:
         f'"SELECT ts_unix_ns, type, domain, remote, effective_decision, policy_rule '
         f"FROM events "
         f"WHERE {where_clause} "
-        f"ORDER BY ts_unix_ns DESC LIMIT {limit};\" 2>/dev/null || echo '[]'"
+        f"ORDER BY ts_unix_ns DESC LIMIT {limit};" + ' 2>/dev/null || echo "[]"'
     )
 
 

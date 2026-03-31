@@ -505,7 +505,13 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
     )
 }
 
-const BreakdownSeries = ({ series, index }: { series: AxisBreakdownSeries<number>; index: number }): JSX.Element => {
+const BreakdownSeries = ({
+    series,
+    index,
+}: {
+    series: AxisBreakdownSeries<number | null>
+    index: number
+}): JSX.Element => {
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
