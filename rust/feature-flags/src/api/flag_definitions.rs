@@ -103,10 +103,18 @@ pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<Tea
         if part.is_empty() {
             continue;
         }
-        let team_id = part
-            .parse::<TeamId>()
-            .map_err(|e| format!("Invalid team ID '{part}': {e}"))?;
-        team_ids.insert(team_id);
+        match part.parse::<TeamId>() {
+            Ok(id) => {
+                team_ids.insert(id);
+            }
+            Err(e) => {
+                warn!(
+                    part = part,
+                    error = %e,
+                    "Skipping invalid team ID in RATE_LIMITING_ALLOW_LIST_TEAMS"
+                );
+            }
+        }
     }
 
     Ok(Some(team_ids))
