@@ -27,6 +27,8 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
         grantType = formParams.get('grant_type')
     }
 
+    const clientIdPrefix = clientId?.slice(0, 8) ?? 'none'
+
     const rebuild = (): Request =>
         new Request(request.url, {
             method: request.method,
@@ -46,7 +48,10 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
                 const proxyCallbackUrl = `${new URL(request.url).origin}/oauth/callback/`
                 redirectUriRewrite = { from: storedRedirectUri, to: proxyCallbackUrl }
             }
-            return proxyWithMapping(rebuild(), kv, clientId, region, redirectUriRewrite)
+
+            const response = await proxyWithMapping(rebuild(), kv, clientId, region, redirectUriRewrite)
+
+            return response
         }
     }
 
@@ -63,7 +68,8 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
         )
     }
 
-    const { response } = await tryBothRegions(rebuild(), '/oauth/token/')
+    const { response, region } = await tryBothRegions(rebuild(), '/oauth/token/')
+
     return response
 }
 
