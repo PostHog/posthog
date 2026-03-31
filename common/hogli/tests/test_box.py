@@ -508,14 +508,12 @@ class TestStartExistingWorkspace:
             "load_config",
             lambda: {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
         )
-        monkeypatch.setattr(
-            box_cli,
-            "update_workspace_parameters",
-            lambda name, params: (
-                calls.append("update_params"),
-                captured_params.update({"name": name, "params": params}),
-            ),
-        )
+
+        def fake_update(name: str, params: dict[str, str]) -> None:
+            calls.append("update_params")
+            captured_params.update({"name": name, "params": params})
+
+        monkeypatch.setattr(box_cli, "update_workspace_parameters", fake_update)
         monkeypatch.setattr(
             box_cli,
             "start_workspace",
