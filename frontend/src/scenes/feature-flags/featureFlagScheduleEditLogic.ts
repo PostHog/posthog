@@ -165,7 +165,9 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
             (s) => [s.editScheduledAt, s.editCronExpression, s.editEndDate, s.editIsRecurring],
             (scheduledAt, cron, endDate, isRecurring): Record<string, string> => {
                 const errors: Record<string, string> = {}
-                if (!isRecurring && scheduledAt && scheduledAt.isBefore(dayjs())) {
+                if (!scheduledAt) {
+                    errors.scheduledAt = 'Scheduled date is required'
+                } else if (!isRecurring && scheduledAt.isBefore(dayjs())) {
                     errors.scheduledAt = 'Scheduled date must be in the future'
                 }
                 if (cron) {
