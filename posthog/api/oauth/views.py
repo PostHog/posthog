@@ -151,11 +151,10 @@ class OAuthValidator(OAuth2Validator):
         expires_in = self._get_token_expires_in(request)
         token["expires_in"] = expires_in
         client_id = getattr(request.client, "client_id", None) if hasattr(request, "client") else None
-        is_dcr = hasattr(request, "client") and request.client and getattr(request.client, "is_dcr_client", False)
         logger.info(
             "oauth_save_bearer_token",
             client_id_prefix=str(client_id)[:8] if client_id else "unknown",
-            is_dcr_client=is_dcr,
+            is_dcr_client=expires_in != oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS,
             expires_in=expires_in,
             grant_type=getattr(request, "grant_type", "unknown"),
         )
@@ -477,10 +476,11 @@ class OAuthTokenView(TokenView):
 
         grant_type = request.POST.get("grant_type", "unknown")
         client_id = request.POST.get("client_id", "")
+        client_id_prefix = client_id[:8] if client_id else "unknown"
         logger.info(
             "oauth_token_request",
             grant_type=grant_type,
-            client_id_prefix=client_id[:8] if client_id else "unknown",
+            client_id_prefix=client_id_prefix,
         )
 
         response = super().post(request, *args, **kwargs)
@@ -488,7 +488,7 @@ class OAuthTokenView(TokenView):
         logger.info(
             "oauth_token_response",
             grant_type=grant_type,
-            client_id_prefix=client_id[:8] if client_id else "unknown",
+            client_id_prefix=client_id_prefix,
             status=response.status_code,
         )
 
