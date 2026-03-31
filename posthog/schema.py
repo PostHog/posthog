@@ -1555,6 +1555,27 @@ class EventType(BaseModel):
     uuid: str | None = None
 
 
+class HrefMatching(Enum):
+    CONTAINS = "contains"
+    EXACT = "exact"
+    REGEX = "regex"
+    NONE_TYPE_NONE = None
+
+
+class TextMatching(Enum):
+    CONTAINS = "contains"
+    EXACT = "exact"
+    REGEX = "regex"
+    NONE_TYPE_NONE = None
+
+
+class UrlMatching(Enum):
+    CONTAINS = "contains"
+    EXACT = "exact"
+    REGEX = "regex"
+    NONE_TYPE_NONE = None
+
+
 class Properties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12673,6 +12694,44 @@ class EventsNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class EventsQueryActionStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str | None = None
+    href: str | None = None
+    href_matching: HrefMatching | None = None
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = None
+    selector: str | None = None
+    tag_name: str | None = None
+    text: str | None = None
+    text_matching: TextMatching | None = None
+    url: str | None = None
+    url_matching: UrlMatching | None = None
+
+
 class EventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20555,6 +20614,13 @@ class SessionBatchEventsQuery(BaseModel):
         extra="forbid",
     )
     actionId: int | None = Field(default=None, description="Show events matching a given action")
+    actionSteps: list[EventsQueryActionStep] | None = Field(
+        default=None,
+        description=(
+            "Show events matching action steps directly, used when no actionId is"
+            " provided (e.g. previewing unsaved actions). Ignored if actionId is set."
+        ),
+    )
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(
         default=None,
@@ -20685,6 +20751,13 @@ class EventsQuery(BaseModel):
         extra="forbid",
     )
     actionId: int | None = Field(default=None, description="Show events matching a given action")
+    actionSteps: list[EventsQueryActionStep] | None = Field(
+        default=None,
+        description=(
+            "Show events matching action steps directly, used when no actionId is"
+            " provided (e.g. previewing unsaved actions). Ignored if actionId is set."
+        ),
+    )
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(
         default=None,
