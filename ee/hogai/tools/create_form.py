@@ -243,7 +243,7 @@ class CreateFormTool(MaxTool):
             form_payload = FormResumePayload.model_validate(response)
         except ValidationError:
             try:
-                dismiss_payload = FormDismissPayload.model_validate(response)
+                FormDismissPayload.model_validate(response)
             except ValidationError as e:
                 raise MaxToolRetryableError(f"Invalid response from the user: {e}")
 
