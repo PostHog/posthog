@@ -312,6 +312,9 @@ def is_version_mismatch(exc: Exception) -> bool:
 
 def reset_ducklake_catalog(config: dict[str, str] | None = None) -> None:
     """Drop and recreate the DuckLake catalog database. Dev mode only."""
+    if not is_dev_mode():
+        raise RuntimeError("reset_ducklake_catalog is only allowed in dev mode")
+
     if config is None:
         config = get_config()
 

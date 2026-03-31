@@ -53,8 +53,9 @@ class TestIsVersionMismatch:
 
 
 class TestResetDucklakeCatalog:
+    @patch("posthog.ducklake.common.is_dev_mode", return_value=True)
     @patch("posthog.ducklake.common.psycopg")
-    def test_terminates_connections_before_drop(self, mock_psycopg: MagicMock):
+    def test_terminates_connections_before_drop(self, mock_psycopg: MagicMock, _mock_dev: MagicMock):
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
@@ -74,6 +75,11 @@ class TestResetDucklakeCatalog:
         terminate_idx = next(i for i, c in enumerate(calls) if "pg_terminate_backend" in c)
         drop_idx = next(i for i, c in enumerate(calls) if "DROP DATABASE" in c)
         assert terminate_idx < drop_idx
+
+    @patch("posthog.ducklake.common.is_dev_mode", return_value=False)
+    def test_raises_in_production_mode(self, _mock_dev: MagicMock):
+        with pytest.raises(RuntimeError, match="only allowed in dev mode"):
+            reset_ducklake_catalog(TEST_CONFIG)
 
 
 class TestInitializeDucklake:
