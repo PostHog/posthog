@@ -117,19 +117,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             return False
         if getattr(self.context.query.series[1], "optionalInFunnel", False):
             return False
-        # The synthetic branch can't replicate the UDF's breakdown logic: cohort
-        # breakdowns produce multiple rows per person, step attribution uses
-        # per-step property values, and the UDF's arrayJoin may expand results
-        # differently. Disable the pre-filter when any breakdown is active.
         if self.context.breakdown:
             return False
-        # The synthetic branch doesn't process exclusions — the UDF may set
-        # step_reached < 0 for excluded persons, but the synthetic branch
-        # unconditionally counts them as step_reached=0.
         if getattr(self.context.funnelsFilter, "exclusions", None):
             return False
-        # Correlation and actor queries need real matched events / timestamps;
-        # the synthetic branch only produces dummy placeholders.
+        # The synthetic branch produces dummy placeholders, not real events/timestamps
         if self._include_matched_events() or self.context.includeTimestamp or self.context.includePrecedingTimestamp:
             return False
         return True
@@ -138,11 +130,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         """Build a cheap GROUP BY query for persons with step_0 but NOT step_1.
 
         These persons can never progress past step 0, so their result is
-        deterministic: step_reached=0, steps_bitfield=1 (only bit 0 set).
-        This avoids sending their events through the expensive Rust UDF.
-
-        Only called when _should_apply_pre_filter() is True, which guarantees:
-        no breakdowns, no exclusions, no matched events/timestamps needed.
+        deterministic. This avoids sending their events through the UDF.
         """
         prop_vals = self._prop_vals()
         breakdown_select = self._default_breakdown_selector()
@@ -154,10 +142,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         inner_event_query = self._get_inner_event_query()
 
-        # Use arrayMap(x -> assumeNotNull(x), ...) for timings arrays — HogQL
-        # translates toFloat to accurateCastOrNull which produces Nullable(Float64),
-        # but the Rust UDF returns Array(Float64). A Nullable mismatch in the
-        # UNION ALL causes arraySum to fail downstream.
+        # Must match the UDF's non-nullable Array(Float64) return type, otherwise the UNION ALL fails
         non_nullable_empty_float_array = "arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [toFloat(0)]))"
         return cast(
             ast.SelectQuery,
@@ -278,8 +263,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         if self._should_apply_pre_filter():
             assert isinstance(inner_select, ast.SelectQuery)
-            # Build qualifying subquery from a fresh inner event query (must be
-            # built BEFORE mutating the original inner_event_query below)
             qualifying_subquery = parse_select(
                 """
                 SELECT aggregation_target FROM {iq}
@@ -289,9 +272,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 {"iq": self._get_inner_event_query()},
             )
 
-            # Add IN filter directly to the inner event query's WHERE clause
-            # (inner_select.select_from.table IS the inner_event_query AST node,
-            # mutating it modifies inner_select's FROM in-place)
             assert inner_select.select_from is not None
             event_query = inner_select.select_from.table
             assert isinstance(event_query, ast.SelectQuery)
@@ -304,7 +284,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             else:
                 event_query.where = in_filter
 
-            # Build synthetic branch + UNION ALL
             synthetic = self._build_synthetic_branch()
             inner_select = ast.SelectSetQuery.create_from_queries([inner_select, synthetic], "UNION ALL")
 

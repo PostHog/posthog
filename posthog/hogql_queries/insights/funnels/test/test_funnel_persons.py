@@ -28,7 +28,7 @@ from posthog.schema import (
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Cohort
+from posthog.models import Cohort, Person
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 from posthog.models.team.team import Team
@@ -838,8 +838,8 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
         _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2021-05-01 01:00:00")
         _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2021-05-01 02:00:00")
-        # user_2 only does step one — handled by synthetic branch
         _create_event(team=self.team, event="step one", distinct_id="user_2", timestamp="2021-05-01 01:00:00")
+        # user_2 only does step one — handled by synthetic branch
         _create_event(team=self.team, event="step one", distinct_id="user_3", timestamp="2021-05-01 01:00:00")
         _create_event(team=self.team, event="step two", distinct_id="user_3", timestamp="2021-05-01 02:00:00")
 
@@ -851,7 +851,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         actors = get_actors(funnels_query, self.team, funnel_step=-2)
         actor_ids = {val[0] for val in actors}
         # Only user_2 dropped off (did step one but not step two)
-        from posthog.models import Person
 
         user_2_person = Person.objects.get(team=self.team, persondistinctid__distinct_id="user_2")
         assert user_2_person.uuid in actor_ids
