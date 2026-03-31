@@ -9,6 +9,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
@@ -33,6 +34,13 @@ class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
             "id",
             "created_at",
         ]
+
+    def to_representation(self, instance: ExperimentToSavedMetric):
+        data = super().to_representation(instance)
+        # Refresh action names to show current names instead of stale cached values
+        team = instance.experiment.team
+        data["query"] = refresh_action_names_in_metric(data.get("query"), team)
+        return data
 
 
 class ExperimentSavedMetricSerializer(
@@ -60,6 +68,13 @@ class ExperimentSavedMetricSerializer(
             "updated_at",
             "user_access_level",
         ]
+
+    def to_representation(self, instance: ExperimentSavedMetric):
+        data = super().to_representation(instance)
+        # Refresh action names to show current names instead of stale cached values
+        team = self.context["get_team"]()
+        data["query"] = refresh_action_names_in_metric(data.get("query"), team)
+        return data
 
     def create(self, validated_data):
         tags = validated_data.pop("tags", None)
