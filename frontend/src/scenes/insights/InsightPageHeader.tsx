@@ -15,6 +15,7 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { isDataVisualizationNode } from '~/queries/utils'
@@ -95,6 +96,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 renameDebounceMs={0}
                 saveOnBlur
                 descriptionMaxLength={400}
+                maxToolProps={
+                    hasDashboardItemId && insight?.short_id
+                        ? {
+                              identifier: 'read_data',
+                              contextDescription: {
+                                  text: defaultInsightName || 'Insight',
+                                  icon: iconForType(getInsightIconTypeFromQuery(query)),
+                              },
+                          }
+                        : undefined
+                }
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
