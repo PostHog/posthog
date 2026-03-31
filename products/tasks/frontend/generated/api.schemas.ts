@@ -204,6 +204,8 @@ export interface PatchedTaskApi {
     github_integration?: number | null
     /** JSON schema for the task. This is used to validate the output of the task. */
     json_schema?: unknown | null
+    /** If true, this task is for internal use and should not be exposed to end users. */
+    internal?: boolean
     /**
      * Latest run details for this task
      * @nullable
@@ -662,6 +664,10 @@ export type TasksListParams = {
      * Filter by creator user ID
      */
     created_by?: number
+    /**
+     * Filter by internal flag. Defaults to excluding internal tasks when not specified.
+     */
+    internal?: boolean
     /**
      * Number of results to return per page.
      */

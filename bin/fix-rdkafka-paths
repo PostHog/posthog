@@ -1,0 +1,114 @@
+#!/bin/bash
+
+# Fix node-rdkafka dylib paths to use @loader_path for portability across git worktrees.
+# macOS only. Idempotent — safe to run multiple times.
+#
+# On macOS, node-gyp bakes absolute paths into the .node binary when linking against
+# bundled dylibs. This breaks when node_modules is CoW-cloned to a different worktree.
+# We rewrite them to @loader_path-relative references so the binary works at any path.
+
+set -e
+
+# Exit silently on non-macOS — Linux already uses $ORIGIN-relative rpaths
+[[ "$(uname -s)" == "Darwin" ]] || exit 0
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Source helpers if available (standalone invocation)
+if [[ -f "$SCRIPT_DIR/helpers/_utils.sh" ]]; then
+    source "$SCRIPT_DIR/helpers/_utils.sh"
+else
+    # Minimal fallback for when helpers aren't available
+    print_color() { echo "$2"; }
+    success() { echo "✓ $*"; }
+    error() { echo "Error: $*" >&2; }
+fi
+
+cd "$ROOT_DIR"
+
+# Find node-rdkafka build directory
+candidates=(node_modules/.pnpm/node-rdkafka@*/node_modules/node-rdkafka/build)
+if [[ ${#candidates[@]} -eq 0 || ! -d "${candidates[0]}" ]]; then
+    # No match — nothing to fix
+    exit 0
+fi
+if [[ ${#candidates[@]} -ne 1 ]]; then
+    print_color yellow "Warning: multiple node-rdkafka versions found; skipping dylib path fix. Run pnpm install to deduplicate."
+    exit 0
+fi
+build_dir="${candidates[0]}"
+node_file="$build_dir/Release/node-librdkafka.node"
+deps_dir="$build_dir/deps"
+
+if [[ ! -f "$node_file" ]]; then
+    # node-rdkafka not built yet — nothing to fix
+    exit 0
+fi
+
+# Cache otool output (dependency lines start with a tab, skip the filename header)
+otool_deps=$(otool -L "$node_file" | grep $'^\t')
+
+# Check if fix is already applied: look for absolute paths to rdkafka deps
+abs_refs=$(echo "$otool_deps" | grep 'librdkafka' | grep -v '@loader_path' || true)
+if [[ -z "$abs_refs" ]]; then
+    print_color blue "node-rdkafka dylib paths already portable"
+    exit 0
+fi
+
+# Extract the absolute path prefix from the cached otool output
+# e.g., "/Users/foo/repo/node_modules/.pnpm/node-rdkafka@3.6.1/node_modules/node-rdkafka/build/deps/"
+old_prefix=$(echo "$otool_deps" | grep 'librdkafka\.1\.dylib' | grep -v '@loader_path' | head -1 | awk '{print $1}' | sed 's|librdkafka\.1\.dylib$||')
+
+if [[ -z "$old_prefix" ]]; then
+    error "Could not extract absolute path prefix from $node_file"
+    exit 1
+fi
+
+old_rdkafka="${old_prefix}librdkafka.1.dylib"
+old_rdkafkapp="${old_prefix}librdkafka++.1.dylib"
+
+print_color blue "Fixing node-rdkafka dylib paths for worktree portability…"
+print_color blue "  Replacing: ${old_prefix}"
+print_color blue "  With:      @loader_path-relative references"
+
+# Fix librdkafka.1.dylib install name
+install_name_tool -id @loader_path/librdkafka.1.dylib "$deps_dir/librdkafka.1.dylib"
+
+# Fix librdkafka++.1.dylib install name and its reference to librdkafka
+install_name_tool -id @loader_path/librdkafka++.1.dylib "$deps_dir/librdkafka++.1.dylib"
+install_name_tool -change "$old_rdkafka" @loader_path/librdkafka.1.dylib "$deps_dir/librdkafka++.1.dylib"
+
+# Fix unversioned dylibs (separate Mach-O files, not symlinks)
+if [[ -f "$deps_dir/librdkafka.dylib" ]]; then
+    install_name_tool -id @loader_path/librdkafka.1.dylib "$deps_dir/librdkafka.dylib"
+fi
+if [[ -f "$deps_dir/librdkafka++.dylib" ]]; then
+    install_name_tool -id @loader_path/librdkafka++.1.dylib "$deps_dir/librdkafka++.dylib"
+    install_name_tool -change "$old_rdkafka" @loader_path/librdkafka.1.dylib "$deps_dir/librdkafka++.dylib"
+fi
+
+# Fix the main .node binary
+install_name_tool -change "$old_rdkafka" @loader_path/../deps/librdkafka.1.dylib "$node_file"
+install_name_tool -change "$old_rdkafkapp" @loader_path/../deps/librdkafka++.1.dylib "$node_file"
+
+# Re-sign ad-hoc (required on Apple Silicon after modifying binaries)
+codesign --force --sign - "$deps_dir/librdkafka.1.dylib" 2>/dev/null || true
+codesign --force --sign - "$deps_dir/librdkafka++.1.dylib" 2>/dev/null || true
+codesign --force --sign - "$node_file" 2>/dev/null || true
+if [[ -f "$deps_dir/librdkafka.dylib" ]]; then
+    codesign --force --sign - "$deps_dir/librdkafka.dylib" 2>/dev/null || true
+fi
+if [[ -f "$deps_dir/librdkafka++.dylib" ]]; then
+    codesign --force --sign - "$deps_dir/librdkafka++.dylib" 2>/dev/null || true
+fi
+
+# Verify
+remaining=$(otool -L "$node_file" | grep $'^\t' | grep 'librdkafka' | grep -v '@loader_path' || true)
+if [[ -n "$remaining" ]]; then
+    error "Some absolute paths remain after fix:"
+    echo "$remaining"
+    exit 1
+fi
+
+success "node-rdkafka dylib paths are now portable across worktrees"

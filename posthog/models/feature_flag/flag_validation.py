@@ -87,7 +87,40 @@ def _get_property_type_annotations(properties_with_math_operators):
     }
 
 
-def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int, project_id: int) -> bool:
+def _exclude_realtime_backfilled_cohort_properties(
+    properties: list[Property], project_id: int, *, allow_realtime_backfilled: bool = False
+) -> list[Property]:
+    """
+    When allow_realtime_backfilled is True, filters out cohort properties that reference
+    realtime+backfilled cohorts from the property list. These cohorts are evaluated by the
+    Rust flag service via cohort_membership table lookups and don't need Django ORM query
+    validation.
+
+    When False, returns the property list unchanged.
+    """
+    if not allow_realtime_backfilled:
+        return properties
+
+    result = []
+    for prop in properties:
+        if prop.type == "cohort":
+            try:
+                cohort = Cohort.objects.get(
+                    pk=int(cast(Union[str, int], prop.value)),
+                    team__project_id=project_id,
+                    deleted=False,
+                )
+                if cohort.is_flag_compatible:
+                    continue
+            except (Cohort.DoesNotExist, ValueError):
+                pass
+        result.append(prop)
+    return result
+
+
+def check_flag_evaluation_query_is_ok(
+    feature_flag: FeatureFlag, team_id: int, project_id: int, *, allow_realtime_backfilled: bool = False
+) -> bool:
     """
     Validate that a feature flag's conditions can be evaluated without errors.
 
@@ -126,6 +159,13 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int, p
     for index, condition in enumerate(feature_flag.conditions):
         key = f"flag_0_condition_{index}"
         property_list = Filter(data=condition).property_groups.flat
+        # When realtime cohort flag targeting is enabled, realtime cohorts that have been
+        # backfilled are evaluated by the Rust service via cohort_membership lookups, not
+        # Django ORM queries. Skip them here so validation doesn't fail trying to translate
+        # behavioral filters into SQL.
+        property_list = _exclude_realtime_backfilled_cohort_properties(
+            property_list, project_id, allow_realtime_backfilled=allow_realtime_backfilled
+        )
         expr = properties_to_Q(
             project_id,
             property_list,

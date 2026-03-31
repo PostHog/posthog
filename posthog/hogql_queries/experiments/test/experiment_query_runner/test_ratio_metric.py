@@ -1163,7 +1163,6 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ),
             conversion_window=7,
             conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
-            only_count_matured_users=True,
         )
 
         experiment_query = ExperimentQuery(
@@ -1172,6 +1171,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             metric=metric,
         )
 
+        experiment.only_count_matured_users = True
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
