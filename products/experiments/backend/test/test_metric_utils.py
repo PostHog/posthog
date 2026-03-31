@@ -44,6 +44,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         updated_query = refresh_action_names_in_metric(query, self.team)
 
         # Verify the name was updated
+        assert updated_query is not None
         assert updated_query[field_name]["name"] == "Renamed Action 1"
         assert updated_query[field_name]["id"] == self.action1.id
         assert updated_query[field_name]["kind"] == "ActionsNode"
@@ -82,6 +83,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         updated_query = refresh_action_names_in_metric(query, self.team)
 
         # Verify action names were updated but event name was not changed
+        assert updated_query is not None
         assert updated_query["series"][0]["name"] == "Renamed Action 1"
         assert updated_query["series"][1]["name"] == "Pageview"  # EventsNode unchanged
         assert updated_query["series"][2]["name"] == "Renamed Action 2"
@@ -119,6 +121,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         updated_query = refresh_action_names_in_metric(query, self.team)
 
         # Verify both names were updated
+        assert updated_query is not None
         assert updated_query[field1]["name"] == "Renamed Action 1"
         assert updated_query[field2]["name"] == "Renamed Action 2"
 
@@ -138,6 +141,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         updated_query = refresh_action_names_in_metric(query, self.team)
 
         # Verify EventsNode name was not changed
+        assert updated_query is not None
         assert updated_query["source"]["name"] == "Custom Pageview Name"
 
     @parameterized.expand(
@@ -168,6 +172,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         updated_query = refresh_action_names_in_metric(query, self.team)
 
         # Verify the name remains unchanged when action doesn't exist
+        assert updated_query is not None
         assert updated_query["source"]["name"] == "Original Name"
 
     @parameterized.expand(
@@ -193,7 +198,9 @@ class TestRefreshActionNamesInMetric(BaseTest):
 
     def test_query_not_mutated(self):
         """Test that the original query is not mutated."""
-        original_query = {
+        from typing import Any
+
+        original_query: dict[str, Any] = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
             "source": {
@@ -215,6 +222,8 @@ class TestRefreshActionNamesInMetric(BaseTest):
 
         # Verify original query was not mutated
         assert original_query["source"]["name"] == original_name
+        assert updated_query is not None
+        assert isinstance(updated_query, dict)
         assert updated_query["source"]["name"] == "Renamed Action 1"
 
     def test_handles_nested_structures(self):
@@ -248,6 +257,8 @@ class TestRefreshActionNamesInMetric(BaseTest):
         updated_query = refresh_action_names_in_metric(query, self.team)
 
         # Verify the action name was updated
+        assert updated_query is not None
+        assert isinstance(updated_query, dict)
         assert updated_query["series"][0]["name"] == "Renamed Action 1"
         # Verify other properties remain intact
         assert updated_query["series"][0]["properties"][0]["key"] == "some_property"
@@ -278,6 +289,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
             updated_query = refresh_action_names_in_metric(query, self.team)
 
         # Verify all names were updated
+        assert updated_query is not None
         assert updated_query["series"][0]["name"] == "Renamed Action 1"
         assert updated_query["series"][1]["name"] == "Renamed Action 2"
         assert updated_query["series"][2]["name"] == "Renamed Action 3"
