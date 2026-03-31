@@ -15,6 +15,8 @@ from hogli.core.cli import cli
 
 from .coder import (
     CLAUDE_OAUTH_PARAMETER,
+    GIT_EMAIL_PARAMETER,
+    GIT_NAME_PARAMETER,
     create_workspace,
     delete_workspace,
     ensure_coder_authenticated,
@@ -146,6 +148,22 @@ def _workspace_status_color(status: str) -> str:
     return WORKSPACE_STATUS_COLORS.get(status, "white")
 
 
+def _sync_git_identity_parameters(name: str) -> None:
+    """Push local git identity config to workspace parameters before start."""
+    config = load_config()
+    git_name = config.get("git_name")
+    git_email = config.get("git_email")
+    if not git_name or not git_email:
+        return
+    update_workspace_parameters(
+        name,
+        {
+            GIT_NAME_PARAMETER: git_name,
+            GIT_EMAIL_PARAMETER: git_email,
+        },
+    )
+
+
 def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: bool) -> None:
     """Handle `box:start` when the workspace already exists."""
     status = get_workspace_status(workspace)
@@ -153,6 +171,13 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
         click.echo(f"Devbox '{name}' is already running.")
         _print_connection_info(name)
         return
+
+    if status in PENDING_WORKSPACE_STATES:
+        click.echo(f"Devbox '{name}' is in state: {status}")
+        click.echo("Wait for the current operation to complete.")
+        return
+
+    _sync_git_identity_parameters(name)
 
     if status == "stopped":
         click.echo(f"Starting devbox '{name}'...")
@@ -162,10 +187,6 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
         return
 
     click.echo(f"Devbox '{name}' is in state: {status}")
-    if status in PENDING_WORKSPACE_STATES:
-        click.echo("Wait for the current operation to complete.")
-        return
-
     click.echo("Attempting to start...")
     start_workspace(name, verbose=verbose)
     _print_connection_info(name)

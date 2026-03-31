@@ -495,6 +495,84 @@ class TestBoxCommands:
         assert "hogli box:forward --port 8011" in result.output
 
 
+class TestStartExistingWorkspace:
+    """Test git identity sync when starting an existing workspace."""
+
+    def test_syncs_git_identity_before_starting_stopped_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+        captured_params: dict[str, object] = {}
+
+        monkeypatch.setattr(box_cli, "get_workspace_status", lambda ws: "stopped")
+        monkeypatch.setattr(
+            box_cli,
+            "load_config",
+            lambda: {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
+        )
+        monkeypatch.setattr(
+            box_cli,
+            "update_workspace_parameters",
+            lambda name, params: (
+                calls.append("update_params"),
+                captured_params.update({"name": name, "params": params}),
+            ),
+        )
+        monkeypatch.setattr(
+            box_cli,
+            "start_workspace",
+            lambda name, verbose=False: calls.append("start"),
+        )
+        monkeypatch.setattr(box_cli, "extract_workspace_label", lambda name: None)
+
+        box_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
+
+        assert calls == ["update_params", "start"]
+        assert captured_params == {
+            "name": "devbox-test-user",
+            "params": {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
+        }
+
+    def test_skips_sync_when_no_git_identity_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+
+        monkeypatch.setattr(box_cli, "get_workspace_status", lambda ws: "stopped")
+        monkeypatch.setattr(box_cli, "load_config", lambda: {})
+        monkeypatch.setattr(
+            box_cli,
+            "update_workspace_parameters",
+            lambda name, params: calls.append("update_params"),
+        )
+        monkeypatch.setattr(
+            box_cli,
+            "start_workspace",
+            lambda name, verbose=False: calls.append("start"),
+        )
+        monkeypatch.setattr(box_cli, "extract_workspace_label", lambda name: None)
+
+        box_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
+
+        assert calls == ["start"]
+
+    def test_skips_sync_for_running_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+
+        monkeypatch.setattr(box_cli, "get_workspace_status", lambda ws: "running")
+        monkeypatch.setattr(
+            box_cli,
+            "load_config",
+            lambda: {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
+        )
+        monkeypatch.setattr(
+            box_cli,
+            "update_workspace_parameters",
+            lambda name, params: calls.append("update_params"),
+        )
+        monkeypatch.setattr(box_cli, "extract_workspace_label", lambda name: None)
+
+        box_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "running"}}, verbose=False)
+
+        assert calls == []
+
+
 class TestBoxList:
     """Test the box:list command."""
 
