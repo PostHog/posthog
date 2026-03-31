@@ -487,6 +487,39 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
     return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
 }
 
+/** Max characters to render in minimal (table preview) mode. */
+const MINIMAL_PREVIEW_LIMIT = 500
+
+/** Extract a plain-text preview from message content, truncated for table cells. */
+function extractMinimalPreview(content: string | { type: string; content: string } | MultiModalContentItem[]): string {
+    let text: string
+    if (typeof content === 'string') {
+        text = content
+    } else if (Array.isArray(content)) {
+        text = content
+            .map((item) => {
+                if (typeof item === 'string') {
+                    return item
+                }
+                if (item && typeof item === 'object' && 'text' in item && typeof item.text === 'string') {
+                    return item.text
+                }
+                return ''
+            })
+            .filter(Boolean)
+            .join(' ')
+    } else if (typeof content === 'object' && content !== null && 'content' in content) {
+        text = typeof content.content === 'string' ? content.content : JSON.stringify(content)
+    } else {
+        text = JSON.stringify(content)
+    }
+
+    if (text.length > MINIMAL_PREVIEW_LIMIT) {
+        return text.slice(0, MINIMAL_PREVIEW_LIMIT) + '…'
+    }
+    return text
+}
+
 export const LLMMessageDisplay = React.memo(
     ({
         message,
@@ -522,7 +555,7 @@ export const LLMMessageDisplay = React.memo(
         let resolvedIsRenderingXml = isRenderingXml
 
         if (minimal) {
-            resolvedIsRenderingMarkdown = true
+            resolvedIsRenderingMarkdown = false
             resolvedIsRenderingXml = false
         }
 
@@ -769,7 +802,11 @@ export const LLMMessageDisplay = React.memo(
                 )}
                 {show && !!content && (
                     <div className={!minimal ? 'p-2 border-t' : 'p-1'}>
-                        {renderMessageContent(content, searchQuery)}
+                        {minimal ? (
+                            <span className="whitespace-pre-wrap">{extractMinimalPreview(content)}</span>
+                        ) : (
+                            renderMessageContent(content, searchQuery)
+                        )}
                     </div>
                 )}
                 {show && (!minimal || !content) && Object.keys(additionalKwargsEntries).length > 0 && (
