@@ -168,8 +168,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                         // so the dot appears on the correct breakdown series.
                         // For non-breakdown alerts, fall back to the alert's series_index.
                         const seriesIndex =
-                            hasBreakdown && check.triggered_series_index != null
-                                ? check.triggered_series_index
+                            hasBreakdown && check.triggered_metadata?.series_index != null
+                                ? (check.triggered_metadata.series_index as number)
                                 : defaultSeriesIndex
                         return check.triggered_dates
                             .filter((date) => {

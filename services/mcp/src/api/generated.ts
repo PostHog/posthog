@@ -4337,7 +4337,7 @@ export namespace Schemas {
       /** @nullable */
       readonly interval: string | null;
       /** @nullable */
-      readonly triggered_series_index: number | null;
+      readonly triggered_metadata: Record<string, unknown> | null;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];

@@ -32,6 +32,7 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.trends import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.utils import validate_alert_config
 from posthog.utils import relative_date_parse
 
@@ -100,7 +101,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "triggered_points",
             "triggered_dates",
             "interval",
-            "triggered_series_index",
+            "triggered_metadata",
         ]
         read_only_fields = fields
 
@@ -548,7 +549,7 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     breakdown_results = BreakdownSimulationResultSerializer(
         many=True,
         required=False,
-        help_text="Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values).",
+        help_text=f"Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to {MAX_DETECTOR_BREAKDOWN_VALUES} values).",
     )
 
 

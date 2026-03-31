@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="alertcheck",
-            name="triggered_series_index",
-            field=models.IntegerField(blank=True, null=True),
+            name="triggered_metadata",
+            field=models.JSONField(blank=True, null=True),
         ),
     ]

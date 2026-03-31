@@ -75,7 +75,7 @@ export interface AlertCheck {
     triggered_points?: number[] | null
     triggered_dates?: string[] | null
     interval?: string | null
-    triggered_series_index?: number | null
+    triggered_metadata?: Record<string, unknown> | null
 }
 
 export interface AlertType extends AlertTypeBase {

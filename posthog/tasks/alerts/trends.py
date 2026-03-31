@@ -635,7 +635,7 @@ def check_trends_alert_with_detector(
                     triggered_points=result.triggered_indices if result.triggered_indices else None,
                     triggered_dates=triggered_dates,
                     interval=interval_value,
-                    triggered_series_index=bd_index,
+                    triggered_metadata={"series_index": bd_index},
                 )
 
         # No anomaly in any breakdown value

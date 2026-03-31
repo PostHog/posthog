@@ -141,7 +141,7 @@ export interface AlertCheckApi {
     /** @nullable */
     readonly interval: string | null
     /** @nullable */
-    readonly triggered_series_index: number | null
+    readonly triggered_metadata: Record<string, unknown> | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]

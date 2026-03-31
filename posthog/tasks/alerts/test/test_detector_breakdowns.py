@@ -105,7 +105,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         assert "staking" in result.breaches[0]
         assert "Anomaly detected" in result.breaches[0]
         # "staking" is at index 1 in the breakdown results
-        assert result.triggered_series_index == 1
+        assert result.triggered_metadata == {"series_index": 1}
 
     @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
     def test_does_not_fire_when_all_breakdowns_are_normal(self, mock_calc: MagicMock) -> None:
@@ -210,8 +210,8 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
 
         assert result.breaches is not None and len(result.breaches) > 0
         assert "Anomaly detected" in result.breaches[0]
-        # Non-breakdown alerts should not set triggered_series_index
-        assert result.triggered_series_index is None
+        # Non-breakdown alerts should not set triggered_metadata
+        assert result.triggered_metadata is None
 
     @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
     def test_breakdown_result_includes_anomaly_scores(self, mock_calc: MagicMock) -> None:
