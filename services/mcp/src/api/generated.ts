@@ -10850,6 +10850,11 @@ export namespace Schemas {
       orderDirection?: OrderDirection2 | null;
       /** @nullable */
       personId?: string | null;
+      /**
+       * Property filters (flat list, alternative to filterGroup). Merged with filterGroup if both are present.
+       * @nullable
+       */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
       response?: ErrorTrackingQueryResponse | null;
       /**
        * Free-text search across exception type, message, and stack frames.
