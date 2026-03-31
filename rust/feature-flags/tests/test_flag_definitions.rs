@@ -2164,10 +2164,10 @@ async fn test_db_rate_limit_allowlist() {
     {
         // Configure team1 as allowlisted via the env var (set at server startup)
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits =
-            format!(r#"{{"{}": "1/second"}}"#, team1.id).parse().unwrap();
-        config.rate_limiting_allow_list_teams =
-            team1.id.to_string().parse().unwrap();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+        config.rate_limiting_allow_list_teams = team1.id.to_string().parse().unwrap();
 
         // Ensure no DB row exists — env var default should be kept
         context
@@ -2218,8 +2218,9 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 5: null DB value treated as empty allowlist ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits =
-            format!(r#"{{"{}": "1/second"}}"#, team1.id).parse().unwrap();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
 
         context
             .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", "null")
@@ -2268,8 +2269,9 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 6: invalid team IDs skipped, valid ones kept ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits =
-            format!(r#"{{"{}": "1/second"}}"#, team1.id).parse().unwrap();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
 
         // Mix of valid and invalid IDs — team1 should still be allowlisted
         context
