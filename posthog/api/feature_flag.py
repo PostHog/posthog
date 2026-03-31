@@ -1781,6 +1781,11 @@ class UserBlastRadiusResponseSerializer(serializers.Serializer):
     total_users = serializers.IntegerField(help_text="Total number of users in the project")
 
 
+# HYPERCACHE CONTRACT: This serializer defines the JSON schema that the Rust feature-flags
+# service deserializes. Field changes (renames, removals, type changes) must follow the
+# expand-and-contract pattern. Run the contract tests to verify compatibility:
+#   pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+# See also: rust/feature-flags/src/flags/flag_models.rs (FeatureFlag struct)
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     evaluation_contexts = serializers.SerializerMethodField()

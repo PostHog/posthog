@@ -1167,7 +1167,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     team_id = {team_id}
                     AND condition = {condition_hash}
                 GROUP BY person_id
-                HAVING argMax(matches, _timestamp) = 1
+                HAVING argMax(matches, _offset) = 1
             """
 
             return cast(

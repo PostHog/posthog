@@ -800,14 +800,15 @@ class AssignAndEmitSignalOutput:
     report_id: str
     promoted: bool
     timestamp: datetime
+    run_count: int
 
 
 @temporalio.activity.defn
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit() -> tuple[str, bool, datetime, bool]:
-        """Returns (report_id, promoted, timestamp, matched_deleted_report)."""
+    def do_assign_and_emit() -> tuple[str, bool, datetime, bool, int]:
+        """Returns (report_id, promoted, timestamp, matched_deleted_report, run_count)."""
         with transaction.atomic():
             promoted = False
 
@@ -847,7 +848,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         timestamp=ts,
                         metadata=metadata,
                     )
-                    return report_id, False, ts, True
+                    return report_id, False, ts, True, report.run_count
                 report.total_weight += input.weight
                 report.signal_count += 1
                 update_fields = ["total_weight", "signal_count", "updated_at"]
@@ -865,11 +866,14 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     summary=match_result.summary,
                 )
 
-            # SUPPRESSED reports gather signals indefinitely but are never promoted
-            # POTENTIAL reports are only promoted once signal_count >= signals_at_run (snooze gate;
-            # signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met
+            # - SUPPRESSED reports gather signals indefinitely but are never promoted.
+            # - POTENTIAL reports are promoted once signal_count >= signals_at_run (snooze gate;
+            # signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met.
+            # - READY reports are re-promoted under the same gate so the summary workflow can
+            # regenerate the report with the additional signals, keeping it meaningful as
+            # new evidence accumulates.
             if (
-                report.status == SignalReport.Status.POTENTIAL
+                report.status in (SignalReport.Status.POTENTIAL, SignalReport.Status.READY)
                 and report.total_weight >= WEIGHT_THRESHOLD
                 and report.signal_count >= report.signals_at_run
             ):
@@ -904,10 +908,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 metadata=metadata,
             )
 
-            return report_id, promoted, ts, False
+            return report_id, promoted, ts, False, report.run_count
 
     try:
-        report_id, promoted, ts, matched_deleted = await database_sync_to_async(
+        report_id, promoted, ts, matched_deleted, run_count = await database_sync_to_async(
             do_assign_and_emit, thread_sensitive=False
         )()
 
@@ -936,7 +940,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted=promoted,
             is_new_report=isinstance(match_result, NewReportMatch),
         )
-        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted, timestamp=ts)
+        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted, timestamp=ts, run_count=run_count)
     except Exception as e:
         logger.exception(
             f"Failed to assign/emit signal: {e}",
@@ -1238,7 +1242,7 @@ async def _process_signal_batch(
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
     processed_batch_signals: list[_ProcessedBatchSignal] = []
-    promoted_reports: dict[str, SignalReportSummaryWorkflowInputs] = {}
+    promoted_reports: dict[str, tuple[SignalReportSummaryWorkflowInputs, int]] = {}
     emitted_signals: list[tuple[str, AssignAndEmitSignalOutput]] = []
 
     for i, signal in enumerate(batch):
@@ -1364,8 +1368,9 @@ async def _process_signal_batch(
                 )
 
             if assign_result.promoted:
-                promoted_reports[assign_result.report_id] = SignalReportSummaryWorkflowInputs(
-                    team_id=signal.team_id, report_id=assign_result.report_id
+                promoted_reports[assign_result.report_id] = (
+                    SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=assign_result.report_id),
+                    assign_result.run_count,
                 )
 
         except Exception:
@@ -1395,17 +1400,23 @@ async def _process_signal_batch(
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    # Spawn summary workflows after CH wait so they can find the signals
-    for report_input in promoted_reports.values():
+    # Spawn summary workflows after CH wait so they can find the signals.
+    for report_input, run_count in promoted_reports.values():
         try:
+            base_id = SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id)
+            # Include run_count in the workflow ID to allow re-generating READY reports when enough new signals arrive,
+            # as without it ALLOW_DUPLICATE_FAILED_ONLY will prevent the re-report from starting
+            workflow_id = base_id if run_count == 0 else f"{base_id}:run-{run_count + 1}"
+            # Concurrent report generation of the same report can't happen, as the promotion gate only allows
+            # POTENTIAL and READY, so IN_PROGRESS reports are never re-promoted.
             await workflow.start_child_workflow(
                 SignalReportSummaryWorkflow.run,
                 report_input,
-                id=SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id),
+                id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                execution_timeout=timedelta(minutes=30),
+                execution_timeout=timedelta(hours=1),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             pass

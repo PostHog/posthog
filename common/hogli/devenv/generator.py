@@ -208,8 +208,10 @@ class MprocsGenerator(ConfigGenerator):
             if name == "nodejs":
                 proc_config = self._add_nodejs_capability_groups(proc_config, resolved)
 
-            # Special handling for backend - wire up personhog env vars when capability is active
+            # Special handling for backend/nodejs - wire up personhog env vars when capability is active
             if name == "backend":
+                proc_config = self._add_personhog_env(proc_config, resolved)
+            if name == "nodejs":
                 proc_config = self._add_personhog_env(proc_config, resolved)
 
             # Special handling for temporal-worker - install uv groups when capabilities require them

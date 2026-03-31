@@ -1094,8 +1094,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             searchTerm,
                         })
 
+                    const isAIFirst = !!featureFlags[FEATURE_FLAGS.AI_FIRST]
                     const shortcutPosition = (user?.shortcut_position ?? 'above') as UserShortcutPosition
                     const generateShortcutItemsCategory = (): TreeDataItem[] => {
+                        if (isAIFirst) {
+                            return []
+                        }
                         const shortcutItems = getShortcutTreeItems(searchTerm, false)
                         if (shortcutItems.length === 0) {
                             return []

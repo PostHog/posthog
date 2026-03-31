@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import cast
 
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import F
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
@@ -27,13 +27,14 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.event_usage import groups
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.storage import object_storage
 
 from ee.hogai.utils.aio import async_to_sync
 
-from .models import CodeInvite, CodeInviteRedemption, Task, TaskRun
+from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -41,6 +42,8 @@ from .serializers import (
     ErrorResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
+    SandboxEnvironmentListSerializer,
+    SandboxEnvironmentSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -96,7 +99,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     serializer_class = TaskSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
     queryset = Task.objects.all()
@@ -116,13 +123,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_serializer=RepositoryReadinessQuerySerializer,
         responses={
             200: OpenApiResponse(
-                response=RepositoryReadinessResponseSerializer, description="Repository readiness status"
+                response=RepositoryReadinessResponseSerializer,
+                description="Repository readiness status",
             ),
         },
         summary="Get repository readiness",
         description="Get autonomy readiness details for a specific repository in the current project.",
     )
-    @action(detail=False, methods=["get"], url_path="repository_readiness", required_scopes=["task:read"])
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="repository_readiness",
+        required_scopes=["task:read"],
+    )
     def repository_readiness(self, request, **kwargs):
         repository = request.validated_query_data["repository"]
         window_days = request.validated_query_data["window_days"]
@@ -225,6 +238,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         branch = request.validated_data.get("branch")
         resume_from_run_id = request.validated_data.get("resume_from_run_id")
         pending_user_message = request.validated_data.get("pending_user_message")
+        sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
 
         extra_state = None
         if resume_from_run_id:
@@ -242,6 +256,28 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 extra_state["pending_user_message"] = pending_user_message
             if snapshot_ext_id:
                 extra_state["snapshot_external_id"] = snapshot_ext_id
+
+            prev_sandbox_env_id = (previous_run.state or {}).get("sandbox_environment_id")
+            if prev_sandbox_env_id and sandbox_environment_id is None:
+                sandbox_environment_id = prev_sandbox_env_id
+
+        if sandbox_environment_id is not None:
+            sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
+            if not sandbox_environment:
+                return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
+
+            extra_state = extra_state or {}
+            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+
+            logger.info(
+                "Applying sandbox environment to task run",
+                extra={
+                    "task_id": str(task.id),
+                    "sandbox_environment_id": str(sandbox_environment.id),
+                    "sandbox_environment_name": sandbox_environment.name,
+                    "network_access_level": sandbox_environment.network_access_level,
+                },
+            )
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
@@ -263,7 +299,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     serializer_class = TaskRunDetailSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
     queryset = TaskRun.objects.select_related("task").all()
@@ -338,7 +378,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             setattr(task_run, key, value)
 
         new_status = request.validated_data.get("status")
-        terminal_statuses = [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]
+        terminal_statuses = [
+            TaskRun.Status.COMPLETED,
+            TaskRun.Status.FAILED,
+            TaskRun.Status.CANCELLED,
+        ]
 
         # Auto-set completed_at if status is completed or failed
         if new_status in terminal_statuses:
@@ -447,7 +491,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         summary="Set run output",
         description="Update the output field for a task run (e.g., PR URL, commit SHA, etc.)",
     )
-    @action(detail=True, methods=["patch"], url_path="set_output", required_scopes=["task:write"])
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path="set_output",
+        required_scopes=["task:write"],
+    )
     def set_output(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
 
@@ -476,7 +525,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Append one or more log entries to the task run log array",
         strict_request_validation=True,
     )
-    @action(detail=True, methods=["post"], url_path="append_log", required_scopes=["task:write"])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="append_log",
+        required_scopes=["task:write"],
+    )
     def append_log(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         timer = ServerTimingsGathered()
@@ -494,14 +548,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         request_serializer=TaskRunRelayMessageRequestSerializer,
         responses={
-            200: OpenApiResponse(response=TaskRunRelayMessageResponseSerializer, description="Relay accepted"),
+            200: OpenApiResponse(
+                response=TaskRunRelayMessageResponseSerializer,
+                description="Relay accepted",
+            ),
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Relay run message to Slack",
         description="Queue a Slack relay workflow to post a run message into the mapped Slack thread.",
         strict_request_validation=True,
     )
-    @action(detail=True, methods=["post"], url_path="relay_message", required_scopes=["task:write"])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="relay_message",
+        required_scopes=["task:write"],
+    )
     def relay_message(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         if task_run.is_terminal:
@@ -524,7 +586,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 delete_progress=True,
             )
         except Exception:
-            logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(task_run.id)})
+            logger.exception(
+                "task_run_relay_message_enqueue_failed",
+                extra={"run_id": str(task_run.id)},
+            )
             return Response(
                 ErrorResponseSerializer({"error": "Failed to queue Slack relay"}).data,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -545,7 +610,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Persist task artifacts to S3 and attach them to the run manifest.",
         strict_request_validation=True,
     )
-    @action(detail=True, methods=["post"], url_path="artifacts", required_scopes=["task:write"])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts",
+        required_scopes=["task:write"],
+    )
     def artifacts(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         artifacts = request.validated_data["artifacts"]
@@ -629,7 +699,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Returns a temporary, signed URL that can be used to download a specific artifact.",
         strict_request_validation=True,
     )
-    @action(detail=True, methods=["post"], url_path="artifacts/presign", required_scopes=["task:read"])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/presign",
+        required_scopes=["task:read"],
+    )
     def artifacts_presign(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         storage_path = request.validated_data["storage_path"]
@@ -684,7 +759,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         summary="Get sandbox connection token",
         description="Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.",
     )
-    @action(detail=True, methods=["get"], url_path="connection_token", required_scopes=["task:read"])
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="connection_token",
+        required_scopes=["task:read"],
+    )
     def connection_token(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         user = request.user
@@ -700,8 +780,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         request_serializer=TaskRunCommandRequestSerializer,
         responses={
-            200: OpenApiResponse(response=TaskRunCommandResponseSerializer, description="Agent server response"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid command or no active sandbox"),
+            200: OpenApiResponse(
+                response=TaskRunCommandResponseSerializer,
+                description="Agent server response",
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Invalid command or no active sandbox",
+            ),
             404: OpenApiResponse(description="Task run not found"),
             502: OpenApiResponse(response=ErrorResponseSerializer, description="Agent server unreachable"),
         },
@@ -710,7 +796,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "Supports user_message, cancel, and close commands.",
         strict_request_validation=True,
     )
-    @action(detail=True, methods=["post"], url_path="command", required_scopes=["task:write"])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="command",
+        required_scopes=["task:write"],
+    )
     def command(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         state = task_run.state or {}
@@ -863,7 +954,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         summary="Get filtered task run session logs",
         description="Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.",
     )
-    @action(detail=True, methods=["get"], url_path="session_logs", required_scopes=["task:read"])
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="session_logs",
+        required_scopes=["task:read"],
+    )
     def session_logs(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         timer = ServerTimingsGathered()
@@ -951,7 +1047,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 async for event in redis_stream.read_stream():
                     yield f"data: {json.dumps(event)}\n\n".encode()
             except TaskRunStreamError as e:
-                logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
+                logger.error(
+                    "TaskRunRedisStream error for stream %s: %s",
+                    stream_key,
+                    e,
+                    exc_info=True,
+                )
                 yield b'event: error\ndata: {"error": "Stream error"}\n\n'
 
         return StreamingHttpResponse(
@@ -980,11 +1081,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return method
 
 
-def _activate_code_for_user(user) -> None:
+def _activate_code_for_user(user, organization=None) -> None:
     """Capture an analytics event when a user redeems a Code invite."""
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="code_invite_redeemed",
+        groups=groups(organization=organization),
     )
 
 
@@ -992,7 +1094,11 @@ def _activate_code_for_user(user) -> None:
 class CodeInviteViewSet(viewsets.ViewSet):
     """API for redeeming PostHog Code invite codes."""
 
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated, APIScopePermission]
 
     scope_object = "task"
@@ -1010,7 +1116,10 @@ class CodeInviteViewSet(viewsets.ViewSet):
         request_serializer=CodeInviteRedeemRequestSerializer,
         responses={
             200: OpenApiResponse(description="Invite code redeemed successfully"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid or expired invite code"),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Invalid or expired invite code",
+            ),
         },
         summary="Redeem invite code",
         description="Redeem a PostHog Code invite code to enable access.",
@@ -1049,7 +1158,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
 
             CodeInvite.objects.filter(id=invite_code.id).update(redemption_count=F("redemption_count") + 1)
 
-            _activate_code_for_user(request.user)
+            _activate_code_for_user(request.user, organization=organization)
 
         return Response({"success": True})
 
@@ -1082,3 +1191,34 @@ class CodeInviteViewSet(viewsets.ViewSet):
         # Fallback: check invite code redemption
         has_redeemed = CodeInviteRedemption.objects.filter(user=user).exists()
         return Response({"has_access": has_redeemed})
+
+
+@extend_schema(tags=["sandbox-environments"])
+class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """API for managing sandbox environments that control network access for task runs."""
+
+    serializer_class = SandboxEnvironmentSerializer
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    scope_object = "task"
+    queryset = SandboxEnvironment.objects.all()
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    filter_rewrite_rules = {"team_id": "team_id"}
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return SandboxEnvironmentListSerializer
+        return SandboxEnvironmentSerializer
+
+    def safely_get_queryset(self, queryset):
+        user = self.request.user
+        return queryset.filter(models.Q(private=False) | models.Q(created_by=user))
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["team"] = self.team
+        return context

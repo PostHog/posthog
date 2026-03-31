@@ -75,6 +75,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/cdp/apps',
         iconType: 'data_pipeline',
     },
+    [Scene.BatchExport]: {
+        projectBased: true,
+        name: 'Batch export',
+        activityScope: ActivityScope.BATCH_EXPORT,
+        iconType: 'data_pipeline',
+        defaultDocsPath: '/docs/cdp/batch-exports',
+        changelogTeamSlug: 'Batch Exports',
+    },
+    [Scene.BatchExportNew]: {
+        projectBased: true,
+        name: 'New batch export',
+        iconType: 'data_pipeline',
+        defaultDocsPath: '/docs/cdp/batch-exports',
+        changelogTeamSlug: 'Batch Exports',
+    },
     [Scene.BillingAuthorizationStatus]: {
         organizationBased: true,
         defaultDocsPath: '/pricing',

@@ -2129,20 +2129,14 @@ const api = {
             range_pairs: { column: string; variables: string[]; bucket_fn: string }[]
             aggregates: { expression: string; reaggregate_fn: string | null }[]
         }> {
-            const params: Record<string, any> = {}
+            const data: Record<string, any> = {}
             if (version !== undefined) {
-                params.version = version
+                data.version = version
             }
-            if (bucketOverrides) {
-                for (const [col, fn] of Object.entries(bucketOverrides)) {
-                    params[`bucket_overrides[${col}]`] = fn
-                }
+            if (bucketOverrides && Object.keys(bucketOverrides).length > 0) {
+                data.bucket_overrides = bucketOverrides
             }
-            let request = new ApiRequest().endpointDetail(name).withAction('materialization_preview')
-            if (Object.keys(params).length > 0) {
-                request = request.withQueryString(params)
-            }
-            return await request.get()
+            return await new ApiRequest().endpointDetail(name).withAction('materialization_preview').create({ data })
         },
         async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
@@ -2434,6 +2428,7 @@ const api = {
                     ActivityScope.HOG_FLOW,
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
+                    ActivityScope.BATCH_EXPORT,
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
@@ -3697,12 +3692,15 @@ const api = {
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
 
-            async update(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
-                return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
-            },
-
             async delete(id: ErrorTrackingSymbolSet['id']): Promise<void> {
                 return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+            },
+
+            async bulkDelete(ids: ErrorTrackingSymbolSet['id'][]): Promise<void> {
+                return await new ApiRequest()
+                    .errorTrackingSymbolSets()
+                    .withAction('bulk_delete')
+                    .create({ data: { ids } })
             },
         },
 

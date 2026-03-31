@@ -21,7 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { discoverDefinitions } from './lib/definitions.mjs'
+import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
@@ -466,45 +466,28 @@ function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPre
 // Response enrichment templates
 // ------------------------------------------------------------------
 
-function buildEnrichment(config: ToolConfig, category: CategoryConfig, needsProjectId: boolean): string {
-    const projectIdExpr = needsProjectId ? 'projectId' : `'@current'`
-    const baseUrl = `\${context.api.getProjectBaseUrl(${projectIdExpr})}${category.url_prefix}`
+function buildEnrichment(config: ToolConfig, category: CategoryConfig): string {
+    const baseUrl = category.url_prefix
 
     if (config.list && config.enrich_url) {
         const { prefix, field } = parseEnrichUrl(config.enrich_url)
         return [
-            `        const items = (result as any).results ?? result`,
-            `        return {`,
-            `            ...(result as any),`,
-            `            results: (items as any[]).map((item: any) => ({`,
-            `                ...item,`,
-            `                _posthogUrl: \`${baseUrl}/${prefix}\${item.${field}}\`,`,
-            `            })),`,
-            `            _posthogUrl: \`${baseUrl}\`,`,
-            `        }`,
+            `        return await withPostHogUrl(context, {`,
+            `            ...result,`,
+            `            results: await Promise.all(result.results.map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
+            `        }, '${baseUrl}')`,
             ``,
         ].join('\n')
     }
 
     if (config.list) {
-        return [
-            `        return {`,
-            `            ...(result as any),`,
-            `            _posthogUrl: \`${baseUrl}\`,`,
-            `        }`,
-            ``,
-        ].join('\n')
+        return `        return await withPostHogUrl(context, result, '${baseUrl}')\n`
     }
 
     if (config.enrich_url) {
         const { prefix, field } = parseEnrichUrl(config.enrich_url)
-        return [
-            `        return {`,
-            `            ...result as any,`,
-            `            _posthogUrl: \`${baseUrl}/${prefix}\${(result as any).${field}}\`,`,
-            `        }`,
-            ``,
-        ].join('\n')
+
+        return `        return await withPostHogUrl(context, result, \`${baseUrl}/${prefix}\${result.${field}}\`)\n`
     }
 
     return `        return result\n`
@@ -521,7 +504,14 @@ function generateToolCode(
     category: CategoryConfig,
     spec: OpenApiSpec,
     knownTypes: Set<string>
-): { code: string; orvalImports: string[]; toolInputsImports: string[]; responseType: string | undefined } {
+): {
+    code: string
+    orvalImports: string[]
+    toolInputsImports: string[]
+    responseType: string | undefined
+    needsWithPostHogUrl: boolean
+    hasEnrichment: boolean
+} {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
 
@@ -531,7 +521,21 @@ function generateToolCode(
     }
 
     const composition = composeToolSchema(config, resolved, spec)
-    const responseType = resolveResponseType(resolved.operation, knownTypes)
+    let responseType = resolveResponseType(resolved.operation, knownTypes)
+
+    // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
+    // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
+    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
+
+    // For soft-delete tools the original operation is DELETE (typically 204 no-content),
+    // but the actual request is a PATCH to the same URL. Resolve the response type from
+    // the PATCH operation so the generated code gets a real type instead of `unknown`.
+    if (!responseType && isSoftDelete) {
+        const patchOp = (spec.paths[resolved.path] as Record<string, OpenApiOperation> | undefined)?.['patch']
+        if (patchOp) {
+            responseType = resolveResponseType(patchOp, knownTypes)
+        }
+    }
 
     const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
 
@@ -549,10 +553,6 @@ function generateToolCode(
     if (needsProjectId) {
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
-
-    // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
-    // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
-    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
     const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
     const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
@@ -586,39 +586,43 @@ function generateToolCode(
     handlerBody += `        })\n`
 
     // Response enrichment — adds _posthogUrl for "View in PostHog" links
-    handlerBody += buildEnrichment(config, category, needsProjectId)
+    handlerBody += buildEnrichment(config, category)
 
     // Compute the result type for the ToolBase generic parameter
     let resultType: string
+    let needsWithPostHogUrl = false
+    const hasEnrichment = !!(config.list || config.enrich_url)
     if (config.list && config.enrich_url) {
-        // List items are mapped/transformed, so the shape is no longer the raw response type
-        resultType = 'unknown'
+        needsWithPostHogUrl = !!responseType
+        resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
     } else if (config.enrich_url) {
-        resultType = responseType ? `${responseType} & { _posthogUrl: string }` : 'unknown'
+        needsWithPostHogUrl = !!responseType
+        resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
     } else if (config.list) {
-        resultType = responseType ? `${responseType} & { _posthogUrl: string }` : 'unknown'
+        needsWithPostHogUrl = !!responseType
+        resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
     } else {
         resultType = responseType ?? 'unknown'
     }
 
-    // Build optional _meta block for UI app visualization
-    let metaBlock = ''
-    if (config.ui_resource_uri) {
-        metaBlock = `    _meta: {\n        ui: {\n            resourceUri: '${config.ui_resource_uri}',\n        },\n    },\n`
-    }
+    const appKey = config.ui_app ?? null
 
     const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
-    const code = `
-${schemaDecl}
-
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ({
+    const toolBody = `{
     name: '${toolName}',
     schema: ${schemaName},
     ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
-${metaBlock}})
+}`
+
+    const factoryBody = appKey ? `withUiApp('${appKey}', ${toolBody})` : `(${toolBody})`
+
+    const code = `
+${schemaDecl}
+
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${factoryBody}
 `
 
     return {
@@ -626,6 +630,8 @@ ${metaBlock}})
         orvalImports: composition.orvalImports,
         toolInputsImports: composition.toolInputsImports,
         responseType,
+        needsWithPostHogUrl,
+        hasEnrichment,
     }
 }
 
@@ -637,7 +643,14 @@ function generateCustomSchemaToolCode(
     schemaName: string,
     factoryName: string,
     knownTypes: Set<string>
-): { code: string; orvalImports: string[]; toolInputsImports: string[]; responseType: string | undefined } {
+): {
+    code: string
+    orvalImports: string[]
+    toolInputsImports: string[]
+    responseType: string | undefined
+    needsWithPostHogUrl: boolean
+    hasEnrichment: boolean
+} {
     const pathParamNames = extractPathParams(resolved.path)
 
     const pathExpr = buildPathExpr(resolved.path, pathParamNames)
@@ -681,7 +694,7 @@ function generateCustomSchemaToolCode(
     }
     handlerBody += `        })\n`
 
-    handlerBody += buildEnrichment(config, category, needsProjectId)
+    handlerBody += buildEnrichment(config, category)
 
     const code = `
 const ${schemaName} = ${config.input_schema}
@@ -699,6 +712,8 @@ ${handlerBody}    },
         orvalImports: [],
         toolInputsImports: config.input_schema ? [config.input_schema] : [],
         responseType,
+        needsWithPostHogUrl: false,
+        hasEnrichment: false,
     }
 }
 
@@ -741,25 +756,27 @@ function generateCategoryFile(
     const allToolInputsImports = new Set<string>()
     const toolCodes: string[] = []
     let hasResponseType = false
+    let hasWithPostHogUrl = false
+
+    let hasEnrichment = false
 
     for (const [name, config, resolved] of enabledTools) {
-        const { code, orvalImports, toolInputsImports, responseType } = generateToolCode(
-            name,
-            config,
-            resolved,
-            category,
-            spec,
-            knownTypes
-        )
-        toolCodes.push(code)
-        for (const imp of orvalImports) {
+        const result = generateToolCode(name, config, resolved, category, spec, knownTypes)
+        toolCodes.push(result.code)
+        for (const imp of result.orvalImports) {
             allOrvalImports.add(imp)
         }
-        for (const imp of toolInputsImports) {
+        for (const imp of result.toolInputsImports) {
             allToolInputsImports.add(imp)
         }
-        if (responseType) {
+        if (result.responseType) {
             hasResponseType = true
+        }
+        if (result.needsWithPostHogUrl) {
+            hasWithPostHogUrl = true
+        }
+        if (result.hasEnrichment) {
+            hasEnrichment = true
         }
     }
 
@@ -772,16 +789,37 @@ function generateCategoryFile(
 
     const schemasImportLine = hasResponseType ? `\nimport type { Schemas } from '@/api/generated'\n` : ''
 
+    const hasUiMeta = enabledTools.some(([, config]) => config.ui_app)
+    const withUiAppImportLine = hasUiMeta ? `import { withUiApp } from '@/resources/ui-apps'\n` : ''
+
     const toolInputsImportLine =
         allToolInputsImports.size > 0
             ? `import { ${[...allToolInputsImports].sort().join(', ')} } from '@/schema/tool-inputs'\n`
             : ''
 
+    // Build tool-utils import (WithPostHogUrl type + withPostHogUrl runtime helper)
+    const toolUtilsTypeImports: string[] = []
+    const toolUtilsValueImports: string[] = []
+    if (hasWithPostHogUrl) {
+        toolUtilsTypeImports.push('WithPostHogUrl')
+    }
+    if (hasEnrichment) {
+        toolUtilsValueImports.push('withPostHogUrl')
+    }
+    let toolUtilsImportLine = ''
+    if (toolUtilsValueImports.length > 0 && toolUtilsTypeImports.length > 0) {
+        toolUtilsImportLine = `import { ${toolUtilsValueImports.join(', ')}, type ${toolUtilsTypeImports.join(', type ')} } from '@/tools/tool-utils'\n`
+    } else if (toolUtilsValueImports.length > 0) {
+        toolUtilsImportLine = `import { ${toolUtilsValueImports.join(', ')} } from '@/tools/tool-utils'\n`
+    } else if (toolUtilsTypeImports.length > 0) {
+        toolUtilsImportLine = `import type { ${toolUtilsTypeImports.join(', ')} } from '@/tools/tool-utils'\n`
+    }
+
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${schemasImportLine}${toolInputsImportLine}${orvalImportLine}${toolCodes.join('')}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${orvalImportLine}${toolCodes.join('')}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
@@ -857,14 +895,6 @@ function loadQuerySchema(): JsonSchemaRoot {
         process.exit(1)
     }
     return JSON.parse(fs.readFileSync(SCHEMA_JSON_PATH, 'utf-8')) as JsonSchemaRoot
-}
-
-/**
- * Returns true if the parsed YAML has the shape of a query wrapper config
- * (has `wrappers` key instead of `tools`).
- */
-function isQueryWrappersConfig(parsed: unknown): boolean {
-    return typeof parsed === 'object' && parsed !== null && 'wrappers' in parsed && !('tools' in parsed)
 }
 
 function generateQueryWrapperFile(

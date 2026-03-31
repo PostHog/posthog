@@ -1,8 +1,7 @@
 DEFAULT_TRUSTED_DOMAINS = [
     # PostHog Services
     "posthog.com",
-    "us.posthog.com",
-    "eu.posthog.com",
+    "*.posthog.com",
     # Version Control
     "github.com",
     "www.github.com",

@@ -17,16 +17,16 @@ import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/cons
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
+import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { buildGroupRepository } from './ingestion/personhog'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
-import { SessionRecordingIngester } from './session-recording/consumer'
-import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
 import { PostgresRouter } from './utils/db/postgres'
@@ -36,12 +36,13 @@ import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
+import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
 
 /**
- * PluginServer handles CDP, recordings, logs, evaluation scheduler, and local-dev combined modes.
- * Ingestion (ingestion-v2, ingestion-v2-testing) is handled by IngestionGeneralServer — see index.ts.
+ * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
+ * Ingestion is handled by IngestionGeneralServer, recordings by IngestionSessionReplayServer — see index.ts.
  */
 export class PluginServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
@@ -135,44 +136,6 @@ export class PluginServer implements NodeServer {
             )
         }
 
-        if (capabilities.sessionRecordingBlobIngestionV2) {
-            serviceLoaders.push(async () => {
-                const kafkaMessageProducer = await KafkaProducerWrapper.create(
-                    this.config.KAFKA_CLIENT_RACK,
-                    'WARPSTREAM_PRODUCER'
-                )
-
-                const ingester = new SessionRecordingIngester(
-                    this.config,
-                    false,
-                    this.postgres!,
-                    this.kafkaProducer!,
-                    kafkaMessageProducer
-                )
-                await ingester.start()
-                return ingester.service
-            })
-        }
-
-        if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
-            serviceLoaders.push(async () => {
-                const kafkaMessageProducer = await KafkaProducerWrapper.create(
-                    this.config.KAFKA_CLIENT_RACK,
-                    'WARPSTREAM_PRODUCER'
-                )
-
-                const ingester = new SessionRecordingIngester(
-                    this.config,
-                    true,
-                    this.postgres!,
-                    this.kafkaProducer!,
-                    kafkaMessageProducer
-                )
-                await ingester.start()
-                return ingester.service
-            })
-        }
-
         if (capabilities.cdpProcessedEvents) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpEventsConsumer(this.config, cdpDeps!)
@@ -264,6 +227,14 @@ export class PluginServer implements NodeServer {
             })
         }
 
+        if (capabilities.cdpHogflowScheduler) {
+            serviceLoaders.push(async () => {
+                const scheduler = new HogFlowScheduleService(this.config)
+                await scheduler.start()
+                return scheduler.service
+            })
+        }
+
         // ServerCommands is always created
         serviceLoaders.push(() => {
             const serverCommands = new ServerCommands(this.pubsub!)
@@ -317,15 +288,6 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        if (capabilities.recordingApi) {
-            serviceLoaders.push(async () => {
-                const api = new RecordingApi(this.config, this.postgres!)
-                this.lifecycle.expressApp.use('/', api.router())
-                await api.start()
-                return api.service
-            })
-        }
-
         const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
         this.lifecycle.services.push(...readyServices)
     }
@@ -373,7 +335,7 @@ export class PluginServer implements NodeServer {
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
         personRepository: PostgresPersonRepository
-        groupRepository: PostgresGroupRepository
+        groupRepository: GroupRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
@@ -384,7 +346,13 @@ export class PluginServer implements NodeServer {
         const personRepository = new PostgresPersonRepository(this.postgres!, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
-        const groupRepository = new PostgresGroupRepository(this.postgres!)
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
+        const groupRepository = buildGroupRepository(
+            this.config,
+            postgresGroupRepository,
+            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        )
+
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
         const internalCaptureService = new InternalCaptureService(this.config)
