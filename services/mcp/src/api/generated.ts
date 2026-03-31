@@ -4336,8 +4336,7 @@ export namespace Schemas {
       readonly triggered_dates: unknown | null;
       /** @nullable */
       readonly interval: string | null;
-      /** @nullable */
-      readonly triggered_metadata: Record<string, unknown> | null;
+      readonly triggered_metadata: unknown | null;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
@@ -4851,7 +4850,7 @@ export namespace Schemas {
       anomaly_count: number;
       /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
       sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
-      /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 10 values). */
+      /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
       breakdown_results?: BreakdownSimulationResult[];
     }
 
