@@ -478,19 +478,16 @@ class TestRunOperations:
         snapshot_manager = mocker.Mock()
         snapshot_manager.filter.return_value = snapshot_queryset
 
-        run_manager = mocker.Mock()
-        run_manager.filter.return_value.update.return_value = 1
-
         run_snapshot_using = mocker.patch.object(logic.RunSnapshot.objects, "using", return_value=snapshot_manager)
-        run_using = mocker.patch.object(logic.Run.objects, "using", return_value=run_manager)
+        run_save = mocker.patch.object(run, "save")
 
         logic._update_run_counts(run, using=logic.WRITER_DB)
 
         run_snapshot_using.assert_called_once_with(logic.WRITER_DB)
         snapshot_manager.filter.assert_called_once_with(run_id=run.id)
-        run_using.assert_called_once_with(logic.WRITER_DB)
-        run_manager.filter.assert_called_once_with(id=run.id)
-        run_manager.filter.return_value.update.assert_called_once_with(changed_count=2, new_count=1, removed_count=0)
+        run_save.assert_called_once_with(
+            using=logic.WRITER_DB, update_fields=["changed_count", "new_count", "removed_count"]
+        )
         assert run.changed_count == 2
         assert run.new_count == 1
         assert run.removed_count == 0

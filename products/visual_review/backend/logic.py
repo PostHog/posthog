@@ -470,18 +470,14 @@ def _register_snapshots(
 
 def _update_run_counts(run: Run, using: str | None = None) -> None:
     """Recalculate result counts from RunSnapshot rows."""
-    db_alias = using or run._state.db or WRITER_DB
+    db_alias = using or WRITER_DB
     counts = RunSnapshot.objects.using(db_alias).filter(run_id=run.id).values("result").annotate(n=Count("id"))
     by_result = {row["result"]: row["n"] for row in counts}
 
     run.changed_count = by_result.get(SnapshotResult.CHANGED, 0)
     run.new_count = by_result.get(SnapshotResult.NEW, 0)
     run.removed_count = by_result.get(SnapshotResult.REMOVED, 0)
-    Run.objects.using(db_alias).filter(id=run.id).update(
-        changed_count=run.changed_count,
-        new_count=run.new_count,
-        removed_count=run.removed_count,
-    )
+    run.save(using=db_alias, update_fields=["changed_count", "new_count", "removed_count"])
 
 
 @transaction.atomic(using=WRITER_DB)
