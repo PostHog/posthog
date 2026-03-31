@@ -3,6 +3,7 @@ package tui
 import (
 	"image/color"
 
+	"charm.land/bubbles/v2/help"
 	"charm.land/lipgloss/v2"
 	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
 	"github.com/posthog/posthog/phrocs/internal/process"
@@ -152,14 +153,24 @@ func statusIconColor(s process.Status) color.Color {
 }
 
 // cpuBarColor returns a background tint based on CPU usage percentage.
-func cpuBarColor(cpuPct float64) color.Color {
+func cpuBarColor(cpuPct float64, isDark bool) color.Color {
+	if isDark {
+		switch {
+		case cpuPct >= 150:
+			return sharedpalette.ColorBarHigh
+		case cpuPct >= 50:
+			return sharedpalette.ColorBarMid
+		default:
+			return sharedpalette.ColorBarLow
+		}
+	}
 	switch {
 	case cpuPct >= 150:
-		return sharedpalette.ColorBarHigh
+		return sharedpalette.ColorBarHighLight
 	case cpuPct >= 50:
-		return sharedpalette.ColorBarMid
+		return sharedpalette.ColorBarMidLight
 	default:
-		return sharedpalette.ColorBarLow
+		return sharedpalette.ColorBarLowLight
 	}
 }
 
@@ -167,7 +178,7 @@ func cpuBarColor(cpuPct float64) color.Color {
 // bar as a background fill. cpuPct is the total CPU% for the process tree;
 // the filled portion scales to innerW (100% = full width).
 // Used by both the process sidebar and the container sidebar.
-func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, cpuPct float64, innerW int) string {
+func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, cpuPct float64, innerW int, isDark bool) string {
 	// How many columns the bar fills (cap at innerW)
 	barW := 0
 	if cpuPct > 0 {
@@ -175,7 +186,7 @@ func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, c
 		barW = max(min(barW, innerW), 1)
 	}
 
-	barBg := cpuBarColor(cpuPct)
+	barBg := cpuBarColor(cpuPct, isDark)
 	nameW := max(innerW-2, 0) // 1 padding + 1 icon
 
 	// Pick background for each segment based on whether it falls within the bar
@@ -241,6 +252,24 @@ func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, c
 	unfilledPart := unfilledStyle.Render(string(unfilledRunes))
 
 	return iconSeg + filledPart + unfilledPart
+}
+
+func helpStyles(isDark bool) help.Styles {
+	lightDark := lipgloss.LightDark(isDark)
+
+	keyStyle := lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#555555"), colorGrey))
+	descStyle := lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#777777"), colorMidGrey))
+	sepStyle := lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#AAAAAA"), colorDarkGrey))
+
+	return help.Styles{
+		ShortKey:       keyStyle,
+		ShortDesc:      descStyle,
+		ShortSeparator: sepStyle,
+		Ellipsis:       sepStyle,
+		FullKey:        keyStyle,
+		FullDesc:       descStyle,
+		FullSeparator:  sepStyle,
+	}
 }
 
 func truncate(s string, maxLen int) string {

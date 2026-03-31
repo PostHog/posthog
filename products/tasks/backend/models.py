@@ -73,6 +73,11 @@ class Task(DeletedMetaFields, models.Model):
         help_text="JSON schema for the task. This is used to validate the output of the task.",
     )
 
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this task is for internal use and should not be exposed to end users.",
+    )
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

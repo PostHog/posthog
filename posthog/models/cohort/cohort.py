@@ -255,6 +255,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
     @property
+    def is_flag_compatible(self) -> bool:
+        """Whether this cohort can be used in feature flag targeting via cohort_membership lookups."""
+        return self.cohort_type == CohortType.REALTIME and self.last_backfill_person_properties_at is not None
+
+    @property
     def properties(self) -> PropertyGroup:
         if self.filters:
             # Do not try simplifying properties at this stage. We'll let this happen at query time.
