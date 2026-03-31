@@ -146,6 +146,8 @@ function ConditionHeader({
             ? Math.floor((affectedUserCount * clamp(rollout, 0, 100)) / 100)
             : null
 
+    // Apply the same rollout-percentage scaling to groups as we do to users above:
+    // if 3 of 10 groups match the filter and rollout is 50%, ~1 group will receive the flag.
     const actualGroupCount =
         affectedGroupCount !== undefined && affectedGroupCount >= 0
             ? Math.floor((affectedGroupCount * clamp(rollout, 0, 100)) / 100)

@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -7,9 +8,11 @@ from posthog.schema import PropertyOperator
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex, Property
+from posthog.models.property import GroupTypeIndex, Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -79,12 +82,6 @@ def _get_mixed_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
     If one sub-query fails, the other's results are still returned alongside an
     error message for the failed query, rather than failing the entire request.
     """
-    import logging
-
-    from posthog.models.property import PropertyGroup
-
-    logger = logging.getLogger(__name__)
-
     all_properties = filter.property_groups.flat
     person_props, group_props = _split_properties_by_type(all_properties)
 
@@ -478,8 +475,6 @@ def _build_group_query(
 
     # Add regular property filters using property_to_expr (only if there are any)
     if regular_properties:
-        from posthog.models.property import PropertyGroup
-
         regular_filter = Filter(
             data={"properties": PropertyGroup(type=filter.property_groups.type, values=regular_properties).to_dict()},
             team=team,

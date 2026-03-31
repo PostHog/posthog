@@ -9833,46 +9833,20 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["groups_affected"], 3)
         self.assertEqual(response_json["total_groups"], 8)
 
-    def test_user_blast_radius_pure_person_condition_has_no_group_counts(self):
-        for i in range(5):
-            _create_person(
-                team_id=self.team.pk,
-                distinct_ids=[f"person{i}"],
-                properties={"plan": "pro" if i < 3 else "free"},
+    @parameterized.expand(
+        [
+            ("without_group_aggregation", None),
+            ("with_group_aggregation", 0),
+        ]
+    )
+    def test_user_blast_radius_pure_person_condition_has_no_group_counts(self, _name, group_type_index):
+        if group_type_index is not None:
+            create_group_type_mapping_without_created_at(
+                team=self.team,
+                project_id=self.team.project_id,
+                group_type="organization",
+                group_type_index=0,
             )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            {
-                "condition": {
-                    "properties": [
-                        {
-                            "key": "plan",
-                            "type": "person",
-                            "value": ["pro"],
-                            "operator": "exact",
-                        },
-                    ],
-                    "rollout_percentage": 100,
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 3)
-        self.assertEqual(response_json["total_users"], 5)
-        self.assertNotIn("groups_affected", response_json)
-        self.assertNotIn("total_groups", response_json)
-
-    def test_user_blast_radius_pure_person_with_group_aggregation_has_no_group_counts(self):
-        create_group_type_mapping_without_created_at(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-        )
 
         for i in range(5):
             _create_person(
@@ -9881,22 +9855,25 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 properties={"plan": "pro" if i < 3 else "free"},
             )
 
+        request_data: dict = {
+            "condition": {
+                "properties": [
+                    {
+                        "key": "plan",
+                        "type": "person",
+                        "value": ["pro"],
+                        "operator": "exact",
+                    },
+                ],
+                "rollout_percentage": 100,
+            },
+        }
+        if group_type_index is not None:
+            request_data["group_type_index"] = group_type_index
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            {
-                "condition": {
-                    "properties": [
-                        {
-                            "key": "plan",
-                            "type": "person",
-                            "value": ["pro"],
-                            "operator": "exact",
-                        },
-                    ],
-                    "rollout_percentage": 100,
-                },
-                "group_type_index": 0,
-            },
+            request_data,
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
