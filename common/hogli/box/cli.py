@@ -76,7 +76,6 @@ def resolve_workspace_name(label: str | None) -> str:
     # No default among multiple -- require explicit --name
     labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
     _fail("Multiple workspaces found. Use --name to pick one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
-    return ""  # unreachable
 
 
 def _fail(message: str) -> NoReturn:
