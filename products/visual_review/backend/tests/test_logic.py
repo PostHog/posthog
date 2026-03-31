@@ -458,6 +458,40 @@ class TestRunOperations:
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
 
+    def test_update_run_counts_reads_and_writes_through_requested_db(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            baseline_hashes={},
+        )
+
+        snapshot_queryset = mocker.Mock()
+        snapshot_queryset.values.return_value.annotate.return_value = [
+            {"result": SnapshotResult.CHANGED, "n": 2},
+            {"result": SnapshotResult.NEW, "n": 1},
+        ]
+        snapshot_manager = mocker.Mock()
+        snapshot_manager.filter.return_value = snapshot_queryset
+
+        run_snapshot_using = mocker.patch.object(logic.RunSnapshot.objects, "using", return_value=snapshot_manager)
+        run_save = mocker.patch.object(run, "save")
+
+        logic._update_run_counts(run, using=logic.WRITER_DB)
+
+        run_snapshot_using.assert_called_once_with(logic.WRITER_DB)
+        snapshot_manager.filter.assert_called_once_with(run_id=run.id)
+        run_save.assert_called_once_with(
+            using=logic.WRITER_DB, update_fields=["changed_count", "new_count", "removed_count"]
+        )
+        assert run.changed_count == 2
+        assert run.new_count == 1
+        assert run.removed_count == 0
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveRun:

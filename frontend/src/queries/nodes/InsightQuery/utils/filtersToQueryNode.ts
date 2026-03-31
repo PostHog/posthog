@@ -372,9 +372,22 @@ const strToBool = (value: any): boolean | undefined => {
     return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
 }
 
-export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
+export type FiltersToQueryNodeTrackingContext = {
+    source: string
+}
+
+export const filtersToQueryNode = (
+    filters: Partial<FilterType>,
+    trackingContext?: FiltersToQueryNodeTrackingContext
+): InsightQueryNode => {
     const captureException = (message: string): void => {
         posthog.captureException(new Error(message), { filters, DataExploration: true })
+    }
+    if (trackingContext) {
+        posthog.capture('legacy_filters_to_query_node_called', {
+            source: trackingContext.source,
+            insight: filters.insight,
+        })
     }
 
     if (!filters.insight) {

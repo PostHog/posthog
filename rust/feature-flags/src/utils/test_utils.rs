@@ -1794,6 +1794,35 @@ impl TestContext {
         .await?;
         Ok(())
     }
+
+    /// Sets a value in the posthog_instancesetting table (upsert).
+    /// Uses the constance prefix matching Django's CONSTANCE_DATABASE_PREFIX.
+    pub async fn set_instance_setting(&self, key: &str, value: &str) -> Result<(), Error> {
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        let full_key = format!("constance:posthog:{key}");
+        sqlx::query(
+            "INSERT INTO posthog_instancesetting (key, raw_value)
+             VALUES ($1, $2)
+             ON CONFLICT ON CONSTRAINT \"unique key\"
+             DO UPDATE SET raw_value = $2",
+        )
+        .bind(&full_key)
+        .bind(value)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
+    }
+
+    /// Deletes a value from the posthog_instancesetting table.
+    pub async fn delete_instance_setting(&self, key: &str) -> Result<(), Error> {
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        let full_key = format!("constance:posthog:{key}");
+        sqlx::query("DELETE FROM posthog_instancesetting WHERE key = $1")
+            .bind(&full_key)
+            .execute(&mut *conn)
+            .await?;
+        Ok(())
+    }
 }
 
 pub struct MockGroupTypeFetcher {

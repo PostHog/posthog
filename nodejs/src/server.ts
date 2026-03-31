@@ -50,7 +50,6 @@ export class PluginServer implements NodeServer {
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
-    private kafkaMetricsProducer?: KafkaProducerWrapper
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -294,7 +293,7 @@ export class PluginServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
@@ -313,7 +312,6 @@ export class PluginServer implements NodeServer {
 
         logger.info('🤔', 'Connecting to Kafka...')
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        this.kafkaMetricsProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')

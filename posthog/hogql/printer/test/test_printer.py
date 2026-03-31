@@ -1552,6 +1552,51 @@ class TestPrinter(BaseTest):
         self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
         self.assertIn(f"equals(e2.team_id, {self.team.pk})", where_clause)
 
+    @parameterized.expand(
+        [
+            ("gte", ast.CompareOperationOp.GtEq, True),
+            ("gt", ast.CompareOperationOp.Gt, True),
+            ("lte", ast.CompareOperationOp.LtEq, True),
+            ("lt", ast.CompareOperationOp.Lt, True),
+            ("not_eq", ast.CompareOperationOp.NotEq, True),
+            ("eq", ast.CompareOperationOp.Eq, False),
+        ],
+    )
+    def test_join_analyzer_by_comparison_op(self, _name: str, op: ast.CompareOperationOp, expects_analyzer: bool):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        settings = HogQLGlobalSettings()
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="LEFT JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=op,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
+
+        if expects_analyzer:
+            self.assertIn("enable_analyzer=1", result)
+        else:
+            self.assertNotIn("enable_analyzer=1", result)
+
     def test_select_array_join(self):
         self.assertEqual(
             self._select("select 1, a from events array join [1,2,3] as a"),
