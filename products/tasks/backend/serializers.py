@@ -374,8 +374,7 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
-        allow_null=True,
-        help_text="ID of a SandboxEnvironment to use for network governance",
+        help_text="Optional sandbox environment to apply for this cloud run.",
     )
 
 

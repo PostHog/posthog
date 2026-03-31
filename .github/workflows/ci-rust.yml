@@ -208,7 +208,7 @@ jobs:
                   ../bin/ci-wait-for-docker launch --down
                   ../bin/ci-wait-for-docker wait
 
-                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Dump Kafka logs on failure
               if: failure()

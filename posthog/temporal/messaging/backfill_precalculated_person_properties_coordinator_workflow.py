@@ -10,7 +10,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
-    BackfillPrecalculatedPersonPropertiesResult,
 )
 
 LOGGER = get_logger(__name__)
@@ -64,77 +63,41 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
 
         workflow_logger.info(f"Processing cohorts: {cohort_ids}")
 
-        # Start with the minimum UUID cursor
-        current_cursor = "00000000-0000-0000-0000-000000000000"
-        total_processed = 0
-        batch_number = 0
+        # Start with the minimum UUID cursor and batch 1
+        initial_cursor = "00000000-0000-0000-0000-000000000000"
+        batch_number = 1
 
-        while True:
-            batch_number += 1
-            workflow_logger.info(
-                f"Starting batch {batch_number} from cursor {current_cursor}, "
-                f"processed {total_processed} persons so far"
+        workflow_logger.info(f"Starting initial batch {batch_number} from cursor {initial_cursor}")
+
+        # Start only the first workflow - it will chain to subsequent batches automatically
+        child_workflow_id = f"{temporalio.workflow.info().workflow_id}-batch-{batch_number}"
+        child_inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=inputs.team_id,
+            filter_storage_key=inputs.filter_storage_key,
+            cohort_ids=inputs.cohort_ids,
+            batch_size=inputs.batch_size,
+            cursor=initial_cursor,
+            batch_sequence=batch_number,
+        )
+
+        try:
+            # Start the first workflow in the pipeline (fire-and-forget)
+            await temporalio.workflow.start_child_workflow(
+                "backfill-precalculated-person-properties",
+                child_inputs,
+                id=child_workflow_id,
+                task_queue=settings.MESSAGING_TASK_QUEUE,
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
             )
 
-            # Spawn a child workflow to process the next batch
-            child_workflow_id = f"{temporalio.workflow.info().workflow_id}-batch-{batch_number}"
-            child_inputs = BackfillPrecalculatedPersonPropertiesInputs(
-                team_id=inputs.team_id,
-                filter_storage_key=inputs.filter_storage_key,
-                cohort_ids=inputs.cohort_ids,
-                batch_size=inputs.batch_size,
-                cursor=current_cursor,
-            )
+            workflow_logger.info(f"Pipeline started successfully with initial batch {batch_number}")
 
-            try:
-                # Start and wait for the child workflow to complete
-                raw_result = await temporalio.workflow.execute_child_workflow(
-                    "backfill-precalculated-person-properties",
-                    child_inputs,
-                    id=child_workflow_id,
-                    task_queue=settings.MESSAGING_TASK_QUEUE,
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                )
-
-                # Handle potential dictionary result from Temporal serialization
-                if isinstance(raw_result, dict):
-                    result = BackfillPrecalculatedPersonPropertiesResult(**raw_result)
-                else:
-                    result = raw_result
-
-                workflow_logger.info(
-                    f"Batch {batch_number} completed: processed {result.persons_processed} persons, "
-                    f"last_person_id: {result.last_person_id}"
-                )
-
-                # If no persons were processed, we're done
-                if result.persons_processed == 0:
-                    workflow_logger.info(f"No more persons to process. Completed after {total_processed} persons.")
-                    break
-
-                # If we processed fewer persons than the batch size, we've reached the end
-                if result.persons_processed < inputs.batch_size:
-                    total_processed += result.persons_processed
-                    workflow_logger.info(
-                        f"Reached end of data: processed {result.persons_processed} < {inputs.batch_size} batch size. Completed after {total_processed} total persons."
-                    )
-                    break
-
-                # Update cursor for next batch
-                if result.last_person_id:
-                    current_cursor = result.last_person_id
-                    total_processed += result.persons_processed
-                else:
-                    # This shouldn't happen if persons_processed > 0, but handle it safely
-                    workflow_logger.warning("No last_person_id returned despite processing persons. Stopping.")
-                    break
-
-            except Exception as e:
-                workflow_logger.error(f"Batch {batch_number} failed: {e}", exc_info=True)
-                raise
+        except Exception as e:
+            workflow_logger.error(f"Failed to start initial batch: {e}", exc_info=True)
+            raise
 
         workflow_logger.info(
             f"Coordinator workflow completed successfully for team {inputs.team_id} "
             f"with {len(inputs.cohort_ids)} cohorts {inputs.cohort_ids}. "
-            f"Total persons processed: {total_processed}"
+            f"Pipeline will process persons in batches automatically."
         )

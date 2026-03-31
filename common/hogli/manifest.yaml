@@ -734,6 +734,9 @@ environment:
         description: Disable anonymous usage telemetry
     telemetry:status:
         description: Show current telemetry settings
+    sandbox:
+        bin_script: sandbox
+        description: Manage isolated dev sandboxes
     start:stripe:mock:
         bin_script: start-stripe-mock
         description: 'Start the local Stripe mock API server'
