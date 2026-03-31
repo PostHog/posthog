@@ -8,7 +8,8 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch_async,
 )
-from posthog.temporal.messaging.precalculated_person_properties import PersonPropertyFilter, store_filters
+from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 
 class TestFlushKafkaBatchAsync:
