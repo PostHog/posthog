@@ -70,6 +70,10 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     @override
+    def partial_update(self, request, *args, **kwargs) -> Response:
+        return self.update(request, *args, **kwargs)
+
+    @override
     def destroy(self, request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)
 

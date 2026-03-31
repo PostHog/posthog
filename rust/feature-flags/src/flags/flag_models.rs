@@ -80,12 +80,33 @@ pub struct EvaluationMetadata {
     pub transitive_deps: HashMap<i32, HashSet<i32>>,
 }
 
-/// Wrapper struct for deserializing hypercache format: {"flags": [...], "cohorts": [...]}
+impl EvaluationMetadata {
+    /// Builds metadata that places all flags in a single evaluation stage
+    /// with no dependency ordering. Used by the PG fallback path.
+    pub fn single_stage(flags: &[FeatureFlag]) -> Self {
+        Self {
+            dependency_stages: vec![flags.iter().map(|f| f.id).collect()],
+            transitive_deps: flags.iter().map(|f| (f.id, HashSet::new())).collect(),
+            ..Default::default()
+        }
+    }
+}
+
+/// Wrapper struct for deserializing hypercache format:
+/// `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...] | null}`.
+///
+/// `evaluation_metadata` is always present in cache entries (written by Django).
+/// The PG fallback path constructs this struct with `EvaluationMetadata::single_stage()`,
+/// which places all flags in one evaluation stage with empty transitive deps.
+///
+/// HYPERCACHE CONTRACT: These fields must match the top-level keys returned by
+/// `_get_feature_flags_for_service()` in posthog/models/feature_flag/flags_cache.py.
+/// Field changes must follow the expand-and-contract pattern — see contract tests in
+/// posthog/models/feature_flag/test/test_flags_cache.py.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
-    #[serde(default)]
-    pub evaluation_metadata: Option<EvaluationMetadata>,
+    pub evaluation_metadata: EvaluationMetadata,
     /// Cohort definitions referenced by flags (including transitive deps).
     /// Precomputed by Django at cache-write time so the Rust service can skip
     /// the separate CohortCacheManager PG query.
@@ -187,6 +208,14 @@ pub enum BucketingIdentifier {
 // TODO: see if you can combine these two structs, like we do with cohort models
 // this will require not deserializing on read and instead doing it lazily, on-demand
 // (which, tbh, is probably a better idea)
+///
+/// HYPERCACHE CONTRACT: These fields are deserialized from JSON written by Python's
+/// MinimalFeatureFlagSerializer (posthog/api/feature_flag.py). Field changes must
+/// follow the expand-and-contract pattern. Golden fixture contract test:
+///   cargo test -p feature-flags test_hypercache_contract
+///
+/// Note: Python also emits `has_encrypted_payloads`, which Rust intentionally
+/// ignores (serde drops unknown fields).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FeatureFlag {
     pub id: FeatureFlagId,
@@ -253,10 +282,8 @@ pub struct FeatureFlagList {
     #[serde(skip)]
     pub filtered_out_flag_ids: HashSet<i32>,
     /// Pre-computed dependency metadata from Django's hypercache.
-    /// Present when the cache was written by new Django code; absent for PG fallback
-    /// or old cache entries.
     #[serde(skip)]
-    pub evaluation_metadata: Option<EvaluationMetadata>,
+    pub evaluation_metadata: EvaluationMetadata,
     /// Cohort definitions referenced by flags (including transitive deps),
     /// precomputed by Django at cache-write time.
     /// When present, the matcher uses these instead of querying CohortCacheManager.

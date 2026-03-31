@@ -7,6 +7,7 @@
 category: Data warehouse
 feature: data_warehouse
 url_prefix: /sql
+ui_apps: {}
 tools:
     fix-hogql-retrieve:
         operation: fix_hogql_retrieve

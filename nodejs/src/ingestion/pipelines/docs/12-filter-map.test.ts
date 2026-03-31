@@ -23,13 +23,14 @@ import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-inges
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../../common/outputs'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '../../common/outputs'
+import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineWarning } from '../pipeline.interface'
 import { PipelineResult, dlq, isOkResult, ok, redirect } from '../results'
 
-type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
+type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
 describe('Filter Map', () => {
     /**
@@ -55,8 +56,14 @@ describe('Filter Map', () => {
             }),
         }
         const pipelineConfig = {
-            kafkaProducer: mockKafkaProducer as any,
-            dlqTopic: 'test-dlq',
+            outputs: new IngestionOutputs({
+                [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockKafkaProducer as any },
+                [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockKafkaProducer as any },
+                [INGESTION_WARNINGS_OUTPUT]: {
+                    topic: 'clickhouse_ingestion_warnings',
+                    producer: mockKafkaProducer as any,
+                },
+            }),
             promiseScheduler,
         }
 
@@ -88,13 +95,13 @@ describe('Filter Map', () => {
         }
 
         // Step 2: Process event (runs within teamAware context)
-        function createProcessEventStep(): BatchProcessingStep<EventWithTeam, EventWithTeam> {
+        function createProcessEventStep(): BatchProcessingStep<EventWithTeam, EventWithTeam, typeof OVERFLOW_OUTPUT> {
             return function processEventStep(events) {
                 return Promise.resolve(
                     events.map((item) => {
                         // Redirect special events to overflow topic
                         if (item.event.name === 'overflow') {
-                            return redirect('Event overflow', 'overflow-topic')
+                            return redirect('Event overflow', OVERFLOW_OUTPUT)
                         }
 
                         // Add warning for deprecated events
@@ -143,10 +150,10 @@ describe('Filter Map', () => {
             .build()
 
         const batch = [
-            createContext(ok<RawEvent>({ teamId: 1, name: 'pageview' }), { message: createTestMessage() }),
-            createContext(ok<RawEvent>({ teamId: 999, name: 'will_fail' }), { message: createTestMessage() }),
-            createContext(ok<RawEvent>({ teamId: 2, name: 'overflow' }), { message: createTestMessage() }),
-            createContext(ok<RawEvent>({ teamId: 3, name: 'deprecated_event' }), { message: createTestMessage() }),
+            createOkContext({ teamId: 1, name: 'pageview' } as RawEvent, { message: createTestMessage() }),
+            createOkContext({ teamId: 999, name: 'will_fail' } as RawEvent, { message: createTestMessage() }),
+            createOkContext({ teamId: 2, name: 'overflow' } as RawEvent, { message: createTestMessage() }),
+            createOkContext({ teamId: 3, name: 'deprecated_event' } as RawEvent, { message: createTestMessage() }),
         ]
         pipeline.feed(batch)
 

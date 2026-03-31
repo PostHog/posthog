@@ -30,8 +30,13 @@ jobs:
                   filters: |
                       ui-apps:
                         - 'services/mcp/src/ui-apps/**'
+                        - 'services/mcp/src/resources/ui-apps.generated.ts'
                         - 'services/mcp/vite.ui-apps.config.ts'
                         - 'services/mcp/scripts/build-ui-apps.ts'
+                        - 'services/mcp/scripts/generate-ui-apps.ts'
+                        - 'services/mcp/scripts/yaml-config-schema.ts'
+                        - 'products/*/mcp/**'
+                        - 'services/mcp/definitions/*.yaml'
                         - 'common/mosaic/**'
                         - '.github/workflows/ci-mcp-ui-apps.yml'
 
@@ -44,6 +49,14 @@ jobs:
         steps:
             - name: Checkout code
               uses: actions/checkout@v6
+
+            - name: Install uv # Needed for formatting generated code and running scripts
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Setup pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
@@ -60,14 +73,27 @@ jobs:
             - name: Install dependencies
               run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
+            - name: Check generated UI apps are up to date
+              run: |
+                  cd services/mcp && pnpm run generate:ui-apps
+                  if ! git diff --exit-code -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts; then
+                    echo ""
+                    echo "::warning::The following generated files are out of date:"
+                    git diff --name-only -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts
+                    echo ""
+                    echo "::error::Generated UI app files are out of date. Run 'pnpm --filter=@posthog/mcp run generate:ui-apps' and commit the result."
+                    exit 1
+                  fi
+
             - name: Build UI Apps
               run: cd services/mcp && pnpm run build:ui-apps
 
             - name: Validate build output
               run: |
                   # Each app should produce main.js and styles.css
+                  # Use find to recurse into wrapper dirs like generated/
                   missing=0
-                  for app_dir in services/mcp/public/ui-apps/*/; do
+                  for app_dir in $(find services/mcp/public/ui-apps -mindepth 1 -type d ! -name generated | sort); do
                     app=$(basename "$app_dir")
                     if [ ! -f "$app_dir/main.js" ]; then
                       echo "::error::Missing main.js for $app"
@@ -96,15 +122,23 @@ jobs:
                       const distDir = 'services/mcp/public/ui-apps';
                       const rows = [];
 
-                      for (const app of fs.readdirSync(distDir).sort()) {
-                          const appDir = path.join(distDir, app);
-                          if (!fs.statSync(appDir).isDirectory()) continue;
-                          const jsPath = path.join(appDir, 'main.js');
-                          const cssPath = path.join(appDir, 'styles.css');
-                          const jsSize = fs.existsSync(jsPath) ? (fs.statSync(jsPath).size / 1024).toFixed(1) : '—';
-                          const cssSize = fs.existsSync(cssPath) ? (fs.statSync(cssPath).size / 1024).toFixed(1) : '—';
-                          rows.push(`| ${app} | ${jsSize} KB | ${cssSize} KB |`);
+                      // Recursively collect app dirs (those containing main.js)
+                      function collectApps(dir) {
+                          for (const entry of fs.readdirSync(dir).sort()) {
+                              const full = path.join(dir, entry);
+                              if (!fs.statSync(full).isDirectory()) continue;
+                              const jsPath = path.join(full, 'main.js');
+                              if (fs.existsSync(jsPath)) {
+                                  const cssPath = path.join(full, 'styles.css');
+                                  const jsSize = (fs.statSync(jsPath).size / 1024).toFixed(1);
+                                  const cssSize = fs.existsSync(cssPath) ? (fs.statSync(cssPath).size / 1024).toFixed(1) : '—';
+                                  rows.push(`| ${entry} | ${jsSize} KB | ${cssSize} KB |`);
+                              } else {
+                                  collectApps(full);
+                              }
+                          }
                       }
+                      collectApps(distDir);
 
                       if (rows.length === 0) return;
 

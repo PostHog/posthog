@@ -5,7 +5,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-interface MonacoDiffEditorProps {
+export interface MonacoDiffEditorProps {
     width?: number | string
     height?: number | string
     value?: string | null

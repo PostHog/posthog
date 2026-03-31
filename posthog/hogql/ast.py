@@ -872,6 +872,11 @@ class Constant(Expr):
 
 
 @dataclass(kw_only=True)
+class Keyword(Expr):
+    name: str
+
+
+@dataclass(kw_only=True)
 class Field(Expr):
     chain: list[str | int]
     from_asterisk: bool = False

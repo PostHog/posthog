@@ -1,1 +1,1 @@
-export { LemonMarkdown, type LemonMarkdownProps } from './LemonMarkdown'
+export { LemonMarkdown, type LemonMarkdownProps, slugifyHeading } from './LemonMarkdown'
