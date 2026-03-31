@@ -742,7 +742,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding hidden
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_PERSON_PROPERTIES)
 
     @parameterized.expand(
         [
@@ -783,7 +783,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding core properties
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_PERSON_PROPERTIES)
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=0&exclude_core_properties=true"
@@ -791,26 +791,26 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding core properties
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_GROUP_PROPERTIES)
 
     def test_virtual_property_type_filter(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
         assert response.status_code == status.HTTP_200_OK
         # Should include virtual properties when type=person
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_PERSON_PROPERTIES)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=0")
         assert response.status_code == status.HTTP_200_OK
         # Should include virtual properties when type=group
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_GROUP_PROPERTIES)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
         assert response.status_code == status.HTTP_200_OK
         # Should include virtual event properties (bot detection)
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_EVENT_PROPERTIES)
         virtual_names = {p["name"] for p in virtual_props}
         assert "$virt_is_bot" in virtual_names
         assert "$virt_traffic_type" in virtual_names
