@@ -4,7 +4,7 @@ from typing import Any, Literal
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -265,6 +265,27 @@ class ShipVariantSerializer(EndExperimentSerializer):
     variant_key = serializers.CharField(help_text="The key of the variant to ship to 100% of users.")
 
 
+@extend_schema_view(
+    # PATCH /experiments/{id}/
+    # DRF mixin calls implementation at ExperimentSerializer.update
+    partial_update=extend_schema(
+        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.",
+    ),
+    # POST /experiments/ — DRF mixin calls ExperimentSerializer.create
+    create=extend_schema(
+        description="Create a new experiment in draft status with optional metrics.",
+    ),
+    # GET /experiments/{id}/ — DRF mixin, read-only serialization via ExperimentSerializer
+    retrieve=extend_schema(
+        description="Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.",
+    ),
+    # GET /experiments/ — DRF mixin, filtering via ExperimentService.filter_experiments_queryset
+    list=extend_schema(
+        description="List experiments for the current project. Supports filtering by status and archival state.",
+    ),
+    # DELETE /experiments/{id}/
+    # Logic and API docs defined in posthog/api/forbid_destroy_model.py (hard delete not allowed)
+)
 @extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     # ApprovalHandlingMixin converts ApprovalRequired exceptions (raised by

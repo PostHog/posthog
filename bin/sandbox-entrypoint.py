@@ -448,6 +448,11 @@ def user_phase() -> None:
     Path("/cache/cargo-target").mkdir(parents=True, exist_ok=True)
     os.chdir(WORKSPACE)
 
+    # The workspace is a bind mount owned by the host UID, which differs from
+    # the sandbox user. Git 2.35.2+ refuses to operate in repos with mismatched
+    # ownership unless explicitly allowed.
+    run(["git", "config", "--global", "--add", "safe.directory", str(WORKSPACE)])
+
     install_geoip()
     create_kafka_topics()
 
