@@ -23,21 +23,20 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
     ]
 
     return (
-        <div className="flex items-center gap-2 flex-wrap">
-            <div className="min-w-0">
-                <OperatorSelect
-                    operator={currentOperator}
-                    operators={operators}
-                    onChange={(newOperator: PropertyOperator) => {
-                        updateInsightFilter({
-                            stickinessCriteria: { operator: newOperator as StickinessOperator, value: currentValue },
-                        })
-                    }}
-                />
-            </div>
+        <div className="flex items-center gap-2">
+            <OperatorSelect
+                className="flex-1"
+                operator={currentOperator}
+                operators={operators}
+                onChange={(newOperator: PropertyOperator) => {
+                    updateInsightFilter({
+                        stickinessCriteria: { operator: newOperator as StickinessOperator, value: currentValue },
+                    })
+                }}
+            />
             <LemonInput
                 type="number"
-                className="w-20"
+                className="ml-2 w-20"
                 defaultValue={currentValue}
                 min={1}
                 onChange={(newValue: number | undefined) => {
@@ -46,7 +45,7 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
                     }
                 }}
             />
-            <span className="whitespace-nowrap">time(s) per interval</span>
+            time(s) per interval
         </div>
     )
 }
