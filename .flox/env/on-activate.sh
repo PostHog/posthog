@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # PostHog flox on-activate hook
 # Sourced (not executed) from manifest.toml — env vars persist into profile scripts.
+#
+# IMPORTANT: This script must NEVER use sudo. It runs automatically on every
+# shell activation, so requiring elevated privileges would condition developers
+# to blindly grant root access to code that changes without notice.
 
 set -euo pipefail
 
