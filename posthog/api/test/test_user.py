@@ -23,12 +23,14 @@ from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.models import Dashboard, Team, User
+from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 def create_user(email: str, password: str, organization: Organization):

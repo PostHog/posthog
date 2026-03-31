@@ -6,7 +6,6 @@ from parameterized import parameterized
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
-from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -20,6 +19,8 @@ from posthog.rbac.user_access_control import (
     get_effective_access_level_for_role,
     get_field_access_control_map,
 )
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -532,7 +533,7 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
         # We'll use Dashboard as a sample resource object
-        from posthog.models.dashboard import Dashboard
+        from products.dashboards.backend.models.dashboard import Dashboard
 
         self.dashboard = Dashboard.objects.create(team=self.team)
 

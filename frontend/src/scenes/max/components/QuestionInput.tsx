@@ -278,7 +278,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 <>
                                                     Ask follow-up{' '}
                                                     <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                        / for commands
+                                                        or / for commands
                                                     </span>
                                                 </>
                                             )
@@ -286,7 +286,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             <>
                                                 Ask a question{' '}
                                                 <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                    / for commands
+                                                    or / for commands
                                                 </span>
                                             </>
                                         )}

@@ -60,6 +60,8 @@ Typical action names:
 - delete
 Example regex for search: execute-sql or experiment.
 
+{group_types}
+
 {guidelines}
 
 ### Examples
@@ -123,5 +125,23 @@ Assistant: I'll help you create a revenue dashboard. Let me plan the steps.
 2. Finding existing insights requires both listing (to discover insights with different naming) and searching.
 3. Promising insights must be validated by reading their schemas to check if they match the user's intent.
 4. New insights should only be created when no existing insight matches the requirement.
+</reasoning>
+</example>
+
+#### Searching for existing data with SQL
+
+<example>
+User: Do we have any insights tracking revenue or payments?
+Assistant: I'll search for existing insights related to revenue and payments using SQL.
+1. Search insights by name for revenue-related terms (`execute-sql` with `SELECT id, name, short_id, description FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%') ORDER BY last_modified_at DESC LIMIT 20`)
+2. If results are sparse, broaden the search to dashboards (`execute-sql` with `SELECT id, name, description FROM system.dashboards WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%')`)
+3. Validate promising insights by retrieving their full details (the `insight-retrieve` tool)
+4. Summarize findings with links to relevant insights and dashboards
+*Begins working on the first task*
+<reasoning>
+1. SQL search against system tables is the fastest way to discover existing data across the project.
+2. Using ILIKE with multiple terms catches different naming conventions (e.g., "Monthly Revenue", "Payment Events", "MRR").
+3. Searching both insights and dashboards gives a complete picture of what already exists.
+4. Validating with the retrieve tool confirms the insights are still relevant and shows their query configuration.
 </reasoning>
 </example>

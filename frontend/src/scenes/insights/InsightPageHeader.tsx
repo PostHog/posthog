@@ -125,7 +125,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         onClick={() => {
                                             if (isDataVisualizationNode(query) && insight.short_id) {
                                                 router.actions.push(
-                                                    urls.sqlEditor({ insightShortId: insight.short_id })
+                                                    urls.sqlEditor({
+                                                        insightShortId: insight.short_id,
+                                                        dashboard: dashboardId ?? undefined,
+                                                    })
                                                 )
                                             } else if (insight.short_id) {
                                                 const editUrl = dashboardId

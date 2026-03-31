@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonUpdateFields,
@@ -12,6 +11,7 @@ import {
 } from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { TransactionClient } from '../../../../utils/db/postgres'
+import { PersonMessage } from '../person-message'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
@@ -52,15 +52,15 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         person: InternalPerson,
         update: PersonUpdateFields,
         tag?: string
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return await this.repository.updatePerson(person, update, tag, this.transaction)
     }
 
-    async deletePerson(person: InternalPerson): Promise<TopicMessage[]> {
+    async deletePerson(person: InternalPerson): Promise<PersonMessage[]> {
         return await this.repository.deletePerson(person, this.transaction)
     }
 
-    async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]> {
+    async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
         return await this.repository.addDistinctId(person, distinctId, version, this.transaction)
     }
 

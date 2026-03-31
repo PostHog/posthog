@@ -366,8 +366,8 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+            - name: Add service hostnames to /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
               run: |
@@ -807,7 +807,7 @@ jobs:
                   set -o pipefail
                   # Dump schema + django_migrations data so Django knows which migrations are applied
                   # Run pg_dump inside container to ensure version match (host has pg_dump 16, container has 15)
-                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean -U posthog posthog && \
+                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean --if-exists -U posthog posthog && \
                    docker compose -f docker-compose.dev.yml exec -T db pg_dump --data-only --table=django_migrations -U posthog posthog) | gzip > schema.sql.gz
                   # Verify the dump is valid
                   gunzip -t schema.sql.gz
@@ -907,10 +907,16 @@ jobs:
                   # Verify branch hasn't advanced since CI started
                   CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
                   if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
-                      echo "::warning::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — skipping auto-commit"
-                      echo "The new commit will trigger its own workflow run."
+                      echo "::error::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — cannot auto-commit OpenAPI types."
+                      echo ""
+                      echo "OpenAPI types are out of date and could not be auto-committed because the branch"
+                      echo "was updated while this workflow was running. Please run locally and push:"
+                      echo ""
+                      echo "  hogli build:openapi"
+                      echo ""
+                      echo "Then commit the updated generated files."
                       echo "needs-commit=false" >> $GITHUB_OUTPUT
-                      exit 0
+                      exit 1
                   fi
 
                   # Disable auto-merge before pushing to prevent unreviewed code from merging
@@ -925,7 +931,7 @@ jobs:
                   commit_message: 'chore: update OpenAPI generated types'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/ products/*/frontend/generated/ products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/ services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/'
+                  file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
@@ -1076,9 +1082,9 @@ jobs:
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down-all-profiles
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
+            - name: Add service hostnames to /etc/hosts
               shell: bash
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -1658,8 +1664,8 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
-              run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+            - name: Add service hostnames to /etc/hosts
+              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
               run: |

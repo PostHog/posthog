@@ -18,11 +18,19 @@ import {
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import { INGESTION_OUTPUT_DEFINITIONS } from '../ingestion/analytics/config/outputs'
 import { PRODUCER_CONFIG_MAP, ProducerName } from '../ingestion/analytics/config/producers'
-import { IngestionConsumerConfig } from '../ingestion/config'
+import {
+    DatabaseConnectionConfig,
+    IngestionConsumerConfig,
+    KafkaBrokerConfig,
+    KafkaConsumerBaseConfig,
+    PersonHogConfig,
+    RedisConnectionsConfig,
+} from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
+import { buildGroupRepository } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
@@ -42,69 +50,29 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * Complete config type for an ingestion-v2 deployment.
  *
  * This is the union of:
+ * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
  * - IngestionConsumerConfig: ingestion pipeline, person/group processing, overflow, cookieless, etc.
  * - HogTransformerServiceConfig: CDP keys needed by the hog transformer running in-process
- * - CommonConfig picks: infrastructure keys for postgres, kafka, redis, observability, etc.
+ * - Infrastructure configs: Kafka broker, Postgres, Redis, consumer tuning
+ * - Remaining CommonConfig picks: server mode, services, observability
  *
  * This type is the source of truth for which env vars ingestion-events-* deployments need.
  */
 export type IngestionGeneralServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
     HogTransformerServiceConfig &
+    KafkaBrokerConfig &
+    DatabaseConnectionConfig &
+    RedisConnectionsConfig &
+    KafkaConsumerBaseConfig &
+    PersonHogConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
-        // Kafka
-        | 'KAFKA_HOSTS'
-        | 'KAFKA_CLIENT_RACK'
-        | 'KAFKA_SECURITY_PROTOCOL'
-        | 'KAFKA_CLIENT_CERT_B64'
-        | 'KAFKA_CLIENT_CERT_KEY_B64'
-        | 'KAFKA_TRUSTED_CERT_B64'
-        | 'KAFKA_SASL_MECHANISM'
-        | 'KAFKA_SASL_USER'
-        | 'KAFKA_SASL_PASSWORD'
-        // Postgres
-        | 'DATABASE_URL'
-        | 'DATABASE_READONLY_URL'
-        | 'PERSONS_DATABASE_URL'
-        | 'PERSONS_READONLY_DATABASE_URL'
-        | 'BEHAVIORAL_COHORTS_DATABASE_URL'
-        | 'PLUGIN_STORAGE_DATABASE_URL'
-        | 'POSTGRES_CONNECTION_POOL_SIZE'
-        | 'POSTHOG_DB_NAME'
-        | 'POSTHOG_DB_USER'
-        | 'POSTHOG_DB_PASSWORD'
-        | 'POSTHOG_POSTGRES_HOST'
-        | 'POSTHOG_POSTGRES_PORT'
         | 'PLUGIN_SERVER_MODE'
-        // Redis
-        | 'REDIS_URL'
-        | 'REDIS_POOL_MIN_SIZE'
-        | 'REDIS_POOL_MAX_SIZE'
-        | 'INGESTION_REDIS_HOST'
-        | 'INGESTION_REDIS_PORT'
-        | 'POSTHOG_REDIS_HOST'
-        | 'POSTHOG_REDIS_PORT'
-        | 'POSTHOG_REDIS_PASSWORD'
-        // Services
-        | 'MMDB_FILE_LOCATION'
-        | 'ENCRYPTION_SALT_KEYS'
-        | 'CAPTURE_INTERNAL_URL'
-        | 'SITE_URL'
         | 'CLOUD_DEPLOYMENT'
-        // Shared between ingestion and CDP
-        | 'CDP_HOG_WATCHER_SAMPLE_RATE'
-        // Consumer
-        | 'CONSUMER_BATCH_SIZE'
-        | 'CONSUMER_MAX_HEARTBEAT_INTERVAL_MS'
-        | 'CONSUMER_LOOP_STALL_THRESHOLD_MS'
-        | 'CONSUMER_LOG_STATS_LEVEL'
-        | 'CONSUMER_LOOP_BASED_HEALTH_CHECK'
-        | 'CONSUMER_MAX_BACKGROUND_TASKS'
-        | 'CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE'
-        | 'CONSUMER_AUTO_CREATE_TOPICS'
-        // Misc
+        | 'MMDB_FILE_LOCATION'
+        | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
         | 'TASKS_PER_WORKER'
@@ -150,7 +118,7 @@ export class IngestionGeneralServer implements NodeServer {
         // 1. Shared infrastructure
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
-        this.postgres = new PostgresRouter(this.config)
+        this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE!)
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
@@ -178,7 +146,14 @@ export class IngestionGeneralServer implements NodeServer {
         const personRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
-        const groupRepository = new PostgresGroupRepository(this.postgres)
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
+
+        const groupRepository = buildGroupRepository(
+            this.config,
+            postgresGroupRepository,
+            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        )
+
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
         const internalCaptureService = new InternalCaptureService(this.config)
@@ -194,7 +169,6 @@ export class IngestionGeneralServer implements NodeServer {
 
         this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
-        const clickhouseGroupRepository = new ClickhouseGroupRepository(this.kafkaProducer)
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
@@ -216,17 +190,6 @@ export class IngestionGeneralServer implements NodeServer {
                 return consumer.service
             })
         } else {
-            const hogTransformerDeps: HogTransformerServiceDeps = {
-                geoipService,
-                postgres: this.postgres,
-                pubSub: this.pubsub,
-                encryptedFields,
-                integrationManager,
-                kafkaProducer: this.kafkaMetricsProducer,
-                teamManager,
-                internalCaptureService,
-            }
-
             // Resolve ingestion outputs — producer creation blocks until the broker
             // is reachable (rdkafka retries indefinitely), so the server will hang
             // here if a broker is down and the pod never becomes healthy.
@@ -238,6 +201,18 @@ export class IngestionGeneralServer implements NodeServer {
                 this.ingestionProducerRegistry,
                 INGESTION_OUTPUT_DEFINITIONS
             )
+            const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
+
+            const hogTransformerDeps: HogTransformerServiceDeps = {
+                geoipService,
+                postgres: this.postgres,
+                pubSub: this.pubsub,
+                encryptedFields,
+                integrationManager,
+                monitoringOutputs: ingestionOutputs,
+                teamManager,
+                internalCaptureService,
+            }
 
             const ingestionDeps: IngestionConsumerDeps = {
                 postgres: this.postgres,

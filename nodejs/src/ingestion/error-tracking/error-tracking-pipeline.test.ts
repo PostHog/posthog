@@ -12,6 +12,7 @@ import { UUIDT } from '~/utils/utils'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { TopHog } from '../tophog'
 import { CymbalClient } from './cymbal/client'
@@ -272,9 +273,12 @@ describe('ErrorTrackingPipeline', () => {
         }
 
         pipelineConfig = {
-            kafkaProducer: mockKafkaProducer,
-            dlqTopic: 'error_tracking_dlq',
-            outputTopic: 'clickhouse_events_json_test',
+            outputs: new IngestionOutputs({
+                events: { topic: 'clickhouse_events_json_test', producer: mockKafkaProducer },
+                ingestion_warnings: { topic: 'clickhouse_ingestion_warnings_test', producer: mockKafkaProducer },
+                dlq: { topic: 'error_tracking_dlq', producer: mockKafkaProducer },
+                overflow: { topic: 'error_tracking_overflow', producer: mockKafkaProducer },
+            }),
             groupId: 'error-tracking-test',
             promiseScheduler,
             teamManager: mockTeamManager,
@@ -284,8 +288,6 @@ describe('ErrorTrackingPipeline', () => {
             groupTypeManager: mockGroupTypeManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             overflowEnabled: false,
-            overflowTopic: 'error_tracking_overflow',
-            ingestionWarningProducer: mockKafkaProducer,
             topHog: mockTopHog,
         }
     })
@@ -396,6 +398,23 @@ describe('ErrorTrackingPipeline', () => {
             // Verify both events were emitted
             const producedEvents = getProducedEvents()
             expect(producedEvents).toHaveLength(2)
+        })
+
+        it('passes Kafka message byte size to Cymbal for batch chunking', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+
+            const cymbalResponse = createCymbalResponseWithEnrichedProperties({
+                $exception_list: [{ type: 'Error', value: 'Test error' }],
+            })
+            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+
+            const message = createKafkaMessage({})
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            const cymbalItems = mockCymbalClient.processExceptions.mock.calls[0][0]
+            expect(cymbalItems).toHaveLength(1)
+            expect(cymbalItems[0].estimatedSize).toBe(message.value!.length)
         })
 
         it('handles events with group types', async () => {

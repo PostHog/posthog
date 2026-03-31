@@ -16,7 +16,7 @@ interface ProcessingStep {
     isValidRegex: boolean
 }
 
-interface PathCleaningRulesDebuggerProps {
+export interface PathCleaningRulesDebuggerProps {
     testPath: string
     filters: PathCleaningFilter[]
     finalResult: JSX.Element | JSX.Element[] | string | null
