@@ -25258,7 +25258,22 @@ export namespace Schemas {
       variants?: unknown;
     }
 
-    export interface PauseUntil {
+    export interface PauseResponse {
+      /** Always 'paused'. */
+      status: string;
+      /** The timestamp the pipeline is paused until. */
+      paused_until: string;
+    }
+
+    export interface PauseStateResponse {
+      /**
+       * The timestamp the pipeline is paused until, or null if not paused/not running.
+       * @nullable
+       */
+      paused_until: string | null;
+    }
+
+    export interface PauseUntilRequest {
       /** Pause the grouping pipeline until this timestamp (ISO 8601). */
       timestamp: string;
     }
@@ -29722,6 +29737,13 @@ export namespace Schemas {
        * @nullable
        */
       queue_id?: string | null;
+    }
+
+    export interface UnpauseResponse {
+      /** Always 'unpaused'. */
+      status: string;
+      /** Whether the workflow was actually paused at the time of the call. */
+      was_paused: boolean;
     }
 
     /**

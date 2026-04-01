@@ -10,9 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedSignalSourceConfigListApi,
-    PauseUntilApi,
+    PauseResponseApi,
+    PauseStateResponseApi,
+    PauseUntilRequestApi,
     SignalSourceConfigApi,
     SignalSourceConfigsListParams,
+    UnpauseResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -41,14 +44,14 @@ export const getSignalGroupingPausePauseCreateUrl = (projectId: string) => {
 
 export const signalGroupingPausePauseCreate = async (
     projectId: string,
-    pauseUntilApi: PauseUntilApi,
+    pauseUntilRequestApi: PauseUntilRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSignalGroupingPausePauseCreateUrl(projectId), {
+): Promise<PauseResponseApi> => {
+    return apiMutator<PauseResponseApi>(getSignalGroupingPausePauseCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(pauseUntilApi),
+        body: JSON.stringify(pauseUntilRequestApi),
     })
 }
 
@@ -59,8 +62,11 @@ export const getSignalGroupingPauseStateRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signal_grouping_pause/state/`
 }
 
-export const signalGroupingPauseStateRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSignalGroupingPauseStateRetrieveUrl(projectId), {
+export const signalGroupingPauseStateRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PauseStateResponseApi> => {
+    return apiMutator<PauseStateResponseApi>(getSignalGroupingPauseStateRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -73,8 +79,11 @@ export const getSignalGroupingPauseUnpauseCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signal_grouping_pause/unpause/`
 }
 
-export const signalGroupingPauseUnpauseCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSignalGroupingPauseUnpauseCreateUrl(projectId), {
+export const signalGroupingPauseUnpauseCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UnpauseResponseApi> => {
+    return apiMutator<UnpauseResponseApi>(getSignalGroupingPauseUnpauseCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
