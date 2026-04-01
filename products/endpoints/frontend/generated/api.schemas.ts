@@ -3741,6 +3741,11 @@ export interface EndpointRequestApi {
     bucket_overrides?: EndpointRequestApiBucketOverrides
     /** @nullable */
     cache_age_seconds?: number | null
+    /**
+     * Set to true to soft-delete this endpoint
+     * @nullable
+     */
+    deleted?: boolean | null
     /** @nullable */
     derived_from_insight?: string | null
     /** @nullable */

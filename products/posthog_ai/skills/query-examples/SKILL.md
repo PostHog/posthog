@@ -19,6 +19,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Cohorts & Persons](./references/models-cohorts.md)
 - [Dashboards, Tiles & Insights](./references/models-dashboards-insights.md)
 - [Data Warehouse](./references/models-data-warehouse.md)
+- [Data Modeling Endpoints](./references/models-endpoints.md)
 - [Error Tracking](./references/models-error-tracking.md)
 - [Flags & Experiments](./references/models-flags-experiments.md)
 - [Hog Flows](./references/models-hog-flows.md)
