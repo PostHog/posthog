@@ -412,8 +412,8 @@ function computeAugmentedInfoRelease(
         // but no new events with the new version exist yet, causing confusing "Outdated" warnings
         const SINGLE_VERSION_GRACE_PERIOD_DAYS = 30
 
-        if (isSingleVersion && diff && diff.kind !== 'patch') {
-            isOutdated = daysSinceRelease !== undefined && daysSinceRelease > SINGLE_VERSION_GRACE_PERIOD_DAYS
+        if (isSingleVersion && diff && diff.kind !== 'patch' && daysSinceRelease !== undefined) {
+            isOutdated = daysSinceRelease > SINGLE_VERSION_GRACE_PERIOD_DAYS
         } else if (isRecentRelease) {
             // Apply grace period - don't flag anything <7 days old
             isOutdated = false

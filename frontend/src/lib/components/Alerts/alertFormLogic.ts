@@ -302,13 +302,30 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!parent || !simulationResult) {
                     return
                 }
-                const seriesIndex = values.alertForm.config?.series_index ?? 0
-                const anomalyPoints: AnomalyPoint[] = simulationResult.triggered_indices.map((idx) => ({
-                    index: idx,
-                    date: simulationResult.dates[idx] ?? '',
-                    score: simulationResult.scores[idx] ?? null,
-                    seriesIndex,
-                }))
+
+                let anomalyPoints: AnomalyPoint[]
+
+                if (simulationResult.breakdown_results && simulationResult.breakdown_results.length > 0) {
+                    // For breakdowns, create anomaly points per breakdown value.
+                    // Each breakdown result maps to a chart series by its position in the results array.
+                    anomalyPoints = simulationResult.breakdown_results.flatMap((br, seriesIndex) =>
+                        br.triggered_indices.map((idx) => ({
+                            index: idx,
+                            date: br.dates[idx] ?? '',
+                            score: br.scores[idx] ?? null,
+                            seriesIndex,
+                        }))
+                    )
+                } else {
+                    const seriesIndex = values.alertForm.config?.series_index ?? 0
+                    anomalyPoints = simulationResult.triggered_indices.map((idx) => ({
+                        index: idx,
+                        date: simulationResult.dates[idx] ?? '',
+                        score: simulationResult.scores[idx] ?? null,
+                        seriesIndex,
+                    }))
+                }
+
                 parent.actions.setSimulationAnomalyPoints(anomalyPoints)
             },
             simulateAlertFailure: ({ error }) => {

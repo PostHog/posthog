@@ -102,18 +102,16 @@ export function getQueryFromInsightLike(insight: {
     if (insight.query) {
         query = insight.query
     } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
-        query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: filtersToQueryNode(insight.filters, { source: 'insight_viz_get_query_from_insight_like' }),
+        } as InsightVizNode
     } else {
         query = null
     }
 
     return query
 }
-
-export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: filtersToQueryNode(filters),
-})
 
 export const queryFromKind = (
     kind: ProductAnalyticsInsightNodeKind,
