@@ -500,7 +500,8 @@ describe('the feature flag release conditions logic', () => {
                     .toFinishAllListeners()
 
                 expect(logic.values.affectedUsers).toEqual({ A: 0 })
-                expect(logic.values.totalUsers).toEqual(0)
+                // Group conditions don't update totalUsers — it stays at its initial null
+                expect(logic.values.totalUsers).toEqual(null)
                 expect(logic.values.affectedGroups).toEqual({ A: 15 })
                 expect(logic.values.totalGroups).toEqual({ A: 80 })
             } finally {

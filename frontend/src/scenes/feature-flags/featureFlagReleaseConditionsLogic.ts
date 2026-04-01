@@ -498,7 +498,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
 
             actions.setAffectedUsers(sortKey, response.users_affected)
-            if (response.total_users !== -1) {
+            // Only update global totalUsers from person conditions — group conditions
+            // return total_users=0 which would clobber the real person count.
+            if (response.total_users !== -1 && groupTypeIndex == null) {
                 actions.setTotalUsers(response.total_users)
             }
             if (response.groups_affected !== undefined) {
