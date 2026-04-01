@@ -27,6 +27,8 @@
 //! # }
 //! ```
 
+pub mod writer;
+
 use anyhow::Result;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as AwsS3SdkClient;
@@ -169,6 +171,7 @@ pub struct HyperCacheConfig {
     pub namespace: String,
     pub object_name: String,
     pub token_based: bool,
+    pub enable_etag: bool,
     pub django_cache_version: String,
 }
 
@@ -189,6 +192,7 @@ impl HyperCacheConfig {
             namespace,
             object_name,
             token_based: false,
+            enable_etag: false,
             django_cache_version: "1".to_string(),
         }
     }
@@ -210,6 +214,7 @@ impl HyperCacheConfig {
             namespace,
             object_name,
             token_based: false,
+            enable_etag: false,
             django_cache_version,
         }
     }

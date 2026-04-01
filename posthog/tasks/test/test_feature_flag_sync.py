@@ -304,29 +304,26 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
     @freeze_time("2024-06-15 12:00:00")
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
-    def test_checkpoint_updated_to_latest_timestamp(
+    def test_checkpoint_updated_to_current_sync_timestamp(
         self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
-        """Checkpoint should be updated to the latest timestamp from results"""
+        """Checkpoint should be updated to the wall-clock time of the sync run, not max event timestamp"""
         redis_mock = mock_redis_client()
         mock_get_client.return_value = redis_mock
 
-        earliest_timestamp = tz.make_aware(datetime(2024, 6, 15, 10, 0, 0))
-        latest_timestamp = tz.make_aware(datetime(2024, 6, 15, 11, 59, 59))
-
         mock_sync_execute.return_value = [
-            (self.team.pk, self.flag1.key, earliest_timestamp, 10),
+            (self.team.pk, self.flag1.key, tz.make_aware(datetime(2024, 6, 15, 10, 0, 0)), 10),
             (self.team.pk, self.flag2.key, tz.make_aware(datetime(2024, 6, 15, 11, 30, 0)), 20),
-            (self.team.pk, self.flag3.key, latest_timestamp, 30),
+            (self.team.pk, self.flag3.key, tz.make_aware(datetime(2024, 6, 15, 11, 59, 59)), 30),
         ]
 
         sync_feature_flag_last_called()
 
-        # Checkpoint should be set to latest timestamp
+        # Checkpoint should be set to current_sync_timestamp (frozen at 2024-06-15T12:00:00Z)
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
         stored_timestamp = redis_mock.storage.get(checkpoint_key)
         assert stored_timestamp is not None
-        assert latest_timestamp.isoformat() in stored_timestamp
+        assert "2024-06-15T12:00:00" in stored_timestamp
 
     @freeze_time("2024-06-15 12:00:00")
     @patch("posthog.clickhouse.client.sync_execute")
