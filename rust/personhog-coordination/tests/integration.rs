@@ -1153,3 +1153,55 @@ async fn graceful_drain_transfers_partitions(
 
     coord_cancel.cancel();
 }
+
+/// Verify that when the drain status write to etcd fails (e.g. pod key was
+/// already deleted), the pod exits cleanly without hanging or panicking.
+/// It falls back to lease-based cleanup.
+#[tokio::test]
+async fn drain_status_write_failure_exits_cleanly() {
+    let store = test_store("drain-write-fail").await;
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let coord_cancel = CancellationToken::new();
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(
+        Arc::clone(&store),
+        Arc::clone(&strategy),
+        coord_cancel.clone(),
+    );
+    let _router = start_router(Arc::clone(&store), "router-0", coord_cancel.clone());
+
+    let pod0_cancel = CancellationToken::new();
+    let pod0 = start_pod(Arc::clone(&store), "writer-0", pod0_cancel.clone());
+
+    // Wait for pod-0 to get all partitions
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize
+                && assignments.iter().all(|a| a.owner == "writer-0")
+        }
+    })
+    .await;
+
+    // Delete the pod's key from etcd before cancelling. This simulates
+    // the lease expiring or etcd state being lost. When drain() tries
+    // update_pod_status(), it will fail with NotFound.
+    store.delete_pod("writer-0").await.unwrap();
+
+    // Cancel pod-0 (simulates SIGTERM)
+    pod0_cancel.cancel();
+
+    // The pod should exit cleanly within a reasonable time, not hang.
+    let join_handle = pod0.join_handle.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), join_handle)
+        .await
+        .expect("pod should exit within 5s, not hang")
+        .expect("pod task should not panic");
+    // drain() failure is logged as a warning, run() still returns Ok
+    assert!(result.is_ok(), "pod should exit cleanly despite drain failure");
+
+    coord_cancel.cancel();
+}
