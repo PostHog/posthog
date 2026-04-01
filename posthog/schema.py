@@ -12787,6 +12787,7 @@ class EventsQueryActionStep(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None

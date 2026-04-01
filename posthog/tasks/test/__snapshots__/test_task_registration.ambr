@@ -1,6 +1,7 @@
 # serializer version: 1
 # name: TestAllTasksRegistered.test_all_posthog_tasks_registered_snapshot
   list([
+    'posthog.api.oauth.cimd.refresh_cimd_metadata_task',
     'posthog.approvals.tasks.expire_old_change_requests',
     'posthog.approvals.tasks.validate_pending_change_requests',
     'posthog.caching.warming.schedule_warming_for_teams_task',

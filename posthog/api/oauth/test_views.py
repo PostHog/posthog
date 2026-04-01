@@ -2569,6 +2569,88 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIsNotNone(old_db_token.revoked)
 
 
+class TestLocalhostLoopbackRedirectUri(APIBaseTest):
+    """
+    Tests for RFC 8252 Section 7.3 — loopback redirect URIs must allow any port.
+
+    Django OAuth Toolkit handles 127.0.0.1 and ::1 but not 'localhost'.
+    Our OAuthValidator.validate_redirect_uri extends this to localhost.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.localhost_app = OAuthApplication.objects.create(
+            name="Localhost App",
+            client_id="test_localhost_client_id",
+            client_secret="test_localhost_client_secret",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+        self.code_verifier = "test_challenge"
+        self.client.force_login(self.user)
+
+    @property
+    def code_challenge(self) -> str:
+        digest = hashlib.sha256(self.code_verifier.encode("utf-8")).digest()
+        return base64.urlsafe_b64encode(digest).decode("utf-8").replace("=", "")
+
+    def test_localhost_with_ephemeral_port_accepted(self):
+        """http://localhost:50470/callback should match registered http://localhost/callback."""
+        auth_url = (
+            f"/oauth/authorize/?client_id=test_localhost_client_id"
+            f"&redirect_uri=http://localhost:50470/callback"
+            f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+        )
+        response = self.client.get(auth_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_localhost_without_port_still_works(self):
+        """http://localhost/callback should still match exactly."""
+        auth_url = (
+            f"/oauth/authorize/?client_id=test_localhost_client_id"
+            f"&redirect_uri=http://localhost/callback"
+            f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+        )
+        response = self.client.get(auth_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_localhost_wrong_path_rejected(self):
+        """http://localhost:50470/evil should NOT match http://localhost/callback."""
+        auth_url = (
+            f"/oauth/authorize/?client_id=test_localhost_client_id"
+            f"&redirect_uri=http://localhost:50470/evil"
+            f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+        )
+        response = self.client.get(auth_url)
+        # DOT returns a redirect with error params or an error response
+        self.assertNotEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_non_localhost_port_mismatch_still_rejected(self):
+        """Port flexibility only applies to loopback addresses, not arbitrary hosts."""
+        https_app = OAuthApplication.objects.create(
+            name="HTTPS App",
+            client_id="test_https_client_id",
+            client_secret="test_https_secret",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+        auth_url = (
+            f"/oauth/authorize/?client_id={https_app.client_id}"
+            f"&redirect_uri=https://example.com:8080/callback"
+            f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+        )
+        response = self.client.get(auth_url)
+        self.assertNotEqual(response.status_code, status.HTTP_200_OK)
+
+
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):
     """Tests for OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
 
