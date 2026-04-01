@@ -93,7 +93,8 @@ type Model struct {
 	setupCursor  int
 	setupOffset  int
 	setupChecked map[string]bool
-	setupError   string // error message from applying changes
+	setupIntents []string // intents selected in step 1
+	setupError   string   // error message from applying changes
 	configPath   string // path to the running config file
 
 	// Info mode: replaces the output viewport with process stats
@@ -312,12 +313,12 @@ func (m Model) View() tea.View {
 		return v
 	}
 	var middle string
-	if m.isFullScreen() {
+	if m.setupMode {
+		middle = m.renderSetupView()
+	} else if m.isFullScreen() {
 		middle = m.renderOutput()
 	} else if m.isDockerMode() {
 		middle = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderOutput(), m.renderContainerSidebar())
-	} else if m.setupMode {
-		middle = m.renderSetupView()
 	} else {
 		middle = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderOutput())
 	}

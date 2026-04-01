@@ -140,7 +140,8 @@ func findIntentMapPath() (string, error) {
 
 // PosthogConfig represents the _posthog section embedded in generated mprocs configs.
 type PosthogConfig struct {
-	Intents []string `yaml:"intents"`
+	Intents      []string `yaml:"intents"`
+	ExcludeUnits []string `yaml:"exclude_units"`
 }
 
 // LoadPosthogConfig reads a generated mprocs.yaml and extracts the _posthog section.

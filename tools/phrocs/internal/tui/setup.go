@@ -50,6 +50,7 @@ func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea
 		} else {
 			m.setupMode = false
 			m.setupError = ""
+			m.focusedPane = focusServices
 			m = m.applySize()
 			m.dbg("setup mode: cancel")
 		}
@@ -98,9 +99,9 @@ func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea
 	return m, cmds, true
 }
 
-// advanceToUnitSelection runs hogli dev:apply with the selected intents
-// (no excludes) to get the full process list, then transitions to step 2
-// where the user can exclude individual processes.
+// advanceToUnitSelection resolves the selected intents into autostart
+// units and transitions to step 2 where the user can exclude individual
+// processes. Previously excluded units appear unchecked.
 func (m *Model) advanceToUnitSelection() {
 	var selected []string
 	for _, entry := range m.setupEntries {
@@ -113,33 +114,31 @@ func (m *Model) advanceToUnitSelection() {
 		return
 	}
 
-	newConfigPath, err := runHogliDevApply(selected, nil)
+	// Resolve intents into the full autostart unit list
+	units, err := runHogliListUnits(selected)
 	if err != nil {
 		m.setupError = err.Error()
 		return
 	}
-	m.dbg("setup: hogli dev:apply output: %s", newConfigPath)
 
-	newCfg, err := config.Load(newConfigPath)
-	if err != nil {
-		m.setupError = fmt.Sprintf("load new config: %v", err)
-		return
-	}
-
-	names := newCfg.OrderedNames()
-	entries := make([]config.Intent, 0, len(names))
-	checked := make(map[string]bool)
-	for _, name := range names {
-		pc := newCfg.Procs[name]
-		desc := ""
-		if !pc.ShouldAutostart() {
-			desc = "manual start"
+	// Read previously excluded units from the current config
+	excluded := make(map[string]bool)
+	if m.configPath != "" {
+		if phCfg, err := config.LoadPosthogConfig(m.configPath); err == nil && phCfg != nil {
+			for _, name := range phCfg.ExcludeUnits {
+				excluded[name] = true
+			}
 		}
-		entries = append(entries, config.Intent{Name: name, Description: desc})
-		checked[name] = pc.ShouldAutostart()
 	}
 
-	m.configPath = newConfigPath
+	entries := make([]config.Intent, 0, len(units))
+	checked := make(map[string]bool)
+	for _, name := range units {
+		entries = append(entries, config.Intent{Name: name})
+		checked[name] = !excluded[name]
+	}
+
+	m.setupIntents = selected
 	m.setupStep = 2
 	m.setupEntries = entries
 	m.setupCursor = 0
@@ -151,12 +150,6 @@ func (m *Model) advanceToUnitSelection() {
 // applySetupChanges runs hogli dev:apply with the selected intents and excludes,
 // then updates the manager's processes to match the generated config.
 func (m *Model) applySetupChanges() {
-	phCfg, err := config.LoadPosthogConfig(m.configPath)
-	if err != nil || phCfg == nil {
-		m.setupError = "failed to read intents from config"
-		return
-	}
-
 	var excludeUnits []string
 	for _, entry := range m.setupEntries {
 		if !m.setupChecked[entry.Name] {
@@ -165,7 +158,7 @@ func (m *Model) applySetupChanges() {
 		}
 	}
 
-	newConfigPath, err := runHogliDevApply(phCfg.Intents, excludeUnits)
+	newConfigPath, err := runHogliDevApply(m.setupIntents, excludeUnits)
 	if err != nil {
 		m.setupError = err.Error()
 		return
@@ -204,7 +197,7 @@ func (m *Model) applySetupChanges() {
 		if !oldNames[name] {
 			m.dbg("setup: adding process %s", name)
 			p := m.mgr.Add(name, newCfg.Procs[name], newCfg.Scrollback)
-			go p.Start(send)
+			go func() { _ = p.Start(send) }()
 		}
 	}
 
@@ -214,9 +207,33 @@ func (m *Model) applySetupChanges() {
 	m.setupMode = false
 	m.setupStep = 1
 	m.setupError = ""
+	m.focusedPane = focusServices
 
 	updated := m.applySize()
 	*m = updated
+}
+
+// runHogliListUnits resolves intents into autostart unit names via
+// `hogli dev:list-units`.
+func runHogliListUnits(intents []string) ([]string, error) {
+	hogliPath, err := exec.LookPath("hogli")
+	if err != nil {
+		return nil, fmt.Errorf("hogli not found in PATH")
+	}
+	args := append([]string{"dev:list-units"}, intents...)
+	cmd := exec.Command(hogliPath, args...)
+	cmd.Stderr = os.Stderr
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("hogli dev:list-units failed: %v", err)
+	}
+	var units []string
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line != "" {
+			units = append(units, line)
+		}
+	}
+	return units, nil
 }
 
 // runHogliDevApply invokes `hogli dev:apply` with the given intents and
@@ -271,9 +288,9 @@ func (m Model) renderSetupView() string {
 	rows = append(rows, "")
 
 	if m.setupStep == 1 {
-		rows = append(rows, titleStyle.Render("  Configure which services to start based on the products you're working on"))
+		rows = append(rows, titleStyle.Render("  Choose the product(s) you're currently working on"))
 	} else {
-		rows = append(rows, titleStyle.Render("  Uncheck processes you want to exclude"))
+		rows = append(rows, titleStyle.Render("  Check the services to run (uncheck to disable)"))
 	}
 	rows = append(rows, "")
 

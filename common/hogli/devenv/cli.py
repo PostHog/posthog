@@ -179,6 +179,30 @@ def dev_intents() -> None:
         click.echo("")
 
 
+@cli.command(name="dev:list-units", help="List autostart units for given intents (used by phrocs)")
+@click.argument("intents", nargs=-1, required=True)
+def dev_list_units(intents: tuple[str, ...]) -> None:
+    """Resolve intents and print autostart unit names, one per line."""
+    try:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    try:
+        resolved = resolver.resolve(list(intents))
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    for unit in sorted(resolved.units):
+        proc_config = registry.get_process_config(unit)
+        if proc_config.get("autostart") is not False:
+            click.echo(unit)
+
+
 @cli.command(name="dev:apply", help="Apply intent config non-interactively (used by phrocs)")
 @click.argument("intents", nargs=-1, required=True)
 @click.option(
@@ -232,13 +256,13 @@ def dev_apply(
     saved_config.intents = list(intents)
 
     # Replace options when explicitly provided
-    if include_units:
+    if include_units is not None:
         saved_config.include_units = list(include_units)
-    if exclude_units:
+    if exclude_units is not None:
         saved_config.exclude_units = list(exclude_units)
-    if skip_autostart:
+    if skip_autostart is not None:
         saved_config.skip_autostart = list(skip_autostart)
-    if enable_autostart:
+    if enable_autostart is not None:
         saved_config.enable_autostart = list(enable_autostart)
 
     try:
