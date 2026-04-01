@@ -866,15 +866,7 @@
                   arrayMap(idx -> utm_gclids[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_gclids,
                   arrayMap(idx -> utm_fbclids[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_fbclids,
                   arrayMap(idx -> utm_gad_sources[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_gad_sources,
-                  arrayMap(_x -> divide(1.0, greatest(toFloat(length(filtered_utm_timestamps)), 1.0)), filtered_utm_timestamps) AS attribution_weights,
-                  utm_timestamps,
-                  utm_campaigns,
-                  utm_sources,
-                  utm_mediums,
-                  utm_referring_domains,
-                  utm_gclids,
-                  utm_fbclids,
-                  utm_gad_sources
+                  arrayMap(_x -> divide(1.0, greatest(toFloat(length(filtered_utm_timestamps)), 1.0)), filtered_utm_timestamps) AS attribution_weights
               
   FROM
                   (
@@ -986,15 +978,7 @@
                   arrayMap(idx -> utm_gclids[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_gclids,
                   arrayMap(idx -> utm_fbclids[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_fbclids,
                   arrayMap(idx -> utm_gad_sources[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_gad_sources,
-                  arrayMap(_x -> divide(1.0, greatest(toFloat(length(filtered_utm_timestamps)), 1.0)), filtered_utm_timestamps) AS attribution_weights,
-                  utm_timestamps,
-                  utm_campaigns,
-                  utm_sources,
-                  utm_mediums,
-                  utm_referring_domains,
-                  utm_gclids,
-                  utm_fbclids,
-                  utm_gad_sources
+                  arrayMap(_x -> divide(1.0, greatest(toFloat(length(filtered_utm_timestamps)), 1.0)), filtered_utm_timestamps) AS attribution_weights
               
   FROM
                   (
@@ -1106,15 +1090,7 @@
                   arrayMap(idx -> utm_gclids[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_gclids,
                   arrayMap(idx -> utm_fbclids[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_fbclids,
                   arrayMap(idx -> utm_gad_sources[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_gad_sources,
-                  if(equals(length(filtered_utm_timestamps), 0), [], if(equals(length(filtered_utm_timestamps), 1), [1.0], if(equals(length(filtered_utm_timestamps), 2), [0.5, 0.5], arrayMap(w -> divide(w, greatest(arraySum(arrayMap(_pw -> ifNull(_pw, 0.0), arrayMap(ts -> if(equals(ts, arrayMin(filtered_utm_timestamps)), 0.4, if(equals(ts, arrayMax(filtered_utm_timestamps)), 0.4, divide(0.2, greatest(minus(toFloat(length(filtered_utm_timestamps)), 2.0), 1.0)))), filtered_utm_timestamps))), 1e-06)), arrayMap(_pw -> ifNull(_pw, 0.0), arrayMap(ts -> if(equals(ts, arrayMin(filtered_utm_timestamps)), 0.4, if(equals(ts, arrayMax(filtered_utm_timestamps)), 0.4, divide(0.2, greatest(minus(toFloat(length(filtered_utm_timestamps)), 2.0), 1.0)))), filtered_utm_timestamps)))))) AS attribution_weights,
-                  utm_timestamps,
-                  utm_campaigns,
-                  utm_sources,
-                  utm_mediums,
-                  utm_referring_domains,
-                  utm_gclids,
-                  utm_fbclids,
-                  utm_gad_sources
+                  if(equals(length(filtered_utm_timestamps), 0), [], if(equals(length(filtered_utm_timestamps), 1), [1.0], if(equals(length(filtered_utm_timestamps), 2), [0.5, 0.5], arrayMap(w -> divide(w, greatest(arraySum(arrayMap(_pw -> ifNull(_pw, 0.0), arrayMap(ts -> if(equals(ts, arrayMin(filtered_utm_timestamps)), 0.4, if(equals(ts, arrayMax(filtered_utm_timestamps)), 0.4, divide(0.2, greatest(minus(toFloat(length(filtered_utm_timestamps)), 2.0), 1.0)))), filtered_utm_timestamps))), 1e-06)), arrayMap(_pw -> ifNull(_pw, 0.0), arrayMap(ts -> if(equals(ts, arrayMin(filtered_utm_timestamps)), 0.4, if(equals(ts, arrayMax(filtered_utm_timestamps)), 0.4, divide(0.2, greatest(minus(toFloat(length(filtered_utm_timestamps)), 2.0), 1.0)))), filtered_utm_timestamps)))))) AS attribution_weights
               
   FROM
                   (
@@ -1226,15 +1202,7 @@
                   arrayMap(idx -> utm_gclids[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_gclids,
                   arrayMap(idx -> utm_fbclids[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_fbclids,
                   arrayMap(idx -> utm_gad_sources[idx], arrayFilter(j -> and(lessOrEquals(utm_timestamps[j], conversion_timestamps[i]), greaterOrEquals(utm_timestamps[j], minus(conversion_timestamps[i], 7776000))), arrayEnumerate(utm_timestamps))) AS filtered_utm_gad_sources,
-                  arrayMap(w -> divide(w, greatest(arraySum(arrayMap(ts -> exp(multiply(-0.6931471805599453, divide(minus(conversion_timestamps[i], ts), 1944000))), filtered_utm_timestamps)), 1e-06)), arrayMap(ts -> exp(multiply(-0.6931471805599453, divide(minus(conversion_timestamps[i], ts), 1944000))), filtered_utm_timestamps)) AS attribution_weights,
-                  utm_timestamps,
-                  utm_campaigns,
-                  utm_sources,
-                  utm_mediums,
-                  utm_referring_domains,
-                  utm_gclids,
-                  utm_fbclids,
-                  utm_gad_sources
+                  arrayMap(w -> divide(w, greatest(arraySum(arrayMap(ts -> exp(multiply(-0.6931471805599453, divide(minus(conversion_timestamps[i], ts), 1944000))), filtered_utm_timestamps)), 1e-06)), arrayMap(ts -> exp(multiply(-0.6931471805599453, divide(minus(conversion_timestamps[i], ts), 1944000))), filtered_utm_timestamps)) AS attribution_weights
               
   FROM
                   (

@@ -1109,11 +1109,6 @@ class ConversionGoalProcessor:
             )
         )
 
-        # Pass through full utm arrays for fallback
-        select_columns.append(ast.Field(chain=["utm_timestamps"]))
-        for field in TRACKED_FIELDS:
-            select_columns.append(ast.Field(chain=[field.utm_array]))
-
         return ast.SelectQuery(
             select=select_columns,
             select_from=ast.JoinExpr(table=inner_query),
