@@ -2,15 +2,17 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
+from django.conf import settings
+
 import temporalio
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
+
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
