@@ -37,6 +37,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     get_cohort_calculation_candidates_queryset,
     increment_version_and_enqueue_calculate_cohort,
+    insert_cohort_from_filters,
 )
 
 from ee.clickhouse.materialized_columns.analyze import materialize
@@ -477,6 +478,111 @@ email@example.org
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
+        side_effect=insert_cohort_from_filters,
+    )
+    def test_static_cohort_create_with_criteria(self, _insert_cohort_from_filters: MagicMock):
+        matching_person = _create_person(
+            distinct_ids=["criteria-match"],
+            team_id=self.team.pk,
+            properties={"email": "match@example.com"},
+        )
+        _create_person(
+            distinct_ids=["criteria-miss"],
+            team_id=self.team.pk,
+            properties={"email": "miss@example.com"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "criteria snapshot",
+                "is_static": True,
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "match@example.com",
+                                        "operator": PropertyOperator.EXACT,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertTrue(cohort.is_static)
+        self.assertEqual(cohort.count, 1)
+
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
+        self.assertEqual(people_in_cohort.count(), 1)
+        self.assertEqual(people_in_cohort.first().uuid, matching_person.uuid)
+
+    def test_static_cohort_rejects_criteria_edits_after_creation(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="criteria snapshot",
+            is_static=True,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "match@example.com",
+                                    "operator": PropertyOperator.EXACT,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "other@example.com",
+                                        "operator": PropertyOperator.EXACT,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Editing the criteria of a static cohort is not supported yet", response.json()["detail"])
 
     @parameterized.expand([("distinct-id",), ("distinct_id",)])
     @patch(

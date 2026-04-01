@@ -102,6 +102,13 @@ MAX_ERRORS_CALCULATING = 20
 MAX_STUCK_COHORTS_TO_RESET = 3
 
 
+def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
+    properties = cohort.filters.get("properties") if isinstance(cohort.filters, dict) else None
+    values = properties.get("values") if isinstance(properties, dict) else None
+    has_filter_criteria = isinstance(values, list) and len(values) > 0
+    return bool(cohort.query or has_filter_criteria)
+
+
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
     return Cohort.objects.filter(
         Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
@@ -137,8 +144,6 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
         is_calculating=True,
         deleted=False,
         errors_calculating__lt=MAX_ERRORS_CALCULATING,
-        query__isnull=False,  # Only cohorts created from a HogQL query (e.g. dynamic→static duplication).
-        # Excludes CSV uploads and other static cohort types that don't have a re-triggerable task.
     ).filter(
         Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)
         | Q(last_calculation__lte=one_hour_ago, last_calculation__isnull=False)
@@ -172,26 +177,33 @@ def reset_stuck_cohorts() -> None:
     # Static cohorts are excluded from the normal reset because they don't get periodic
     # recalculation — they need the one-time insert_cohort_from_query task re-dispatched.
     reset_static_cohort_ids = []
-    for cohort in get_stuck_static_cohort_candidates_queryset().order_by(F("created_at").asc())[
-        0:MAX_STUCK_COHORTS_TO_RESET
-    ]:
+    for cohort in get_stuck_static_cohort_candidates_queryset().order_by(F("created_at").asc()).iterator():
+        if not static_cohort_has_supported_population_source(cohort):
+            continue
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.last_error_at = timezone.now()
         cohort.save(update_fields=["is_calculating", "errors_calculating", "last_error_at"])
         reset_static_cohort_ids.append(cohort.pk)
 
-        # Re-trigger the population task if the cohort has a query (created from dynamic cohort).
+        # Re-trigger the population task for static cohorts whose membership
+        # can be reconstructed from persisted data.
         # Refresh from DB to get the actual errors_calculating integer value after the F() expression save.
         cohort.refresh_from_db(fields=["errors_calculating"])
-        if cohort.query and cohort.errors_calculating <= MAX_ERRORS_CALCULATING:
+        if cohort.errors_calculating <= MAX_ERRORS_CALCULATING:
             logger.warning(
                 "retrigger_stuck_static_cohort",
                 cohort_id=cohort.pk,
                 team_id=cohort.team_id,
                 errors_calculating=cohort.errors_calculating,
             )
-            insert_cohort_from_query.delay(cohort.pk, cohort.team_id)
+            if cohort.query:
+                insert_cohort_from_query.delay(cohort.pk, cohort.team_id)
+            else:
+                insert_cohort_from_filters.delay(cohort.pk, cohort.team_id)
+
+        if len(reset_static_cohort_ids) >= MAX_STUCK_COHORTS_TO_RESET:
+            break
 
     if reset_static_cohort_ids:
         COHORT_STUCK_RESETS_COUNTER.inc(len(reset_static_cohort_ids))
@@ -527,6 +539,71 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
         cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
         logger.info(
             "insert_cohort_from_query_finished",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            is_calculating=cohort.is_calculating,
+            errors_calculating=cohort.errors_calculating,
+        )
+
+
+@shared_task(
+    ignore_result=True,
+    max_retries=1,
+    queue=CeleryQueue.LONG_RUNNING.value,
+)
+def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) -> None:
+    """
+    One-time population task for static cohorts created from saved cohort criteria.
+    """
+    from posthog.api.cohort import insert_cohort_filter_actors_into_ch, insert_cohort_people_into_pg
+
+    cohort = Cohort.objects.get(pk=cohort_id)
+    if team_id is None:
+        team_id = cohort.team_id
+    team = Team.objects.get(pk=team_id)
+
+    logger.info(
+        "insert_cohort_from_filters_started",
+        cohort_id=cohort_id,
+        team_id=team_id,
+        filters=cohort.filters,
+    )
+
+    processing_error = None
+    try:
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+        cohort.refresh_from_db()
+
+        insert_cohort_filter_actors_into_ch(cohort, team=team)
+        logger.info(
+            "insert_cohort_from_filters_ch_complete",
+            cohort_id=cohort_id,
+            team_id=team_id,
+        )
+
+        insert_cohort_people_into_pg(cohort, team_id=team_id)
+        logger.info(
+            "insert_cohort_from_filters_pg_complete",
+            cohort_id=cohort_id,
+            team_id=team_id,
+        )
+    except Exception as err:
+        processing_error = err
+        logger.exception(
+            "insert_cohort_from_filters_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            error=str(err),
+        )
+        capture_exception()
+        if settings.DEBUG:
+            raise
+    finally:
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+        cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+        logger.info(
+            "insert_cohort_from_filters_finished",
             cohort_id=cohort_id,
             team_id=team_id,
             is_calculating=cohort.is_calculating,
