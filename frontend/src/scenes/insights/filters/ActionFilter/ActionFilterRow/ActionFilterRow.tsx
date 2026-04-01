@@ -521,9 +521,7 @@ export function ActionFilterRow({
                                     '@max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1 @max-[400px]/editor-panel:min-w-0 @max-[400px]/editor-panel:[&>*]:basis-full'
                             )}
                         >
-                            <div className="flex-1 min-w-0 @min-[0px]/editor-panel:min-w-36 overflow-hidden">
-                                {filterElement}
-                            </div>
+                            <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
                             {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (
