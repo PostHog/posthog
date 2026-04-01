@@ -312,9 +312,7 @@ class TestEvaluateAuthAttempt(TestCase):
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
-    def test_non_block_verdicts_do_not_raise_when_bypass_false(
-        self, _name, verdict_value, mock_call_api, mock_log_event
-    ):
+    def test_non_block_verdicts_do_not_raise(self, _name, verdict_value, mock_call_api, mock_log_event):
         mock_call_api.return_value = verdict_value
         factory = RequestFactory()
         request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
@@ -324,7 +322,6 @@ class TestEvaluateAuthAttempt(TestCase):
             email="test@example.com",
             action=RadarAction.SIGNUP,
             auth_method=RadarAuthMethod.PASSWORD,
-            bypass=False,
         )
 
         assert result == verdict_value
@@ -335,7 +332,7 @@ class TestEvaluateAuthAttempt(TestCase):
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
-    def test_block_verdict_raises_when_bypass_false(self, mock_call_api, mock_log_event):
+    def test_block_verdict_raises(self, mock_call_api, mock_log_event):
         mock_call_api.return_value = RadarVerdict.BLOCK
         factory = RequestFactory()
         request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
@@ -346,32 +343,10 @@ class TestEvaluateAuthAttempt(TestCase):
                 email="blocked@example.com",
                 action=RadarAction.SIGNUP,
                 auth_method=RadarAuthMethod.PASSWORD,
-                bypass=False,
             )
 
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_blocked"] is True
-        assert log_kwargs["was_bypassed"] is False
-
-    @patch("posthog.workos_radar._log_radar_event")
-    @patch("posthog.workos_radar._call_radar_api")
-    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
-    def test_block_verdict_does_not_raise_when_bypass_true(self, mock_call_api, mock_log_event):
-        mock_call_api.return_value = RadarVerdict.BLOCK
-        factory = RequestFactory()
-        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
-
-        verdict = evaluate_auth_attempt(
-            request=request,
-            email="test@example.com",
-            action=RadarAction.SIGNUP,
-            auth_method=RadarAuthMethod.PASSWORD,
-            bypass=True,
-        )
-
-        assert verdict == RadarVerdict.BLOCK
-        log_kwargs = mock_log_event.call_args[1]
-        assert log_kwargs["was_blocked"] is False
         assert log_kwargs["was_bypassed"] is False
 
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
@@ -402,7 +377,6 @@ class TestEvaluateAuthAttempt(TestCase):
             email="bypassed@example.com",
             action=RadarAction.SIGNUP,
             auth_method=RadarAuthMethod.PASSWORD,
-            bypass=False,
         )
 
         assert verdict == RadarVerdict.BLOCK
@@ -564,6 +538,7 @@ class TestChallengeFlow(TestCase):
         )
 
         assert result == RadarVerdict.CHALLENGE
+        mock_call_api.assert_not_called()
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_challenged"] is False
         assert log_kwargs["was_challenge_completed"] is True
@@ -590,6 +565,7 @@ class TestChallengeFlow(TestCase):
                 challenge_nonce="challenge:abc123:uuid",
             )
 
+        mock_call_api.assert_not_called()
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_blocked"] is True
 
@@ -615,6 +591,7 @@ class TestChallengeFlow(TestCase):
                 challenge_nonce="challenge:bad:nonce",
             )
 
+        mock_call_api.assert_not_called()
         mock_verify_token.assert_not_called()
 
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
@@ -646,6 +623,7 @@ class TestChallengeFlow(TestCase):
                 challenge_nonce=nonce,
             )
 
+        mock_call_api.assert_not_called()
         mock_verify_token.assert_not_called()
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_blocked"] is True
