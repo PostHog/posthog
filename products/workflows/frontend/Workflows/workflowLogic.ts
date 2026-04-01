@@ -465,7 +465,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)
-            if (originalWorkflow.id) {
+            if (originalWorkflow.id && originalWorkflow.trigger?.type === 'batch') {
                 try {
                     const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
                     actions.setSchedules(schedules)
