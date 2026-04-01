@@ -224,16 +224,15 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
             )
         assert response.status_code == status.HTTP_200_OK
 
-    def test_config_includes_cache_control(self):
+    @parameterized.expand(
+        [
+            ("config", "/config"),
+            ("config_js", "/config.js"),
+        ]
+    )
+    def test_includes_cache_control(self, _name: str, endpoint_suffix: str):
         response = self.client.get(
-            f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
-        )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.headers["Cache-Control"] == "public, max-age=300"
-
-    def test_config_js_includes_cache_control(self):
-        response = self.client.get(
-            f"/array/{self.team.api_token}/config.js", headers={"origin": "https://foo.example.com"}
+            f"/array/{self.team.api_token}{endpoint_suffix}", headers={"origin": "https://foo.example.com"}
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Cache-Control"] == "public, max-age=300"
