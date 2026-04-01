@@ -85,13 +85,6 @@ const SOURCE_TO_INTEGRATION_NAME: Record<string, string> = Object.fromEntries(
     KNOWN_SOURCES_LIST.map((s) => [s.source, s.integration])
 )
 
-// Map primarySource (e.g. "google") -> all default utm_source values for that integration
-const SOURCE_FILTER_MAP: Record<string, Set<string>> = {}
-for (const nativeSource of VALID_NATIVE_MARKETING_SOURCES) {
-    const config = MARKETING_INTEGRATION_CONFIGS[nativeSource]
-    SOURCE_FILTER_MAP[config.primarySource] = new Set(config.defaultSources as unknown as string[])
-}
-
 export const utmAuditLogic = kea<utmAuditLogicType>([
     path(['scenes', 'webAnalytics', 'utmAuditLogic']),
     connect(() => ({
@@ -122,12 +115,14 @@ export const utmAuditLogic = kea<utmAuditLogicType>([
             null as string | null,
             {
                 setSelectedCampaign: (current, { campaignName }) => (current === campaignName ? null : campaignName),
+                setSourceFilter: () => null,
             },
         ],
         selectedUtmCampaign: [
             null as string | null,
             {
                 setSelectedUtmCampaign: (current, { utmCampaign }) => (current === utmCampaign ? null : utmCampaign),
+                setSourceFilter: () => null,
             },
         ],
         sourceFilter: [
@@ -209,16 +204,6 @@ export const utmAuditLogic = kea<utmAuditLogicType>([
                 return auditData.results.filter((r) => r.event_count === 0).length
             },
         ],
-        totalSpendWithoutUtm: [
-            (s) => [s.auditData],
-            (auditData: UtmAuditResponse | null): number => {
-                if (!auditData) {
-                    return 0
-                }
-                return auditData.results.filter((r) => r.event_count === 0).reduce((sum, r) => sum + r.spend, 0)
-            },
-        ],
-
         // Source stats for summary (unfiltered)
         totalUtmSourcesCount: [
             (s) => [s.auditData],
@@ -288,21 +273,6 @@ export const utmAuditLogic = kea<utmAuditLogicType>([
                     }
                 }
                 return mapped
-            },
-        ],
-
-        // Known sources (filtered by integration)
-        knownSources: [
-            (s) => [s.sourceFilter],
-            (sourceFilter: string | null): KnownSource[] => {
-                if (sourceFilter) {
-                    return KNOWN_SOURCES_LIST.filter((s) => {
-                        const config =
-                            MARKETING_INTEGRATION_CONFIGS[s.integration as keyof typeof MARKETING_INTEGRATION_CONFIGS]
-                        return config?.primarySource === sourceFilter
-                    })
-                }
-                return KNOWN_SOURCES_LIST
             },
         ],
 
@@ -377,6 +347,12 @@ export const utmAuditLogic = kea<utmAuditLogicType>([
             actions.loadAuditData()
         },
         [marketingAnalyticsSettingsLogic.actionTypes.updateCampaignFieldPreferences]: () => {
+            actions.loadAuditData()
+        },
+        [marketingAnalyticsSettingsLogic.actionTypes.updateCampaignNameMappings]: () => {
+            actions.loadAuditData()
+        },
+        [marketingAnalyticsSettingsLogic.actionTypes.updateCustomSourceMappings]: () => {
             actions.loadAuditData()
         },
     })),
