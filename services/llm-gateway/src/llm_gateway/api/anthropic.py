@@ -1,5 +1,4 @@
 import asyncio
-import os
 import time
 from typing import Any
 
@@ -157,7 +156,7 @@ async def _anthropic_count_tokens_impl(
     start_time = time.monotonic()
     status_code = "200"
 
-    api_key = settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+    api_key = settings.anthropic_api_key
     if not api_key:
         raise HTTPException(
             status_code=503,
