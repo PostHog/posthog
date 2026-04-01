@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -905,6 +906,38 @@ def _get_dir_size(path: Path) -> float:
     return total
 
 
+def _get_dir_size_capped(path: Path, cap: float) -> tuple[float, bool]:
+    """Compute directory size, stopping early once *cap* bytes is exceeded.
+
+    Returns ``(accumulated_size, exceeded)``.
+    """
+
+    if not path.exists():
+        return 0.0, False
+
+    total = 0.0
+    stack = [path]
+
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(Path(entry.path))
+                        else:
+                            total += entry.stat(follow_symlinks=False).st_size
+                            if total > cap:
+                                return total, True
+                    except (FileNotFoundError, PermissionError, OSError):
+                        continue
+        except (FileNotFoundError, PermissionError, NotADirectoryError, OSError):
+            continue
+
+    return total, False
+
+
 def _format_size(bytes_size: float) -> str:
     """Format bytes as a human-readable size string."""
 
@@ -1501,26 +1534,78 @@ _DISK_WARNING_THRESHOLD = 1024 * 1024 * 1024  # 1 GB
 
 
 def _check_disk(repo_root: Path) -> CheckResult:
-    """Quick disk usage probe using existing estimators."""
-    categories = {
-        "flox logs": _estimate_flox_logs(repo_root),
-        "python caches": _estimate_python_caches(repo_root),
-        "node artifacts": _estimate_node_artifacts(repo_root),
-    }
-    total = sum(est.total_size for est in categories.values())
-    parts = [f"{label}: {_format_size(est.total_size)}" for label, est in categories.items() if est.total_size > 0]
-    if total > _DISK_WARNING_THRESHOLD:
+    """Fast disk usage probe for the doctor summary.
+
+    Uses depth-limited globs (no ``**``) and early-exit size counting so the
+    check completes in hundreds of milliseconds instead of seconds.  The
+    detailed ``doctor:disk`` command still uses the full estimators.
+    """
+    budget = float(_DISK_WARNING_THRESHOLD)
+    total = 0.0
+
+    # Flox logs — already cheap (single-directory glob)
+    flox_est = _estimate_flox_logs(repo_root)
+    total += flox_est.total_size
+
+    # Python caches — depth-limited instead of repo_root.glob("**/{pattern}")
+    _SKIP_PARTS = {".git", "node_modules", ".venv", "venv"}
+    seen: set[Path] = set()
+    for pattern in PYTHON_CACHE_PATTERNS:
+        for depth in ("*", "*/*", "*/*/*"):
+            for cache_dir in repo_root.glob(f"{depth}/{pattern}"):
+                if _SKIP_PARTS & set(cache_dir.parts):
+                    continue
+                try:
+                    resolved = cache_dir.resolve()
+                except (FileNotFoundError, PermissionError, RuntimeError):
+                    continue
+                if resolved in seen or not cache_dir.is_dir():
+                    continue
+                seen.add(resolved)
+                size, exceeded = _get_dir_size_capped(cache_dir, budget - total)
+                total += size
+                if exceeded:
+                    return CheckResult(
+                        name="Disk usage",
+                        status=CheckStatus.WARNING,
+                        summary=f">{_format_size(budget)} reclaimable",
+                        remediation="run `hogli doctor:disk`",
+                    )
+
+    # Node artifacts — patterns are mostly concrete paths; use capped sizing
+    node_seen: set[Path] = set()
+    for pattern in NODE_ARTIFACT_PATTERNS:
+        for path in repo_root.glob(pattern):
+            try:
+                resolved = path.resolve()
+            except (FileNotFoundError, PermissionError, RuntimeError):
+                continue
+            if resolved in node_seen:
+                continue
+            node_seen.add(resolved)
+            if path.is_dir():
+                size, exceeded = _get_dir_size_capped(path, budget - total)
+                total += size
+            else:
+                try:
+                    total += path.stat().st_size
+                except (FileNotFoundError, PermissionError, OSError):
+                    continue
+            if total > budget:
+                return CheckResult(
+                    name="Disk usage",
+                    status=CheckStatus.WARNING,
+                    summary=f">{_format_size(budget)} reclaimable",
+                    remediation="run `hogli doctor:disk`",
+                )
+
+    if total > 0:
         return CheckResult(
             name="Disk usage",
-            status=CheckStatus.WARNING,
-            summary=", ".join(parts) if parts else f"{_format_size(total)} reclaimable",
-            remediation="run `hogli doctor:disk`",
+            status=CheckStatus.OK,
+            summary=f"{_format_size(total)} reclaimable",
         )
-    return CheckResult(
-        name="Disk usage",
-        status=CheckStatus.OK,
-        summary=(_format_size(total) + " reclaimable") if total > 0 else "clean",
-    )
+    return CheckResult(name="Disk usage", status=CheckStatus.OK, summary="clean")
 
 
 def _check_zombies(repo_root: Path) -> CheckResult:
@@ -1542,12 +1627,17 @@ def _check_zombies(repo_root: Path) -> CheckResult:
 
 
 def _check_docker() -> CheckResult:
-    """Check whether the Docker daemon is reachable."""
+    """Check whether the Docker daemon is reachable.
+
+    Uses ``docker version`` instead of ``docker info`` — it only pings the
+    daemon for its version string rather than fetching full system metadata,
+    which is significantly faster (~200 ms vs ~1-3 s).
+    """
     try:
         result = subprocess.run(
-            ["docker", "info"],
+            ["docker", "version", "--format", "{{.Server.Version}}"],
             capture_output=True,
-            timeout=3,
+            timeout=2,
         )
         if result.returncode == 0:
             return CheckResult(name="Docker", status=CheckStatus.OK, summary="daemon running")
@@ -1640,20 +1730,28 @@ def doctor() -> None:
 
     click.echo("\nhogli doctor\n")
 
-    results = [
-        _check_disk(REPO_ROOT),
-        _check_zombies(REPO_ROOT),
-        _check_docker(),
-        _check_migrations(),
+    checks: list[Callable[[], CheckResult]] = [
+        lambda: _check_disk(REPO_ROOT),
+        lambda: _check_zombies(REPO_ROOT),
+        lambda: _check_docker(),
+        lambda: _check_migrations(),
     ]
 
+    # Run all checks concurrently — each is I/O-bound and independent.
+    results: list[CheckResult | None] = [None] * len(checks)
+    with ThreadPoolExecutor(max_workers=len(checks)) as pool:
+        future_to_idx = {pool.submit(fn): i for i, fn in enumerate(checks)}
+        for future in as_completed(future_to_idx):
+            results[future_to_idx[future]] = future.result()
+
     for result in results:
+        assert result is not None
         _print_check_result(result)
 
     click.echo()
 
-    warnings = sum(1 for r in results if r.status == CheckStatus.WARNING)
-    errors = sum(1 for r in results if r.status == CheckStatus.ERROR)
+    warnings = sum(1 for r in results if r is not None and r.status == CheckStatus.WARNING)
+    errors = sum(1 for r in results if r is not None and r.status == CheckStatus.ERROR)
     if warnings == 0 and errors == 0:
         click.secho("  All checks passed.", fg="green")
     else:
