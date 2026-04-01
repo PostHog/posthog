@@ -644,8 +644,7 @@ const ConditionContent = ({
                                                     const hasPersonData =
                                                         affectedUserCount !== undefined &&
                                                         affectedUserCount >= 0 &&
-                                                        totalUsers !== null &&
-                                                        totalUsers > 0
+                                                        totalUsers !== null
 
                                                     if (!hasGroupData && !hasPersonData) {
                                                         return null
@@ -662,8 +661,8 @@ const ConditionContent = ({
                                                             return (
                                                                 <>
                                                                     <b>{humanFriendlyNumber(affectedGroupCount)}</b> of{' '}
-                                                                    {humanFriendlyNumber(totalGroupCount)}{' '}
-                                                                    {groupName} match these filters
+                                                                    {humanFriendlyNumber(totalGroupCount)} {groupName}{' '}
+                                                                    match these filters
                                                                 </>
                                                             )
                                                         }
@@ -671,8 +670,8 @@ const ConditionContent = ({
                                                             <>
                                                                 Will match ~
                                                                 <b>{humanFriendlyNumber(groupsReceivingFlag)}</b> of{' '}
-                                                                {humanFriendlyNumber(totalGroupCount ?? 0)}{' '}
-                                                                {groupName} ({rolloutPct}% of{' '}
+                                                                {humanFriendlyNumber(totalGroupCount ?? 0)} {groupName}{' '}
+                                                                ({rolloutPct}% of{' '}
                                                                 {humanFriendlyNumber(affectedGroupCount)} matching the
                                                                 filters)
                                                             </>
@@ -693,9 +692,8 @@ const ConditionContent = ({
                                                     }
                                                     return (
                                                         <>
-                                                            Will match ~
-                                                            <b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
-                                                            {humanFriendlyNumber(totalUsers!)}{' '}
+                                                            Will match ~<b>{humanFriendlyNumber(usersReceivingFlag)}</b>{' '}
+                                                            of {humanFriendlyNumber(totalUsers!)}{' '}
                                                             {aggregationTargetName} ({rolloutPct}% of{' '}
                                                             {humanFriendlyNumber(affectedUserCount!)} matching the
                                                             filters)
@@ -987,111 +985,114 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 <div className="flex-1">
                     {/* Match by selector — hidden when mixed targeting is enabled since
                        the per-condition Targeting dropdown handles aggregation instead */}
-                    {!hideMatchOptions && !isMixedTargetingEnabled && (showGroupsOptions || onBucketingIdentifierChange) && (
-                        <div>
-                            <LemonLabel className="mb-2">Match by</LemonLabel>
-                            <LemonRadio
-                                data-attr="feature-flag-aggregation-filter"
-                                value={
-                                    releaseFilters.aggregation_group_type_index != null
-                                        ? 'group'
-                                        : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
-                                          ? 'device'
-                                          : 'user'
-                                }
-                                onChange={(value: string) => {
-                                    if (value === 'user') {
-                                        setAggregationGroupTypeIndex(null)
-                                        onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-                                    } else if (value === 'device') {
-                                        setAggregationGroupTypeIndex(null)
-                                        onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-                                    } else if (value === 'group') {
-                                        const firstGroupType = Array.from(groupTypes.values())[0]
-                                        if (firstGroupType) {
-                                            setAggregationGroupTypeIndex(firstGroupType.group_type_index)
-                                        }
-                                        onBucketingIdentifierChange?.(null)
+                    {!hideMatchOptions &&
+                        !isMixedTargetingEnabled &&
+                        (showGroupsOptions || onBucketingIdentifierChange) && (
+                            <div>
+                                <LemonLabel className="mb-2">Match by</LemonLabel>
+                                <LemonRadio
+                                    data-attr="feature-flag-aggregation-filter"
+                                    value={
+                                        releaseFilters.aggregation_group_type_index != null
+                                            ? 'group'
+                                            : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                              ? 'device'
+                                              : 'user'
                                     }
-                                }}
-                                options={[
-                                    {
-                                        value: 'user',
-                                        label: (
-                                            <div>
-                                                <div className="font-medium">User</div>
-                                                <div className="text-xs text-muted">
-                                                    Stable assignment for logged-in users based on their distinct ID.
-                                                </div>
-                                            </div>
-                                        ),
-                                    },
-                                    ...(onBucketingIdentifierChange
-                                        ? [
-                                              {
-                                                  value: 'device',
-                                                  label: (
-                                                      <div>
-                                                          <div className="font-medium">
-                                                              Device{' '}
-                                                              <LemonTag type="warning" size="small">
-                                                                  BETA
-                                                              </LemonTag>
-                                                          </div>
-                                                          <div className="text-xs text-muted">
-                                                              Stable assignment per device. Good fit for experiments on
-                                                              anonymous users.{' '}
-                                                              <Link
-                                                                  to="https://posthog.com/docs/feature-flags/device-bucketing"
-                                                                  target="_blank"
-                                                              >
-                                                                  Learn more
-                                                              </Link>
-                                                          </div>
-                                                      </div>
-                                                  ),
-                                              },
-                                          ]
-                                        : []),
-                                    ...(showGroupsOptions
-                                        ? [
-                                              {
-                                                  value: 'group',
-                                                  label: (
-                                                      <div>
-                                                          <div className="font-medium">Group</div>
-                                                          <div className="text-xs text-muted">
-                                                              Stable assignment for everyone in an organization,
-                                                              company, or other custom group type.
-                                                          </div>
-                                                      </div>
-                                                  ),
-                                              },
-                                          ]
-                                        : []),
-                                ]}
-                                radioPosition="top"
-                            />
-                            {releaseFilters.aggregation_group_type_index != null && groupTypes.size > 0 && (
-                                <div className="mt-3 ml-6">
-                                    <LemonSelect
-                                        dropdownMatchSelectWidth={false}
-                                        data-attr="feature-flag-group-type-select"
-                                        value={releaseFilters.aggregation_group_type_index}
-                                        onChange={(value) => {
-                                            if (value != null) {
-                                                setAggregationGroupTypeIndex(value)
+                                    onChange={(value: string) => {
+                                        if (value === 'user') {
+                                            setAggregationGroupTypeIndex(null)
+                                            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+                                        } else if (value === 'device') {
+                                            setAggregationGroupTypeIndex(null)
+                                            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
+                                        } else if (value === 'group') {
+                                            const firstGroupType = Array.from(groupTypes.values())[0]
+                                            if (firstGroupType) {
+                                                setAggregationGroupTypeIndex(firstGroupType.group_type_index)
                                             }
-                                        }}
-                                        options={Array.from(groupTypes.values()).map((groupType) => ({
-                                            value: groupType.group_type_index,
-                                            label: groupType.group_type,
-                                        }))}
-                                    />
-                                </div>
-                            )}
-                        </div>
-                    )}
+                                            onBucketingIdentifierChange?.(null)
+                                        }
+                                    }}
+                                    options={[
+                                        {
+                                            value: 'user',
+                                            label: (
+                                                <div>
+                                                    <div className="font-medium">User</div>
+                                                    <div className="text-xs text-muted">
+                                                        Stable assignment for logged-in users based on their distinct
+                                                        ID.
+                                                    </div>
+                                                </div>
+                                            ),
+                                        },
+                                        ...(onBucketingIdentifierChange
+                                            ? [
+                                                  {
+                                                      value: 'device',
+                                                      label: (
+                                                          <div>
+                                                              <div className="font-medium">
+                                                                  Device{' '}
+                                                                  <LemonTag type="warning" size="small">
+                                                                      BETA
+                                                                  </LemonTag>
+                                                              </div>
+                                                              <div className="text-xs text-muted">
+                                                                  Stable assignment per device. Good fit for experiments
+                                                                  on anonymous users.{' '}
+                                                                  <Link
+                                                                      to="https://posthog.com/docs/feature-flags/device-bucketing"
+                                                                      target="_blank"
+                                                                  >
+                                                                      Learn more
+                                                                  </Link>
+                                                              </div>
+                                                          </div>
+                                                      ),
+                                                  },
+                                              ]
+                                            : []),
+                                        ...(showGroupsOptions
+                                            ? [
+                                                  {
+                                                      value: 'group',
+                                                      label: (
+                                                          <div>
+                                                              <div className="font-medium">Group</div>
+                                                              <div className="text-xs text-muted">
+                                                                  Stable assignment for everyone in an organization,
+                                                                  company, or other custom group type.
+                                                              </div>
+                                                          </div>
+                                                      ),
+                                                  },
+                                              ]
+                                            : []),
+                                    ]}
+                                    radioPosition="top"
+                                />
+                                {releaseFilters.aggregation_group_type_index != null && groupTypes.size > 0 && (
+                                    <div className="mt-3 ml-6">
+                                        <LemonSelect
+                                            dropdownMatchSelectWidth={false}
+                                            data-attr="feature-flag-group-type-select"
+                                            value={releaseFilters.aggregation_group_type_index}
+                                            onChange={(value) => {
+                                                if (value != null) {
+                                                    setAggregationGroupTypeIndex(value)
+                                                }
+                                            }}
+                                            options={Array.from(groupTypes.values()).map((groupType) => ({
+                                                value: groupType.group_type_index,
+                                                label: groupType.group_type,
+                                            }))}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
                 </div>
                 <div className="flex items-start gap-2">
                     {filterGroups.length > 1 && (
