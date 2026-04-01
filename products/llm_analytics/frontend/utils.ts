@@ -733,7 +733,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                 typeof rawMessage === 'object' &&
                 'type' in rawMessage &&
                 typeof rawMessage.type === 'string' &&
-                rawMessage.type in roleMap
+                Object.hasOwn(roleMap, rawMessage.type)
               ? normalizeRole(rawMessage.type, defaultRole)
               : defaultRole
 
