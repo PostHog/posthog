@@ -43,7 +43,7 @@ class InstrumentedCallback(CustomLogger):
         except Exception as e:
             CALLBACK_ERRORS.labels(callback=self.callback_name, error_type=type(e).__name__).inc()
             capture_exception(e, {"callback": self.callback_name, "event": "success"})
-            logger.error(
+            logger.exception(
                 "callback_error",
                 callback=self.callback_name,
                 event_type="success",
@@ -61,7 +61,7 @@ class InstrumentedCallback(CustomLogger):
         except Exception as e:
             CALLBACK_ERRORS.labels(callback=self.callback_name, error_type=type(e).__name__).inc()
             capture_exception(e, {"callback": self.callback_name, "event": "failure"})
-            logger.error(
+            logger.exception(
                 "callback_error",
                 callback=self.callback_name,
                 event_type="failure",
