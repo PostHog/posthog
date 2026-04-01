@@ -25,6 +25,17 @@ export interface InsightAsSceneProps {
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
+export function applySceneQueryUpdate(
+    currentQuery: Node | null,
+    setInsightQuery: (query: Node | null) => void,
+    q: Node | ((q: Node) => Node)
+): void {
+    const node = typeof q === 'function' ? (currentQuery ? q(currentQuery) : null) : q
+    if (node) {
+        setInsightQuery(node)
+    }
+}
+
 export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, dashboardId } =
@@ -61,11 +72,8 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
-    const setQuery = (q: Node | ((q: Node) => Node), isSourceUpdate?: boolean): void => {
-        let node = typeof q === 'function' ? (query ? q(query) : null) : q
-        if (!isInsightVizNode(node) || isSourceUpdate) {
-            setInsightQuery(node)
-        }
+    const setQuery = (q: Node | ((q: Node) => Node)): void => {
+        applySceneQueryUpdate(query, setInsightQuery, q)
     }
 
     if (accessDeniedToInsight) {

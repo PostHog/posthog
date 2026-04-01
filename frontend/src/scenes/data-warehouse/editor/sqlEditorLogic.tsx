@@ -158,6 +158,17 @@ function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizat
     }
 }
 
+function getCurrentVisualizationQuery(
+    dataLogicKey: string,
+    fallbackQuery: DataVisualizationNode
+): DataVisualizationNode {
+    const mountedVisualizationLogic = dataVisualizationLogic.findMounted({
+        key: dataLogicKey,
+    } as any)
+
+    return mountedVisualizationLogic?.values.query ?? fallbackQuery
+}
+
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
@@ -731,6 +742,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     draft: draft,
                 })
             }
+            if (insight?.query?.kind === NodeKind.DataVisualizationNode) {
+                actions.setLastRunQuery(sanitizeSourceQuery(insight.query as DataVisualizationNode))
+            }
             if (query) {
                 actions.setQueryInput(query)
             } else if (draft) {
@@ -932,16 +946,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         saveAsInsight: async () => {
+            const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
             const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                 key: values.dataLogicKey,
-                query: values.sourceQuery,
+                query: currentVisualizationQuery,
                 dataNodeCollectionId: values.dataLogicKey,
                 editMode: true,
             })?.values.effectiveVisualizationType
 
             const defaultDisplay = getDisplayTypeToSaveInsight(
                 values.outputActiveTab,
-                values.sourceQuery.display,
+                currentVisualizationQuery.display,
                 effectiveVisualizationType
             )
 
@@ -962,7 +977,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     readOnly
                                     embedded
                                     query={{
-                                        ...values.sourceQuery,
+                                        ...currentVisualizationQuery,
                                         display: defaultDisplay,
                                     }}
                                 />
@@ -977,23 +992,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             })
         },
         saveAsInsightSubmit: async ({ name }) => {
+            const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
             const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                 key: values.dataLogicKey,
-                query: values.sourceQuery,
+                query: currentVisualizationQuery,
                 dataNodeCollectionId: values.dataLogicKey,
                 editMode: true,
             })?.values.effectiveVisualizationType
 
             const display = getDisplayTypeToSaveInsight(
                 values.outputActiveTab,
-                values.sourceQuery.display,
+                currentVisualizationQuery.display,
                 effectiveVisualizationType
             )
 
             const dashboardId = values.dashboardId
             const insight = await insightsApi.create({
                 name,
-                query: { ...values.sourceQuery, display } as DataVisualizationNode,
+                query: { ...currentVisualizationQuery, display } as DataVisualizationNode,
                 saved: true,
                 ...(dashboardId ? { dashboards: [dashboardId] } : {}),
             })
@@ -1078,10 +1094,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const insightName = values.activeTab?.name
+            const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
             const insightRequest: Partial<QueryBasedInsightModel> = {
                 name: insightName ?? values.editingInsight.name,
-                query: values.sourceQuery,
+                query: currentVisualizationQuery,
             }
 
             const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
@@ -1347,25 +1364,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         isSourceQueryLastRun: [
-            (s) => [s.queryInput, s.lastRunQuery],
-            (queryInput, lastRunQuery) => {
-                return queryInput === lastRunQuery?.source.query
+            (s) => [s.queryInput, s.lastRunQuery, s.sourceQuery],
+            (queryInput, lastRunQuery, sourceQuery) => {
+                const lastRunQueryText = lastRunQuery?.source.query ?? sourceQuery.source.query
+                return queryInput === lastRunQueryText
             },
         ],
         updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeTab],
-            (sourceQuery, activeTab) => {
-                if (!activeTab?.insight?.query || !activeTab.sourceQuery) {
+            (s) => [s.sourceQuery, s.activeTab, s.editingInsight, s.dataLogicKey],
+            (sourceQuery, activeTab, editingInsight, dataLogicKey) => {
+                if (!editingInsight?.query) {
                     return false
                 }
 
-                const updatedName = activeTab.name !== activeTab.insight.name
+                const updatedName = activeTab?.name !== editingInsight.name
+                const currentVisualizationQuery = getCurrentVisualizationQuery(dataLogicKey, sourceQuery)
 
-                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
+                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(currentVisualizationQuery)
 
                 return (
                     updatedName ||
-                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(activeTab.insight.query))
+                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsight.query))
                 )
             },
         ],
