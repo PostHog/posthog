@@ -28,7 +28,7 @@ func readyModel(t *testing.T, names ...string) Model {
 	t.Helper()
 	cfg := testConfig(names...)
 	mgr := process.NewManager(cfg)
-	m := New(mgr, cfg, nil)
+	m := New(mgr, cfg, "", nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return next.(Model)
 }
@@ -44,7 +44,7 @@ func readyDockerModel(t *testing.T) Model {
 		Scrollback:       1000,
 	}
 	mgr := process.NewManager(cfg)
-	m := New(mgr, cfg, nil)
+	m := New(mgr, cfg, "", nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	dockerModel := next.(Model)
 	dockerModel.containers = []docker.DockerContainer{{Service: "web"}}
@@ -71,7 +71,7 @@ func update(m Model, msg tea.Msg) Model {
 func TestNew_initialState(t *testing.T) {
 	cfg := testConfig("backend", "frontend")
 	mgr := process.NewManager(cfg)
-	m := New(mgr, cfg, nil)
+	m := New(mgr, cfg, "", nil)
 	if m.ready {
 		t.Error("model should not be ready before WindowSizeMsg")
 	}
@@ -92,7 +92,7 @@ func TestNew_initialState(t *testing.T) {
 func TestUpdate_windowSizeSetsReady(t *testing.T) {
 	cfg := testConfig("backend")
 	mgr := process.NewManager(cfg)
-	m := New(mgr, cfg, nil)
+	m := New(mgr, cfg, "", nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	if !m.ready {
 		t.Error("model should be ready after WindowSizeMsg")
@@ -426,7 +426,7 @@ func TestSearch_eviction(t *testing.T) {
 		Scrollback:       3,
 	}
 	mgr := process.NewManager(cfg)
-	m := New(mgr, cfg, nil)
+	m := New(mgr, cfg, "", nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	p, _ := mgr.Get("svc")
 

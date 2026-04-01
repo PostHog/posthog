@@ -92,7 +92,15 @@ func (m Model) renderSidebar() string {
 		iconColor := statusIconColor(status)
 
 		name := truncate(p.Name, innerW-3)
-		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, innerW, m.isDark))
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      iconChar,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.servicesCursor,
+			unread:    p.Unread(),
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
 	}
 
 	if canScrollDown {

@@ -114,6 +114,7 @@ type Process struct {
 	ptmx      *os.File      // pty master; nil when using pipes
 	stdinPipe *os.File      // write end of stdin pipe; nil when using PTY
 	hasPrompt bool          // true when the last output was a partial line without a trailing \n
+	unread    bool          // true when new output arrived since the last MarkRead call
 	waitDone  chan struct{} // closed by the goroutine that calls cmd.Wait()
 
 	startedAt      time.Time
@@ -174,6 +175,20 @@ func (p *Process) HasPrompt() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.hasPrompt
+}
+
+// Unread returns true when new output has arrived since the last MarkRead call.
+func (p *Process) Unread() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.unread
+}
+
+// MarkRead clears the unread flag, indicating the user has seen the output.
+func (p *Process) MarkRead() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.unread = false
 }
 
 func (p *Process) Lines() []string {
@@ -667,6 +682,7 @@ func (p *Process) bufferLine(line string) (evicted bool, becameReady bool) {
 		evicted = true
 	}
 	p.lines = append(p.lines, line)
+	p.unread = true
 
 	if p.status != StatusRunning && p.readyPattern != nil && p.readyPattern.MatchString(line) {
 		p.readyAt = time.Now()

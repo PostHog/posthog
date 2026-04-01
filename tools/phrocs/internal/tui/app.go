@@ -195,6 +195,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
 		if p := m.activeProc(); m.ready && p != nil && p.Name == msg.Name {
+			// Clear the active process's unread flag
+			p.MarkRead()
 			// In docker mode the viewport shows the status table or container logs,
 			// not the process's combined output
 			if m.isDockerMode() || m.infoMode {
@@ -427,6 +429,11 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 	m.searchMode = false
 	m.inputBuffer = ""
 	m.viewport.StyleLineFunc = nil
+
+	// Mark the newly active process as read
+	if p := m.activeProc(); p != nil {
+		p.MarkRead()
+	}
 
 	// Resize viewport to account for container sidebar appearing/disappearing
 	m = m.applySize()
