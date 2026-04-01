@@ -1121,8 +1121,8 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
     }),
-    'query-traces-list': createQueryWrapper({
-        name: 'query-traces-list',
+    'query-llm-traces-list': createQueryWrapper({
+        name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
         kind: 'TracesQuery',
     }),

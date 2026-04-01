@@ -116,7 +116,7 @@ wrappers:
             - modifiers
             - samplingFactor
 
-    query-traces-list:
+    query-llm-traces-list:
         schema_ref: AssistantTracesQuery
         enabled: true
         scopes:
@@ -127,7 +127,7 @@ wrappers:
             idempotent: true
         mcp_version: 2
         title: List LLM traces
-        description_file: ./prompts/query-traces-list.md
+        description_file: ./prompts/query-llm-traces-list.md
         exclude_properties:
             - response
             - modifiers
