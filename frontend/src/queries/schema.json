@@ -784,6 +784,9 @@
                     "$ref": "#/definitions/LogPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/SpanPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
                 }
             ]
@@ -13092,6 +13095,10 @@
                 "cache_age_seconds": {
                     "type": "number"
                 },
+                "deleted": {
+                    "description": "Set to true to soft-delete this endpoint",
+                    "type": "boolean"
+                },
                 "derived_from_insight": {
                     "type": "string"
                 },
@@ -14941,6 +14948,13 @@
                     "$ref": "#/definitions/integer",
                     "description": "Show events matching a given action"
                 },
+                "actionSteps": {
+                    "description": "Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.",
+                    "items": {
+                        "$ref": "#/definitions/EventsQueryActionStep"
+                    },
+                    "type": "array"
+                },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
                     "type": "string"
@@ -15042,6 +15056,49 @@
                 }
             },
             "required": ["kind", "select"],
+            "type": "object"
+        },
+        "EventsQueryActionStep": {
+            "additionalProperties": false,
+            "description": "An action step definition for matching events without a saved action",
+            "properties": {
+                "event": {
+                    "type": ["string", "null"]
+                },
+                "href": {
+                    "type": ["string", "null"]
+                },
+                "href_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "selector": {
+                    "type": ["string", "null"]
+                },
+                "tag_name": {
+                    "type": ["string", "null"]
+                },
+                "text": {
+                    "type": ["string", "null"]
+                },
+                "text_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                },
+                "url": {
+                    "type": ["string", "null"]
+                },
+                "url_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                }
+            },
             "type": "object"
         },
         "EventsQueryPersonColumn": {
@@ -25212,6 +25269,9 @@
                 "log",
                 "log_attribute",
                 "log_resource_attribute",
+                "span",
+                "span_attribute",
+                "span_resource_attribute",
                 "workflow_variable",
                 "empty"
             ],
@@ -32404,6 +32464,13 @@
                     "$ref": "#/definitions/integer",
                     "description": "Show events matching a given action"
                 },
+                "actionSteps": {
+                    "description": "Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.",
+                    "items": {
+                        "$ref": "#/definitions/EventsQueryActionStep"
+                    },
+                    "type": "array"
+                },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
                     "type": "string"
@@ -33687,6 +33754,32 @@
             },
             "type": "object"
         },
+        "SpanPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "$ref": "#/definitions/SpanPropertyFilterType"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "SpanPropertyFilterType": {
+            "enum": ["span", "span_attribute", "span_resource_attribute"],
+            "type": "string"
+        },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
@@ -34541,6 +34634,9 @@
                 "logs",
                 "log_attributes",
                 "log_resource_attributes",
+                "spans",
+                "span_attributes",
+                "span_resource_attributes",
                 "replay",
                 "replay_saved_filters",
                 "revenue_analytics_properties",
@@ -35041,6 +35137,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
                 "kind": {
                     "const": "TraceSpansQuery",
                     "type": "string"
@@ -35059,14 +35158,15 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
+                "prefetchSpans": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Prefetch up to this many spans per trace and include them in results"
+                },
                 "response": {
                     "$ref": "#/definitions/TraceSpansQueryResponse"
                 },
                 "rootSpans": {
                     "type": "boolean"
-                },
-                "searchTerm": {
-                    "type": "string"
                 },
                 "serviceNames": {
                     "items": {

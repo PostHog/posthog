@@ -146,6 +146,10 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.logs.backend.temporal import (
+    ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
+)
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
@@ -291,6 +295,11 @@ _task_queue_specs = [
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
         EVENT_SCREENSHOTS_WORKFLOWS,
         EVENT_SCREENSHOTS_ACTIVITIES,
+    ),
+    (
+        settings.LOGS_ALERTING_TASK_QUEUE,
+        LOGS_ALERTING_WORKFLOWS,
+        LOGS_ALERTING_ACTIVITIES,
     ),
 ]
 
