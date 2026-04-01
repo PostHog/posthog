@@ -88,15 +88,13 @@ type Model struct {
 
 	// Setup mode: full-screen intent selection for dev environment config
 	setupMode    bool
-	setupStep    int // 0 = intent selection, 1 = unit exclusion
-	setupEntries []setupEntry
+	setupStep    int // 1 = intent selection, 2 = unit exclusion
+	setupEntries []config.Intent
 	setupCursor  int
 	setupOffset  int
 	setupChecked map[string]bool
 	setupError   string // error message from applying changes
-
-
-	configPath string // path to the running config file
+	configPath   string // path to the running config file
 
 	// Info mode: replaces the output viewport with process stats
 	infoMode bool
@@ -277,14 +275,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		m.dbg("key: %q", msg.String())
 		var handled bool
-		if m.setupMode {
-			m, cmds, handled = m.handleSetupKey(msg, cmds)
-		} else if m.searchMode {
+		if m.searchMode {
 			m, cmds, handled = m.handleSearchKey(msg, cmds)
 		} else if m.copyMode {
 			m, cmds, handled = m.handleCopyKey(msg, cmds)
 		} else if m.infoMode {
 			m, cmds, handled = m.handleInfoKey(msg, cmds)
+		} else if m.setupMode {
+			m, cmds, handled = m.handleSetupKey(msg, cmds)
 		} else if m.hedgehogMode {
 			m, cmds, handled = m.handleHedgehogKey(msg, cmds)
 		}
@@ -314,12 +312,12 @@ func (m Model) View() tea.View {
 		return v
 	}
 	var middle string
-	if m.setupMode {
-		middle = m.renderSetupView()
-	} else if m.isFullScreen() {
+	if m.isFullScreen() {
 		middle = m.renderOutput()
 	} else if m.isDockerMode() {
 		middle = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderOutput(), m.renderContainerSidebar())
+	} else if m.setupMode {
+		middle = m.renderSetupView()
 	} else {
 		middle = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderOutput())
 	}

@@ -232,22 +232,6 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
 		)
-	} else if m.setupMode {
-		var hint string
-		if m.setupError != "" {
-			escAction := "cancel"
-			if m.setupStep == 1 {
-				escAction = "back"
-			}
-			hint = "-- SETUP --  error: " + m.setupError + "  esc: " + escAction
-		} else if m.setupStep == 0 {
-			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: next  esc: cancel"
-		} else {
-			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & restart  esc: back"
-		}
-		return footerStyle.Width(m.width - 2).Render(
-			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
-		)
 	} else if m.searchMode {
 		var matchInfo string
 		if m.searchQuery == "" {
@@ -259,6 +243,22 @@ func (m Model) renderFooter() string {
 		}
 		prompt := lipgloss.NewStyle().Foreground(colorYellow).Render(fmt.Sprintf("/ %s▌%s", m.searchQuery, matchInfo))
 		return footerStyle.Width(m.width - 2).Render(prompt)
+	} else if m.setupMode {
+		var hint string
+		if m.setupError != "" {
+			escAction := "cancel"
+			if m.setupStep == 2 {
+				escAction = "back"
+			}
+			hint = "-- SETUP --  error: " + m.setupError + "  esc: " + escAction
+		} else if m.setupStep == 1 {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: next  esc: cancel"
+		} else {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & restart  esc: back"
+		}
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
+		)
 	}
 
 	if m.searchQuery != "" {

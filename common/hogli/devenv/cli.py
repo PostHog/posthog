@@ -193,7 +193,25 @@ def dev_intents() -> None:
     multiple=True,
     help="Units to exclude (saved to config, persists across runs)",
 )
-def dev_apply(intents: tuple[str, ...], include_units: tuple[str, ...], exclude_units: tuple[str, ...]) -> None:
+@click.option(
+    "--skip-autostart",
+    "skip_autostart",
+    multiple=True,
+    help="Skip autostart units (saved to config, persists across runs)",
+)
+@click.option(
+    "--enable-autostart",
+    "enable_autostart",
+    multiple=True,
+    help="Enable autostart units (saved to config, persists across runs)",
+)
+def dev_apply(
+    intents: tuple[str, ...],
+    include_units: tuple[str, ...],
+    exclude_units: tuple[str, ...],
+    skip_autostart: tuple[str, ...],
+    enable_autostart: tuple[str, ...],
+) -> None:
     """Apply a set of intents non-interactively, regenerating the mprocs config."""
     try:
         intent_map = load_intent_map()
@@ -213,13 +231,15 @@ def dev_apply(intents: tuple[str, ...], include_units: tuple[str, ...], exclude_
     # Replace intents with the provided args
     saved_config.intents = list(intents)
 
-    # Replace include_units when explicitly provided
+    # Replace options when explicitly provided
     if include_units:
         saved_config.include_units = list(include_units)
-
-    # Replace exclude_units when explicitly provided
     if exclude_units:
         saved_config.exclude_units = list(exclude_units)
+    if skip_autostart:
+        saved_config.skip_autostart = list(skip_autostart)
+    if enable_autostart:
+        saved_config.enable_autostart = list(enable_autostart)
 
     try:
         resolved = resolver.resolve(

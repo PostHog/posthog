@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -13,44 +12,12 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
-type setupEntry struct {
-	Name        string
-	Description string
-}
-
 func (m Model) enterSetupMode() Model {
-	// Find intent-map.yaml relative to the config file's repo root.
-	// Walk up from the config path to find the repo root (has .git).
-	intentMapPath := "devenv/intent-map.yaml"
-	if m.configPath != "" {
-		dir := filepath.Dir(m.configPath)
-		for {
-			if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-				intentMapPath = filepath.Join(dir, "devenv", "intent-map.yaml")
-				break
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
-	}
-
-	intentMap, err := config.LoadIntentMap(intentMapPath)
+	intentMap, err := config.LoadIntentMap()
 	if err != nil {
 		m.setupError = fmt.Sprintf("load intent-map: %v", err)
 		m.setupMode = true
 		return m
-	}
-
-	// Build entry list (preserves YAML definition order)
-	entries := make([]setupEntry, len(intentMap.Intents))
-	for i, intent := range intentMap.Intents {
-		entries[i] = setupEntry{
-			Name:        intent.Name,
-			Description: intent.Description,
-		}
 	}
 
 	// Pre-check intents from the current config's _posthog section
@@ -64,8 +31,8 @@ func (m Model) enterSetupMode() Model {
 	}
 
 	m.setupMode = true
-	m.setupStep = 0
-	m.setupEntries = entries
+	m.setupStep = 1
+	m.setupEntries = intentMap.Intents
 	m.setupCursor = 0
 	m.setupOffset = 0
 	m.setupChecked = checked
@@ -77,10 +44,9 @@ func (m Model) enterSetupMode() Model {
 func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
 	case msg.Code == tea.KeyEscape, key.Matches(msg, m.keys.Quit):
-		if m.setupStep == 1 {
-			// Go back to intent selection
+		if m.setupStep == 2 {
 			m = m.enterSetupMode()
-			m.dbg("setup mode: back to step 0")
+			m.dbg("setup mode: back to step 1")
 		} else {
 			m.setupMode = false
 			m.setupError = ""
@@ -89,8 +55,8 @@ func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea
 		}
 
 	case msg.Code == tea.KeyEnter:
-		if m.setupStep == 0 {
-			m.dbg("setup mode: advance to step 1")
+		if m.setupStep == 1 {
+			m.dbg("setup mode: advance to step 2")
 			m.advanceToUnitSelection()
 		} else {
 			m.dbg("setup mode: apply")
@@ -133,7 +99,7 @@ func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea
 }
 
 // advanceToUnitSelection runs hogli dev:apply with the selected intents
-// (no excludes) to get the full process list, then transitions to step 1
+// (no excludes) to get the full process list, then transitions to step 2
 // where the user can exclude individual processes.
 func (m *Model) advanceToUnitSelection() {
 	var selected []string
@@ -147,22 +113,11 @@ func (m *Model) advanceToUnitSelection() {
 		return
 	}
 
-	hogliPath, err := exec.LookPath("hogli")
+	newConfigPath, err := runHogliDevApply(selected, nil)
 	if err != nil {
-		m.setupError = "hogli not found in PATH"
+		m.setupError = err.Error()
 		return
 	}
-
-	args := append([]string{"dev:apply"}, selected...)
-	cmd := exec.Command(hogliPath, args...)
-	cmd.Stderr = os.Stderr
-	output, err := cmd.Output()
-	if err != nil {
-		m.setupError = fmt.Sprintf("hogli dev:apply failed: %v", err)
-		return
-	}
-
-	newConfigPath := strings.TrimSpace(string(output))
 	m.dbg("setup: hogli dev:apply output: %s", newConfigPath)
 
 	newCfg, err := config.Load(newConfigPath)
@@ -171,9 +126,8 @@ func (m *Model) advanceToUnitSelection() {
 		return
 	}
 
-	// Build entries from the generated processes
 	names := newCfg.OrderedNames()
-	var entries []setupEntry
+	entries := make([]config.Intent, 0, len(names))
 	checked := make(map[string]bool)
 	for _, name := range names {
 		pc := newCfg.Procs[name]
@@ -181,12 +135,12 @@ func (m *Model) advanceToUnitSelection() {
 		if !pc.ShouldAutostart() {
 			desc = "manual start"
 		}
-		entries = append(entries, setupEntry{Name: name, Description: desc})
+		entries = append(entries, config.Intent{Name: name, Description: desc})
 		checked[name] = pc.ShouldAutostart()
 	}
 
 	m.configPath = newConfigPath
-	m.setupStep = 1
+	m.setupStep = 2
 	m.setupEntries = entries
 	m.setupCursor = 0
 	m.setupOffset = 0
@@ -194,15 +148,15 @@ func (m *Model) advanceToUnitSelection() {
 	m.setupError = ""
 }
 
+// applySetupChanges runs hogli dev:apply with the selected intents and excludes,
+// then updates the manager's processes to match the generated config.
 func (m *Model) applySetupChanges() {
-	// Read the intents that step 0 wrote to the config
 	phCfg, err := config.LoadPosthogConfig(m.configPath)
 	if err != nil || phCfg == nil {
 		m.setupError = "failed to read intents from config"
 		return
 	}
 
-	// Collect unchecked processes as exclusions
 	var excludeUnits []string
 	for _, entry := range m.setupEntries {
 		if !m.setupChecked[entry.Name] {
@@ -211,28 +165,11 @@ func (m *Model) applySetupChanges() {
 		}
 	}
 
-	// Run hogli dev:apply with --exclude flags.
-	hogliPath, err := exec.LookPath("hogli")
+	newConfigPath, err := runHogliDevApply(phCfg.Intents, excludeUnits)
 	if err != nil {
-		m.setupError = "hogli not found in PATH"
+		m.setupError = err.Error()
 		return
 	}
-
-	args := []string{"dev:apply"}
-	for _, u := range excludeUnits {
-		args = append(args, "--exclude", u)
-	}
-	args = append(args, phCfg.Intents...)
-
-	cmd := exec.Command(hogliPath, args...)
-	cmd.Stderr = os.Stderr
-	output, err := cmd.Output()
-	if err != nil {
-		m.setupError = fmt.Sprintf("hogli dev:apply failed: %v", err)
-		return
-	}
-
-	newConfigPath := strings.TrimSpace(string(output))
 	m.dbg("setup: hogli dev:apply output: %s", newConfigPath)
 
 	newCfg, err := config.Load(newConfigPath)
@@ -252,7 +189,6 @@ func (m *Model) applySetupChanges() {
 		newNames[name] = true
 	}
 
-	// Remove processes that are no longer in the config
 	for name := range oldNames {
 		if !newNames[name] {
 			m.dbg("setup: removing process %s", name)
@@ -272,16 +208,36 @@ func (m *Model) applySetupChanges() {
 		}
 	}
 
-	// Update config path and refresh TUI state
 	m.configPath = newConfigPath
 	m.services = m.mgr.Procs()
 	m.sortServices()
 	m.setupMode = false
-	m.setupStep = 0
+	m.setupStep = 1
 	m.setupError = ""
 
 	updated := m.applySize()
 	*m = updated
+}
+
+// runHogliDevApply invokes `hogli dev:apply` with the given intents and
+// optional exclusions, returning the path to the generated config.
+func runHogliDevApply(intents []string, excludes []string) (string, error) {
+	hogliPath, err := exec.LookPath("hogli")
+	if err != nil {
+		return "", fmt.Errorf("hogli not found in PATH")
+	}
+	args := []string{"dev:apply"}
+	for _, u := range excludes {
+		args = append(args, "--exclude", u)
+	}
+	args = append(args, intents...)
+	cmd := exec.Command(hogliPath, args...)
+	cmd.Stderr = os.Stderr
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("hogli dev:apply failed: %v", err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func (m *Model) ensureSetupCursorVisible() {
@@ -299,7 +255,6 @@ func (m *Model) ensureSetupCursorVisible() {
 }
 
 func (m Model) setupVisibleHeight() int {
-	// Account for header, footer, and 2 lines of padding/title
 	fh := m.footerHeight()
 	h := m.height - headerHeight - fh - 3
 	return max(h, 1)
@@ -315,7 +270,7 @@ func (m Model) renderSetupView() string {
 	var rows []string
 	rows = append(rows, "")
 
-	if m.setupStep == 0 {
+	if m.setupStep == 1 {
 		rows = append(rows, titleStyle.Render("  Configure which services to start based on the products you're working on"))
 	} else {
 		rows = append(rows, titleStyle.Render("  Uncheck processes you want to exclude"))
@@ -326,10 +281,7 @@ func (m Model) renderSetupView() string {
 	start := m.setupOffset
 	end := min(start+visH, len(m.setupEntries))
 
-	canScrollUp := start > 0
-	canScrollDown := end < len(m.setupEntries)
-
-	if canScrollUp {
+	if start > 0 {
 		rows = append(rows, scrollArrowStyle.Width(w).Render("▲"))
 	}
 
@@ -343,9 +295,8 @@ func (m Model) renderSetupView() string {
 		name := entry.Name
 		desc := entry.Description
 
-		// Truncate to fit
 		maxNameW := 25
-		maxDescW := w - maxNameW - 8 // 2 padding + 4 checkbox + 2 gap
+		maxDescW := w - maxNameW - 8
 		if maxDescW < 0 {
 			maxDescW = 0
 		}
@@ -355,7 +306,6 @@ func (m Model) renderSetupView() string {
 
 		line := fmt.Sprintf("  %s %s", check, name)
 		if desc != "" {
-			// Pad name to fixed width for alignment
 			padded := fmt.Sprintf("%-*s", maxNameW, name)
 			line = fmt.Sprintf("  %s %s  %s", check, padded, dimStyle.Render(desc))
 		}
@@ -373,11 +323,10 @@ func (m Model) renderSetupView() string {
 		}
 	}
 
-	if canScrollDown {
+	if end < len(m.setupEntries) {
 		rows = append(rows, scrollArrowStyle.Width(w).Render("▼"))
 	}
 
-	// Pad to fill height
 	for len(rows) < h {
 		rows = append(rows, "")
 	}

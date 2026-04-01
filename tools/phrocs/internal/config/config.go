@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"gopkg.in/yaml.v3"
@@ -83,59 +84,58 @@ type Intent struct {
 }
 
 // IntentMapConfig holds just enough of intent-map.yaml to display intents in the TUI.
-// Intents are kept in YAML definition order.
 type IntentMapConfig struct {
 	Intents []Intent
 }
 
-// LoadIntentMap reads devenv/intent-map.yaml and returns the parsed intents
-// in the order they appear in the file.
-func LoadIntentMap(path string) (*IntentMapConfig, error) {
+// LoadIntentMap finds and parses devenv/intent-map.yaml by walking up from
+// the working directory. Returns the parsed intents sorted by name.
+func LoadIntentMap() (*IntentMapConfig, error) {
+	path, err := findIntentMapPath()
+	if err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	var raw struct {
+		Intents map[string]struct {
+			Description string `yaml:"description"`
+		} `yaml:"intents"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
-	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
-		return nil, fmt.Errorf("invalid intent-map document")
-	}
-	root := doc.Content[0]
-	if root.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("intent-map root must be a mapping")
-	}
-
-	// Find the "intents" key in the top-level mapping
-	var intentsNode *yaml.Node
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "intents" {
-			intentsNode = root.Content[i+1]
-			break
-		}
-	}
-	if intentsNode == nil || intentsNode.Kind != yaml.MappingNode {
+	if raw.Intents == nil {
 		return nil, fmt.Errorf("intent-map missing 'intents' mapping")
 	}
-
-	// Walk key/value pairs in definition order
-	var intents []Intent
-	for i := 0; i+1 < len(intentsNode.Content); i += 2 {
-		name := intentsNode.Content[i].Value
-		valNode := intentsNode.Content[i+1]
-
-		var fields struct {
-			Description string `yaml:"description"`
-		}
-		if err := valNode.Decode(&fields); err != nil {
-			return nil, fmt.Errorf("decode intent %q: %w", name, err)
-		}
+	intents := make([]Intent, 0, len(raw.Intents))
+	for name, fields := range raw.Intents {
 		intents = append(intents, Intent{Name: name, Description: fields.Description})
 	}
-
+	sort.Slice(intents, func(i, j int) bool { return intents[i].Name < intents[j].Name })
 	return &IntentMapConfig{Intents: intents}, nil
+}
+
+// findIntentMapPath walks up from the working directory looking for
+// devenv/intent-map.yaml. Falls back to the cwd-relative path.
+func findIntentMapPath() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+	for {
+		candidate := filepath.Join(dir, "devenv", "intent-map.yaml")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return filepath.Join("devenv", "intent-map.yaml"), nil
+		}
+		dir = parent
+	}
 }
 
 // PosthogConfig represents the _posthog section embedded in generated mprocs configs.
@@ -150,24 +150,13 @@ func LoadPosthogConfig(configPath string) (*PosthogConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	var raw map[string]interface{}
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	var wrapper struct {
+		Posthog *PosthogConfig `yaml:"_posthog"`
+	}
+	if err := yaml.Unmarshal(data, &wrapper); err != nil {
 		return nil, err
 	}
-	phSection, ok := raw["_posthog"]
-	if !ok {
-		return nil, nil
-	}
-	// Re-marshal and unmarshal the _posthog section into PosthogConfig
-	phBytes, err := yaml.Marshal(phSection)
-	if err != nil {
-		return nil, err
-	}
-	var cfg PosthogConfig
-	if err := yaml.Unmarshal(phBytes, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
+	return wrapper.Posthog, nil
 }
 
 // OrderedNames returns process names in a stable, predictable order.
