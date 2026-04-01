@@ -76,8 +76,8 @@ export class CyclotronJobQueueKafka {
 
         const producer = this.getKafkaProducer()
 
-        // Pre-serialize all messages eagerly so we can release references to the
-        // heavy invocation objects (globals, vmState, etc.) before awaiting produces
+        // Pre-serialize all messages eagerly so the produce closures below only
+        // capture lightweight strings instead of full invocation objects (globals, vmState, etc.)
         const messages = invocations.map((x) => {
             const jsonString = JSON.stringify(serializeInvocation(x))
             cdpJobSizeKb.labels('kafka').observe(jsonString.length / 1024)
@@ -90,9 +90,6 @@ export class CyclotronJobQueueKafka {
                 teamId: x.teamId,
             }
         })
-
-        // Allow the original invocations (with full globals/vmState) to be GC'd
-        invocations.length = 0
 
         await Promise.all(
             messages.map(async (msg) => {
