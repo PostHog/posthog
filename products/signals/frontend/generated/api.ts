@@ -9,10 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    PaginatedPauseStateResponseListApi,
     PaginatedSignalSourceConfigListApi,
     PauseResponseApi,
-    PauseStateResponseApi,
     PauseUntilRequestApi,
+    SignalProcessingListParams,
     SignalSourceConfigApi,
     SignalSourceConfigsListParams,
     UnpauseResponseApi,
@@ -36,54 +37,67 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 /**
- * Control pause state of the signal grouping v2 pipeline for a team.
+ * Return current processing state including pause status.
  */
-export const getSignalGroupingPausePauseCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signal_grouping_pause/pause/`
-}
+export const getSignalProcessingListUrl = (projectId: string, params?: SignalProcessingListParams) => {
+    const normalizedParams = new URLSearchParams()
 
-export const signalGroupingPausePauseCreate = async (
-    projectId: string,
-    pauseUntilRequestApi: PauseUntilRequestApi,
-    options?: RequestInit
-): Promise<PauseResponseApi> => {
-    return apiMutator<PauseResponseApi>(getSignalGroupingPausePauseCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(pauseUntilRequestApi),
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
     })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signal_processing/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signal_processing/`
 }
 
-/**
- * Control pause state of the signal grouping v2 pipeline for a team.
- */
-export const getSignalGroupingPauseStateRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signal_grouping_pause/state/`
-}
-
-export const signalGroupingPauseStateRetrieve = async (
+export const signalProcessingList = async (
     projectId: string,
+    params?: SignalProcessingListParams,
     options?: RequestInit
-): Promise<PauseStateResponseApi> => {
-    return apiMutator<PauseStateResponseApi>(getSignalGroupingPauseStateRetrieveUrl(projectId), {
+): Promise<PaginatedPauseStateResponseListApi> => {
+    return apiMutator<PaginatedPauseStateResponseListApi>(getSignalProcessingListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
 /**
- * Control pause state of the signal grouping v2 pipeline for a team.
+ * View and control signal processing pipeline state for a team.
  */
-export const getSignalGroupingPauseUnpauseCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signal_grouping_pause/unpause/`
+export const getSignalProcessingPauseUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signal_processing/pause/`
 }
 
-export const signalGroupingPauseUnpauseCreate = async (
+export const signalProcessingPauseUpdate = async (
+    projectId: string,
+    pauseUntilRequestApi: PauseUntilRequestApi,
+    options?: RequestInit
+): Promise<PauseResponseApi> => {
+    return apiMutator<PauseResponseApi>(getSignalProcessingPauseUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pauseUntilRequestApi),
+    })
+}
+
+/**
+ * View and control signal processing pipeline state for a team.
+ */
+export const getSignalProcessingUnpauseCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signal_processing/unpause/`
+}
+
+export const signalProcessingUnpauseCreate = async (
     projectId: string,
     options?: RequestInit
 ): Promise<UnpauseResponseApi> => {
-    return apiMutator<UnpauseResponseApi>(getSignalGroupingPauseUnpauseCreateUrl(projectId), {
+    return apiMutator<UnpauseResponseApi>(getSignalProcessingUnpauseCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })

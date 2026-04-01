@@ -19553,6 +19553,23 @@ export namespace Schemas {
       results: OrganizationOAuthApplication[];
     }
 
+    export interface PauseStateResponse {
+      /**
+       * The timestamp the pipeline is paused until, or null if not paused/not running.
+       * @nullable
+       */
+      paused_until: string | null;
+    }
+
+    export interface PaginatedPauseStateResponseList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PauseStateResponse[];
+    }
+
     /**
      * * `home` - Home
     * `pinned` - Pinned
@@ -25263,14 +25280,6 @@ export namespace Schemas {
       status: string;
       /** The timestamp the pipeline is paused until. */
       paused_until: string;
-    }
-
-    export interface PauseStateResponse {
-      /**
-       * The timestamp the pipeline is paused until, or null if not paused/not running.
-       * @nullable
-       */
-      paused_until: string | null;
     }
 
     export interface PauseUntilRequest {
@@ -34336,6 +34345,17 @@ export namespace Schemas {
     };
 
     export type SessionRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SignalProcessingListParams = {
     /**
      * Number of results to return per page.
      */
