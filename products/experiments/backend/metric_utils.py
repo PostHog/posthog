@@ -68,7 +68,11 @@ def _collect_action_ids(obj: Any, action_ids: set[int]) -> None:
     """Recursively collect all action IDs from ActionsNode objects in the query."""
     if isinstance(obj, dict):
         if obj.get("kind") == "ActionsNode" and "id" in obj:
-            action_ids.add(obj["id"])
+            # Convert to int in case it's stored as a string
+            try:
+                action_ids.add(int(obj["id"]))
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid action ID in ActionsNode: {obj['id']}")
         for value in obj.values():
             _collect_action_ids(value, action_ids)
     elif isinstance(obj, list):
@@ -80,7 +84,13 @@ def _update_action_names(obj: Any, actions_by_id: dict[int, str]) -> None:
     """Recursively update all ActionsNode name fields with current action names."""
     if isinstance(obj, dict):
         if obj.get("kind") == "ActionsNode" and "id" in obj:
-            action_id = obj["id"]
+            # Convert to int in case it's stored as a string
+            try:
+                action_id = int(obj["id"])
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid action ID in ActionsNode: {obj['id']}")
+                return
+
             if action_id in actions_by_id:
                 obj["name"] = actions_by_id[action_id]
         for value in obj.values():
