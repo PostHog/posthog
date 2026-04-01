@@ -834,6 +834,69 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_remote_config_flag_defaults_to_100_percent_rollout(self, mock_report_user_action):
+        """Test that remote config flags default to 100% rollout when no filters are provided."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "remote-config-flag",
+                "name": "Remote Config Flag",
+                "is_remote_configuration": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Check that the response includes 100% rollout
+        response_data = response.json()
+        self.assertEqual(response_data["key"], "remote-config-flag")
+        self.assertTrue(response_data["is_remote_configuration"])
+
+        # Verify the filters have been set to 100% rollout
+        filters = response_data["filters"]
+        self.assertIn("groups", filters)
+        self.assertEqual(len(filters["groups"]), 1)
+        group = filters["groups"][0]
+        self.assertEqual(group["rollout_percentage"], 100)
+        self.assertEqual(group["properties"], [])
+        self.assertIsNone(group["variant"])
+
+        # Also verify the database instance
+        instance = FeatureFlag.objects.get(id=response_data["id"])
+        self.assertTrue(instance.is_remote_configuration)
+        self.assertEqual(instance.filters["groups"][0]["rollout_percentage"], 100)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_remote_config_flag_with_zero_rollout_gets_updated_to_100(self, mock_report_user_action):
+        """Test that remote config flags with 0% rollout get updated to 100%."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "remote-config-zero-rollout",
+                "name": "Remote Config with Zero Rollout",
+                "is_remote_configuration": True,
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 0, "variant": None}],
+                    "payloads": {"true": '{"key": "value"}'},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Check that the 0% rollout was changed to 100%
+        response_data = response.json()
+        self.assertTrue(response_data["is_remote_configuration"])
+
+        filters = response_data["filters"]
+        group = filters["groups"][0]
+        self.assertEqual(group["rollout_percentage"], 100)
+
+        # Also verify the database instance
+        instance = FeatureFlag.objects.get(id=response_data["id"])
+        self.assertEqual(instance.filters["groups"][0]["rollout_percentage"], 100)
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
