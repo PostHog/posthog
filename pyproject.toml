@@ -288,6 +288,7 @@ exclude = [
     "./plugins/node_modules/",
     "./env",
     "./posthog/hogql/grammar",
+    "products/*/skills/*/scripts",
 ]
 
 [tool.ruff.lint]
