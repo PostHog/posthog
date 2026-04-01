@@ -276,10 +276,8 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         lock_key = "posthog:feature_flag_last_called_sync:lock"
 
         # Task should raise exception but still clean up lock
-        try:
+        with self.assertRaises(Exception):
             sync_feature_flag_last_called()
-        except Exception:
-            pass
 
         # Lock should be deleted
         assert cache.get(lock_key) is None
@@ -445,10 +443,8 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # First chunk succeeds, second chunk fails
         mock_sync_execute.side_effect = [[], Exception("ClickHouse error")]
 
-        try:
+        with self.assertRaises(Exception):
             sync_feature_flag_last_called()
-        except Exception:
-            pass
 
         # Checkpoint should remain at the original value (no per-chunk advancement)
         stored = redis_mock.storage.get(checkpoint_key)
