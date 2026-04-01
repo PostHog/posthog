@@ -1393,7 +1393,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (filters, personUUID, pinnedFilters) => {
                 const defaultFilters = getDefaultFilters(personUUID, pinnedFilters)
                 const groupFilters = filtersFromUniversalFilterGroups(filters)
-                const pinnedValues = pinnedFilters?.values ?? []
+                const pinnedValues: UniversalFilterValue[] = pinnedFilters?.values ?? []
                 const userFilterCount = groupFilters.filter((f) => !pinnedValues.some((pv) => equal(f, pv))).length
 
                 return (
