@@ -7064,14 +7064,6 @@ export namespace Schemas {
       value: string;
     }
 
-    export type CompleteRunInputBaselineHashes = {[key: string]: string};
-
-    export interface CompleteRunInput {
-      removed_identifiers?: string[];
-      unchanged_count?: number;
-      baseline_hashes?: CompleteRunInputBaselineHashes;
-    }
-
     /**
      * * `won` - won
     * `lost` - lost
