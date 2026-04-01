@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -30,6 +31,7 @@ export const FUNNEL_STEP_COUNT_LIMIT = 30
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
@@ -115,16 +117,18 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     ]}
                 />
             </div>
-            <div className="mt-4 deprecated-space-y-4">
-                {showGroupsOptions && (
-                    <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
-                        <span>Aggregating by</span>
-                        <AggregationSelect insightProps={insightProps} hogqlAvailable />
-                    </div>
-                )}
+            {!editorPanelsEnabled && (
+                <div className="mt-4 deprecated-space-y-4">
+                    {showGroupsOptions && (
+                        <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
+                            <span>Aggregating by</span>
+                            <AggregationSelect insightProps={insightProps} hogqlAvailable />
+                        </div>
+                    )}
 
-                <FunnelConversionWindowFilter insightProps={insightProps} />
-            </div>
+                    <FunnelConversionWindowFilter insightProps={insightProps} />
+                </div>
+            )}
         </>
     )
 }

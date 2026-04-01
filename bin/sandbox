@@ -12,21 +12,27 @@ docker-compose.sandbox.yml. See `sandbox --help` for usage.
 
 from __future__ import annotations
 
-import argparse
-import fcntl
-import json
 import os
 import re
-import shutil
-import subprocess
 import sys
+import json
 import time
+import fcntl
+import shutil
+import argparse
+import subprocess
 import webbrowser
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NoReturn
 
+try:
+    import yaml
+except ImportError:
+    print("ERROR: PyYAML is required. Install with: pip install pyyaml", file=sys.stderr)
+    print("  Or activate the flox environment first.", file=sys.stderr)
+    sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -34,6 +40,7 @@ from typing import NoReturn
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
+PROFILES_FILE = REPO_ROOT / "docker-compose.profiles.yml"
 WORKTREE_CMD = REPO_ROOT / "bin" / "posthog-worktree"
 
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
@@ -49,8 +56,6 @@ INFRA_SERVICES = [
     "kafka",
     "zookeeper",
     "objectstorage",
-    "elasticsearch",
-    "temporal",
 ]
 
 DB_CACHE_VOLUME = "sandbox-db-cache"
@@ -74,6 +79,70 @@ WORLD_WRITABLE_VOLUMES = [
 ]
 
 SANDBOX_BACKUP_XML = REPO_ROOT / "docker/clickhouse/config.d/sandbox-backup.xml"
+INTENT_MAP_FILE = REPO_ROOT / "devenv" / "intent-map.yaml"
+
+def _all_sandbox_profiles() -> frozenset[str]:
+    """Extract all profile names from the sandbox compose file.
+
+    Used as a fallback during destroy when the registry entry is missing,
+    so no containers are orphaned.
+    """
+    config = yaml.safe_load(COMPOSE_FILE.read_text())
+    profiles: set[str] = set()
+    for svc in config.get("services", {}).values():
+        profiles.update(svc.get("profiles", []))
+    return frozenset(profiles)
+
+
+# ---------------------------------------------------------------------------
+# Intent → Docker profile resolver
+# ---------------------------------------------------------------------------
+
+
+def resolve_docker_profiles(intents_csv: str) -> list[str]:
+    """Resolve comma-separated intents to Docker Compose profiles.
+
+    Reads devenv/intent-map.yaml and transitively expands
+    intents → capabilities → docker_profiles.
+    """
+    intent_map = yaml.safe_load(INTENT_MAP_FILE.read_text())
+    capabilities_map = intent_map.get("capabilities", {})
+    intents_map = intent_map.get("intents", {})
+
+    # Collect all capabilities from the requested intents
+    requested_caps: set[str] = set()
+    for intent_name in intents_csv.split(","):
+        intent_name = intent_name.strip()
+        if not intent_name:
+            continue
+        intent = intents_map.get(intent_name)
+        if not intent:
+            warn(f"Unknown intent '{intent_name}' — skipping")
+            continue
+        requested_caps.update(intent.get("capabilities", []))
+
+    # Transitively expand capability dependencies
+    expanded: set[str] = set()
+    to_process = list(requested_caps)
+    while to_process:
+        cap_name = to_process.pop()
+        if cap_name in expanded:
+            continue
+        cap = capabilities_map.get(cap_name)
+        if not cap:
+            continue
+        expanded.add(cap_name)
+        for dep in cap.get("requires", []):
+            if dep not in expanded:
+                to_process.append(dep)
+
+    # Collect docker_profiles from all expanded capabilities
+    profiles: set[str] = set()
+    for cap_name in expanded:
+        cap = capabilities_map.get(cap_name, {})
+        profiles.update(cap.get("docker_profiles", []))
+
+    return sorted(profiles)
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +188,8 @@ def dump_container_logs(container: str, *, tail: int = 200) -> None:
     """Print the last N lines of a container's logs (both stdout and stderr)."""
     logs = run(
         ["docker", "logs", "--tail", str(tail), container],
-        check=False, capture=True,
+        check=False,
+        capture=True,
     )
     for line in (logs.stdout or "").strip().splitlines():
         print(f"  {line}")
@@ -137,6 +207,7 @@ class SandboxEntry:
     slug: str
     port: int
     worktree: str
+    intents: str = "product_analytics"
 
 
 class Registry:
@@ -174,14 +245,20 @@ class Registry:
         json.dump(data, f, indent=2)
         f.write("\n")
 
+    @staticmethod
+    def _make_entry(raw: dict) -> SandboxEntry:
+        """Build a SandboxEntry, ignoring unknown keys for forward compatibility."""
+        known = {f.name for f in SandboxEntry.__dataclass_fields__.values()}
+        return SandboxEntry(**{k: v for k, v in raw.items() if k in known})
+
     def list_all(self) -> dict[str, SandboxEntry]:
-        return {branch: SandboxEntry(**entry) for branch, entry in self._read().items()}
+        return {branch: self._make_entry(entry) for branch, entry in self._read().items()}
 
     def get(self, branch: str) -> SandboxEntry | None:
         entry = self._read().get(branch)
-        return SandboxEntry(**entry) if entry else None
+        return self._make_entry(entry) if entry else None
 
-    def allocate(self, branch: str, slug: str, worktree: str) -> SandboxEntry:
+    def allocate(self, branch: str, slug: str, worktree: str, intents: str = "product_analytics") -> SandboxEntry:
         """Atomically allocate a port and save the entry under the file lock."""
         with self._locked() as f:
             data = json.loads(f.read() or "{}")
@@ -189,7 +266,7 @@ class Registry:
             port = PORT_BASE
             while port in used:
                 port += 1
-            entry = SandboxEntry(slug=slug, port=port, worktree=worktree)
+            entry = SandboxEntry(slug=slug, port=port, worktree=worktree, intents=intents)
             data[branch] = asdict(entry)
             self._write(f, data)
             return entry
@@ -256,7 +333,8 @@ def _claude_auth_dir() -> str:
     elif sys.platform == "darwin":
         result = run(
             ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
-            check=False, capture=True,
+            check=False,
+            capture=True,
         )
         if result.returncode == 0 and result.stdout.strip():
             creds_file.write_text(result.stdout.strip())
@@ -316,13 +394,19 @@ def _setup_jetbrains(product: str) -> None:
 
     volume = f"sandbox-{product}"
     info(f"Downloading {meta['name']} {version} ({size_mb} MB)...")
-    run([
-        "docker", "run", "--rm",
-        "-v", f"{volume}:/opt/idea",
-        "alpine", "sh", "-c",
-        f"apk add --no-cache curl && "
-        f"curl -fSL '{download_url}' | tar -xzf - -C /opt/idea --strip-components=1",
-    ])
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{volume}:/opt/idea",
+            "alpine",
+            "sh",
+            "-c",
+            f"apk add --no-cache curl && curl -fSL '{download_url}' | tar -xzf - -C /opt/idea --strip-components=1",
+        ]
+    )
 
     success(f"{meta['name']} {version} installed into sandbox-{product} volume")
 
@@ -355,9 +439,19 @@ def _ensure_jetbrains() -> None:
 
     # Check if the volume is already populated
     result = run(
-        ["docker", "run", "--rm", "-v", f"{volume}:/opt/idea",
-         "alpine", "sh", "-c", "test -x /opt/idea/bin/remote-dev-server.sh && echo yes"],
-        capture=True, check=False,
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{volume}:/opt/idea",
+            "alpine",
+            "sh",
+            "-c",
+            "test -x /opt/idea/bin/remote-dev-server.sh && echo yes",
+        ],
+        capture=True,
+        check=False,
     )
     if result.stdout.strip() == "yes":
         return
@@ -380,7 +474,9 @@ def _compose_env(port: int, worktree_path: str) -> dict[str, str]:
         "SANDBOX_UID": str(os.getuid()),
         "SANDBOX_GID": str(os.getgid()),
         "SANDBOX_GIT_DIR": str(REPO_ROOT / ".git"),
-        "SANDBOX_CLAUDE_JSON": str(_claude_json) if (_claude_json := Path.home() / ".claude.json").is_file() else "/dev/null",
+        "SANDBOX_CLAUDE_JSON": str(_claude_json)
+        if (_claude_json := Path.home() / ".claude.json").is_file()
+        else "/dev/null",
     }
 
 
@@ -391,10 +487,14 @@ def compose(
     *args: str,
     check: bool = True,
     capture: bool = False,
+    profiles: list[str] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run `docker compose` with sandbox env vars."""
+    profile_flags: list[str] = []
+    for p in profiles or []:
+        profile_flags.extend(["--profile", p])
     return run(
-        ["docker", "compose", "--progress=quiet", "-p", project, "-f", str(COMPOSE_FILE), *args],
+        ["docker", "compose", "--progress=quiet", "-p", project, "-f", str(COMPOSE_FILE), "-f", str(PROFILES_FILE), *profile_flags, *args],
         check=check,
         capture=capture,
         env_extra=_compose_env(port, worktree_path),
@@ -431,7 +531,8 @@ def wait_for_health(
         # Detect crash loops via restart count
         inspect = run(
             ["docker", "inspect", "--format", "{{.RestartCount}}", container],
-            check=False, capture=True,
+            check=False,
+            capture=True,
         )
         restart_count = int(inspect.stdout.strip() or "0") if inspect.returncode == 0 else 0
         if prev_restart_count is not None and restart_count > prev_restart_count:
@@ -445,7 +546,8 @@ def wait_for_health(
         # which contains the raw PTY stream including phrocs TUI output).
         progress = run(
             ["docker", "exec", container, "cat", "/tmp/sandbox-progress"],
-            check=False, capture=True,
+            check=False,
+            capture=True,
         )
         for line in (progress.stdout or "").splitlines():
             step = line.strip()
@@ -475,7 +577,7 @@ def find_worktree(branch: str) -> str | None:
     current_path: str | None = None
     for line in result.stdout.splitlines():
         if line.startswith("worktree "):
-            current_path = line[len("worktree "):]
+            current_path = line[len("worktree ") :]
         elif line == f"branch refs/heads/{branch}":
             return current_path
     return None
@@ -520,9 +622,14 @@ def ensure_worktree(branch: str, base_branch: str) -> str:
 def _is_cache_ready() -> bool:
     result = run(
         [
-            "docker", "run", "--rm",
-            "-v", f"{DB_CACHE_VOLUME}:/cache:ro",
-            "alpine", "sh", "-c",
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{DB_CACHE_VOLUME}:/cache:ro",
+            "alpine",
+            "sh",
+            "-c",
             "[ -f /cache/.cache-ready ] && echo yes || echo no",
         ],
         capture=True,
@@ -565,12 +672,13 @@ def init_cache_from_master() -> None:
     _init_cache_cleanup(init_port, init_worktree)
 
     run(["git", "fetch", "origin", "--quiet"], capture=True)
-    # Use the PR branch for cache init if it exists (for testing before merge),
-    # otherwise fall back to master.
-    cache_branch = "origin/aspicer/sandbox-dev-environment-wip"
-    if run(["git", "rev-parse", "--verify", cache_branch], check=False, capture=True).returncode != 0:
-        cache_branch = "origin/master"
-    if run(["git", "worktree", "add", "--force", "--detach", init_worktree, cache_branch], check=False, capture=True).returncode != 0:
+    cache_branch = "origin/master"
+    if (
+        run(
+            ["git", "worktree", "add", "--force", "--detach", init_worktree, cache_branch], check=False, capture=True
+        ).returncode
+        != 0
+    ):
         fatal("Could not check out cache branch for cache init.")
 
     try:
@@ -585,25 +693,56 @@ def init_cache_from_master() -> None:
         # Snapshot postgres (stop first for consistency)
         info("Snapshotting databases...")
         compose(init_project, init_port, init_worktree, "stop", "db", capture=True)
-        run([
-            "docker", "run", "--rm",
-            "-v", f"{init_project}_postgres-data:/src:ro",
-            "-v", f"{DB_CACHE_VOLUME}:/dst",
-            "alpine", "sh", "-c", "rm -rf /dst/postgres && cp -a /src /dst/postgres",
-        ], capture=True)
+        run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{init_project}_postgres-data:/src:ro",
+                "-v",
+                f"{DB_CACHE_VOLUME}:/dst",
+                "alpine",
+                "sh",
+                "-c",
+                "rm -rf /dst/postgres && cp -a /src /dst/postgres",
+            ],
+            capture=True,
+        )
 
         # Snapshot ClickHouse
         ch = f"{init_project}-clickhouse-1"
-        if run(["docker", "exec", ch, "clickhouse-client", "--query",
-                "BACKUP DATABASE posthog TO Disk('sandbox_cache', 'posthog/')"], check=False, capture=True).returncode != 0:
+        if (
+            run(
+                [
+                    "docker",
+                    "exec",
+                    ch,
+                    "clickhouse-client",
+                    "--query",
+                    "BACKUP DATABASE posthog TO Disk('sandbox_cache', 'posthog/')",
+                ],
+                check=False,
+                capture=True,
+            ).returncode
+            != 0
+        ):
             fatal("ClickHouse backup failed during cache init.")
 
         # Record migration versions for staleness detection
-        run([
-            "docker", "run", "--rm",
-            "-v", f"{init_worktree}:/src:ro",
-            "-v", f"{DB_CACHE_VOLUME}:/dst",
-            "alpine", "sh", "-c", """
+        run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{init_worktree}:/src:ro",
+                "-v",
+                f"{DB_CACHE_VOLUME}:/dst",
+                "alpine",
+                "sh",
+                "-c",
+                """
                 mkdir -p /dst/migrations
                 find /src -name max_migration.txt -not -path '*/node_modules/*' | while read f; do
                     key=$(echo "$f" | sed 's|^/src/||;s|/max_migration.txt||;s|/|__|g')
@@ -611,7 +750,9 @@ def init_cache_from_master() -> None:
                 done
                 touch /dst/.cache-ready
             """,
-        ], capture=True)
+            ],
+            capture=True,
+        )
     finally:
         _init_cache_cleanup(init_port, init_worktree)
 
@@ -625,10 +766,15 @@ def check_migration_staleness(worktree_path: str) -> str | None:
     """
     result = run(
         [
-            "docker", "run", "--rm",
-            "-v", f"{DB_CACHE_VOLUME}:/cache:ro",
-            "alpine", "sh", "-c",
-            'for f in /cache/migrations/*; do '
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{DB_CACHE_VOLUME}:/cache:ro",
+            "alpine",
+            "sh",
+            "-c",
+            "for f in /cache/migrations/*; do "
             '  key=$(basename "$f"); '
             '  num=$(grep -oE "^[0-9]+" "$f" 2>/dev/null || echo 0); '
             '  printf "%s\\t%s\\n" "$key" "$num"; '
@@ -700,49 +846,77 @@ def _wait_for_clickhouse(project: str, timeout: int = 120) -> None:
     container = f"{project}-clickhouse-1"
     attempts = timeout // 2
     result = run(
-        ["docker", "exec", container, "sh", "-c",
-         f"for i in $(seq 1 {attempts}); do "
-         "clickhouse-client --query 'SELECT 1' 2>/dev/null && exit 0; "
-         "sleep 2; done; exit 1"],
-        check=False, capture=True,
+        [
+            "docker",
+            "exec",
+            container,
+            "sh",
+            "-c",
+            f"for i in $(seq 1 {attempts}); do "
+            "clickhouse-client --query 'SELECT 1' 2>/dev/null && exit 0; "
+            "sleep 2; done; exit 1",
+        ],
+        check=False,
+        capture=True,
     )
     if result.returncode != 0:
         warn("ClickHouse did not become ready within timeout -- continuing anyway.")
 
 
 def _restore_and_start(
-    project: str, port: int, worktree_path: str, use_cache: bool
+    project: str,
+    port: int,
+    worktree_path: str,
+    use_cache: bool,
+    profiles: list[str] | None = None,
 ) -> None:
     """Restore databases from cache (if available) and bring up the stack."""
     vite_port = port + 1000
 
     if not use_cache:
         info("Building and starting containers...")
-        compose(project, port, worktree_path, "up", "-d", "--build", capture=True)
+        compose(project, port, worktree_path, "up", "-d", "--build", capture=True, profiles=profiles)
         return
 
     # Restore postgres from volume snapshot
     info("Restoring Postgres from cache...")
-    run([
-        "docker", "run", "--rm",
-        "-v", f"{DB_CACHE_VOLUME}:/src:ro",
-        "-v", f"{project}_postgres-data:/dst",
-        "alpine", "sh", "-c", "cp -a /src/postgres/. /dst/",
-    ], capture=True)
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{DB_CACHE_VOLUME}:/src:ro",
+            "-v",
+            f"{project}_postgres-data:/dst",
+            "alpine",
+            "sh",
+            "-c",
+            "cp -a /src/postgres/. /dst/",
+        ],
+        capture=True,
+    )
 
     # Start infra first — we need ClickHouse up before restoring its backup,
     # and both must finish before the app runs migrations.
     info("Starting infrastructure...")
-    compose(project, port, worktree_path, "up", "-d", *INFRA_SERVICES, capture=True)
+    compose(project, port, worktree_path, "up", "-d", *INFRA_SERVICES, capture=True, profiles=profiles)
 
     _wait_for_clickhouse(project)
 
     info("Restoring ClickHouse from cache...")
     ch = f"{project}-clickhouse-1"
     result = run(
-        ["docker", "exec", ch, "clickhouse-client", "--query",
-         "RESTORE DATABASE posthog FROM Disk('sandbox_cache', 'posthog/')"],
-        check=False, capture=True,
+        [
+            "docker",
+            "exec",
+            ch,
+            "clickhouse-client",
+            "--query",
+            "RESTORE DATABASE posthog FROM Disk('sandbox_cache', 'posthog/')",
+        ],
+        check=False,
+        capture=True,
     )
     if result.returncode == 0:
         info("ClickHouse restored.")
@@ -753,12 +927,15 @@ def _restore_and_start(
     # may not match the branch's extension, causing check_ducklake_up to
     # spin forever. It gets recreated automatically on first boot.
     db = f"{project}-db-1"
-    run(["docker", "exec", db, "psql", "-U", "posthog", "-c", "DROP DATABASE IF EXISTS ducklake"],
-        check=False, capture=True)
+    run(
+        ["docker", "exec", db, "psql", "-U", "posthog", "-c", "DROP DATABASE IF EXISTS ducklake"],
+        check=False,
+        capture=True,
+    )
 
     # Now start the app + proxy on top of restored infra
     info("Building and starting app...")
-    compose(project, port, worktree_path, "up", "-d", "--build", capture=True)
+    compose(project, port, worktree_path, "up", "-d", "--build", capture=True, profiles=profiles)
 
 
 # ---------------------------------------------------------------------------
@@ -791,7 +968,8 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
 
     # Atomically allocate a port and register — prevents races between
     # concurrent `sandbox create` calls.
-    entry = registry.allocate(branch, slug, worktree_path)
+    intents = os.environ.get("SANDBOX_INTENTS", "product_analytics")
+    entry = registry.allocate(branch, slug, worktree_path, intents=intents)
     port = entry.port
     _ensure_cache_volumes()
     _ensure_jetbrains()
@@ -815,7 +993,10 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
             if choice == "f":
                 use_cache = False
 
-    _restore_and_start(project, port, worktree_path, use_cache)
+    profiles = resolve_docker_profiles(intents)
+    if profiles:
+        info(f"Docker profiles: {', '.join(profiles)}")
+    _restore_and_start(project, port, worktree_path, use_cache, profiles=profiles)
 
     info("Waiting for PostHog to start...")
     if not wait_for_health(f"http://localhost:{port}/_health", f"{project}-app-1"):
@@ -840,9 +1021,12 @@ def cmd_start(branch: str) -> None:
     entry = _require_registered(registry, branch)
     project = project_name(entry.slug)
     vite_port = entry.port + 1000
+    profiles = resolve_docker_profiles(entry.intents)
 
     info(f"Starting sandbox '{project}' on port {entry.port} (Vite: {vite_port})...")
-    compose(project, entry.port, entry.worktree, "up", "-d", capture=True)
+    if profiles:
+        info(f"Docker profiles: {', '.join(profiles)}")
+    compose(project, entry.port, entry.worktree, "up", "-d", capture=True, profiles=profiles)
 
     # Clear stale progress from the previous boot
     run(["docker", "exec", f"{project}-app-1", "rm", "-f", "/tmp/sandbox-progress"], check=False, capture=True)
@@ -864,9 +1048,10 @@ def cmd_stop(branch: str) -> None:
     registry = Registry()
     entry = _require_registered(registry, branch)
     project = project_name(entry.slug)
+    profiles = resolve_docker_profiles(entry.intents)
 
     info(f"Stopping sandbox '{project}'...")
-    compose(project, entry.port, entry.worktree, "stop", capture=True)
+    compose(project, entry.port, entry.worktree, "stop", capture=True, profiles=profiles)
     success("Sandbox stopped. Volumes preserved.")
 
 
@@ -880,8 +1065,12 @@ def cmd_destroy(branch: str) -> None:
 
     warn(f"Destroying sandbox '{project}'...")
 
-    # Tear down containers and per-sandbox volumes
-    compose(project, port, worktree, "down", "-v", check=False, capture=True)
+    # Tear down containers and per-sandbox volumes — pass all possible profiles
+    # so profile-gated services are included in the teardown. When the registry
+    # entry is missing, derive profiles from the compose file to ensure nothing
+    # is orphaned.
+    profiles = resolve_docker_profiles(entry.intents) if entry else sorted(_all_sandbox_profiles())
+    compose(project, port, worktree, "down", "-v", check=False, capture=True, profiles=profiles)
 
     # Remove worktree — containers may have created root-owned files,
     # so we use a container to delete, then rmdir the empty directory.
@@ -891,9 +1080,19 @@ def cmd_destroy(branch: str) -> None:
             info("Worktree is the main repo — skipping directory cleanup.")
         else:
             run(
-                ["docker", "run", "--rm", "-v", f"{entry.worktree}:/cleanup",
-                 "alpine", "sh", "-c", "find /cleanup -mindepth 1 -delete"],
-                check=False, capture=True,
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{entry.worktree}:/cleanup",
+                    "alpine",
+                    "sh",
+                    "-c",
+                    "find /cleanup -mindepth 1 -delete",
+                ],
+                check=False,
+                capture=True,
             )
             try:
                 Path(entry.worktree).rmdir()
@@ -918,10 +1117,18 @@ def cmd_list() -> None:
 
     for branch, entry in entries.items():
         project = project_name(entry.slug)
+        profiles = resolve_docker_profiles(entry.intents)
         result = compose(
-            project, entry.port, entry.worktree,
-            "ps", "--status", "running", "-q",
-            check=False, capture=True,
+            project,
+            entry.port,
+            entry.worktree,
+            "ps",
+            "--status",
+            "running",
+            "-q",
+            check=False,
+            capture=True,
+            profiles=profiles,
         )
         running = len(result.stdout.strip().splitlines()) if result.stdout.strip() else 0
         status = "running" if running > 0 else "stopped"
@@ -942,7 +1149,7 @@ def cmd_code(branch: str) -> None:
     if not code_cmd:
         info("VSCode 'code' CLI not found on PATH.")
         info("Install it from VSCode: Ctrl+Shift+P → 'Shell Command: Install code command'")
-        info(f"Then run: code --folder-uri \"{uri}\"")
+        info(f'Then run: code --folder-uri "{uri}"')
         return
 
     info(f"Opening VSCode attached to {container}...")
@@ -955,6 +1162,7 @@ def cmd_idea(branch: str) -> None:
     ssh_port = entry.port + 2000
 
     from urllib.parse import quote
+
     uri = (
         f"jetbrains-gateway://connect#type=ssh&deploy=false"
         f"&host=localhost&port={ssh_port}&user=sandbox"
@@ -982,11 +1190,23 @@ def cmd_shell(branch: str) -> None:
     container = f"sandbox-{entry.slug}-app-1"
 
     info(f"Attaching to mprocs in {container}... (detach with Ctrl-b d)")
-    os.execvp("docker", [
-        "docker", "exec", "-it", "-u", f"{os.getuid()}:{os.getgid()}",
-        container,
-        "tmux", "-L", "sandbox", "attach-session", "-t", "posthog",
-    ])
+    os.execvp(
+        "docker",
+        [
+            "docker",
+            "exec",
+            "-it",
+            "-u",
+            f"{os.getuid()}:{os.getgid()}",
+            container,
+            "tmux",
+            "-L",
+            "sandbox",
+            "attach-session",
+            "-t",
+            "posthog",
+        ],
+    )
 
 
 def cmd_logs(branch: str) -> None:

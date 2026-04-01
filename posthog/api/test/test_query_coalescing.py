@@ -9,6 +9,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 from redis.exceptions import RedisError
+from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog import redis as posthog_redis
 from posthog.api.query_coalescer import (
@@ -201,6 +202,40 @@ class TestQueryCoalescer(TestCase):
         after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
         self.assertEqual(after, before + 1)
 
+    def test_new_leader_preserves_done_key_from_previous_round(self):
+        """A new leader acquiring the lock must not delete the
+        done_key stored by the previous leader, otherwise followers of the
+        previous round will see no data."""
+        leader_a = QueryCoalescer(self.key)
+        leader_a.try_acquire()
+        leader_a.store_success_response(200, b'{"ok": true}', "application/json")
+        leader_a.cleanup()
+
+        # Leader B acquires the same key (simulates a new identical request)
+        leader_b = QueryCoalescer(self.key)
+        leader_b.try_acquire()
+
+        # A lingering follower from round A should still be able to read the done_key
+        follower_a = QueryCoalescer(self.key)
+        result = follower_a.get_success_response()
+        assert result is not None, "done_key was deleted by new leader"
+        self.assertEqual(result["status"], 200)
+        leader_b.cleanup()
+
+    def test_signal_error_stores_error_key_for_polling(self):
+        """signal_error() must store an error marker in Redis so that
+        late-subscribing followers can detect it via polling instead of
+        hitting the crash timeout."""
+        leader = QueryCoalescer(self.key)
+        leader.try_acquire()
+        leader.signal_error()
+        leader.cleanup()
+
+        follower = QueryCoalescer(self.key)
+        error_value = self.redis.get(f"{ERROR_KEY_PREFIX}:{self.key}")
+        assert error_value is not None, "signal_error did not store error_key"
+        self.assertIsNone(follower.get_success_response())
+
     # -- Redis failure --
 
     def test_redis_failure_on_acquire_raises(self):
@@ -392,6 +427,53 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["detail"], "Internal server error")
+
+    def test_follower_permission_denied_returns_403_not_500(self):
+        mock_coalescer = mock.MagicMock()
+        mock_coalescer.try_acquire.return_value = False
+        mock_coalescer._dry_run = False
+        mock_coalescer.wait_for_signal.return_value = CoalesceSignal.DONE
+        mock_coalescer.get_success_response.return_value = {
+            "status": 200,
+            "body": '{"results": [["test_event"]]}',
+            "content_type": "application/json",
+        }
+
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer),
+            mock.patch(
+                "posthog.api.query.QueryViewSet.check_permissions",
+                side_effect=PermissionDenied(),
+            ),
+        ):
+            response = self.client.post(self._query_url(), self._query_payload())
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_follower_throttled_still_serves_cached_response(self):
+        mock_coalescer = mock.MagicMock()
+        mock_coalescer.try_acquire.return_value = False
+        mock_coalescer._dry_run = False
+        mock_coalescer.wait_for_signal.return_value = CoalesceSignal.DONE
+        mock_coalescer.get_success_response.return_value = {
+            "status": 200,
+            "body": '{"results": [["test_event"]]}',
+            "content_type": "application/json",
+        }
+
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer),
+            mock.patch(
+                "posthog.api.query.QueryViewSet.check_throttles",
+                side_effect=Throttled(),
+            ),
+        ):
+            response = self.client.post(self._query_url(), self._query_payload())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["results"], [["test_event"]])
 
     @parameterized.expand(
         [

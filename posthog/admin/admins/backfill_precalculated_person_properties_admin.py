@@ -19,8 +19,15 @@ class BackfillPrecalculatedPersonPropertiesForm(forms.Form):
     batch_size = forms.IntegerField(
         initial=1000,
         min_value=100,
-        help_text="Number of persons to process per batch using cursor-based pagination",
+        help_text="Number of persons to process per batch using ID-range based batching",
         label="Batch size",
+    )
+    concurrent_workflows = forms.IntegerField(
+        initial=5,
+        min_value=1,
+        max_value=10,
+        help_text="Number of concurrent child workflows to run (1-10, default: 5)",
+        label="Concurrent workflows",
     )
 
 
@@ -43,6 +50,7 @@ def backfill_precalculated_person_properties_view(request):
                 command_args.extend(["--cohort-id", str(form.cleaned_data["cohort_id"])])
 
             command_args.extend(["--batch-size", str(form.cleaned_data["batch_size"])])
+            command_args.extend(["--concurrent-workflows", str(form.cleaned_data["concurrent_workflows"])])
 
             try:
                 call_command("backfill_precalculated_person_properties", *command_args)
@@ -56,8 +64,8 @@ def backfill_precalculated_person_properties_view(request):
                     request,
                     f"Backfill started successfully for {cohort_info} "
                     f"(team {form.cleaned_data['team_id']}) "
-                    f"using cursor-based pagination with {form.cleaned_data['batch_size']} persons per batch. "
-                    f"The workflow processes persons sequentially to avoid memory issues. "
+                    f"using ID-range based batching with {form.cleaned_data['batch_size']} persons per batch "
+                    f"and {form.cleaned_data['concurrent_workflows']} concurrent workflows. "
                     f"Check Temporal UI for progress.",
                 )
             except Exception as e:

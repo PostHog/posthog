@@ -162,7 +162,7 @@ class TestBuildExecPrefix(TestCase):
 
 @override_settings(DEBUG=True, SANDBOX_PROVIDER="modal")
 class TestModalSandboxAgentShWrapping(TestCase):
-    def test_command_always_wrapped_with_agentsh_exec(self):
+    def test_command_without_domains_skips_agentsh_exec(self):
         from products.tasks.backend.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
@@ -172,9 +172,10 @@ class TestModalSandboxAgentShWrapping(TestCase):
             run_id="test-run",
             mode="background",
         )
-        self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        self.assertIn("env -0 > /tmp/agent-env", cmd)
-        self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
+        self.assertNotIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
+        self.assertNotIn("env -0 > /tmp/agent-env", cmd)
+        self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
+        self.assertIn("nohup", cmd)
 
     def test_command_includes_allowed_domains(self):
         from products.tasks.backend.services.modal_sandbox import ModalSandbox
@@ -187,5 +188,8 @@ class TestModalSandboxAgentShWrapping(TestCase):
             mode="background",
             allowed_domains=["example.com", "api.example.com"],
         )
+        self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
+        self.assertIn("env -0 > /tmp/agent-env", cmd)
+        self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)
