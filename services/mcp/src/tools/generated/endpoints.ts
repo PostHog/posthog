@@ -168,7 +168,7 @@ const EndpointRunSchema = EndpointsRunCreateParams.omit({ project_id: true }).ex
     EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true }).shape
 )
 
-const endpointRun = (): ToolBase<typeof EndpointRunSchema, unknown> => ({
+const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schemas.EndpointRunResponse>> => ({
     name: 'endpoint-run',
     schema: EndpointRunSchema,
     handler: async (context: Context, params: z.infer<typeof EndpointRunSchema>) => {
@@ -186,12 +186,12 @@ const endpointRun = (): ToolBase<typeof EndpointRunSchema, unknown> => ({
         if (params.variables !== undefined) {
             body['variables'] = params.variables
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.EndpointRunResponse>({
             method: 'POST',
             path: `/api/projects/${projectId}/endpoints/${params.name}/run/`,
             body,
         })
-        return result
+        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
     },
 })
 
@@ -199,7 +199,10 @@ const EndpointVersionsSchema = EndpointsVersionsListParams.omit({ project_id: tr
     EndpointsVersionsListQueryParams.shape
 )
 
-const endpointVersions = (): ToolBase<typeof EndpointVersionsSchema, Schemas.PaginatedEndpointVersionResponseList> => ({
+const endpointVersions = (): ToolBase<
+    typeof EndpointVersionsSchema,
+    WithPostHogUrl<Schemas.PaginatedEndpointVersionResponseList>
+> => ({
     name: 'endpoint-versions',
     schema: EndpointVersionsSchema,
     handler: async (context: Context, params: z.infer<typeof EndpointVersionsSchema>) => {
@@ -214,7 +217,16 @@ const endpointVersions = (): ToolBase<typeof EndpointVersionsSchema, Schemas.Pag
                 offset: params.offset,
             },
         })
-        return result
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    result.results.map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                ),
+            },
+            '/endpoints'
+        )
     },
 })
 

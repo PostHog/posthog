@@ -24,7 +24,6 @@ tools:
             Get all API endpoints in the current project. Endpoints expose saved HogQL or insight queries as callable
             API routes. Returns name, description, query, active status, current version, and materialization info for
             each endpoint.
-        mcp_version: 1
     endpoint-get:
         operation: endpoints_retrieve
         enabled: true
@@ -39,7 +38,6 @@ tools:
         description: >
             Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version
             info, materialization status, and column types. Supports ?version=N to retrieve a specific version.
-        mcp_version: 1
     endpoint-create:
         operation: endpoints_create
         enabled: true
@@ -105,6 +103,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{name}'
         title: Run endpoint
         description: >
             Execute an endpoint's query and return results. Uses materialized results when available, otherwise runs
@@ -130,11 +129,12 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{name}'
+        list: true
         title: Get endpoint versions
         description: >
             List all versions for an endpoint, in descending order (latest first). Each version contains the query
             snapshot, description, cache settings, and materialization status at that point in time.
-        mcp_version: 1
     endpoint-materialization-status:
         operation: endpoints_materialization_status_retrieve
         enabled: true
@@ -149,7 +149,6 @@ tools:
         description: >
             Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether
             materialization is possible, current status, last run time, and any errors. Supports ?version=N.
-        mcp_version: 1
     endpoints-update:
         operation: endpoints_update
         enabled: false

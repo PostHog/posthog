@@ -14,6 +14,7 @@ import type {
     EndpointRequestApi,
     EndpointResponseApi,
     EndpointRunRequestApi,
+    EndpointRunResponseApi,
     EndpointVersionResponseApi,
     EndpointsListParams,
     EndpointsVersionsListParams,
@@ -212,8 +213,12 @@ export const getEndpointsRunRetrieveUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/run/`
 }
 
-export const endpointsRunRetrieve = async (projectId: string, name: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEndpointsRunRetrieveUrl(projectId, name), {
+export const endpointsRunRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<EndpointRunResponseApi> => {
+    return apiMutator<EndpointRunResponseApi>(getEndpointsRunRetrieveUrl(projectId, name), {
         ...options,
         method: 'GET',
     })
@@ -231,8 +236,8 @@ export const endpointsRunCreate = async (
     name: string,
     endpointRunRequestApi: EndpointRunRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsRunCreateUrl(projectId, name), {
+): Promise<EndpointRunResponseApi> => {
+    return apiMutator<EndpointRunResponseApi>(getEndpointsRunCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

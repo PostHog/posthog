@@ -106,6 +106,7 @@ from products.endpoints.backend.serializers import (
     EndpointMaterializationSerializer,
     EndpointRequestSerializer,
     EndpointResponseSerializer,
+    EndpointRunResponseSerializer,
     EndpointVersionResponseSerializer,
 )
 
@@ -430,6 +431,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
         queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            results = [self._serialize(endpoint, request) for endpoint in page]
+            return self.get_paginated_response(results)
         results = [self._serialize(endpoint, request) for endpoint in queryset]
         return Response({"results": results})
 
@@ -1915,6 +1920,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         request=EndpointRunRequest,
+        responses={200: EndpointRunResponseSerializer},
         description="Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.",
     )
     @action(methods=["GET", "POST"], detail=True)
@@ -2057,9 +2063,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 endpoint.last_executed_at = now
                 endpoint.save(update_fields=["last_executed_at"])
 
-        if version_obj and isinstance(result.data, dict):
-            result.data["endpoint_version"] = version_obj.version
-            result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
+        if isinstance(result.data, dict):
+            result.data["name"] = endpoint.name
+            if version_obj:
+                result.data["endpoint_version"] = version_obj.version
+                result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
 
         return result
 
@@ -2191,10 +2199,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         Returns versions in descending order (latest first).
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
-        versions = endpoint.versions.all()
-
-        results = [self._serialize(v) for v in versions]
-        return Response(results)
+        versions_qs = endpoint.versions.all()
+        page = self.paginate_queryset(versions_qs)
+        if page is not None:
+            results = [self._serialize(v) for v in page]
+            return self.get_paginated_response(results)
+        results = [self._serialize(v) for v in versions_qs]
+        return Response({"results": results})
 
     @extend_schema(
         responses={200: EndpointMaterializationSerializer},

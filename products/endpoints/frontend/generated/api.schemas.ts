@@ -414,6 +414,22 @@ export interface MaterializationPreviewRequestApi {
 }
 
 /**
+ * Response from executing an endpoint query.
+ */
+export interface EndpointRunResponseApi {
+    /** URL-safe endpoint name that was executed. */
+    name: string
+    /** Query result rows. Each row is a list of values matching the columns order. */
+    results?: unknown[]
+    /** Column names from the query SELECT clause. */
+    columns?: string[]
+    /** Whether more results are available beyond the limit. */
+    hasMore?: boolean
+    /** Version number of the endpoint that was executed. */
+    endpoint_version?: number
+}
+
+/**
  * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
 
 For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
