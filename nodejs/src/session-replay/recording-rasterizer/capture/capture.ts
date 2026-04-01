@@ -64,8 +64,8 @@ export async function capturePlayback(
     let captureAborted: Error | null = null
     let captureAbortReject: ((err: Error) => void) | null = null
     recorder.on('captureStopped', () => {
-        log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'ffmpeg process exited unexpectedly')
-        const err = new RasterizationError('capture stopped unexpectedly (ffmpeg crashed)', true, 'CAPTURE_ABORTED')
+        log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
+        const err = new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
         captureAborted = err
         captureAbortReject?.(err)
     })

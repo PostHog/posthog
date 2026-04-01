@@ -82,7 +82,7 @@ services:
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENABLED: true
-            RECORDING_API_URL: http://plugins:6738
+            RECORDING_API_URL: http://recording-api:6738
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
@@ -117,7 +117,7 @@ services:
             OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
-            RECORDING_API_URL: http://plugins:6738
+            RECORDING_API_URL: http://recording-api:6738
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             OTEL_SERVICE_NAME: 'posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -144,20 +144,11 @@ services:
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
-            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
-            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
-            SESSION_RECORDING_V2_S3_TIMEOUT_MS: 120000
-            SESSION_RECORDING_API_REDIS_HOST: redis7
-            SESSION_RECORDING_API_REDIS_PORT: 6379
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
-            SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
-            LOGS_REDIS_HOST: redis7
-            LOGS_REDIS_PORT: 6379
-            LOGS_REDIS_TLS: 'false'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -188,6 +179,35 @@ services:
             - clickhouse
             - kafka
 
+    ingestion-sessionreplay:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-sessionreplay
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        environment:
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
+            SESSION_RECORDING_V2_S3_TIMEOUT_MS: 120000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
+            ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+        depends_on:
+            - db
+            - redis7
+            - kafka
+            - seaweedfs
+
+    recording-api:
+        extends:
+            file: docker-compose.base.yml
+            service: recording-api
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        environment:
+            ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+        depends_on:
+            - db
+            - redis7
+            - clickhouse
+
     ingestion-error-tracking:
         extends:
             file: docker-compose.base.yml
@@ -195,6 +215,26 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+        depends_on:
+            - db
+            - redis7
+            - kafka
+
+    ingestion-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-logs
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        depends_on:
+            - db
+            - redis7
+            - kafka
+
+    ingestion-traces:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-traces
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         depends_on:
             - db
             - redis7
@@ -232,7 +272,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: seaweedfs
+        container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
         restart: on-failure
+        ports:
+            - '127.0.0.1:8333:8333' # S3 API
+            - '127.0.0.1:9333:9333' # Master server
         volumes:
             - seaweedfs:/data
         healthcheck:

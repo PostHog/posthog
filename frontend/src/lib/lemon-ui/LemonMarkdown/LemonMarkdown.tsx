@@ -29,15 +29,44 @@ export interface LemonMarkdownProps {
     disableDocsRedirect?: boolean
     className?: string
     wrapCode?: boolean
+    /** Whether to generate id attributes on heading elements for anchor linking. */
+    generateHeadingIds?: boolean
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
+
+/** Generate a URL-safe slug from heading text content. */
+export function slugifyHeading(text: string): string {
+    return text
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+}
+
+export function extractTextFromChildren(children: React.ReactNode): string {
+    if (typeof children === 'string') {
+        return children
+    }
+    if (typeof children === 'number') {
+        return String(children)
+    }
+    if (Array.isArray(children)) {
+        return children.map(extractTextFromChildren).join('')
+    }
+    if (children && typeof children === 'object' && 'props' in children) {
+        return extractTextFromChildren((children as React.ReactElement).props.children)
+    }
+    return ''
+}
 
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
     wrapCode = false,
+    generateHeadingIds = false,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
@@ -106,9 +135,19 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                           ),
                       ])
                   )
-                : {}),
+                : generateHeadingIds
+                  ? Object.fromEntries(
+                        HEADING_TAGS.map((tag) => [
+                            tag,
+                            ({ children }: any): JSX.Element => {
+                                const id = slugifyHeading(extractTextFromChildren(children))
+                                return React.createElement(tag, { id }, children)
+                            },
+                        ])
+                    )
+                  : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode]
+        [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds]
     )
 
     return (
@@ -125,6 +164,7 @@ function LemonMarkdownComponent({
     lowKeyHeadings = false,
     disableDocsRedirect = false,
     wrapCode = false,
+    generateHeadingIds = false,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
@@ -133,6 +173,7 @@ function LemonMarkdownComponent({
                 lowKeyHeadings={lowKeyHeadings}
                 disableDocsRedirect={disableDocsRedirect}
                 wrapCode={wrapCode}
+                generateHeadingIds={generateHeadingIds}
             >
                 {children}
             </LemonMarkdownRenderer>

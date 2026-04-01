@@ -1,3 +1,5 @@
+"""This command will soon become obsolete as we migrate every materialization to v2 backend."""
+
 import time
 import logging
 

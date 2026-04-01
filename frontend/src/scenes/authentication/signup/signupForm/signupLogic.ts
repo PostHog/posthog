@@ -261,6 +261,7 @@ export const signupLogic = kea<signupLogicType>([
                     const error = e as Record<string, any>
 
                     if (error.code === 'challenge_required') {
+                        actions.setTurnstileToken(null)
                         actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
                         actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
                         actions.setChallengeRequired(true)
@@ -385,6 +386,7 @@ export const signupLogic = kea<signupLogicType>([
                     const error = e as Record<string, any>
 
                     if (error.code === 'challenge_required') {
+                        actions.setTurnstileToken(null)
                         actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
                         actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
                         actions.setChallengeRequired(true)

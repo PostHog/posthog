@@ -944,9 +944,15 @@ def execute_summarize_session_stream(
                 WorkflowExecutionStatus.TERMINATED,
                 WorkflowExecutionStatus.TIMED_OUT,
             ):
+                status_messages = {
+                    WorkflowExecutionStatus.FAILED: "Something went wrong while generating the summary. Please try again.",
+                    WorkflowExecutionStatus.CANCELED: "The summary generation was canceled.",
+                    WorkflowExecutionStatus.TERMINATED: "The summary generation was terminated unexpectedly. Please try again.",
+                    WorkflowExecutionStatus.TIMED_OUT: "The summary generation timed out. The recording may be too long or complex. Please try again.",
+                }
                 yield serialize_to_sse_event(
                     event_label="session-summary-error",
-                    event_data=f"Failed to generate summary: {status.name}",
+                    event_data=status_messages[status],
                 )
                 _clean_up_redis(redis_client, redis_input_key, redis_output_key)
                 return

@@ -1,3 +1,4 @@
+import cronstrue from 'cronstrue'
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconInfo, IconList, IconPause, IconPlay, IconToggle, IconTrash } from '@posthog/icons'
@@ -8,6 +9,7 @@ import {
     LemonCheckbox,
     LemonCollapse,
     LemonDivider,
+    LemonInput,
     LemonSelect,
     LemonSwitch,
     LemonTable,
@@ -48,9 +50,9 @@ export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
 type AggregationLabel = (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 
-/** A recurring schedule that has been paused retains its recurrence_interval but has is_recurring=false. */
+/** A recurring schedule that has been paused retains its recurrence config but has is_recurring=false. */
 function isSchedulePaused(sc: ScheduledChangeType): boolean {
-    return !sc.is_recurring && !!sc.recurrence_interval
+    return !sc.is_recurring && (!!sc.recurrence_interval || !!sc.cron_expression)
 }
 
 function getScheduledVariantsPayloads(
@@ -212,13 +214,30 @@ function ChangeDescription({
     return <span className="text-muted">{JSON.stringify(payload)}</span>
 }
 
+/** Try to produce a human-readable description from a cron expression, falling back to the raw string on error. */
+function describeCron(expr: string): string {
+    const fields = expr.trim().split(/\s+/)
+    if (fields.length !== 5) {
+        return 'Invalid cron expression'
+    }
+    try {
+        return cronstrue.toString(expr)
+    } catch {
+        return 'Invalid cron expression'
+    }
+}
+
 function ScheduleTiming({ scheduledChange }: { scheduledChange: ScheduledChangeType }): JSX.Element {
     const scheduledAt = dayjs(scheduledChange.scheduled_at)
     const formattedDate = scheduledAt.format(DAYJS_FORMAT)
     const timeStr = scheduledAt.format('h:mm A')
 
-    if (scheduledChange.recurrence_interval) {
-        let recurringDescription: string
+    // Determine the recurring description from either a cron expression or a fixed interval
+    let recurringDescription: string | null = null
+
+    if (scheduledChange.cron_expression) {
+        recurringDescription = describeCron(scheduledChange.cron_expression)
+    } else if (scheduledChange.recurrence_interval) {
         switch (scheduledChange.recurrence_interval) {
             case RecurrenceInterval.Daily:
                 recurringDescription = `Every day at ${timeStr}`
@@ -238,7 +257,9 @@ function ScheduleTiming({ scheduledChange }: { scheduledChange: ScheduledChangeT
             default:
                 recurringDescription = `Every ${scheduledChange.recurrence_interval}`
         }
+    }
 
+    if (recurringDescription) {
         if (isSchedulePaused(scheduledChange)) {
             return (
                 <Tooltip title={`Was: ${recurringDescription}. Resume to continue.`}>
@@ -341,15 +362,18 @@ function ScheduleCard({
 function FeatureFlagScheduleV2(): JSX.Element {
     const {
         featureFlag,
-        scheduledChanges,
         scheduledChangesLoading,
         scheduledChangeOperation,
         scheduleDateMarker,
         schedulePayload,
         schedulePayloadErrors,
         isRecurring,
-        recurrenceInterval,
+        cronExpression,
         endDate,
+        repeatsValue,
+        cronPreview,
+        activeSchedules,
+        completedSchedules,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -357,8 +381,8 @@ function FeatureFlagScheduleV2(): JSX.Element {
         setSchedulePayload,
         setScheduledChangeOperation,
         createScheduledChange,
-        setIsRecurring,
-        setRecurrenceInterval,
+        setCronExpression,
+        setRepeatsValue,
         setEndDate,
         stopRecurringScheduledChange,
         resumeRecurringScheduledChange,
@@ -380,38 +404,12 @@ function FeatureFlagScheduleV2(): JSX.Element {
 
     const supportsRecurring = RECURRING_SUPPORTED_OPERATIONS.has(scheduledChangeOperation)
 
-    // Partition schedules into groups
-    const activeRecurring = scheduledChanges.filter((sc: ScheduledChangeType) => sc.is_recurring && !sc.executed_at)
-    const pausedRecurring = scheduledChanges.filter(
-        (sc: ScheduledChangeType) => isSchedulePaused(sc) && !sc.executed_at
-    )
-    const upcomingOneTime = scheduledChanges.filter(
-        (sc: ScheduledChangeType) => !sc.is_recurring && !sc.recurrence_interval && !sc.executed_at
-    )
-    const completed = scheduledChanges.filter((sc: ScheduledChangeType) => !!sc.executed_at)
-
-    const activeSchedules = [...activeRecurring, ...pausedRecurring, ...upcomingOneTime]
-
     // Available change type options (gate UpdateVariants behind feature flag)
     const availableOptions = CHANGE_TYPE_OPTIONS.filter(
         (opt) =>
             opt.value !== ScheduledChangeOperationType.UpdateVariants ||
             (featureFlags[FEATURE_FLAGS.SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE] && featureFlag.filters.multivariate)
     )
-
-    // Single "Repeats" dropdown: "Does not repeat" maps to isRecurring=false, intervals map to isRecurring=true
-    const repeatsValue = isRecurring && recurrenceInterval ? recurrenceInterval : ('none' as const)
-
-    const handleRepeatsChange = (value: RecurrenceInterval | 'none'): void => {
-        if (value === 'none') {
-            setIsRecurring(false)
-            setRecurrenceInterval(null)
-            setEndDate(null)
-        } else {
-            setIsRecurring(true)
-            setRecurrenceInterval(value)
-        }
-    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -426,7 +424,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                     </div>
 
                     {/* Row 1: Change type + Date/Repeat controls */}
-                    <div className="flex flex-wrap gap-3 items-end">
+                    <div className="flex flex-wrap gap-3 items-start">
                         <div className="flex flex-col gap-1">
                             <label className="text-xs font-medium text-muted">Change type</label>
                             <LemonSelect<ScheduledChangeOperationType>
@@ -441,13 +439,28 @@ function FeatureFlagScheduleV2(): JSX.Element {
                             />
                         </div>
                         <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-muted">Date and time</label>
+                            <label className="text-xs font-medium text-muted">
+                                {repeatsValue === 'cron' ? (
+                                    <Tooltip title="Time is computed from the cron expression">
+                                        <span>Next run</span>
+                                    </Tooltip>
+                                ) : (
+                                    'Date and time'
+                                )}
+                            </label>
                             <LemonCalendarSelectInput
                                 value={scheduleDateMarker}
-                                onChange={(value) => setScheduleDateMarker(value)}
+                                onChange={(value) => {
+                                    setScheduleDateMarker(value)
+                                    if (repeatsValue === 'cron' && cronExpression && value) {
+                                        // Re-snap to the next cron match from the newly picked date
+                                        setCronExpression(cronExpression)
+                                    }
+                                }}
                                 placeholder="Select date"
                                 selectionPeriod="upcoming"
-                                granularity="minute"
+                                granularity={repeatsValue === 'cron' ? 'day' : 'minute'}
+                                format={repeatsValue === 'cron' ? 'MMMM D, YYYY' : undefined}
                                 clearable
                             />
                         </div>
@@ -458,16 +471,29 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                     <LemonSelect
                                         className="min-w-36"
                                         value={repeatsValue}
-                                        onChange={handleRepeatsChange}
+                                        onChange={setRepeatsValue}
                                         options={[
                                             { value: 'none' as const, label: 'Does not repeat' },
                                             { value: RecurrenceInterval.Daily, label: 'Daily' },
                                             { value: RecurrenceInterval.Weekly, label: 'Weekly' },
                                             { value: RecurrenceInterval.Monthly, label: 'Monthly' },
                                             { value: RecurrenceInterval.Yearly, label: 'Yearly' },
+                                            { value: 'cron' as const, label: 'Custom (cron)' },
                                         ]}
                                     />
                                 </div>
+                                {repeatsValue === 'cron' && (
+                                    <div className="flex flex-col gap-1 min-w-48">
+                                        <label className="text-xs font-medium text-muted">Cron expression</label>
+                                        <LemonInput
+                                            className="font-mono"
+                                            value={cronExpression ?? ''}
+                                            onChange={(value) => setCronExpression(value)}
+                                            placeholder="0 9 * * 1-5"
+                                        />
+                                        {cronPreview && <span className="text-xs text-muted">{cronPreview}</span>}
+                                    </div>
+                                )}
                                 {isRecurring && (
                                     <div className="flex flex-col gap-1">
                                         <label className="text-xs font-medium text-muted flex items-center gap-1">
@@ -509,12 +535,16 @@ function FeatureFlagScheduleV2(): JSX.Element {
                     {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
                         <div className="rounded border p-4 flex flex-col gap-2">
                             <p className="text-muted text-sm m-0">
-                                The flag will be switched to the status you select on the scheduled date.
+                                The flag will be <strong>{schedulePayload.active ? 'enabled' : 'disabled'}</strong>
+                                {scheduleDateMarker
+                                    ? ` on ${scheduleDateMarker.format(DAYJS_FORMAT)}`
+                                    : ' on the scheduled date'}
+                                .
                             </p>
                             <LemonSwitch
                                 checked={!!schedulePayload.active}
                                 onChange={(checked) => setSchedulePayload(null, checked)}
-                                label="Enable feature flag"
+                                label={schedulePayload.active ? 'Flag will be enabled' : 'Flag will be disabled'}
                                 bordered
                             />
                         </div>
@@ -600,6 +630,14 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         </LemonBanner>
                     )}
 
+                    {/* Hint when creating a recurring schedule on a flag with no other active schedules */}
+                    {isRecurring && activeSchedules.length === 0 && (
+                        <LemonBanner type="info">
+                            Recurring schedules work best when paired with a complementary schedule. For example, enable
+                            the flag on weekday mornings and disable it on Friday evenings.
+                        </LemonBanner>
+                    )}
+
                     <div className="flex items-center justify-end">
                         <LemonButton
                             type="primary"
@@ -607,14 +645,19 @@ function FeatureFlagScheduleV2(): JSX.Element {
                             disabledReason={
                                 !scheduleDateMarker
                                     ? 'Select the scheduled date and time'
-                                    : isRecurring && !recurrenceInterval
+                                    : isRecurring && repeatsValue === 'none'
                                       ? 'Select a repeat interval'
-                                      : hasFormErrors(schedulePayloadErrors)
-                                        ? 'Fix release condition errors'
-                                        : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
-                                            variantErrors.some((error) => error.key != null)
-                                          ? 'Fix schedule variant changes errors'
-                                          : undefined
+                                      : isRecurring && cronExpression !== null && cronExpression.trim() === ''
+                                        ? 'Enter a cron expression'
+                                        : repeatsValue === 'cron' && cronPreview === 'Invalid cron expression'
+                                          ? 'Enter a valid cron expression'
+                                          : hasFormErrors(schedulePayloadErrors)
+                                            ? 'Fix release condition errors'
+                                            : scheduledChangeOperation ===
+                                                    ScheduledChangeOperationType.UpdateVariants &&
+                                                variantErrors.some((error) => error.key != null)
+                                              ? 'Fix schedule variant changes errors'
+                                              : undefined
                             }
                         >
                             Schedule
@@ -651,16 +694,16 @@ function FeatureFlagScheduleV2(): JSX.Element {
                 </div>
             )}
 
-            {completed.length > 0 && (
+            {completedSchedules.length > 0 && (
                 <LemonCollapse
                     className="bg-bg-light"
                     panels={[
                         {
                             key: 'history',
-                            header: `History (${completed.length})`,
+                            header: `History (${completedSchedules.length})`,
                             content: (
                                 <div className="flex flex-col gap-2">
-                                    {completed.map((sc: ScheduledChangeType) => (
+                                    {completedSchedules.map((sc: ScheduledChangeType) => (
                                         <ScheduleCard
                                             key={sc.id}
                                             scheduledChange={sc}
@@ -678,7 +721,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                 />
             )}
 
-            {!scheduledChangesLoading && activeSchedules.length === 0 && completed.length === 0 && (
+            {!scheduledChangesLoading && activeSchedules.length === 0 && completedSchedules.length === 0 && (
                 <div className="rounded border border-dashed p-6 flex flex-col items-center gap-2 text-center">
                     <span className="text-muted text-sm">No scheduled changes yet</span>
                     {featureFlag.can_edit && (
@@ -1034,7 +1077,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                             <div className="border rounded p-4">
                                 <LemonCheckbox
                                     id="flag-enabled-checkbox"
-                                    label="Enable feature flag"
+                                    label={schedulePayload.active ? 'Flag will be enabled' : 'Flag will be disabled'}
                                     onChange={(value) => {
                                         setSchedulePayload(null, value)
                                     }}

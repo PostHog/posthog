@@ -729,7 +729,15 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, onRegionMapClick, zoomIntoPeriod, insightProps, query, showComparisonLabels])
+    }, [
+        onWorldMapClick,
+        onRegionMapClick,
+        zoomIntoPeriod,
+        insightProps,
+        query,
+        showComparisonLabels,
+        isDragToZoomEnabled,
+    ])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">

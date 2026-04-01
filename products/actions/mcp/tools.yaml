@@ -7,6 +7,13 @@
 category: Actions
 feature: actions
 url_prefix: /data-management/actions
+ui_apps:
+    action:
+        type: detail
+        view_prop: action
+    action-list:
+        type: list
+        detail_tool: action-get
 tools:
     actions-get-all:
         operation: actions_list
@@ -25,8 +32,7 @@ tools:
             conditions (page views, clicks, form submissions) into a single trackable event for use in insights and
             funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not
             supported on this endpoint.
-
-        ui_resource_uri: ui://posthog/action-list.html
+        ui_app: action-list
     action-create:
         operation: actions_create
         enabled: true
@@ -52,7 +58,7 @@ tools:
         param_overrides:
             name:
                 description: Name of the action (must be unique within the project)
-        ui_resource_uri: ui://posthog/action.html
+        ui_app: action
     action-get:
         operation: actions_retrieve
         enabled: true
@@ -67,8 +73,7 @@ tools:
         description: >
             Get a specific action by ID. Returns the action configuration including all steps and their trigger
             conditions.
-
-        ui_resource_uri: ui://posthog/action.html
+        ui_app: action
     actions-update:
         operation: actions_update
         enabled: false
@@ -91,7 +96,7 @@ tools:
             - bytecode_error
             - creation_context
             - last_calculated_at
-        ui_resource_uri: ui://posthog/action.html
+        ui_app: action
     action-delete:
         operation: actions_destroy
         enabled: true

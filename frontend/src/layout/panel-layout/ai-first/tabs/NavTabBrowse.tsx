@@ -188,7 +188,6 @@ export function NavTabBrowse(): JSX.Element {
     const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
-    const { loadRecentItems } = useActions(navRecentsLogic)
     const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
     const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
     const currentPath = removeProjectIdIfPresent(pathname)
@@ -326,9 +325,6 @@ export function NavTabBrowse(): JSX.Element {
                             section: 'recents',
                             is_open: !expandedNavSections.recents,
                         })
-                        if (!expandedNavSections.recents) {
-                            loadRecentItems({})
-                        }
                         toggleNavSection('recents')
                     }}
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
