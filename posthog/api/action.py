@@ -343,7 +343,8 @@ def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
 
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         experiments = (
-            Experiment.objects.filter(team_id=team.pk, deleted=False)
+            Experiment.objects.filter(team_id=team.pk)
+            .exclude(deleted=True)
             .select_related("created_by")
             .extra(where=[" OR ".join(exp_conditions)], params=[vars_json] * len(exp_conditions))
         )
