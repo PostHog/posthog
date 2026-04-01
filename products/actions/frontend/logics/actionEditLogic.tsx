@@ -16,10 +16,19 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, ActionType } from '~/types'
+import { ActionStepType, ActionType, UserBasicType } from '~/types'
 
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
+
+export interface ActionReference {
+    type: string
+    id: string
+    name: string
+    url: string
+    created_at: string | null
+    created_by: UserBasicType | null
+}
 
 export interface SetActionProps {
     merge?: boolean
@@ -174,7 +183,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             },
         ],
         references: [
-            [] as { type: string; id: string; name: string; url: string }[],
+            [] as ActionReference[],
             {
                 loadReferences: async () => {
                     if (!props.id) {

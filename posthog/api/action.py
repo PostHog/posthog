@@ -272,6 +272,8 @@ class ActionReferenceSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Resource ID (integer or UUID depending on type)")
     name = serializers.CharField(help_text="Resource name")
     url = serializers.CharField(help_text="Relative URL to the resource")
+    created_at = serializers.DateTimeField(help_text="When the resource was created", allow_null=True)
+    created_by = UserBasicSerializer(help_text="User who created the resource", allow_null=True)
 
 
 def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
@@ -287,17 +289,21 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
 
     # Insights: ActionsNode in query, actionId in EventsQuery, legacy filters
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    insights = Insight.objects.filter(team_id=team.pk, deleted=False).extra(
-        where=[
-            """
+    insights = (
+        Insight.objects.filter(team_id=team.pk, deleted=False)
+        .select_related("created_by")
+        .extra(
+            where=[
+                """
             jsonb_path_exists(query, '$.** ? (@.kind == "ActionsNode" && @.id == $id)', %s::jsonb)
             OR jsonb_path_exists(query, '$.** ? (@.kind == "ActionsNode" && @.id == $id_str)', %s::jsonb)
             OR jsonb_path_exists(query, '$.** ? (@.actionId == $id)', %s::jsonb)
             OR jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id_str)', %s::jsonb)
             OR jsonb_path_exists(filters, '$.** ? (@.type == "actions" && @.id == $id_str)', %s::jsonb)
             """
-        ],
-        params=[id_param, id_str_param, id_param, id_str_param, id_str_param],
+            ],
+            params=[id_param, id_str_param, id_param, id_str_param, id_str_param],
+        )
     )
     for insight in insights[:50]:
         refs.append(
@@ -306,6 +312,8 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
                 "id": str(insight.short_id),
                 "name": insight.name or insight.derived_name or "Unnamed",
                 "url": f"/insights/{insight.short_id}",
+                "created_at": insight.created_at,
+                "created_by": insight.created_by,
             }
         )
 
@@ -314,17 +322,21 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
         from products.experiments.backend.models.experiment import Experiment
 
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        experiments = Experiment.objects.filter(team_id=team.pk, deleted=False).extra(
-            where=[
-                """
+        experiments = (
+            Experiment.objects.filter(team_id=team.pk, deleted=False)
+            .select_related("created_by")
+            .extra(
+                where=[
+                    """
                 jsonb_path_exists(metrics, '$.** ? (@.kind == "ActionsNode" && @.id == $id)', %s::jsonb)
                 OR jsonb_path_exists(metrics, '$.** ? (@.kind == "ActionsNode" && @.id == $id_str)', %s::jsonb)
                 OR jsonb_path_exists(metrics_secondary, '$.** ? (@.kind == "ActionsNode" && @.id == $id)', %s::jsonb)
                 OR jsonb_path_exists(metrics_secondary, '$.** ? (@.kind == "ActionsNode" && @.id == $id_str)', %s::jsonb)
                 OR jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id_str)', %s::jsonb)
                 """
-            ],
-            params=[id_param, id_str_param, id_param, id_str_param, id_str_param],
+                ],
+                params=[id_param, id_str_param, id_param, id_str_param, id_str_param],
+            )
         )
         for exp in experiments[:50]:
             refs.append(
@@ -333,6 +345,8 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
                     "id": str(exp.id),
                     "name": exp.name or "Unnamed",
                     "url": f"/experiments/{exp.id}",
+                    "created_at": exp.created_at,
+                    "created_by": exp.created_by,
                 }
             )
     except ImportError:
@@ -340,14 +354,18 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
 
     # Cohorts: behavioral filters with event_type=actions
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    cohorts = Cohort.objects.filter(team__project_id=team.project_id, deleted=False).extra(
-        where=[
-            """
+    cohorts = (
+        Cohort.objects.filter(team__project_id=team.project_id, deleted=False)
+        .select_related("created_by")
+        .extra(
+            where=[
+                """
             jsonb_path_exists(filters, '$.** ? (@.event_type == "actions" && @.key == $id_str)', %s::jsonb)
             OR jsonb_path_exists(filters, '$.** ? (@.seq_event_type == "actions" && @.seq_event == $id_str)', %s::jsonb)
             """
-        ],
-        params=[id_str_param, id_str_param],
+            ],
+            params=[id_str_param, id_str_param],
+        )
     )
     for cohort in cohorts[:50]:
         refs.append(
@@ -356,19 +374,25 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
                 "id": str(cohort.id),
                 "name": cohort.name or "Unnamed",
                 "url": f"/cohorts/{cohort.id}",
+                "created_at": cohort.created_at,
+                "created_by": cohort.created_by,
             }
         )
 
     # Hog functions: filters.actions[].id
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    hog_functions = HogFunction.objects.filter(team_id=team.pk, deleted=False).extra(
-        where=[
-            """
+    hog_functions = (
+        HogFunction.objects.filter(team_id=team.pk, deleted=False)
+        .select_related("created_by")
+        .extra(
+            where=[
+                """
             jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id)', %s::jsonb)
             OR jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id_str)', %s::jsonb)
             """
-        ],
-        params=[id_param, id_str_param],
+            ],
+            params=[id_param, id_str_param],
+        )
     )
     for hf in hog_functions[:50]:
         refs.append(
@@ -377,6 +401,8 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
                 "id": str(hf.id),
                 "name": hf.name or "Unnamed",
                 "url": f"/functions/{hf.id}",
+                "created_at": hf.created_at,
+                "created_by": hf.created_by,
             }
         )
 

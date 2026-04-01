@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
@@ -15,8 +15,11 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -41,7 +44,7 @@ import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLo
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
-import { ActionEditLogicProps, DEFAULT_ACTION_STEP, actionEditLogic } from '../logics/actionEditLogic'
+import { ActionEditLogicProps, ActionReference, DEFAULT_ACTION_STEP, actionEditLogic } from '../logics/actionEditLogic'
 import { actionLogic } from '../logics/actionLogic'
 
 const RESOURCE_TYPE = 'action'
@@ -407,7 +410,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     )
 }
 
-const REFERENCES_PAGE_SIZE = 10
 const REFERENCE_TYPE_LABELS: Record<string, string> = {
     insight: 'Insight',
     experiment: 'Experiment',
@@ -415,48 +417,43 @@ const REFERENCE_TYPE_LABELS: Record<string, string> = {
     hog_function: 'Destination',
 }
 
-function ReferencesList({
-    references,
-}: {
-    references: { type: string; id: string; name: string; url: string }[]
-}): JSX.Element {
-    const [page, setPage] = useState(1)
-    const pageCount = Math.ceil(references.length / REFERENCES_PAGE_SIZE)
-    const pageItems = references.slice((page - 1) * REFERENCES_PAGE_SIZE, page * REFERENCES_PAGE_SIZE)
+const REFERENCES_COLUMNS: LemonTableColumns<ActionReference> = [
+    {
+        title: 'Name',
+        dataIndex: 'name',
+        render: function RenderName(_, ref) {
+            return <LemonTableLink title={ref.name} to={ref.url} />
+        },
+    },
+    {
+        title: 'Type',
+        dataIndex: 'type',
+        render: function RenderType(_, ref) {
+            return REFERENCE_TYPE_LABELS[ref.type] ?? ref.type
+        },
+    },
+    createdByColumn() as LemonTableColumns<ActionReference>[number],
+    createdAtColumn() as LemonTableColumns<ActionReference>[number],
+]
+
+function ReferencesList({ references }: { references: ActionReference[] }): JSX.Element {
+    const [search, setSearch] = useState('')
+    const filtered = useMemo(
+        () =>
+            search
+                ? references.filter(
+                      (ref) =>
+                          ref.name.toLowerCase().includes(search.toLowerCase()) ||
+                          (REFERENCE_TYPE_LABELS[ref.type] ?? ref.type).toLowerCase().includes(search.toLowerCase())
+                  )
+                : references,
+        [references, search]
+    )
 
     return (
         <div className="space-y-2">
-            <ul className="space-y-1 list-disc pl-4">
-                {pageItems.map((ref) => (
-                    <li key={`${ref.type}-${ref.id}`}>
-                        <span className="font-medium">{REFERENCE_TYPE_LABELS[ref.type] ?? ref.type}</span>:{' '}
-                        <Link to={ref.url}>{ref.name}</Link>
-                    </li>
-                ))}
-            </ul>
-            {pageCount > 1 && (
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        disabledReason={page <= 1 ? 'No previous page' : undefined}
-                        onClick={() => setPage(page - 1)}
-                    >
-                        Previous
-                    </LemonButton>
-                    <span className="text-xs text-secondary">
-                        {page} of {pageCount}
-                    </span>
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        disabledReason={page >= pageCount ? 'No next page' : undefined}
-                        onClick={() => setPage(page + 1)}
-                    >
-                        Next
-                    </LemonButton>
-                </div>
-            )}
+            <LemonInput type="search" placeholder="Search..." value={search} onChange={setSearch} />
+            <LemonTable dataSource={filtered} columns={REFERENCES_COLUMNS} pagination={{ pageSize: 10 }} />
         </div>
     )
 }
