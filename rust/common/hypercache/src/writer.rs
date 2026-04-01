@@ -16,7 +16,7 @@ const REDIS_FORMAT: RedisValueFormat = RedisValueFormat::Pickle;
 
 /// Multi-tier cache writer for PostHog, matching Django's HyperCache write behavior.
 ///
-/// Writes to Redis (primary, pickle-serialized + zstd-compressed) and S3 (fallback, raw JSON).
+/// Writes to Redis (primary, pickle-serialized, optionally zstd-compressed) and S3 (fallback, raw JSON).
 /// Uses the same key generation as `HyperCacheReader` via shared `HyperCacheConfig`.
 pub struct HyperCacheWriter {
     redis_client: Arc<dyn RedisClient + Send + Sync>,
