@@ -558,8 +558,24 @@ class SignalReportViewSet(
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
 
-class PauseUntilSerializer(serializers.Serializer):
+class PauseUntilRequestSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(help_text="Pause the grouping pipeline until this timestamp (ISO 8601).")
+
+
+class PauseResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Always 'paused'.")
+    paused_until = serializers.DateTimeField(help_text="The timestamp the pipeline is paused until.")
+
+
+class UnpauseResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Always 'unpaused'.")
+    was_paused = serializers.BooleanField(help_text="Whether the workflow was actually paused at the time of the call.")
+
+
+class PauseStateResponseSerializer(serializers.Serializer):
+    paused_until = serializers.DateTimeField(
+        allow_null=True, help_text="The timestamp the pipeline is paused until, or null if not paused/not running."
+    )
 
 
 class SignalGroupingPauseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -567,22 +583,22 @@ class SignalGroupingPauseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     scope_object = "INTERNAL"
 
-    @extend_schema(request=PauseUntilSerializer, responses={200: None})
+    @extend_schema(request=PauseUntilRequestSerializer, responses={200: PauseResponseSerializer})
     @action(methods=["POST"], detail=False, url_path="pause")
     def pause(self, request: Request, *args, **kwargs) -> Response:
-        serializer = PauseUntilSerializer(data=request.data)
+        serializer = PauseUntilRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         timestamp = serializer.validated_data["timestamp"]
         async_to_sync(TeamSignalGroupingV2Workflow.pause_until)(self.team.id, timestamp)
         return Response({"status": "paused", "paused_until": timestamp.isoformat()})
 
-    @extend_schema(request=None, responses={200: None})
+    @extend_schema(request=None, responses={200: UnpauseResponseSerializer})
     @action(methods=["POST"], detail=False, url_path="unpause")
     def unpause(self, request: Request, *args, **kwargs) -> Response:
         was_paused = async_to_sync(TeamSignalGroupingV2Workflow.unpause)(self.team.id)
         return Response({"status": "unpaused", "was_paused": was_paused})
 
-    @extend_schema(request=None, responses={200: None})
+    @extend_schema(request=None, responses={200: PauseStateResponseSerializer})
     @action(methods=["GET"], detail=False, url_path="state")
     def paused_state(self, request: Request, *args, **kwargs) -> Response:
         state = async_to_sync(TeamSignalGroupingV2Workflow.paused_state)(self.team.id)
