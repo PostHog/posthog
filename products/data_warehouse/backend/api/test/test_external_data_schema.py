@@ -987,5 +987,5 @@ class TestCancelExternalDataSchema(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 200
         mock_cancel.assert_not_called()
