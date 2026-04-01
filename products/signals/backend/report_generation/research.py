@@ -21,9 +21,20 @@ class SignalFinding(BaseModel):
     signal_id: str = Field(description="The signal_id from the input signal list")
     relevant_code_paths: list[str] = Field(
         description=(
-            "File paths in the codebase relevant to this signal. "
-            "Include paths to the feature/component the signal is about, "
-            "related posthog.capture() calls, and feature flag checks."
+            "File paths in the codebase relevant to this signal, ordered from most critical first. "
+            "The first path should be the highest-impact file (e.g. the buggy module or core feature file). "
+            "Then include supporting paths."
+        ),
+    )
+    relevant_commit_hashes: dict[str, str] = Field(
+        default_factory=dict,
+        json_schema_extra={"minProperties": 1},
+        description=(
+            "A mapping of 'git commit short SHA (7 characters)' -> 'reason'. "
+            "Values are short explanations of WHY each commit is relevant. "
+            "Use `git blame` on the most critical code paths to identify commits that caused, or are most closely related to, "
+            "the issue described by this report. Prioritize causative commits "
+            "(e.g. the commit that introduced a bug) over general authorship commits. Include 1-5 commits."
         ),
     )
     data_queried: str = Field(
@@ -238,11 +249,12 @@ _RESEARCH_PROTOCOL = """## Research protocol
 For each signal, find **code evidence** and **data evidence**:
 
 - **Code:** Trace the code path behind the signal's claim — find the relevant files, read the implementation, and understand how the logic actually works. Even if the signal doesn't mention specific files, search for the feature/component and dig in. Also look for `posthog.capture` calls or feature flag checks nearby — these show what the team tracks and gates, which helps gauge importance.
+- **Git blame:** Once you've identified the most critical code paths, run `git blame` on the key files/regions to find the commits most relevant to this signal. Prioritize causative commits (e.g. the commit that introduced a bug or changed behavior) over general authorship. If no causative commit is clear, include the commits that authored the bulk of the relevant code.
 - **Data:** Use PostHog MCP tools (`execute-sql`, `query-run`, `read-data-schema`, etc.) to check real impact — error rates, user counts, conversion metrics. If the signal references a specific insight, experiment, or feature flag, look it up directly.
 
 Cross-reference code and data — does the data corroborate what the code suggests?
 
-**Budget:** Spend no more than ~8 tool calls per signal. If you can't verify a signal's claim after that, mark it unverified and move on."""
+**Budget:** Spend no more than ~10 tool calls per signal. If you can't verify a signal's claim after that, mark it unverified and move on."""
 
 _ACTIONABILITY_CRITERIA = """## Actionability criteria
 

@@ -340,13 +340,29 @@ def simulate_detector_on_insight(
     detector_type_str = detector_config.get("type", "zscore")
     min_samples = _compute_min_samples_for_detector(detector_config)
 
+    # +1 because _drop_incomplete_current_interval removes the last point
+    min_samples_with_padding = min_samples + 1
+    min_date_from = _date_range_override_for_detector(trends_query, min_samples_with_padding)
+
     is_non_time_series = _is_non_time_series_trend(trends_query)
     if is_non_time_series:
         filters_override = None
     elif date_from:
-        filters_override = {"date_from": date_from}
+        # Use whichever goes further back: the user's range or the detector minimum.
+        # We parse both to absolute datetimes and pick the earlier one.
+        from zoneinfo import ZoneInfo
+
+        from posthog.utils import relative_date_parse
+
+        utc = ZoneInfo("UTC")
+        user_dt = relative_date_parse(date_from, utc)
+        min_dt = relative_date_parse(min_date_from["date_from"], utc) if min_date_from else None
+        if min_dt and min_dt < user_dt:
+            filters_override = min_date_from
+        else:
+            filters_override = {"date_from": date_from}
     else:
-        filters_override = _date_range_override_for_detector(trends_query, min_samples)
+        filters_override = min_date_from
 
     execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
     if trends_query.interval == IntervalType.HOUR:
