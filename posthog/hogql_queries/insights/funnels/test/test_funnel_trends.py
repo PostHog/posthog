@@ -54,7 +54,6 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             funnel_trends_drop_off=funnel_trends_drop_off,
         )
         return [actor[1] for actor in actors]
-        return [actor[1] for actor in actors]
 
     def _create_sample_data(self):
         # five people, three steps
