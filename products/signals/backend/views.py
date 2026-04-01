@@ -589,17 +589,24 @@ class SignalProcessingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         state = async_to_sync(TeamSignalGroupingV2Workflow.paused_state)(self.team.id)
         return Response({"paused_until": state.isoformat() if state else None})
 
-    @extend_schema(request=PauseUntilRequestSerializer, responses={200: PauseResponseSerializer})
-    @action(methods=["PUT"], detail=False, url_path="pause")
+    @extend_schema(
+        methods=["PUT"],
+        request=PauseUntilRequestSerializer,
+        responses={200: PauseResponseSerializer},
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={200: UnpauseResponseSerializer},
+    )
+    @action(methods=["PUT", "DELETE"], detail=False, url_path="pause")
     def pause(self, request: Request, *args, **kwargs) -> Response:
+        if request.method == "DELETE":
+            was_paused = async_to_sync(TeamSignalGroupingV2Workflow.unpause)(self.team.id)
+            return Response({"status": "unpaused", "was_paused": was_paused})
+
         serializer = PauseUntilRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         timestamp = serializer.validated_data["timestamp"]
         async_to_sync(TeamSignalGroupingV2Workflow.pause_until)(self.team.id, timestamp)
         return Response({"status": "paused", "paused_until": timestamp.isoformat()})
-
-    @pause.mapping.delete
-    @extend_schema(request=None, responses={200: UnpauseResponseSerializer})
-    def unpause(self, request: Request, *args, **kwargs) -> Response:
-        was_paused = async_to_sync(TeamSignalGroupingV2Workflow.unpause)(self.team.id)
-        return Response({"status": "unpaused", "was_paused": was_paused})
