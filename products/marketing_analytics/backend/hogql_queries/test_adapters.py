@@ -1140,6 +1140,33 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "BingAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "BingAdsAdapter should return list of errors"
 
+    @parameterized.expand(
+        [
+            ("total_impression", "_get_impressions_field"),
+            ("total_clickthrough", "_get_clicks_field"),
+            ("spend_in_dollar", "_get_cost_field"),
+        ]
+    )
+    def test_pinterest_ads_returns_zero_when_stats_column_missing(self, missing_column, field_method):
+        campaign_table = self._create_mock_table("pinterestads_campaigns", "PinterestAds")
+        stats_table = self._create_mock_table("pinterestads_campaign_analytics", "PinterestAds")
+        all_columns = ("total_impression", "total_clickthrough", "spend_in_dollar")
+        stats_table.columns = {col: {"valid": True} for col in all_columns if col != missing_column}
+
+        config = PinterestAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="PinterestAds",
+            source_id="test_missing_column",
+        )
+        adapter = PinterestAdsAdapter(config=config, context=self.context)
+        expr = getattr(adapter, field_method)()
+
+        assert isinstance(expr, ast.Call)
+        assert expr.name == "toFloat"
+        assert isinstance(expr.args[0], ast.Constant)
+        assert expr.args[0].value == 0
+
     def test_pinterest_ads_adapter_validation_consistency(self):
         campaign_table = self._create_mock_table("pinterestads_campaigns", "PinterestAds")
         stats_table = self._create_mock_table("pinterestads_campaign_analytics", "PinterestAds")
