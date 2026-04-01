@@ -53,8 +53,7 @@ class CodeInviteRedemptionInline(admin.TabularInline):
     model = CodeInviteRedemption
     extra = 0
     can_delete = False
-    readonly_fields = ("id", "redeemed_at")
-    autocomplete_fields = ("user", "organization")
+    readonly_fields = ("id", "user", "organization", "redeemed_at")
 
 
 class CodeInviteAdmin(admin.ModelAdmin):
@@ -101,5 +100,4 @@ class CodeInviteRedemptionAdmin(admin.ModelAdmin):
     list_display = ("invite_code", "user", "organization", "redeemed_at")
     list_filter = ("redeemed_at",)
     search_fields = ("user__email", "invite_code__code")
-    readonly_fields = ("id", "redeemed_at")
-    autocomplete_fields = ("invite_code", "user", "organization")
+    readonly_fields = ("id", "invite_code", "user", "organization", "redeemed_at")
