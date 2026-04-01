@@ -375,8 +375,9 @@ async def backfill_precalculated_person_properties_activity(
                     for filter_obj in filters:
                         # Execute the filter bytecode to get the result
                         try:
-                            # Execute bytecode with person properties
-                            result = execute_bytecode(filter_obj.bytecode, parsed_properties)
+                            hog_globals = {"person": {"properties": parsed_properties}}
+                            bytecode_result = execute_bytecode(filter_obj.bytecode, hog_globals)
+                            result = bytecode_result.result
 
                             # If filter matches, create an event for each cohort
                             if result:
