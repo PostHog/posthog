@@ -1,18 +1,23 @@
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import {
+    NotebookSelectButton,
+    NotebookSelectButtonProps,
+} from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { NotebookNodeType } from '../types'
 
-export default {
+type Story = StoryObj<NotebookSelectButtonProps>
+const meta: Meta<NotebookSelectButtonProps> = {
     title: 'Scenes-App/Notebooks/Components/Notebook Select Button',
     component: NotebookSelectButton,
     parameters: {
         mockDate: '2025-11-25 23:59:59',
     },
-} as Meta<typeof NotebookSelectButton>
+}
+export default meta
 
 const allNotebooks = [
     {
@@ -41,7 +46,7 @@ const allNotebooks = [
     },
 ]
 
-const Template: StoryFn<typeof NotebookSelectButton> = (props) => {
+const renderNotebookSelect = (props: any): JSX.Element => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/notebooks/': (req, res, ctx) => {
@@ -76,37 +81,47 @@ const Template: StoryFn<typeof NotebookSelectButton> = (props) => {
     )
 }
 
-export const Default = Template.bind({})
-Default.args = {
-    resource: { type: NotebookNodeType.Recording, attrs: { id: '123' } },
-    visible: true,
+export const Default: Story = {
+    render: renderNotebookSelect,
+    args: {
+        resource: { type: NotebookNodeType.Recording, attrs: { id: '123' } },
+        visible: true,
+    },
 }
 
-export const ClosedPopoverState = Template.bind({})
-ClosedPopoverState.args = {
-    resource: { type: NotebookNodeType.Recording, attrs: { id: '123' } },
-    visible: false,
+export const ClosedPopoverState: Story = {
+    render: renderNotebookSelect,
+    args: {
+        resource: { type: NotebookNodeType.Recording, attrs: { id: '123' } },
+        visible: false,
+    },
 }
 
-export const WithSlowNetworkResponse = Template.bind({})
-WithSlowNetworkResponse.args = {
-    resource: { type: NotebookNodeType.Recording, attrs: { id: 'very_slow' } },
-    visible: true,
+export const WithSlowNetworkResponse: Story = {
+    render: renderNotebookSelect,
+    args: {
+        resource: { type: NotebookNodeType.Recording, attrs: { id: 'very_slow' } },
+        visible: true,
+    },
 }
 
-export const WithNoExistingContainingNotebooks = Template.bind({})
-WithNoExistingContainingNotebooks.args = {
-    resource: { type: NotebookNodeType.Recording, attrs: { id: 'not_already_contained' } },
-    visible: true,
+export const WithNoExistingContainingNotebooks: Story = {
+    render: renderNotebookSelect,
+    args: {
+        resource: { type: NotebookNodeType.Recording, attrs: { id: 'not_already_contained' } },
+        visible: true,
+    },
 }
 
-export const WithNoNotebooks = Template.bind({})
-WithNoNotebooks.args = {
-    resource: { type: NotebookNodeType.Recording, attrs: { id: 'there_are_no_notebooks' } },
-    visible: true,
+export const WithNoNotebooks: Story = {
+    render: renderNotebookSelect,
+    args: {
+        resource: { type: NotebookNodeType.Recording, attrs: { id: 'there_are_no_notebooks' } },
+        visible: true,
+    },
 }
 
-const SessionTemplate: StoryFn<typeof NotebookSelectButton> = (props) => {
+const renderSessionNotebookSelect = (props: any): JSX.Element => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/notebooks/': () => {
@@ -178,8 +193,10 @@ const SessionTemplate: StoryFn<typeof NotebookSelectButton> = (props) => {
     )
 }
 
-export const WithSessionSummaryTitles: StoryFn<typeof NotebookSelectButton> = SessionTemplate.bind({}) as any
-WithSessionSummaryTitles.args = {
-    resource: { type: NotebookNodeType.Recording, attrs: { id: '123' } },
-    visible: true,
+export const WithSessionSummaryTitles: Story = {
+    render: renderSessionNotebookSelect,
+    args: {
+        resource: { type: NotebookNodeType.Recording, attrs: { id: '123' } },
+        visible: true,
+    },
 }

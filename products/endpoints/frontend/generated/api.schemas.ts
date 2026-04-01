@@ -387,6 +387,23 @@ export interface LogPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
+
+export const SpanPropertyFilterTypeApi = {
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+} as const
+
+export interface SpanPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: SpanPropertyFilterTypeApi
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type RevenueAnalyticsPropertyFilterApiType =
     (typeof RevenueAnalyticsPropertyFilterApiType)[keyof typeof RevenueAnalyticsPropertyFilterApiType]
 
@@ -427,6 +444,7 @@ export interface HogQLFiltersApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -846,6 +864,11 @@ export interface HogQLQueryApi {
     name?: string | null
     query: string
     response?: HogQLQueryResponseApi | null
+    /**
+     * Run the selected connection query directly without translating it through HogQL first
+     * @nullable
+     */
+    sendRawQuery?: boolean | null
     tags?: QueryLogTagsApi | null
     /**
      * Constant values that can be referenced with the {placeholder} syntax in the query
@@ -889,6 +912,7 @@ export const MultipleBreakdownTypeApi = {
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
     RevenueAnalytics: 'revenue_analytics',
 } as const
 
@@ -984,6 +1008,7 @@ export interface PropertyGroupFilterValueApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
     )[]
 }
@@ -1344,6 +1369,7 @@ export interface EventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -1393,6 +1419,7 @@ export interface EventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -1452,6 +1479,7 @@ export interface ActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -1495,6 +1523,7 @@ export interface ActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -1557,6 +1586,7 @@ export interface DataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -1601,6 +1631,7 @@ export interface DataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -1656,6 +1687,7 @@ export interface GroupNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -1709,6 +1741,7 @@ export interface GroupNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -1973,6 +2006,7 @@ export interface TrendsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -2058,6 +2092,7 @@ export interface FunnelExclusionEventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -2109,6 +2144,7 @@ export interface FunnelExclusionEventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -2169,6 +2205,7 @@ export interface FunnelExclusionActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -2214,6 +2251,7 @@ export interface FunnelExclusionActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -2414,6 +2452,7 @@ export interface FunnelsDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -2458,6 +2497,7 @@ export interface FunnelsDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -2519,6 +2559,7 @@ export interface FunnelsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -2692,6 +2733,7 @@ export interface RetentionEntityApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -2794,6 +2836,7 @@ export interface RetentionQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -2975,6 +3018,7 @@ export interface PathsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3119,6 +3163,7 @@ export interface StickinessQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3245,6 +3290,7 @@ export interface LifecycleDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -3288,6 +3334,7 @@ export interface LifecycleDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null
@@ -3352,6 +3399,7 @@ export interface LifecycleQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3693,6 +3741,11 @@ export interface EndpointRequestApi {
     bucket_overrides?: EndpointRequestApiBucketOverrides
     /** @nullable */
     cache_age_seconds?: number | null
+    /**
+     * Set to true to soft-delete this endpoint
+     * @nullable
+     */
+    deleted?: boolean | null
     /** @nullable */
     derived_from_insight?: string | null
     /** @nullable */
@@ -3724,6 +3777,21 @@ export interface EndpointRequestApi {
      * @nullable
      */
     version?: number | null
+}
+
+/**
+ * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+ * @nullable
+ */
+export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null | null
+
+export interface MaterializationPreviewRequestApi {
+    version?: number
+    /**
+     * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+     * @nullable
+     */
+    bucket_overrides?: MaterializationPreviewRequestApiBucketOverrides
 }
 
 /**
@@ -3768,6 +3836,7 @@ export interface DashboardFilterApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
           )[]
         | null

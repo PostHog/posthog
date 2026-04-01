@@ -17,35 +17,6 @@ export interface ExplainRequestApi {
 }
 
 /**
- * * `above` - Above
- * `below` - Below
- */
-export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
-
-export const ThresholdOperatorEnumApi = {
-    Above: 'above',
-    Below: 'below',
-} as const
-
-/**
- * * `not_firing` - Not firing
- * `firing` - Firing
- * `pending_resolve` - Pending resolve
- * `errored` - Errored
- * `snoozed` - Snoozed
- */
-export type LogsAlertConfigurationStateEnumApi =
-    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
-
-export const LogsAlertConfigurationStateEnumApi = {
-    NotFiring: 'not_firing',
-    Firing: 'firing',
-    PendingResolve: 'pending_resolve',
-    Errored: 'errored',
-    Snoozed: 'snoozed',
-} as const
-
-/**
  * * `engineering` - Engineering
  * `data` - Data
  * `product` - Product Management
@@ -103,6 +74,82 @@ export interface UserBasicApi {
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
+
+/**
+ * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
+ */
+export type LogsViewApiFilters = { [key: string]: unknown }
+
+export interface LogsViewApi {
+    readonly id: string
+    readonly short_id: string
+    /** @maxLength 400 */
+    name: string
+    /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+    filters?: LogsViewApiFilters
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsViewApi[]
+}
+
+/**
+ * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
+ */
+export type PatchedLogsViewApiFilters = { [key: string]: unknown }
+
+export interface PatchedLogsViewApi {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+    filters?: PatchedLogsViewApiFilters
+    pinned?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `above` - Above
+ * `below` - Below
+ */
+export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
+
+export const ThresholdOperatorEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+/**
+ * * `not_firing` - Not firing
+ * `firing` - Firing
+ * `pending_resolve` - Pending resolve
+ * `errored` - Errored
+ * `snoozed` - Snoozed
+ */
+export type LogsAlertConfigurationStateEnumApi =
+    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
+
+export const LogsAlertConfigurationStateEnumApi = {
+    NotFiring: 'not_firing',
+    Firing: 'firing',
+    PendingResolve: 'pending_resolve',
+    Errored: 'errored',
+    Snoozed: 'snoozed',
+} as const
 
 export interface LogsAlertConfigurationApi {
     readonly id: string
@@ -274,6 +321,17 @@ export interface PaginatedPluginLogEntryListApi {
     /** @nullable */
     previous?: string | null
     results: PluginLogEntryApi[]
+}
+
+export type LogsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type LogsAlertsListParams = {

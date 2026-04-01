@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -41,6 +42,11 @@ from posthog.models.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+
+TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention"
 
 
 def _create_signup_actions(team, user_and_timestamps):
@@ -93,6 +99,23 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
 
 
 class TestRetention(ClickhouseTestMixin, APIBaseTest):
+    def teardown_method(self, method) -> None:
+        if getattr(self, "cleanUpDataWarehouse", None):
+            self.cleanUpDataWarehouse()
+
+    def setup_data_warehouse_person_properties(self) -> str:
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "retention_extended_person_properties.csv",
+            table_name="extended_properties",
+            table_columns={
+                "email": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        return table.name
+
     def run_query(self, query):
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
@@ -3576,6 +3599,116 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     [0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0],
                     [1, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_retention_with_breakdown_with_data_warehouse_person_properties(self):
+        table_name = self.setup_data_warehouse_person_properties()
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=table_name,
+            joining_table_key="email",
+            field_name="extended_properties",
+        )
+
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "person1@example.com"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "person2@example.com"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"email": "person3@example.com"})
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(3)),
+                ("person2", _date(0)),
+                ("person2", _date(1)),
+                ("person2", _date(4)),
+                ("person3", _date(0)),
+                ("person3", _date(2)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {
+                    "breakdown": "extended_properties.email",
+                    "breakdown_type": "data_warehouse_person_property",
+                },
+            }
+        )
+
+        breakdown_values = {c.get("breakdown_value") for c in result}
+
+        self.assertEqual(
+            breakdown_values,
+            {"person1@example.com", "person2@example.com", "person3@example.com"},
+        )
+
+        person1_cohorts = pluck(
+            [c for c in result if c.get("breakdown_value") == "person1@example.com"],
+            "values",
+            "count",
+        )
+        self.assertEqual(
+            person1_cohorts,
+            pad(
+                [
+                    [1, 1, 0, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        person2_cohorts = pluck(
+            [c for c in result if c.get("breakdown_value") == "person2@example.com"],
+            "values",
+            "count",
+        )
+        self.assertEqual(
+            person2_cohorts,
+            pad(
+                [
+                    [1, 1, 0, 0, 1, 0],
+                    [1, 0, 0, 1, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        person3_cohorts = pluck(
+            [c for c in result if c.get("breakdown_value") == "person3@example.com"],
+            "values",
+            "count",
+        )
+        self.assertEqual(
+            person3_cohorts,
+            pad(
+                [
+                    [1, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
                 ]
             ),
         )

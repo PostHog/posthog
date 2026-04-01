@@ -6,14 +6,13 @@ from collections.abc import Sequence
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import Prefetch, Q, QuerySet, Sum
+from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
 from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
-from openai import APITimeoutError, RateLimitError
 from rest_framework import (
     pagination,
     serializers,
@@ -31,11 +30,13 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
+from posthog.models.person.person import Person
+from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.utils import relative_date_parse
 
+from products.conversations.backend.ai.suggest import NoMessagesError, suggest_reply
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.cache import (
     get_cached_unread_count,
@@ -49,7 +50,6 @@ from products.conversations.backend.events import (
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
-from products.conversations.backend.services.ai_suggest import NoMessagesError, suggest_reply
 
 from ee.models.rbac.role import Role
 
@@ -90,6 +90,7 @@ class TicketPersonSerializer(serializers.Serializer):
 class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
+    email_to = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
@@ -120,6 +121,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_team_id",
             "email_subject",
             "email_from",
+            "email_to",
             "person",
             "tags",
         ]
@@ -143,8 +145,15 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_team_id",
             "email_subject",
             "email_from",
+            "email_to",
             "person",
         ]
+
+    def get_email_to(self, obj: Ticket) -> str | None:
+        config = getattr(obj, "email_config", None)
+        if config is not None:
+            return config.from_email
+        return None
 
 
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -160,7 +169,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
-        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role")
+        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role", "email_config")
 
         status_param = self.request.query_params.get("status")
         if status_param:
@@ -248,7 +257,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             except json.JSONDecodeError:
                 pass
 
-        allowed_orderings = {"updated_at", "-updated_at", "sla_due_at", "-sla_due_at", "created_at", "-created_at"}
+        allowed_orderings = {
+            "updated_at",
+            "-updated_at",
+            "sla_due_at",
+            "-sla_due_at",
+            "created_at",
+            "-created_at",
+            "ticket_number",
+            "-ticket_number",
+        }
         order_by = self.request.query_params.get("order_by", "-updated_at")
         if order_by not in allowed_orderings:
             order_by = "-updated_at"
@@ -296,37 +314,14 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if not distinct_ids:
             return
 
-        # Query PersonDistinctId to get Person objects in a single batch
-        person_distinct_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(distinct_id__in=distinct_ids, team_id=self.team_id)
-            .prefetch_related(
-                Prefetch(
-                    "person",
-                    queryset=Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=self.team_id),
-                )
-            )
-        )
+        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
 
-        # Build distinct_id -> person mapping
         distinct_id_to_person: dict[str, Person] = {}
-        person_ids: set[int] = set()
-        for pdi in person_distinct_ids:
-            if pdi.person:
-                distinct_id_to_person[pdi.distinct_id] = pdi.person
-                person_ids.add(pdi.person.id)
-
-        # Batch-load all distinct_ids for all persons
-        if person_ids:
-            all_pdis = PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
-                person_id__in=person_ids, team_id=self.team_id
-            )
-            person_to_distinct_ids: dict[int, list[str]] = {}
-            for pdi in all_pdis:
-                person_to_distinct_ids.setdefault(pdi.person_id, []).append(pdi.distinct_id)
-
-            for person in distinct_id_to_person.values():
-                person._distinct_ids = person_to_distinct_ids.get(person.id, [])
+        distinct_ids_set = set(distinct_ids)
+        for person in persons:
+            for did in person.distinct_ids:
+                if did in distinct_ids_set:
+                    distinct_id_to_person[did] = person
 
         # Attach person to each ticket (dynamic attribute for serialization)
         for ticket in tickets:
@@ -528,7 +523,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         ticket = self.get_object()
 
         try:
-            reply_text = suggest_reply(ticket, self.team, request.user.distinct_id)
+            reply_text = suggest_reply(ticket, self.team, request.user)
             return Response({"suggestion": reply_text})
         except NoMessagesError:
             return Response(
@@ -545,25 +540,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except Exception as e:
-            # Check for specific error types
-            error_type = "unknown_error"
-            error_msg = "Failed to generate suggestion"
-
-            if isinstance(e, APITimeoutError):
-                error_type = "timeout"
-                error_msg = "AI service timed out. Please try again."
-            elif isinstance(e, RateLimitError):
-                error_type = "rate_limit"
-                error_msg = "AI service rate limit reached. Please try again in a moment."
-            else:
-                error_msg = "Failed to generate suggestion. Please try again."
-
             logger.exception(
                 "AI suggest_reply failed", extra={"ticket_id": str(ticket.id), "error_type": type(e).__name__}
             )
             capture_exception(e, {"ticket_id": str(ticket.id)})
             return Response(
-                {"detail": error_msg, "error_type": error_type},
+                {"detail": "Failed to generate suggestion. Please try again.", "error_type": "unknown_error"},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

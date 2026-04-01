@@ -22,6 +22,8 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.schema import ProductKey
+
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.property_utils import create_property_conditions
@@ -33,6 +35,7 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.client.limit import get_events_list_rate_limiter
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Filter, Person, PropertyDefinition
@@ -49,7 +52,13 @@ from posthog.rate_limit import (
     EventValuesSustainedThrottle,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.utils import convert_property_value, flatten, generate_short_id, relative_date_parse
+from posthog.utils import (
+    convert_property_value,
+    flatten,
+    generate_short_id,
+    refresh_requested_by_client,
+    relative_date_parse,
+)
 
 tracer = trace.get_tracer(__name__)
 
@@ -419,6 +428,7 @@ class EventViewSet(
                 },
                 status=400,
             )
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
         query_result = query_with_columns(
             SELECT_ONE_EVENT_SQL,
             {"team_id": self.team.pk, "event_id": pk.replace("-", "")},
@@ -468,7 +478,7 @@ class EventViewSet(
             value=request.GET.get("value"),
         )
 
-        force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
+        refresh = refresh_requested_by_client(request)
 
         if key == "custom_event":
             return self._custom_event_values(query_params)
@@ -477,12 +487,12 @@ class EventViewSet(
             if self._is_property_hidden(key, team):
                 return self._return_with_short_cache([], refreshing=False)
 
-            return self._event_property_values(query_params, force_refresh=force_refresh)
+            return self._event_property_values(query_params, refresh=refresh)
 
     def _event_property_values(
         self,
         query_params: EventValueQueryParams,
-        force_refresh: bool = False,
+        refresh: bool | str = False,
     ) -> response.Response:
         from posthog.hogql_queries.property_values_query_runner import (
             CachedPropertyValuesQueryResponse,
@@ -491,7 +501,7 @@ class EventViewSet(
             PropertyValuesQueryResponse,
             PropertyValuesQueryRunner,
         )
-        from posthog.hogql_queries.query_runner import ExecutionMode
+        from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
         with tracer.start_as_current_span("events_api_event_property_values") as span:
             span.set_attribute("team_id", query_params.team.pk)
@@ -521,11 +531,9 @@ class EventViewSet(
                     event_names=query_params.event_names or None,
                 ),
             )
-            execution_mode = (
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-                if force_refresh
-                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-            )
+            execution_mode = execution_mode_from_refresh(refresh)
+            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
+                execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (

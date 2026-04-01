@@ -5,9 +5,10 @@ import pytest
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestProjectOperations:
     def test_create_repo(self, team):
         repo = logic.create_repo(team_id=team.id, repo_external_id=12345, repo_full_name="org/my-repo")
@@ -41,7 +42,7 @@ class TestProjectOperations:
         assert names == {"org/first", "org/second"}
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestArtifactOperations:
     @pytest.fixture
     def repo(self, team):
@@ -113,7 +114,7 @@ class TestArtifactOperations:
         assert missing == []
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRunOperations:
     @pytest.fixture
     def repo(self, team):
@@ -166,7 +167,7 @@ class TestRunOperations:
         assert len(uploads) == 1
         assert uploads[0]["content_hash"] == "new"
 
-    def test_create_run_with_baselines(self, repo):
+    def test_create_run_with_baselines(self, repo, mocker):
         baseline_artifact, _ = logic.get_or_create_artifact(
             repo_id=repo.id, content_hash="baseline_hash", storage_path="p/baseline"
         )
@@ -182,12 +183,20 @@ class TestRunOperations:
             baseline_hashes={"Button": "baseline_hash"},
         )
 
+        # Classification happens at complete_run time, not create_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"Button": "baseline_hash"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
         snapshot = run.snapshots.first()
         assert snapshot is not None
         assert snapshot.baseline_artifact_id == baseline_artifact.id
         assert snapshot.result == SnapshotResult.CHANGED
 
-    def test_create_run_snapshot_results(self, repo):
+    def test_create_run_snapshot_results(self, repo, mocker):
         baseline_artifact, _ = logic.get_or_create_artifact(
             repo_id=repo.id, content_hash="same_hash", storage_path="p/same"
         )
@@ -210,10 +219,166 @@ class TestRunOperations:
             },
         )
 
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"unchanged": "same_hash", "changed": "old_hash"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
         snapshots = {s.identifier: s for s in run.snapshots.all()}
         assert snapshots["unchanged"].result == SnapshotResult.UNCHANGED
         assert snapshots["new"].result == SnapshotResult.NEW
         assert snapshots["changed"].result == SnapshotResult.CHANGED
+
+    def test_create_run_empty(self, repo):
+        run, uploads = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+        )
+
+        assert run.total_snapshots == 0
+        assert run.changed_count == 0
+        assert run.new_count == 0
+        assert run.removed_count == 0
+        assert run.snapshots.count() == 0
+        assert len(uploads) == 0
+
+    def test_add_snapshots_to_run(self, repo):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+        )
+        assert run.total_snapshots == 0
+
+        # Shard 1
+        added, _uploads = logic.add_snapshots_to_run(
+            run_id=run.id,
+            team_id=repo.team_id,
+            snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+        )
+        assert added == 1
+        run.refresh_from_db()
+        assert run.total_snapshots == 1
+        assert run.new_count == 1
+
+        # Shard 2
+        added, _uploads = logic.add_snapshots_to_run(
+            run_id=run.id,
+            team_id=repo.team_id,
+            snapshots=[{"identifier": "card", "content_hash": "h2"}],
+        )
+        assert added == 1
+        run.refresh_from_db()
+        assert run.total_snapshots == 2
+        assert run.new_count == 2
+        assert run.snapshots.count() == 2
+
+    def test_add_snapshots_idempotent(self, repo):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+        )
+
+        for _ in range(2):
+            logic.add_snapshots_to_run(
+                run_id=run.id,
+                team_id=repo.team_id,
+                snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+            )
+
+        assert run.snapshots.count() == 1
+
+    def test_add_snapshots_rejects_non_pending(self, repo):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+        )
+        logic.mark_run_completed(run.id)
+
+        with pytest.raises(ValueError, match="pending"):
+            logic.add_snapshots_to_run(
+                run_id=run.id,
+                team_id=repo.team_id,
+                snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+            )
+
+    def test_complete_run_detects_removals(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+        )
+
+        # Mock baseline to include an identifier not in the run
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"kept": "h1", "deleted": "h2"},
+        )
+
+        completed = logic.complete_run(run.id)
+
+        assert completed.removed_count == 1
+        removed = run.snapshots.get(identifier="deleted")
+        assert removed.result == SnapshotResult.REMOVED
+
+    def test_create_run_with_purpose(self, repo):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            purpose="observe",
+        )
+        assert run.purpose == "observe"
+
+    def test_approve_rejects_observe_runs(self, repo):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+            purpose="observe",
+        )
+        logic.mark_run_completed(run.id)
+
+        with pytest.raises(ValueError, match="Observational"):
+            logic.approve_run(
+                run_id=run.id,
+                user_id=1,
+                approved_snapshots=[{"identifier": "btn", "new_hash": "h1"}],
+            )
 
     def test_get_run(self, repo):
         run, _ = logic.create_run(
@@ -253,7 +418,7 @@ class TestRunOperations:
 
         assert updated.status == RunStatus.PROCESSING
 
-    def test_mark_run_completed_success(self, repo):
+    def test_mark_run_completed_success(self, repo, mocker):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -268,6 +433,16 @@ class TestRunOperations:
             baseline_hashes={"changed1": "old"},
         )
 
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"changed1": "old"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
+        # complete_run leaves the run in PROCESSING when there are changes;
+        # mark_run_completed finalizes it
         updated = logic.mark_run_completed(run.id)
 
         assert updated.status == RunStatus.COMPLETED
@@ -293,14 +468,48 @@ class TestRunOperations:
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
 
+    def test_update_run_counts_reads_and_writes_through_requested_db(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            baseline_hashes={},
+        )
 
-@pytest.mark.django_db
+        snapshot_queryset = mocker.Mock()
+        snapshot_queryset.values.return_value.annotate.return_value = [
+            {"result": SnapshotResult.CHANGED, "n": 2},
+            {"result": SnapshotResult.NEW, "n": 1},
+        ]
+        snapshot_manager = mocker.Mock()
+        snapshot_manager.filter.return_value = snapshot_queryset
+
+        run_snapshot_using = mocker.patch.object(logic.RunSnapshot.objects, "using", return_value=snapshot_manager)
+        run_save = mocker.patch.object(run, "save")
+
+        logic._update_run_counts(run, using=logic.WRITER_DB)
+
+        run_snapshot_using.assert_called_once_with(logic.WRITER_DB)
+        snapshot_manager.filter.assert_called_once_with(run_id=run.id)
+        run_save.assert_called_once_with(
+            using=logic.WRITER_DB, update_fields=["changed_count", "new_count", "removed_count"]
+        )
+        assert run.changed_count == 2
+        assert run.new_count == 1
+        assert run.removed_count == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveRun:
     @pytest.fixture
     def repo(self, team):
         return logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
-    def test_approve_run(self, repo, user):
+    def test_approve_run(self, repo, user, mocker):
         current_artifact, _ = logic.get_or_create_artifact(
             repo_id=repo.id, content_hash="new_hash", storage_path="p/new"
         )
@@ -315,6 +524,15 @@ class TestApproveRun:
             baseline_hashes={"Button": "old_hash"},
         )
 
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"Button": "old_hash"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.mark_run_completed(run.id)
+
         updated = logic.approve_run(
             run_id=run.id,
             user_id=user.id,
@@ -322,6 +540,7 @@ class TestApproveRun:
         )
 
         assert updated.approved is True
+        assert updated.review_decision == "human_approved"
         assert updated.approved_at is not None
         assert updated.approved_by_id == user.id
 
@@ -334,7 +553,7 @@ class TestApproveRun:
         assert snapshot.reviewed_by_id == user.id
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestGetRunSnapshots:
     @pytest.fixture
     def repo(self, team):
@@ -363,14 +582,14 @@ class TestGetRunSnapshots:
         assert [s.identifier for s in snapshots] == ["A-component", "B-component", "C-component"]
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db(transaction=True, databases=PRODUCT_DATABASES)
 class TestCommitStatusChecks:
     """Test that GitHub commit status checks are posted at state transitions."""
 
     @pytest.fixture
     def github_repo(self, team, mock_github_integration):
         return Repo.objects.create(
-            team=team,
+            team_id=team.id,
             repo_external_id=55555,
             repo_full_name="test-org/test-repo",
             baseline_file_paths={"storybook": ".snapshots.yml"},
@@ -394,7 +613,7 @@ class TestCommitStatusChecks:
         assert check["context"] == "PostHog Visual Review / storybook"
         assert f"/visual_review/runs/{run.id}" in check["target_url"]
 
-    def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api):
+    def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api, mocker):
         run, _ = logic.create_run(
             repo_id=github_repo.id,
             team_id=github_repo.team_id,
@@ -406,13 +625,20 @@ class TestCommitStatusChecks:
             baseline_hashes={"snap": "same"},
         )
 
-        logic.mark_run_completed(run.id)
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"snap": "same"},
+        )
+        logic.complete_run(run.id)
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
         assert "No visual changes" in statuses[-1]["description"]
 
-    def test_complete_run_posts_failure_when_changes_detected(self, github_repo, mock_github_api):
+    def test_complete_run_posts_comment_when_changes_detected(self, github_repo, mock_github_api, mocker):
+        github_repo.enable_pr_comments = True
+        github_repo.save(update_fields=["enable_pr_comments"])
+
         run, _ = logic.create_run(
             repo_id=github_repo.id,
             team_id=github_repo.team_id,
@@ -427,12 +653,120 @@ class TestCommitStatusChecks:
             baseline_hashes={"changed": "old_h"},
         )
 
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"changed": "old_h"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
         logic.mark_run_completed(run.id)
 
         statuses = mock_github_api.status_checks
-        assert statuses[-1]["state"] == "failure"
+        # During migration VR is observational — always green
+        assert statuses[-1]["state"] == "success"
         assert "1 changed" in statuses[-1]["description"]
         assert "1 new" in statuses[-1]["description"]
+        assert len(mock_github_api.issue_comments) == 1
+        assert mock_github_api.issue_comments[0]["action"] == "created"
+        comment = mock_github_api.issue_comments[0]["body"]
+        assert "Review and approve in PostHog Visual Review" in comment
+        assert f"/visual_review/runs/{run.id}" in comment
+        # Verify comment ID stored for future updates
+        run.refresh_from_db()
+        assert run.metadata["github_comment_id"] is not None
+
+    def test_subsequent_run_updates_existing_comment(self, github_repo, mock_github_api):
+        github_repo.enable_pr_comments = True
+        github_repo.save(update_fields=["enable_pr_comments"])
+
+        run1, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc111",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
+            baseline_hashes={"changed": "old_h"},
+        )
+        logic.mark_run_completed(run1.id)
+
+        run2, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc222",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "changed", "content_hash": "newer_h"}],
+            baseline_hashes={"changed": "old_h"},
+        )
+        logic.mark_run_completed(run2.id)
+
+        created = [c for c in mock_github_api.issue_comments if c["action"] == "created"]
+        updated = [c for c in mock_github_api.issue_comments if c["action"] == "updated"]
+        assert len(created) == 1
+        assert len(updated) == 1
+        assert f"/visual_review/runs/{run2.id}" in updated[0]["body"]
+
+    def test_complete_run_does_not_comment_twice_on_retry(self, github_repo, mock_github_api):
+        github_repo.enable_pr_comments = True
+        github_repo.save(update_fields=["enable_pr_comments"])
+
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
+            baseline_hashes={"changed": "old_h"},
+        )
+
+        logic.mark_run_completed(run.id)
+        logic.mark_run_completed(run.id)
+
+        assert len(mock_github_api.issue_comments) == 1
+
+    @pytest.mark.parametrize(
+        "enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose",
+        [
+            (False, 1, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "review"),
+            (True, None, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "review"),
+            (True, 1, [{"identifier": "snap", "content_hash": "same"}], {"snap": "same"}, "review"),
+            (True, 1, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "observe"),
+        ],
+        ids=["toggle_off", "no_pr", "no_changes", "observe_purpose"],
+    )
+    def test_complete_run_does_not_comment(
+        self, enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose, github_repo, mock_github_api, mocker
+    ):
+        if enable_pr_comments:
+            github_repo.enable_pr_comments = True
+            github_repo.save(update_fields=["enable_pr_comments"])
+
+        # Mock baseline for classification at complete time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value=dict(baseline_hashes),
+        )
+
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=pr_number,
+            snapshots=snapshots,
+            baseline_hashes=baseline_hashes,
+            purpose=purpose,
+        )
+
+        logic.complete_run(run.id)
+
+        assert len(mock_github_api.issue_comments) == 0
 
     def test_complete_run_posts_error_on_failure(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
@@ -451,6 +785,7 @@ class TestCommitStatusChecks:
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "error"
         assert "failed" in statuses[-1]["description"].lower()
+        assert len(mock_github_api.issue_comments) == 0
 
     def test_approve_run_posts_success(self, github_repo, mock_github_api, user):
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
@@ -497,7 +832,7 @@ class TestCommitStatusChecks:
     def test_no_status_without_repo_full_name(self, team, mock_github_integration, mock_github_api):
         """Status checks are silently skipped when repo has no repo_full_name."""
         repo = Repo.objects.create(
-            team=team,
+            team_id=team.id,
             repo_external_id=88888,
             repo_full_name="",
         )
@@ -518,13 +853,13 @@ class TestCommitStatusChecks:
         assert len(mock_github_api.status_checks) == 0
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRunSupersession:
     """When a new run is created for the same (repo, branch, run_type), older runs get superseded."""
 
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, repo_external_id=66666, repo_full_name="org/test-repo")
+        return Repo.objects.create(team_id=team.id, repo_external_id=66666, repo_full_name="org/test-repo")
 
     def _create_run(self, repo, *, branch="feat/x", run_type=RunType.STORYBOOK, commit_sha="abc"):
         run, _ = logic.create_run(
@@ -649,7 +984,7 @@ class TestRunSupersession:
         clean = list(logic.list_runs_for_team(team.id, review_state="clean"))
         assert any(r.id == first.id for r in clean)
 
-    def test_clean_run_superseded_but_stays_clean(self, repo, team):
+    def test_clean_run_superseded_but_stays_clean(self, repo, team, mocker):
         clean_run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -660,7 +995,13 @@ class TestRunSupersession:
             snapshots=[{"identifier": "snap", "content_hash": "same"}],
             baseline_hashes={"snap": "same"},
         )
-        logic.mark_run_completed(clean_run.id)
+
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"snap": "same"},
+        )
+        logic.complete_run(clean_run.id)
 
         self._create_run(repo, commit_sha="next")
 

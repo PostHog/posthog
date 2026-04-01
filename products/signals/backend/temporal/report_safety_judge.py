@@ -55,31 +55,48 @@ Return ONLY valid JSON, no other text."""
 
 
 def _build_report_safety_judge_prompt(
-    title: str,
-    summary: str,
+    title: str | None,
+    summary: str | None,
     signals: list[SignalData],
 ) -> str:
-    return f"""REPORT TO REVIEW:
-<title>
-{title}
-<title>
-<summary>
-{summary}
-<summary>
+    report_sections = ["REPORT TO REVIEW:"]
+    if title is not None:
+        report_sections.extend(
+            [
+                "<title>",
+                title,
+                "</title>",
+            ]
+        )
+    if summary is not None:
+        report_sections.extend(
+            [
+                "<summary>",
+                summary,
+                "</summary>",
+            ]
+        )
 
-UNDERLYING SIGNALS:
+    report_sections.extend(
+        [
+            "",
+            "UNDERLYING SIGNALS:",
+            "",
+            "<signal_data>",
+            render_signals_to_text(signals),
+            "</signal_data>",
+        ]
+    )
 
-<signal_data>
-{render_signals_to_text(signals)}
-</signal_data>"""
+    return "\n".join(report_sections)
 
 
 # One thing I'd like to be doing here, or maybe on the signal-ingestion side, is compare each signals embedding
 # to the average embedding for all signals of the same type - if it's some enormous outlier, it's probably a warning
 # that it's a bit odd (but the mechanics of exactly how that comparison should work are TBD).
 async def judge_report_safety(
-    title: str,
-    summary: str,
+    title: str | None,
+    summary: str | None,
     signals: list[SignalData],
 ) -> SafetyJudgeResponse:
     """
@@ -106,9 +123,9 @@ async def judge_report_safety(
 class SafetyJudgeInput:
     team_id: int
     report_id: str
-    title: str
-    summary: str
     signals: list[SignalData]
+    title: str | None = None
+    summary: str | None = None
 
 
 @dataclass

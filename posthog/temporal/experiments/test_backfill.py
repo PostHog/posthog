@@ -60,14 +60,10 @@ class TestBackfillExperimentMetric(BaseTest):
             patch("posthog.temporal.experiments.activities.close_old_connections"),
             patch("posthog.temporal.experiments.activities.HeartbeaterSync"),
             patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_query_runner_class,
-            patch(
-                "posthog.temporal.experiments.activities.remove_step_sessions_from_experiment_result"
-            ) as mock_remove_sessions,
         ):
             mock_query_runner = MagicMock()
             mock_query_runner._calculate.return_value = mock_result
             mock_query_runner_class.return_value = mock_query_runner
-            mock_remove_sessions.return_value = mock_result
 
             result = _backfill_experiment_metric_sync(str(recalculation_request.id))
 

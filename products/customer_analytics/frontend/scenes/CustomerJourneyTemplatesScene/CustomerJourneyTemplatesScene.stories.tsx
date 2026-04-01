@@ -1,5 +1,5 @@
 // Stories for Customer Analytics Journey Templates scene
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
 import { JOURNEY_FEATURE_FLAGS } from 'scenes/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
@@ -101,28 +101,34 @@ const meta: Meta = {
 }
 export default meta
 
-export const TemplatesWithEventsConfigured: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            'api/environments/:team_id/': { ...CONFIGURED_EVENTS },
-        },
-    })
-    return <App />
-}
-TemplatesWithEventsConfigured.parameters = {
-    pageUrl: urls.customerJourneyTemplates(),
-    testOptions: { waitForSelector: '[data-attr="journey-template-card-scratch"]' },
+type Story = StoryObj<{}>
+
+export const TemplatesWithEventsConfigured: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/environments/:team_id/': { ...CONFIGURED_EVENTS },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerJourneyTemplates(),
+        testOptions: { waitForSelector: '[data-attr="journey-template-card-scratch"]' },
+    },
 }
 
-export const TemplatesWithoutEventsConfigured: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            'api/environments/:team_id/': { ...EMPTY_EVENTS },
-        },
-    })
-    return <App />
-}
-TemplatesWithoutEventsConfigured.parameters = {
-    pageUrl: urls.customerJourneyTemplates(),
-    testOptions: { waitForSelector: '[data-attr="journey-template-card-scratch"]' },
+export const TemplatesWithoutEventsConfigured: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/environments/:team_id/': { ...EMPTY_EVENTS },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerJourneyTemplates(),
+        testOptions: { waitForSelector: '[data-attr="journey-template-card-scratch"]' },
+    },
 }

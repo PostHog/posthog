@@ -201,6 +201,7 @@ jobs:
         needs: [changes, code-quality]
         name: Python code quality checks
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check Python CI status

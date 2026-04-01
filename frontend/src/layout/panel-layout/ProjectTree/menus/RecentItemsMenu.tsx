@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconClock } from '@posthog/icons'
@@ -34,14 +34,10 @@ const getItemName = (item: FileSystemEntry): string => {
 
 export function RecentItemsMenu(): JSX.Element {
     const { recentItems, recentItemsLoading } = useValues(recentItemsMenuLogic)
-    const { loadRecentItems } = useActions(recentItemsMenuLogic)
     const [isOpen, setIsOpen] = useState(false)
 
     const handleOpenChange = (open: boolean): void => {
         setIsOpen(open)
-        if (open) {
-            loadRecentItems({})
-        }
     }
 
     useAppShortcut({

@@ -1,5 +1,30 @@
 mod common;
 
+/// Poll until `last_used_at` is set for the given PAK, or panic after ~4s.
+async fn poll_for_pak_last_used_at(
+    context: &feature_flags::utils::test_utils::TestContext,
+    pak_id: &str,
+    message: &str,
+) {
+    use tokio::time::{sleep, Duration};
+
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    for _ in 0..80 {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM posthog_personalapikey WHERE id = $1 AND last_used_at IS NOT NULL",
+        )
+        .bind(pak_id)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        if count.0 > 0 {
+            return;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{message}");
+}
+
 #[tokio::test]
 async fn test_hypercache_config_generation() {
     use common_hypercache::{HyperCacheConfig, KeyType};
@@ -756,6 +781,15 @@ async fn test_personal_api_key_with_scoped_organizations_removed_member() {
         .remove_user_from_organization(user_id, &org_id)
         .await
         .unwrap();
+    // Simulate Django signal-based cache invalidation (Python handles this in production)
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    feature_flags::utils::test_utils::invalidate_personal_api_key_auth_cache(
+        redis_client,
+        &api_key_value,
+    )
+    .await
+    .unwrap();
 
     // Should now fail because the user is no longer an org member
     let response = client
@@ -840,6 +874,15 @@ async fn test_personal_api_key_unscoped_removed_member() {
         .remove_user_from_organization(user_id, &org_id)
         .await
         .unwrap();
+    // Simulate Django signal-based cache invalidation (Python handles this in production)
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    feature_flags::utils::test_utils::invalidate_personal_api_key_auth_cache(
+        redis_client,
+        &api_key_value,
+    )
+    .await
+    .unwrap();
 
     // Should fail because the user is no longer an org member, even without scoped_organizations
     let response = client
@@ -1778,6 +1821,102 @@ async fn test_flag_definitions_project_secret_api_key(
 }
 
 #[tokio::test]
+async fn test_valid_pak_used_to_authenticate_from_cache_updates_last_used_at() {
+    use feature_flags::{
+        api::pak_usage::debounce_key, config::Config, utils::test_utils::TestContext,
+    };
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+
+    let user_email = TestContext::generate_test_email("pak_cache_last_used");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+
+    let (pak_id, api_key_value) = context
+        .create_personal_api_key(
+            user_id,
+            "Test PAK Cache",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    server.wait_until_ready().await;
+    let client = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    // First request: populates the auth token cache and triggers last_used_at update
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // Poll for the spawned background task to complete the DB write
+    poll_for_pak_last_used_at(
+        &context,
+        &pak_id,
+        "Timed out waiting for background task to set last_used_at for PAK",
+    )
+    .await;
+
+    // Clear the Redis debounce key so the next request can write to DB again
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    redis_client
+        .del(debounce_key(&pak_id))
+        .await
+        .expect("Failed to delete debounce key");
+
+    // Reset last_used_at to NULL so we can verify the second request sets it
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    sqlx::query("UPDATE posthog_personalapikey SET last_used_at = NULL WHERE id = $1")
+        .bind(&pak_id)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+    // Second request: auth comes from the token cache (no DB query for auth),
+    // but should still trigger the last_used_at update via record_pak_last_used
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // Poll for the spawned background task to complete the DB write
+    poll_for_pak_last_used_at(
+        &context,
+        &pak_id,
+        "last_used_at should be set after authenticating from the auth token cache",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_flag_definitions_with_legacy_secret_token_fallback() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -1813,4 +1952,435 @@ async fn test_flag_definitions_with_legacy_secret_token_fallback() {
         "Response body: {}",
         response.text().await.unwrap()
     );
+}
+
+/// Tests the DB-backed rate limit allowlist end-to-end.
+/// Combined into a single test to avoid DB-level interference — all scenarios
+/// share the same `posthog_instancesetting` row.
+///
+/// Scenarios tested:
+/// 1. Allowlisted team bypasses rate limit (200 instead of 429)
+/// 2. Non-allowlisted team gets rate limited (429)
+/// 3. With two teams, only the listed one bypasses
+/// 4. Env var allowlist preserved when DB row is missing
+/// 5. null DB value treated as empty allowlist
+/// 6. Invalid team IDs skipped, valid ones kept
+/// 7. Django-format JSON-encoded string (json.dumps wrapping)
+#[tokio::test]
+async fn test_db_rate_limit_allowlist() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+
+    let context = TestContext::new(None).await;
+
+    // Clean up any leftover rows from a previous failed run
+    context
+        .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+        .await
+        .unwrap();
+
+    let (team1, secret1, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let (team2, secret2, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // --- Scenario 1: allowlisted team bypasses rate limit ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        context
+            .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", &team1.id.to_string())
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        // First request triggers DB refresh
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Second request would be rate limited, but allowlist bypasses it
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "Allowlisted team should bypass rate limit"
+        );
+    }
+
+    // --- Scenario 2: non-allowlisted team gets rate limited ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        context
+            .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            429,
+            "Non-allowlisted team should be rate limited"
+        );
+    }
+
+    // --- Scenario 3: only listed team bypasses, other team gets limited ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(
+            r#"{{"{}": "1/second", "{}": "1/second"}}"#,
+            team1.id, team2.id
+        )
+        .parse()
+        .unwrap();
+
+        context
+            .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", &team1.id.to_string())
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client.clone(), team1.id)
+            .await
+            .unwrap();
+        context
+            .populate_flag_definitions_cache(redis_client, team2.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        // Team1 (allowlisted) can make many requests
+        for i in 0..5 {
+            let resp = client
+                .get(format!(
+                    "http://{}/flags/definitions?token={}",
+                    server.addr, team1.api_token
+                ))
+                .header("Authorization", format!("Bearer {secret1}"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(
+                resp.status(),
+                200,
+                "Allowlisted team1 request {i} should succeed"
+            );
+        }
+
+        // Team2 (not allowlisted) should eventually be rate limited
+        let mut saw_rate_limit = false;
+        for _ in 0..10 {
+            let resp = client
+                .get(format!(
+                    "http://{}/flags/definitions?token={}",
+                    server.addr, team2.api_token
+                ))
+                .header("Authorization", format!("Bearer {secret2}"))
+                .send()
+                .await
+                .unwrap();
+            if resp.status() == 429 {
+                saw_rate_limit = true;
+                break;
+            }
+        }
+        assert!(
+            saw_rate_limit,
+            "Non-allowlisted team2 should eventually be rate limited"
+        );
+    }
+
+    // --- Scenario 4: env var allowlist preserved when DB row is missing ---
+    {
+        // Configure team1 as allowlisted via the env var (set at server startup)
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+        config.rate_limiting_allow_list_teams = team1.id.to_string().parse().unwrap();
+
+        // Ensure no DB row exists — env var default should be kept
+        context
+            .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        // First request triggers DB refresh — row missing, so env var default is kept
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Second request: team1 should still bypass via env var allowlist
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "Env var allowlist should be preserved when DB row is missing"
+        );
+    }
+
+    // --- Scenario 5: null DB value treated as empty allowlist ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        context
+            .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", "null")
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // null means empty allowlist — team should be rate limited
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            429,
+            "null DB value should be treated as empty allowlist"
+        );
+    }
+
+    // --- Scenario 6: invalid team IDs skipped, valid ones kept ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        // Mix of valid and invalid IDs — team1 should still be allowlisted
+        context
+            .set_instance_setting(
+                "RATE_LIMITING_ALLOW_LIST_TEAMS",
+                &format!("{},abc,xyz", team1.id),
+            )
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // team1 is in the valid portion of the allowlist — should bypass
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "Valid team IDs should be kept even when invalid ones are present"
+        );
+    }
+
+    // --- Scenario 7: Django-format JSON-encoded string ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        // Django's set_instance_setting calls json.dumps(value), so "23047"
+        // is stored as "\"23047\"" in raw_value
+        context
+            .set_instance_setting(
+                "RATE_LIMITING_ALLOW_LIST_TEAMS",
+                &format!("\"{}\"", team1.id),
+            )
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // team1 should bypass via JSON-encoded allowlist
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "Django-format JSON-encoded allowlist should work"
+        );
+    }
+
+    // Clean up
+    context
+        .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+        .await
+        .unwrap();
 }

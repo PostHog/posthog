@@ -1,4 +1,9 @@
-import { BrowserBreakdownItem, CountryBreakdownItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
+import {
+    BrowserBreakdownItem,
+    CountryBreakdownItem,
+    ReferrerItem,
+    SlidingWindowBucket,
+} from './LiveWebAnalyticsMetricsTypes'
 
 export class LiveMetricsSlidingWindow {
     private buckets = new Map<number, SlidingWindowBucket>()
@@ -10,6 +15,11 @@ export class LiveMetricsSlidingWindow {
     private browserBucketCounts = new Map<string, Map<string, number>>()
     private countryBucketCounts = new Map<string, Map<string, number>>()
 
+    // Incrementally-maintained aggregates
+    private _totalPageviews = 0
+    private _globalPathCounts = new Map<string, number>()
+    private _globalReferrerCounts = new Map<string, number>()
+
     constructor(windowSizeMinutes: number) {
         this.windowSizeSeconds = windowSizeMinutes * 60
     }
@@ -20,6 +30,7 @@ export class LiveMetricsSlidingWindow {
         data: {
             pageviews?: number
             pathname?: string
+            referringDomain?: string
             device?: { deviceId: string; deviceType: string }
             browser?: { deviceId: string; browserType: string }
         }
@@ -30,10 +41,20 @@ export class LiveMetricsSlidingWindow {
 
         if (data.pageviews) {
             bucket.pageviews += data.pageviews
+            this._totalPageviews += data.pageviews
         }
 
         if (data.pathname) {
             bucket.paths.set(data.pathname, (bucket.paths.get(data.pathname) || 0) + 1)
+            this._globalPathCounts.set(data.pathname, (this._globalPathCounts.get(data.pathname) || 0) + 1)
+        }
+
+        if (data.referringDomain) {
+            bucket.referrers.set(data.referringDomain, (bucket.referrers.get(data.referringDomain) || 0) + 1)
+            this._globalReferrerCounts.set(
+                data.referringDomain,
+                (this._globalReferrerCounts.get(data.referringDomain) || 0) + 1
+            )
         }
 
         if (data.device) {
@@ -43,8 +64,6 @@ export class LiveMetricsSlidingWindow {
         if (data.browser) {
             this.addBrowserToBucket(bucket, data.browser.browserType, data.browser.deviceId)
         }
-
-        this.prune()
     }
 
     addGeoDataPoint(eventTs: number, countryCode: string, distinctId: string): void {
@@ -53,7 +72,6 @@ export class LiveMetricsSlidingWindow {
         }
         const bucket = this.getOrCreateBucket(eventTs)
         this.addCountryToBucket(bucket, countryCode, distinctId)
-        this.prune()
     }
 
     extendBucketData(eventTs: number, data: SlidingWindowBucket): void {
@@ -67,6 +85,7 @@ export class LiveMetricsSlidingWindow {
 
         if (data.pageviews) {
             bucket.pageviews += data.pageviews
+            this._totalPageviews += data.pageviews
         }
 
         if (data.devices) {
@@ -88,6 +107,14 @@ export class LiveMetricsSlidingWindow {
         if (data.paths) {
             for (const [path, count] of data.paths) {
                 bucket.paths.set(path, (bucket.paths.get(path) || 0) + count)
+                this._globalPathCounts.set(path, (this._globalPathCounts.get(path) || 0) + count)
+            }
+        }
+
+        if (data.referrers) {
+            for (const [referrer, count] of data.referrers) {
+                bucket.referrers.set(referrer, (bucket.referrers.get(referrer) || 0) + count)
+                this._globalReferrerCounts.set(referrer, (this._globalReferrerCounts.get(referrer) || 0) + count)
             }
         }
 
@@ -98,14 +125,21 @@ export class LiveMetricsSlidingWindow {
                 }
             }
         }
-
-        this.prune()
     }
 
     private addUserToBucket(bucket: SlidingWindowBucket, userId: string): void {
         if (!bucket.uniqueUsers.has(userId)) {
             bucket.uniqueUsers.add(userId)
-            this.userBucketCounts.set(userId, (this.userBucketCounts.get(userId) || 0) + 1)
+
+            const prevCount = this.userBucketCounts.get(userId) || 0
+            this.userBucketCounts.set(userId, prevCount + 1)
+
+            // Classify as new or returning based on whether we've seen this user globally
+            if (prevCount > 0) {
+                bucket.returningUserCount++
+            } else {
+                bucket.newUserCount++
+            }
         }
     }
 
@@ -208,7 +242,18 @@ export class LiveMetricsSlidingWindow {
         }
     }
 
-    private prune(): void {
+    private decrementGlobalCounts(bucketMap: Map<string, number>, globalMap: Map<string, number>): void {
+        for (const [key, count] of bucketMap) {
+            const globalCount = globalMap.get(key) || 0
+            if (globalCount <= count) {
+                globalMap.delete(key)
+            } else {
+                globalMap.set(key, globalCount - count)
+            }
+        }
+    }
+
+    prune(): void {
         const nowTs = Date.now() / 1000
         const threshold = nowTs - this.windowSizeSeconds
         for (const [ts, bucket] of this.buckets.entries()) {
@@ -217,6 +262,9 @@ export class LiveMetricsSlidingWindow {
                 this.removeItemsFromTracking(bucket.devices, this.deviceBucketCounts)
                 this.removeItemsFromTracking(bucket.browsers, this.browserBucketCounts)
                 this.removeCountriesFromTracking(bucket)
+                this.decrementGlobalCounts(bucket.paths, this._globalPathCounts)
+                this.decrementGlobalCounts(bucket.referrers, this._globalReferrerCounts)
+                this._totalPageviews -= bucket.pageviews
                 this.buckets.delete(ts)
             }
         }
@@ -227,11 +275,7 @@ export class LiveMetricsSlidingWindow {
     }
 
     getTotalPageviews(): number {
-        let total = 0
-        for (const bucket of this.buckets.values()) {
-            total += bucket.pageviews
-        }
-        return total
+        return this._totalPageviews
     }
 
     getDeviceBreakdown(): { device: string; count: number; percentage: number }[] {
@@ -306,16 +350,15 @@ export class LiveMetricsSlidingWindow {
     }
 
     getTopPaths(limit: number): { path: string; views: number }[] {
-        const aggregates = new Map<string, number>()
-        for (const bucket of this.buckets.values()) {
-            for (const [path, count] of bucket.paths) {
-                aggregates.set(path, (aggregates.get(path) || 0) + count)
-            }
-        }
-        return [...aggregates.entries()]
-            .map(([path, views]) => ({ path, views }))
-            .sort((a, b) => b.views - a.views)
-            .slice(0, limit)
+        return this.getTopEntries(this._globalPathCounts, limit).map(([path, views]) => ({ path, views }))
+    }
+
+    getTopReferrers(limit: number): ReferrerItem[] {
+        return this.getTopEntries(this._globalReferrerCounts, limit).map(([referrer, views]) => ({ referrer, views }))
+    }
+
+    private getTopEntries(map: Map<string, number>, limit: number): [string, number][] {
+        return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit)
     }
 
     getCountryBreakdown(): CountryBreakdownItem[] {
@@ -353,9 +396,12 @@ export class LiveMetricsSlidingWindow {
         if (!bucket) {
             bucket = {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map<string, Set<string>>(),
                 browsers: new Map<string, Set<string>>(),
                 paths: new Map<string, number>(),
+                referrers: new Map<string, number>(),
                 uniqueUsers: new Set<string>(),
                 countries: new Map<string, Set<string>>(),
             }

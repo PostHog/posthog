@@ -114,18 +114,171 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        image: ghcr.io/posthog/posthog-node:master
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
         ports:
             - '6738:6738'
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
             PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
             CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
-            PLUGIN_SERVER_MODE: ${PLUGIN_SERVER_MODE:-}
             # CDP Redis defaults to 127.0.0.1 — must point to the Docker service
             CDP_REDIS_HOST: redis7
             # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
+    ingestion-general:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-general
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6739:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+            PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+            CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
+    ingestion-sessionreplay:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-sessionreplay
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6740:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
+    recording-api:
+        extends:
+            file: docker-compose.base.yml
+            service: recording-api
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6741:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+            CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+        depends_on:
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
+    ingestion-error-tracking:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-error-tracking
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6742:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+            PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
+    ingestion-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-logs
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6743:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
+    ingestion-traces:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-traces
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6744:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
         depends_on:
             kafka:
                 condition: service_started
@@ -269,6 +422,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: objectstorage-azure
+        ports:
+            - '10000:10000'
 
     maildev:
         extends:
@@ -279,12 +434,12 @@ services:
             - '1025:1025'
 
     webhook-tester:
-        image: tarampampam/webhook-tester:1.1.0
+        image: tarampampam/webhook-tester:2.2.6
         restart: on-failure
         ports:
-            - '2080:2080'
+            - '2080:8080'
         environment:
-            - LISTEN_PORT=2080
+            - AUTO_CREATE_SESSIONS=true
 
     feature-flags:
         extends:
@@ -313,6 +468,10 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal
+        ports:
+            - 7233:7233
+        volumes:
+            - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
 
     temporal-admin-tools:
         extends:
@@ -324,6 +483,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal-ui
+        ports:
+            - 8081:8080
         depends_on:
             temporal:
                 condition: service_started
@@ -334,6 +495,18 @@ services:
         extends:
             file: docker-compose.base.yml
             service: otel-collector
+        container_name: otel-collector-local
+        ports:
+            - '4317:4317' # OTLP gRPC receiver
+            - '4318:4318' # OTLP HTTP receiver
+            - '13133:13133' # health_check extension
+            - '55679:55679' # zpages extension
+        volumes:
+            - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
+        environment:
+            # Used by otel-collector-config.dev.yaml to scope container log
+            # collection to this compose project only.
+            COMPOSE_PROJECT: posthog
         depends_on:
             - jaeger
             - capture-logs
@@ -349,24 +522,38 @@ services:
         extends:
             file: docker-compose.base.yml
             service: jaeger
+        container_name: jaeger-local
+        ports:
+            - '16686:16686' # Jaeger UI
+            - '14268:14268' # jaeger.thrift
+            - '14250:14250' # model.proto
 
     localstack:
         extends:
             file: docker-compose.base.yml
             service: localstack
+        container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
+        ports:
+            - '127.0.0.1:4566:4566' # LocalStack Gateway
+            - '127.0.0.1:4510-4559:4510-4559' # external services port range
 
     seaweedfs:
         extends:
             file: docker-compose.base.yml
             service: seaweedfs
+        container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
         command: server -s3 -s3.port=8333 -filer -dir=/data
         ports:
+            - '127.0.0.1:8333:8333' # S3 API
+            - '127.0.0.1:9333:9333' # Master server
             - '127.0.0.1:8888:8888' # SeaweedFS Filer UI
         volumes:
             - 'seaweedfs-data:/data'
 
     duckgres:
-        image: ghcr.io/posthog/duckgres:latest
+        # DuckLake 0.4 + DuckDB 1.5.1 (posthog/duckgres@4b787d7)
+        image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
+        platform: arm64
         restart: on-failure
         profiles: ['duckgres']
         ports:

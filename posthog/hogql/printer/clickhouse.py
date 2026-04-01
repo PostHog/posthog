@@ -15,10 +15,39 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.utils import ilike_matches, like_matches
-from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
+from posthog.hogql.visitor import GetFieldsTraverser, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.utils import UUIDT
+
+# Compare operators that require enable_analyzer=1 for JOIN ON conditions
+_NON_EQUALITY_JOIN_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+        ast.CompareOperationOp.NotEq,
+    }
+)
+
+
+class _HasNonEqualityComparison(TraversingVisitor):
+    """Traverses an expression tree to detect non-equality comparisons (>, >=, <, <=, !=)."""
+
+    found: bool = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op in _NON_EQUALITY_JOIN_OPS:
+            self.found = True
+            return  # no need to keep traversing
+        super().visit_compare_operation(node)
+
+
+def _join_constraint_has_non_equality(expr: ast.Expr) -> bool:
+    checker = _HasNonEqualityComparison()
+    checker.visit(expr)
+    return checker.found
 
 
 def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLContext) -> ast.Expr:
@@ -85,6 +114,19 @@ class ClickHousePrinter(HogQLPrinter):
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
             raise InternalHogQLError("Printing queries with a FROM clause is not permitted before type resolution")
+
+        # ClickHouse requires enable_analyzer=1 for non-equality JOIN ON conditions (e.g. >=, <=, >, <, !=).
+        # Without it, queries with such conditions fail with INVALID_JOIN_ON_EXPRESSION.
+        if (
+            node.constraint is not None
+            and node.constraint.constraint_type == "ON"
+            and _join_constraint_has_non_equality(node.constraint.expr)
+        ):
+            if self.settings is None:
+                self.settings = HogQLGlobalSettings(enable_analyzer=True)
+            elif self.settings.enable_analyzer is None:
+                self.settings = self.settings.model_copy(update={"enable_analyzer": True})
+
         return super().visit_join_expr(node)
 
     def visit_values_query(self, node: ast.ValuesQuery):
@@ -898,6 +940,16 @@ class ClickHousePrinter(HogQLPrinter):
 
         return super().visit_call(node)
 
+    def visit_array_slice(self, node: ast.ArraySlice):
+        array_str = self.visit(node.array)
+        start_str = self.visit(node.start_expr) if node.start_expr is not None else "1"
+        if node.end_expr is None:
+            return f"arraySlice({array_str}, {start_str})"
+
+        end_str = self.visit(node.end_expr)
+        length_str = f"plus(minus({end_str}, {start_str}), 1)"
+        return f"arraySlice({array_str}, {start_str}, {length_str})"
+
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
 
@@ -945,6 +997,16 @@ class ClickHousePrinter(HogQLPrinter):
         return sql
 
     def _print_select_columns(self, columns):
+        def _alias_from_column_type(column: ast.Expr) -> str | None:
+            column_type = getattr(column, "type", None)
+            if isinstance(column_type, ast.FieldAliasType):
+                return column_type.alias
+            if isinstance(column_type, ast.FieldType):
+                return column_type.name
+            if isinstance(column_type, ast.ExpressionFieldType):
+                return column_type.name
+            return None
+
         # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
         found_aliases: dict[str, ast.Alias] = {}
         for alias in reversed(columns):
@@ -953,7 +1015,10 @@ class ClickHousePrinter(HogQLPrinter):
                     found_aliases[alias.alias] = alias
 
         columns_sql = []
+        used_aliases: set[str] = set()
         for column in columns:
+            printed_alias: str | None = None
+            dropped_hidden_alias = False
             if isinstance(column, ast.Alias):
                 # It's either a visible alias, or the last hidden alias with this name.
                 if found_aliases.get(column.alias) == column:
@@ -964,10 +1029,16 @@ class ClickHousePrinter(HogQLPrinter):
                     else:
                         # Always print visible aliases.
                         pass
+                    printed_alias = column.alias
                 else:
                     # Non-unique hidden alias. Skip.
+                    dropped_hidden_alias = True
                     column = column.expr
-            elif isinstance(column, ast.Call):
+
+            if printed_alias is None:
+                printed_alias = _alias_from_column_type(column)
+
+            if isinstance(column, ast.Call) and not dropped_hidden_alias:
                 with self.context.timings.measure("printer"):
                     column_alias = safe_identifier(
                         HogQLPrinter(
@@ -975,8 +1046,17 @@ class ClickHousePrinter(HogQLPrinter):
                             dialect="hogql",
                         ).visit(column)
                     )
-                column = ast.Alias(alias=column_alias, expr=column)
+                # ClickHouse rejects duplicate aliases for different expressions in the
+                # same SELECT. This can happen after "*" expansion if a subquery already
+                # exposes a generated expression name like `toDate(period_end)`.
+                if column_alias not in used_aliases:
+                    column = ast.Alias(alias=column_alias, expr=column)
+                    printed_alias = column_alias
+                else:
+                    printed_alias = None
             columns_sql.append(self.visit(column))
+            if printed_alias is not None:
+                used_aliases.add(printed_alias)
 
         return columns_sql
 

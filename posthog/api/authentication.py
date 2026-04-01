@@ -32,6 +32,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.strategy import DjangoStrategy
 from social_django.views import auth
 from two_factor.utils import default_device
@@ -67,6 +68,7 @@ from posthog.tasks.email import (
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
+logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
 USER_AUTH_METHOD_MISMATCH = Counter(
@@ -144,9 +146,13 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         return redirect(f"/login?error_code=invalid_sso_provider")
 
     if not sso_providers[backend]:
-        return redirect(f"/login?error_code=improperly_configured_sso")
+        return redirect("/login?error_code=improperly_configured_sso")
 
-    return auth(request, backend)
+    try:
+        return auth(request, backend)
+    except (AuthFailed, AuthMissingParameter) as e:
+        logger.warning("SSO login failed, redirecting to login page", exc_info=e)
+        return redirect("/login?error_code=improperly_configured_sso")
 
 
 class TwoFactorRequired(APIException):

@@ -11,6 +11,7 @@ from posthog.test.base import (
     _create_person,
     clean_varying_query_parts,
     cleanup_materialized_columns,
+    flush_persons_and_events,
     get_index_from_explain,
     materialized,
     snapshot_clickhouse_queries,
@@ -169,6 +170,36 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_column_aliases_non_postgres_error(self):
+        self._assert_query_error(
+            "select 1 from events as e (event_alias, ts_alias)",
+            "Table column aliases are not allowed in clickhouse dialect",
+        )
+
+    def test_lambda_style_clickhouse_prints(self):
+        printed = self._select("select lambda x: x + 1")
+        self.assertIn("x -> plus(x, 1)", printed)
+
+    def test_array_slice_clickhouse_prints_array_slice(self):
+        printed = self._select("select [1, 2, 3][1:3]")
+        self.assertIn("arraySlice([1, 2, 3], 1, plus(minus(3, 1), 1))", printed)
+
+    def test_try_cast_non_postgres_error(self):
+        self._assert_query_error(
+            "select try_cast(1 as Int64)",
+            "TRY_CAST is not allowed in clickhouse dialect",
+        )
+
+    def test_limit_percent_clickhouse_constant_prints_decimal(self):
+        printed = self._select("select 1 from events limit 40 %")
+        self.assertIn("LIMIT 0.4", printed)
+
+    def test_limit_percent_clickhouse_expression_error(self):
+        self._assert_query_error(
+            "select 1 from events limit (60 + 7) %",
+            "LIMIT percent with expressions is not supported in clickhouse dialect",
+        )
+
     def test_union_distinct(self):
         expr = parse_select("""select 1 as id union distinct select 2 as id""")
         response = to_printed_hogql(expr, self.team)
@@ -304,6 +335,18 @@ class TestPrinter(BaseTest):
             "SELECT\n"
             "    3 AS id\n"
             "LIMIT 50000",
+        )
+
+    def test_ignore_nulls_prints(self):
+        self.assertEqual(
+            self._select("SELECT event IGNORE NULLS FROM events"),
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+
+    def test_select_set_order_by_prints(self):
+        self.assertEqual(
+            self._select("select 1 union all select 2 order by 1"),
+            "SELECT 1 LIMIT 50000 UNION ALL SELECT 2 ORDER BY 1 ASC LIMIT 50000",
         )
 
     def test_intersect_and_union_parens(self):
@@ -1341,6 +1384,22 @@ class TestPrinter(BaseTest):
             f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    @parameterized.expand(
+        [
+            ("sql_injection", "; DROP TABLE events --"),
+            ("union_injection", "current_date UNION SELECT 1"),
+            ("whitespace", "current date"),
+            ("special_chars", "now()"),
+            ("empty_string", ""),
+        ]
+    )
+    def test_keyword_rejects_invalid_names(self, _name: str, keyword_name: str):
+        node = ast.Keyword(name=keyword_name)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        with self.assertRaises(QueryError):
+            print_prepared_ast(node, context=context, dialect="clickhouse", stack=[select_query])
+
     def test_case_when(self):
         self.assertEqual(self._expr("case when 1 then 2 else 3 end"), "if(1, 2, 3)")
 
@@ -1493,6 +1552,51 @@ class TestPrinter(BaseTest):
         self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
         self.assertIn(f"equals(e2.team_id, {self.team.pk})", where_clause)
 
+    @parameterized.expand(
+        [
+            ("gte", ast.CompareOperationOp.GtEq, True),
+            ("gt", ast.CompareOperationOp.Gt, True),
+            ("lte", ast.CompareOperationOp.LtEq, True),
+            ("lt", ast.CompareOperationOp.Lt, True),
+            ("not_eq", ast.CompareOperationOp.NotEq, True),
+            ("eq", ast.CompareOperationOp.Eq, False),
+        ],
+    )
+    def test_join_analyzer_by_comparison_op(self, _name: str, op: ast.CompareOperationOp, expects_analyzer: bool):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        settings = HogQLGlobalSettings()
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="LEFT JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=op,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
+
+        if expects_analyzer:
+            self.assertIn("enable_analyzer=1", result)
+        else:
+            self.assertNotIn("enable_analyzer=1", result)
+
     def test_select_array_join(self):
         self.assertEqual(
             self._select("select 1, a from events array join [1,2,3] as a"),
@@ -1511,6 +1615,10 @@ class TestPrinter(BaseTest):
             f"SELECT 1, a FROM events INNER ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_select_positional_join(self):
+        result = self._select("select 1 from events positional join groups")
+        self.assertIn("POSITIONAL JOIN", result)
+
     def test_select_where(self):
         self.assertEqual(
             self._select("select 1 from events where 1 == 1"),
@@ -1520,6 +1628,16 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._select("select 1 from events where 1 == 2"),
             f"SELECT 1 FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_function_filter_prints(self):
+        result = self._select("select sum(event) filter (where event = 'a') from events")
+        self.assertIn("FILTER (WHERE", result)
+
+    def test_with_clause_before_parens_select_set_prints(self):
+        self.assertEqual(
+            self._select("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)"),
+            "WITH cte AS (SELECT 1 AS a) SELECT cte.a AS a FROM cte LIMIT 50000 UNION ALL SELECT cte.a AS a FROM cte LIMIT 50000",
         )
 
         self.assertEqual(
@@ -2095,6 +2213,25 @@ class TestPrinter(BaseTest):
             # ...
             f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
+
+    def test_assume_not_null_prevents_ifnull_wrapping_in_comparison(self):
+        # base64Encode has no type signatures → returns UnknownType(nullable=True)
+        # Without assumeNotNull, one side is considered nullable → comparison gets ifNull wrapping
+        sql_without = self._expr("event = base64Encode('test')")
+        self.assertIn("ifNull(", sql_without)
+
+        # assumeNotNull forces nullable=False → both sides non-nullable → no wrapping
+        sql_with = self._expr("event = assumeNotNull(base64Encode('test'))")
+        self.assertNotIn("ifNull(", sql_with)
+        self.assertTrue(sql_with.startswith("equals("))
+
+    def test_assume_not_null_prevents_ifnull_wrapping_not_equals(self):
+        sql_without = self._expr("event != base64Encode('test')")
+        self.assertIn("ifNull(", sql_without)
+
+        sql_with = self._expr("event != assumeNotNull(base64Encode('test'))")
+        self.assertNotIn("ifNull(", sql_with)
+        self.assertTrue(sql_with.startswith("notEquals("))
 
     def test_field_nullable_boolean(self):
         PropertyDefinition.objects.create(
@@ -3033,6 +3170,53 @@ class TestPrinter(BaseTest):
             "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
         )
 
+    def test_dropped_hidden_alias_still_reserves_type_based_name(self):
+        subquery_type = ast.SelectQueryType(
+            columns={"toDate(period_end)": ast.DateType(), "period_end": ast.DateType()}
+        )
+
+        query = ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias="toDate(period_end)",
+                    expr=ast.Field(
+                        chain=["toDate(period_end)"],
+                        type=ast.FieldType(name="toDate(period_end)", table_type=subquery_type),
+                    ),
+                    hidden=True,
+                ),
+                ast.Call(
+                    name="toDate",
+                    args=[
+                        ast.Field(
+                            chain=["period_end"],
+                            type=ast.FieldType(name="period_end", table_type=subquery_type),
+                        )
+                    ],
+                ),
+                ast.Alias(
+                    alias="toDate(period_end)",
+                    expr=ast.Field(
+                        chain=["toDate(period_end)"],
+                        type=ast.FieldType(name="toDate(period_end)", table_type=subquery_type),
+                        from_asterisk=True,
+                    ),
+                    hidden=True,
+                ),
+            ]
+        )
+
+        printed = print_prepared_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+        )
+
+        assert (
+            printed
+            == "SELECT `toDate(period_end)`, toDate(period_end), `toDate(period_end)` AS `toDate(period_end)` LIMIT 50000"
+        )
+
     def test_can_call_parametric_function_from_placeholder(self):
         printed = self._print("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="sum")})
         assert printed == (
@@ -3807,6 +3991,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event=event_name, distinct_id=distinct_id_with_empty)
         _create_event(team=self.team, event=event_name, distinct_id=distinct_id_with_null)
         _create_event(team=self.team, event=event_name, distinct_id=distinct_id_without)
+        flush_persons_and_events()
 
         # Build the is_not_set expression using property_to_expr
         is_not_set_expr = property_to_expr(
@@ -4153,6 +4338,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 event="test_event",
                 properties={"test_prop": case if case != "None" else None},
             )
+        flush_persons_and_events()
 
         for pattern, (ilike_expected, ilike_expected_if_non_nullable) in patterns_and_expected.items():
             if ilike_expected_if_non_nullable is not None and (is_nullable is False):
@@ -4338,6 +4524,17 @@ class TestPostgresPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            ("is_null", "event is null", "(events.event IS NULL)"),
+            ("is_not_null", "event is not null", "(events.event IS NOT NULL)"),
+            ("eq_null", "event = null", "(events.event = NULL)"),
+            ("neq_null", "event != null", "(events.event != NULL)"),
+        ]
+    )
+    def test_null_comparisons_in_postgres(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
             (
                 "SELECT event FROM events",
                 "SELECT events.event FROM events LIMIT 50000",
@@ -4349,6 +4546,10 @@ class TestPostgresPrinter(BaseTest):
             (
                 "SELECT event FROM events ORDER BY timestamp DESC",
                 "SELECT events.event FROM events ORDER BY events.timestamp DESC LIMIT 50000",
+            ),
+            (
+                "SELECT #1, #2 FROM events",
+                "SELECT #1, #2 FROM events LIMIT 50000",
             ),
             (
                 "SELECT count() FROM events GROUP BY event",
@@ -4365,6 +4566,142 @@ class TestPostgresPrinter(BaseTest):
 
         self.assertNotIn("team_id", postgres)
         self.assertNotEqual(postgres, clickhouse)
+
+    def test_column_aliases(self):
+        printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
+        self.assertIn("AS e (event_alias, ts_alias)", printed)
+
+    @parameterized.expand(
+        [
+            (
+                "basic",
+                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a', 'b'))",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a', 'b')) LIMIT 50000",
+            ),
+            (
+                "multiple_columns",
+                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') distinct_id IN (1, 2) GROUP BY timestamp)",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
+            ),
+            (
+                "join",
+                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))",
+                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a')) LIMIT 50000",
+            ),
+        ]
+    )
+    def test_pivot_prints(self, _name: str, query: str, expected: str):
+        self.assertEqual(self._select(query), expected)
+
+    def test_limit_percent_basic(self):
+        printed = self._select("SELECT 1 FROM events LIMIT 10 %")
+        self.assertIn("LIMIT 10 %", printed)
+
+    def test_limit_percent_expr(self):
+        printed = self._select("SELECT 1 FROM events LIMIT (60 + 7) %")
+        self.assertIn("LIMIT (60 + 7) %", printed)
+
+    def test_lambda_style(self):
+        printed = self._select("SELECT lambda x, y: x + y")
+        self.assertIn("lambda x, y: (x + y)", printed)
+
+    @parameterized.expand(
+        [
+            ("[1, 2, 3][1:2]", "[1, 2, 3][1:2]"),
+            ("[1, 2, 3][:]", "[1, 2, 3][:]"),
+            ("[1, 2, 3][(1 + 2):(-3)]", "[1, 2, 3][(1 + 2):-3]"),
+            ("[1, 2, 3][-5:]", "[1, 2, 3][-5:]"),
+            ("([1, 2, 3] || [4, 5, 6])[1:3]", "concat([1, 2, 3], [4, 5, 6])[1:3]"),
+        ]
+    )
+    def test_array_slice(self, expr: str, expected: str):
+        printed = self._select(f"SELECT {expr}")
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            ("try_cast(1 AS Int64)", "TRY_CAST(1 AS int64)"),
+            ("try_cast(1 AS Int64) + 1", "TRY_CAST(1 AS int64)"),
+        ]
+    )
+    def test_try_cast(self, expr: str, expected: str):
+        printed = self._select(f"SELECT {expr}")
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            (
+                "sum_desc",
+                "SELECT sum(event ORDER BY timestamp DESC) FROM events",
+                "SELECT sum(events.event ORDER BY events.timestamp DESC) FROM events LIMIT 50000",
+            ),
+        ]
+    )
+    def test_function_call_order_by_prints(self, _name: str, query: str, expected: str):
+        self.assertEqual(self._select(query), expected)
+
+    @parameterized.expand(
+        [
+            ("1 IS DISTINCT FROM 2", "1 IS DISTINCT FROM 2"),
+            ("1 IS NOT DISTINCT FROM 2", "1 IS NOT DISTINCT FROM 2"),
+        ]
+    )
+    def test_is_distinct_from(self, expr: str, expected: str):
+        printed = self._select(f"SELECT {expr}")
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            (
+                "is_distinct_from_alias_rhs",
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=""),
+                    right=ast.Alias(alias="x", expr=ast.Constant(value=True)),
+                ),
+            ),
+            (
+                "is_not_distinct_from_alias_lhs",
+                ast.IsDistinctFrom(
+                    left=ast.Alias(alias="x", expr=ast.Field(chain=["a"])),
+                    right=ast.Constant(value=1),
+                    negated=True,
+                ),
+            ),
+            (
+                "between_alias_expr",
+                ast.BetweenExpr(
+                    expr=ast.Alias(alias="x", expr=ast.Field(chain=["a"])),
+                    low=ast.Constant(value=1),
+                    high=ast.Constant(value=10),
+                ),
+            ),
+            (
+                "between_alias_bounds",
+                ast.BetweenExpr(
+                    expr=ast.Constant(value=5),
+                    low=ast.Alias(alias="lo", expr=ast.Constant(value=1)),
+                    high=ast.Alias(alias="hi", expr=ast.Constant(value=10)),
+                ),
+            ),
+        ]
+    )
+    def test_alias_in_infix_operator_roundtrips(self, _name: str, node: ast.Expr):
+        """Regression: aliases inside BETWEEN / IS DISTINCT FROM must be parenthesized
+        by the printer so the HogQL roundtrip is stable, and the parsed AST has the
+        same top-level node type as the original."""
+        printed = node.to_hogql()
+        parsed = parse_expr(printed)
+        self.assertEqual(type(parsed), type(node), f"AST type changed after roundtrip of: {printed!r}")
+        reprinted = parsed.to_hogql()
+        self.assertEqual(printed, reprinted)
+
+    def test_limit_percent_with_subquery(self):
+        printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")
+        self.assertIn("LIMIT (SELECT avg(events.team_id) FROM events) %", printed)
+
+    def test_limit_percent_with_offset(self):
+        printed = self._select("SELECT 1 FROM events LIMIT 42% OFFSET 20")
+        self.assertIn("LIMIT 42 % OFFSET 20", printed)
 
     def test_boolean_and_null_literals(self):
         self.assertEqual(self._expr("true"), "true")
@@ -4447,6 +4784,21 @@ class TestPostgresPrinter(BaseTest):
             self._expr("toStartOfDay(timestamp, 'UTC')")
 
         self.assertIn("timezone override", str(error.exception))
+
+    @parameterized.expand(
+        [
+            ("date_trunc('second', timestamp)", "date_trunc('second', events.timestamp)"),
+            ("date_trunc('minute', timestamp)", "date_trunc('minute', events.timestamp)"),
+            ("date_trunc('hour', timestamp)", "date_trunc('hour', events.timestamp)"),
+            ("date_trunc('day', timestamp)", "date_trunc('day', events.timestamp)"),
+            ("date_trunc('week', timestamp)", "date_trunc('week', events.timestamp)"),
+            ("date_trunc('month', timestamp)", "date_trunc('month', events.timestamp)"),
+            ("date_trunc('quarter', timestamp)", "date_trunc('quarter', events.timestamp)"),
+            ("date_trunc('year', timestamp)", "date_trunc('year', events.timestamp)"),
+        ]
+    )
+    def test_date_trunc_passthrough_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
 
     @parameterized.expand(
         [
@@ -4584,6 +4936,14 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
         self.assertEqual(self._expr("event::INT"), "CAST(events.event AS int)")
         self.assertEqual(self._expr("(1 + 2)::int"), "CAST((1 + 2) AS int)")
+        self.assertEqual(
+            self._expr("CAST(event AS STRUCT(a INTEGER, b VARCHAR))"),
+            'CAST(events.event AS "struct(a integer, b varchar)")',
+        )
+        self.assertEqual(
+            self._expr("CAST(event AS DECIMAL(10, 2))"),
+            'CAST(events.event AS "decimal(10, 2)")',
+        )
 
     @parameterized.expand(
         [
@@ -4726,6 +5086,90 @@ class TestPostgresPrinter(BaseTest):
 
         with self.assertRaises(QueryError):
             self._select("SELECT * FROM (VALUES (1, 'a')) AS v(id, name)", dialect="clickhouse")
+
+    def test_unpivot_prints_basic(self):
+        self.assertEqual(
+            self._select("SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))"),
+            "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_alias(self):
+        self.assertEqual(
+            self._select("SELECT field_name FROM events UNPIVOT (field_value FOR field_name IN (event)) AS u"),
+            "SELECT u.field_name FROM events UNPIVOT (field_value FOR field_name IN (events.event)) AS u LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_table_alias(self):
+        self.assertEqual(
+            self._select("SELECT field_name FROM events e UNPIVOT (field_value FOR field_name IN (event))"),
+            "SELECT field_name FROM events AS e UNPIVOT (field_value FOR field_name IN (e.event)) LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_multiple_in_columns(self):
+        self.assertEqual(
+            self._select(
+                "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event, uuid))"
+            ),
+            "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event, events.uuid)) LIMIT 50000",
+        )
+
+    def test_unpivot_prints_include_nulls(self):
+        result = self._select(
+            "SELECT field_name, field_value FROM events UNPIVOT INCLUDE NULLS (field_value FOR field_name IN (event))"
+        )
+        self.assertIn("UNPIVOT INCLUDE NULLS", result)
+
+    def test_unpivot_prints_with_where_group_order(self):
+        result = self._select(
+            "SELECT field_name, count() FROM events UNPIVOT (field_value FOR field_name IN (event)) "
+            "WHERE field_value != '' GROUP BY field_name ORDER BY field_name"
+        )
+        self.assertIn("UNPIVOT", result)
+        self.assertIn("WHERE", result)
+        self.assertIn("GROUP BY", result)
+        self.assertIn("ORDER BY", result)
+
+    def test_unpivot_join_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 "
+                "UNPIVOT (field_value FOR field_name IN (events.event))"
+            ),
+            "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000",
+        )
+
+    def test_unpivot_clickhouse_raises_error(self):
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError):
+            self._select(
+                "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))",
+                dialect="clickhouse",
+            )
+
+    def test_replace_columns_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT (* REPLACE (1 AS event)) FROM (SELECT 2 AS event, 3 AS other) AS s",
+            ),
+            "SELECT 1 AS event, s.other FROM (SELECT 2 AS event, 3 AS other) AS s LIMIT 50000",
+        )
+
+    def test_replace_columns_with_exclude_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT (* EXCLUDE (b) REPLACE (0 AS a)) FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s",
+            ),
+            "SELECT 0 AS a, s.c FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s LIMIT 50000",
+        )
+
+    def test_replace_columns_with_column_aliases_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT (* REPLACE (0 AS a)) FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c)",
+            ),
+            "SELECT 0 AS a, customers.b, customers.c FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c) LIMIT 50000",
+        )
 
     def test_intersect_all(self):
         result = self._select("select 1 as id intersect all select 2 as id")
@@ -4904,3 +5348,41 @@ class TestPostgresPrinter(BaseTest):
     def test_standard_sql_functions_pass_through(self, _name: str, expr: str):
         result = self._expr(expr)
         self.assertIsNotNone(result)
+
+    def test_connection_metadata_functions_pass_through(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            direct_postgres_connection_metadata={"available_functions": ["date_bin"]},
+        )
+
+        self.assertEqual(
+            self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
+            "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+        )
+
+    @parameterized.expand(
+        [
+            ("semicolon_injection", "evil; DROP TABLE users --"),
+            ("parenthesis_injection", "evil()--"),
+            ("spaces", "read text"),
+            ("dash_char", "read-text"),
+            ("dot_char", "schema.func"),
+        ]
+    )
+    def test_invalid_function_names_rejected(self, _name: str, func_name: str):
+        node = ast.Call(name=func_name, args=[ast.Constant(value=1)])
+        with self.assertRaises(QueryError):
+            self._expr(node)
+
+    def test_connection_metadata_filters_invalid_function_names(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            direct_postgres_connection_metadata={"available_functions": ["date_bin", "evil;drop", "read text"]},
+        )
+        # date_bin should work, but the invalid names should be filtered out
+        self.assertEqual(
+            self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
+            "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+        )

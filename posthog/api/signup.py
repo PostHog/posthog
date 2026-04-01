@@ -101,6 +101,8 @@ class SignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True
     )
+    turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
+    challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
@@ -177,15 +179,21 @@ class SignupSerializer(serializers.Serializer):
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
 
-        auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
-        evaluate_auth_attempt(
-            request=request._request,
-            email=validated_data["email"],
-            action=RadarAction.SIGNUP,
-            auth_method=auth_method,
-        )
+        if not self.is_social_signup:
+            auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
+            evaluate_auth_attempt(
+                request=request._request,
+                email=validated_data["email"],
+                action=RadarAction.SIGNUP,
+                auth_method=auth_method,
+                turnstile_token=validated_data.get("turnstile_token", ""),
+                challenge_nonce=validated_data.get("challenge_nonce", ""),
+            )
 
         is_instance_first_user: bool = not User.objects.exists()
+
+        validated_data.pop("turnstile_token", None)
+        validated_data.pop("challenge_nonce", None)
 
         default_org_name = f"{validated_data['first_name']}'s Organization"[:64]
         organization_name = validated_data.pop("organization_name", default_org_name)
@@ -344,6 +352,8 @@ class InviteSignupSerializer(serializers.Serializer):
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
+    turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
+    challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_password(self, value):
         password_validation.validate_password(value)
@@ -403,7 +413,12 @@ class InviteSignupSerializer(serializers.Serializer):
                 email=invite.target_email,
                 action=RadarAction.SIGNUP,
                 auth_method=auth_method,
+                turnstile_token=validated_data.get("turnstile_token", ""),
+                challenge_nonce=validated_data.get("challenge_nonce", ""),
             )
+
+        validated_data.pop("turnstile_token", None)
+        validated_data.pop("challenge_nonce", None)
 
         # Only check SSO enforcement if we're not already logged in
         if (
@@ -641,7 +656,7 @@ def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[
 
 def process_social_invite_signup(
     strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
-) -> User:
+) -> Optional[User]:
     try:
         # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
@@ -651,11 +666,7 @@ def process_social_invite_signup(
         try:
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
-            raise ValidationError(
-                "Team does not exist",
-                code="invalid_invite",
-                params={"source": "social_create_user"},
-            )
+            return None
 
     if user:
         invite.validate(user=user, email=email)
@@ -812,6 +823,8 @@ def social_create_user(
     if invite_id:
         from_invite = True
         user = process_social_invite_signup(strategy, invite_id, email, full_name)
+        if user is None:
+            return redirect("/login?error_code=invalid_invite")
 
     else:
         # JIT Provisioning?

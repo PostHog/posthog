@@ -49,6 +49,7 @@ class TestAccessControlSystemTables(BaseTest):
         system_node = database.tables.children.get("system")
         assert system_node is not None
         # Scoped tables removed from schema
+        assert "activity_logs" not in system_node.children
         assert "dashboards" not in system_node.children
         assert "insights" not in system_node.children
         assert "experiments" not in system_node.children
@@ -61,6 +62,7 @@ class TestAccessControlSystemTables(BaseTest):
         assert "notebooks" not in system_node.children
         assert "error_tracking_issues" not in system_node.children
         # But tracked in denied list for clear error messages
+        assert "system.activity_logs" in database._denied_tables
         assert "system.dashboards" in database._denied_tables
         assert "system.insights" in database._denied_tables
         assert "system.experiments" in database._denied_tables

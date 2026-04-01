@@ -40,6 +40,7 @@ import {
 
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
+import { restoreSourceFormState, saveSourceFormState } from './sourceWizardFormStorage'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
@@ -236,6 +237,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             source,
             searchParams,
         }),
+        setReturnConfig: (returnUrl: string, returnLabel: string) => ({ returnUrl, returnLabel }),
+        clearReturnConfig: true,
         onClear: true,
         onBack: true,
         onNext: true,
@@ -272,6 +275,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
         toggleAllTables: (selectAll: boolean) => ({ selectAll }),
+        saveFormStateBeforeRedirect: true,
         createWebhook: true,
         setWebhookResult: (result: { success: boolean; webhook_url: string; error?: string } | null) => ({
             result,
@@ -396,6 +400,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 setSourceId: (_, { sourceId }) => sourceId,
             },
         ],
+        returnConfig: [
+            null as { returnUrl: string; returnLabel: string } | null,
+            {
+                setReturnConfig: (_, { returnUrl, returnLabel }) => ({ returnUrl, returnLabel }),
+                clearReturnConfig: () => null,
+            },
+        ],
         syncMethodModalOpen: [
             false as boolean,
             {
@@ -476,7 +487,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         hasWebhookSchemas: [
             (s) => [s.databaseSchema],
             (databaseSchema: ExternalDataSourceSyncSchema[]): boolean =>
-                databaseSchema.some((s) => s.supports_webhooks && s.sync_type === 'incremental' && s.should_sync),
+                databaseSchema.some((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync),
         ],
         webhookStepComplete: [
             (s) => [s.webhookResult, s.selectedConnector],
@@ -552,8 +563,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.isDirectQueryMode,
                 s.hasWebhookSchemas,
                 (_, props) => props.onComplete,
+                s.returnConfig,
             ],
-            (currentStep, isManualLinkingSelected, isDirectQueryMode, hasWebhookSchemas, onComplete): string => {
+            (
+                currentStep,
+                isManualLinkingSelected,
+                isDirectQueryMode,
+                hasWebhookSchemas,
+                onComplete,
+                returnConfig
+            ): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
@@ -577,6 +596,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 if (currentStep === 5) {
                     if (onComplete) {
                         return 'Next'
+                    }
+                    if (returnConfig) {
+                        return `Return to ${returnConfig.returnLabel}`
                     }
                     return 'Return to sources'
                 }
@@ -656,6 +678,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
     listeners(({ actions, values, props }) => ({
+        saveFormStateBeforeRedirect: () => {
+            const sourceKind = values.selectedConnector?.name?.toLowerCase()
+            if (sourceKind) {
+                saveSourceFormState(sourceKind, values.sourceConnectionDetails as Record<string, unknown>)
+            }
+        },
         onBack: () => {
             if (values.currentStep <= 1) {
                 actions.onClear()
@@ -709,6 +737,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const ignoredTables = values.databaseSchema.filter(
                     (schema) => !schema.should_sync || schema.sync_type === null
                 )
+                const webhookTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'webhook'
+                )
                 const appendOnlyTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'append'
                 )
@@ -721,6 +752,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 const confirmation = (
                     <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 mt-2">
+                        {/* Webhook - Best */}
+                        {webhookTables.length > 0 && (
+                            <>
+                                <div className="font-bold text-success">Webhook</div>
+                                <div>
+                                    <span className="text-muted">{tableCountFormatter(webhookTables.length)}</span> —
+                                    Real-time updates via webhooks.
+                                </div>
+                            </>
+                        )}
+
                         {/* Incremental - Good */}
                         <div className="font-bold text-success">Incremental</div>
                         <div>
@@ -819,8 +861,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.cancelWizard()
         },
         closeWizard: () => {
+            const returnUrl = values.returnConfig?.returnUrl
             actions.cancelWizard()
-            router.actions.push(urls.sources())
+            router.actions.push(returnUrl ?? urls.sources())
         },
         cancelWizard: () => {
             actions.onClear()
@@ -931,10 +974,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                     if (schema.sync_type === null) {
                         showToast = true
-                        schema.should_sync = true
+                        schema.should_sync = schema.should_sync_default ?? true
 
-                        // Use incremental if available
-                        if (schema.incremental_available || schema.append_available) {
+                        if (schema.supports_webhooks) {
+                            schema.sync_type = 'webhook'
+                        } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
                             const resolvedField = resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
@@ -1050,6 +1094,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     urlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
+            const returnUrl = searchParams.returnUrl
+            const returnLabel = searchParams.returnLabel
+
+            if (returnUrl && returnLabel) {
+                actions.setReturnConfig(returnUrl, returnLabel)
+            } else {
+                actions.clearReturnConfig()
+            }
+
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)
             const manualSource = values.manualConnectors?.find((s) => s?.type?.toLowerCase() === kind)
 
@@ -1063,6 +1116,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.selectConnector(source)
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
+                // Restore form values saved before an OAuth redirect
+                const savedValues = restoreSourceFormState(source.name.toLowerCase())
+                if (savedValues) {
+                    actions.setSourceConnectionDetailsValues(savedValues)
+                }
                 return
             }
 

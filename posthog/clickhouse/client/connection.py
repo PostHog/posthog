@@ -33,6 +33,10 @@ class NodeRole(StrEnum):
     ENDPOINTS = "endpoints"
     LOGS = "logs"
 
+    OPS = "ops"
+    AI_EVENTS = "ai_events"
+    AUX = "aux"
+
 
 _default_workload = Workload.ONLINE
 
@@ -59,6 +63,8 @@ class ClickHouseUser(StrEnum):
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
+    # Part breaker - used by Dagster part breaking jobs
+    PART_BREAKER = "part_breaker"
     # Dev Operations - do not normally use
     OPS = "ops"
     # Only for migrations - do not normally use

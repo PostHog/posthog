@@ -1,3 +1,4 @@
+import os
 import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional, Union, get_args, get_type_hints
@@ -6,6 +7,7 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 from stripe import ListObject, StripeClient
+from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
 
@@ -13,7 +15,11 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+from posthog.temporal.data_imports.sources.common.base import (
+    ExternalWebhookInfo,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+)
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
@@ -42,6 +48,13 @@ from products.data_warehouse.backend.models.external_table_definitions import ge
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+
+
+def _stripe_base_addresses() -> BaseAddresses:
+    # Redirect Stripe API calls to a local mock (e.g. STRIPE_API_BASE=http://localhost:12111)
+    # when running the stripe-mock dev service. No-op in production where the var is unset.
+    base = os.environ.get("STRIPE_API_BASE")
+    return BaseAddresses(api=base) if base else BaseAddresses()
 
 
 @dataclasses.dataclass
@@ -74,7 +87,13 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     should_use_incremental_field: bool = False,
 ):
-    client = StripeClient(api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=2)
+    client = StripeClient(
+        api_key,
+        stripe_account=account_id,
+        stripe_version="2024-09-30.acacia",
+        max_network_retries=2,
+        base_addresses=_stripe_base_addresses(),
+    )
     default_params = {"limit": DEFAULT_LIMIT}
     resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
         ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
@@ -285,7 +304,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     - Raise StripePermissionError if the API key is valid but lacks permissions for specific resources
     - Raise Exception if the API key is invalid or there's any other error
     """
-    client = StripeClient(api_key)
+    client = StripeClient(api_key, base_addresses=_stripe_base_addresses())
 
     # Test access to all resources we're pulling
     resources_to_check = [
@@ -349,6 +368,7 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
             stripe_account=config.stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
         )
 
         endpoint = client.webhook_endpoints.create(
@@ -378,3 +398,73 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
             )
 
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")
+
+
+def delete_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookDeletionResult:
+    logger = LOGGER.bind()
+
+    try:
+        client = StripeClient(
+            config.stripe_secret_key,
+            stripe_account=config.stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+        )
+
+        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+
+        for endpoint in endpoints.auto_paging_iter():
+            if endpoint.url == webhook_url:
+                client.webhook_endpoints.delete(endpoint.id)
+                return WebhookDeletionResult(success=True)
+
+        return WebhookDeletionResult(success=True)
+    except Exception as e:
+        error_str = str(e)
+        logger.warning(
+            "Failed to delete Stripe webhook",
+            error=error_str,
+        )
+
+        if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            return WebhookDeletionResult(
+                success=False,
+                error="Your Stripe API key doesn't have permission to delete webhooks. Please delete the webhook manually from your Stripe dashboard.",
+            )
+
+        return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error_str}")
+
+
+def get_external_webhook_info(config: StripeSourceConfig, webhook_url: str) -> ExternalWebhookInfo:
+    try:
+        client = StripeClient(
+            config.stripe_secret_key,
+            stripe_account=config.stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+        )
+
+        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+
+        for endpoint in endpoints.auto_paging_iter():
+            if endpoint.url == webhook_url:
+                return ExternalWebhookInfo(
+                    exists=True,
+                    url=endpoint.url,
+                    enabled_events=endpoint.enabled_events,
+                    status=endpoint.status,
+                    description=endpoint.description,
+                    created_at=str(endpoint.created) if endpoint.created else None,
+                )
+
+        return ExternalWebhookInfo(exists=False)
+    except Exception as e:
+        error_str = str(e)
+        if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            return ExternalWebhookInfo(
+                exists=False,
+                error="Your Stripe API key doesn't have permission to read webhooks. Add the 'Read' permission for 'Webhook endpoints' to your API key.",
+            )
+        return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {error_str}")

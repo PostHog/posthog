@@ -4,12 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from rest_framework import status
 
 from posthog.models import Team
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import DeliverSubscriptionReportActivityInputs
+from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
@@ -97,7 +98,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         wf_args, wf_kwargs = mock_client.start_workflow.call_args
         assert wf_args[0] == "handle-subscription-value-change"
         activity_inputs = wf_args[1]
-        assert isinstance(activity_inputs, DeliverSubscriptionReportActivityInputs)
+        assert isinstance(activity_inputs, ProcessSubscriptionWorkflowInputs)
         assert activity_inputs.subscription_id == data["id"]
         assert activity_inputs.invite_message == "hey there!"
 

@@ -31,28 +31,58 @@ procs:
             printf '  \033[38;5;245mRun \033[0m\033[38;2;29;74;255mhogli dev:setup\033[0m\033[38;5;245m to tailor this to your workflow.\033[0m\n'
 
     backend:
-        shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-backend'
+        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
         ready_pattern: 'Listening at'
         # no capability: always_required via intent-map.yaml
 
     celery-worker:
-        shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery worker'
+        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
         capability: celery_workers
         ready_pattern: 'celery@'
 
     celery-beat:
-        shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery beat'
+        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery beat'
         capability: celery_scheduler
         ready_pattern: 'celery beat'
 
     nodejs:
-        shell: 'bin/wait-for-docker && bin/check_ducklake_up && ./bin/posthog-node'
+        shell: 'bin/wait-for-docker && ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, error_tracking, traces, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
+
+    ingestion-errortracking:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
+        capability: nodejs_error_tracking
+        ready_pattern: 'All systems go'
+
+    ingestion-logs:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-logs HTTP_SERVER_PORT=6743 ./bin/posthog-node'
+        capability: nodejs_logs
+        ready_pattern: 'All systems go'
+
+    ingestion-traces:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6744 ./bin/posthog-node'
+        capability: nodejs_traces
+        ready_pattern: 'All systems go'
+
+    ingestion:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
+        capability: event_ingestion
+        ready_pattern: 'All systems go'
+
+    ingestion-sessionreplay:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recordings-blob-ingestion-v2 HTTP_SERVER_PORT=6740 ./bin/posthog-node'
+        capability: nodejs_session_replay
+        ready_pattern: 'All systems go'
+
+    recording-api:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recording-api HTTP_SERVER_PORT=6741 ./bin/posthog-node'
+        capability: nodejs_session_replay
+        ready_pattern: 'All systems go'
 
     frontend:
         shell: './bin/start-frontend'
@@ -78,6 +108,11 @@ procs:
             fi
         capability: temporal_workflows
 
+    stripe-mock:
+        shell: 'bin/start-stripe-mock'
+        capability: stripe_mock
+        ready_pattern: 'Application startup complete'
+
     recording-rasterizer:
         shell: |-
             bin/wait-for-docker temporal && \
@@ -89,6 +124,7 @@ procs:
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
             AWS_ACCESS_KEY_ID: 'object_storage_root_user'
             AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SECRET_KEY: '<randomly generated secret key>'
 
     dagster:
         shell: |-
@@ -99,7 +135,7 @@ procs:
         ready_pattern: 'Launching Dagster services'
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f'
+        shell: 'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox: infra managed by docker compose externally" && echo "docker-compose ready" && sleep infinity; else docker compose -f docker-compose.dev.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f; fi'
         capability: core_infra
         ready_pattern: 'docker-compose ready'
 
@@ -212,12 +248,12 @@ procs:
         capability: stripe_app
 
     migrate-postgres:
-        shell: 'bin/wait-for-docker && bin/check_ducklake_up && bin/migrate --scope=postgres'
+        shell: 'bin/wait-for-docker && bin/migrate --scope=postgres'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
 
     migrate-clickhouse:
-        shell: 'bin/wait-for-docker && bin/check_ducklake_up && bin/migrate --scope=clickhouse'
+        shell: 'bin/wait-for-docker && bin/migrate --scope=clickhouse'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
 
@@ -239,7 +275,6 @@ procs:
     generate-demo-data:
         shell: |-
             bin/wait-for-docker && \
-            bin/check_ducklake_up && \
             ./manage.py generate_demo_data
         autostart: false
         ready_pattern: 'Demo data ready'
@@ -248,10 +283,17 @@ procs:
     sync-feature-flags:
         shell: |-
             bin/wait-for-docker && \
-            bin/check_ducklake_up && \
             ./manage.py sync_feature_flags
         autostart: false
         ready_pattern: 'Feature flag sync complete'
+        # no capability - manual start
+
+    sync-hog-function-templates:
+        shell: |-
+            bin/wait-for-docker && \
+            ./manage.py sync_hog_function_templates
+        autostart: false
+        ready_pattern: 'Hog function template sync complete'
         # no capability - manual start
 
     storybook:
