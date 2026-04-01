@@ -286,7 +286,9 @@ pub async fn evaluate_for_request(
         rayon_dispatcher: state.rayon_dispatcher.clone(),
         skip_writes: *state.config.skip_writes,
         cohort_membership_provider: state.cohort_membership_provider.clone(),
-        enable_realtime_cohort_evaluation: state.config.enable_realtime_cohort_evaluation,
+        enable_realtime_cohort_evaluation: state
+            .config
+            .is_team_included(team_id, &state.config.realtime_cohort_evaluation_team_ids),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

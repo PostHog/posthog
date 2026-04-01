@@ -19,7 +19,7 @@ fi
 
 trap cleanup_lock EXIT INT TERM
 
-export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://localhost:8333}
+export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://seaweedfs:8333}
 
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
@@ -76,7 +76,7 @@ if [ -f .env ]; then
 fi
 
 # Ducklake
-export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-localhost}
+export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-db}
 export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}
 export DUCKLAKE_RDS_DATABASE=${DUCKLAKE_RDS_DATABASE:-ducklake}
 export DUCKLAKE_RDS_USERNAME=${DUCKLAKE_RDS_USERNAME:-posthog}
@@ -85,6 +85,20 @@ export DUCKLAKE_BUCKET=${DUCKLAKE_BUCKET:-ducklake-dev}
 export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
 export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
 export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
+
+# These default to localhost/127.0.0.1 in Node.js/Rust configs
+export CDP_REDIS_HOST=${CDP_REDIS_HOST:-redis7}
+export SESSION_RECORDING_API_REDIS_HOST=${SESSION_RECORDING_API_REDIS_HOST:-redis7}
+export COOKIELESS_REDIS_HOST=${COOKIELESS_REDIS_HOST:-redis7}
+export TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
+# Persons DB — Node.js and Rust use different env var names for the same connection
+export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+export PERSONS_WRITE_DATABASE_URL=${PERSONS_WRITE_DATABASE_URL:-$PERSONS_DATABASE_URL}
+export PERSONS_READ_DATABASE_URL=${PERSONS_READ_DATABASE_URL:-$PERSONS_READONLY_DATABASE_URL}
+export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
+export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
+export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
 
 # Duckgres
 export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}

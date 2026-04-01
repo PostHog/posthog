@@ -411,7 +411,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const NotebooksList: Story = {}
 export const Headings: Story = { parameters: { pageUrl: urls.notebook('headings') } }
 export const CollapsedHeadings: Story = { parameters: { pageUrl: urls.notebook('collapsed-headings') } }

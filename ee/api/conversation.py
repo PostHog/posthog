@@ -1,5 +1,6 @@
 import time
 import uuid
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import cast
 
@@ -80,6 +81,13 @@ class MessageMinimalSerializer(serializers.Serializer):
     content = serializers.CharField(required=True, max_length=10000)
 
 
+def _strip_large_spend_history(billing_context: MaxBillingContext, threshold: int = 20) -> MaxBillingContext:
+    """Large spend histories can exceed Temporal's 2MB payload limit."""
+    if billing_context.spend_history and len(billing_context.spend_history) > threshold:
+        billing_context.spend_history = None
+    return billing_context
+
+
 class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
@@ -121,7 +129,7 @@ class MessageSerializer(MessageMinimalSerializer):
         billing_context = data.get("billing_context")
         if billing_context:
             try:
-                billing_context = MaxBillingContext.model_validate(billing_context)
+                billing_context = _strip_large_spend_history(MaxBillingContext.model_validate(billing_context))
                 data["billing_context"] = billing_context
             except pydantic.ValidationError as e:
                 capture_exception(e)
@@ -157,7 +165,7 @@ class QueueMessageSerializer(serializers.Serializer):
         billing_context = data.get("billing_context")
         if billing_context:
             try:
-                parsed_context = MaxBillingContext.model_validate(billing_context)
+                parsed_context = _strip_large_spend_history(MaxBillingContext.model_validate(billing_context))
                 data["billing_context"] = parsed_context.model_dump()
             except pydantic.ValidationError as e:
                 capture_exception(e)
@@ -431,13 +439,39 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         async def async_stream(
             workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs,
         ) -> AsyncGenerator[bytes, None]:
+            SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
+            SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
+
             serializer = AssistantSSESerializer()
             stream_manager = AgentExecutor(conversation, timeout=timeout, max_length=max_length)
-            last_iteration_time = time.time()
-            async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
-                chunk_received_time = time.time()
-                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(chunk_received_time - last_iteration_time)
-                last_iteration_time = chunk_received_time
+            last_yield_time = time.time()
+            last_chunk_time = last_yield_time
+            aiter = stream_manager.astream(workflow_class, workflow_inputs).__aiter__()
+
+            while True:
+                next_task = asyncio.ensure_future(aiter.__anext__())
+                try:
+                    while not next_task.done():
+                        elapsed = time.time() - last_yield_time
+                        wait_time = max(0.1, SSE_KEEPALIVE_INTERVAL - elapsed)
+                        done, _ = await asyncio.wait({next_task}, timeout=wait_time)
+                        if not done:
+                            yield SSE_KEEPALIVE_COMMENT
+                            last_yield_time = time.time()
+                except BaseException:
+                    if not next_task.done():
+                        next_task.cancel()
+                    raise
+
+                try:
+                    chunk = next_task.result()
+                except StopAsyncIteration:
+                    break
+
+                now = time.time()
+                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(now - last_chunk_time)
+                last_chunk_time = now
+                last_yield_time = now
 
                 event = await serializer.dumps(chunk)
                 yield event.encode("utf-8")

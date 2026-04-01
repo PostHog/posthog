@@ -6,11 +6,11 @@ from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import filters, mixins, serializers, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -254,9 +254,15 @@ class SignalReportViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReport.objects.all()
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ["signal_count", "total_weight", "created_at", "updated_at"]
-    ordering = ["-signal_count"]
+    _DEFAULT_SIGNAL_REPORT_ORDERING = "status,-updated_at"
+    _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
+        "status": "pipeline_status_rank",
+        "signal_count": "signal_count",
+        "total_weight": "total_weight",
+        "created_at": "created_at",
+        "updated_at": "updated_at",
+        "id": "id",
+    }
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team).annotate(artefact_count=Count("artefacts"))
@@ -270,7 +276,66 @@ class SignalReportViewSet(
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+        # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
+        qs = qs.annotate(
+            pipeline_status_rank=Case(
+                When(status=SignalReport.Status.READY, then=Value(0)),
+                When(status=SignalReport.Status.PENDING_INPUT, then=Value(1)),
+                When(status=SignalReport.Status.IN_PROGRESS, then=Value(2)),
+                When(status=SignalReport.Status.CANDIDATE, then=Value(3)),
+                When(status=SignalReport.Status.POTENTIAL, then=Value(4)),
+                When(status=SignalReport.Status.FAILED, then=Value(5)),
+                When(status=SignalReport.Status.SUPPRESSED, then=Value(6)),
+                When(status=SignalReport.Status.DELETED, then=Value(7)),
+                default=Value(50),
+                output_field=IntegerField(),
+            )
+        )
+        qs = qs.prefetch_related(
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+                ).order_by("-created_at"),
+                to_attr="prefetched_priority_artefacts",
+            )
+        )
         return qs
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        return self._apply_signal_report_ordering(queryset)
+
+    def _parse_ordering_string(self, raw: str) -> list[str]:
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        clauses: list[str] = []
+        for part in parts:
+            descending = part.startswith("-")
+            name = part[1:] if descending else part
+            db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
+            if db_field is None:
+                return self._default_signal_report_ordering_clauses
+            clause = f"-{db_field}" if descending else db_field
+            clauses.append(clause)
+        return clauses
+
+    @property
+    def _default_signal_report_ordering_clauses(self) -> list[str]:
+        return self._parse_ordering_string(self._DEFAULT_SIGNAL_REPORT_ORDERING)
+
+    def _parse_signal_report_ordering(self) -> list[str]:
+        raw = self.request.query_params.get("ordering", self._DEFAULT_SIGNAL_REPORT_ORDERING)
+        if not raw or not str(raw).strip():
+            return self._default_signal_report_ordering_clauses
+        clauses = self._parse_ordering_string(str(raw).strip())
+        return clauses if clauses else self._default_signal_report_ordering_clauses
+
+    def _apply_signal_report_ordering(self, queryset):
+        clauses = self._parse_signal_report_ordering()
+        has_id = any((c[1:] if c.startswith("-") else c) == "id" for c in clauses)
+        if not has_id:
+            clauses = [*clauses, "id"]
+        return queryset.order_by(*clauses)
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}

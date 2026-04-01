@@ -171,8 +171,9 @@ export const calculateLayouts = (
                 defaultW = 3
                 defaultH = 1
             }
+            const xsSmH = breakpoint === 'xs' ? tile.layouts?.sm?.h : undefined
             const realW = Math.min(w || defaultW, columnCount)
-            const realH = h || defaultH
+            const realH = h || (typeof xsSmH === 'number' && xsSmH > 0 ? xsSmH : undefined) || defaultH
             const minH = isTextTile || isButtonTile ? MIN_TEXT_TILE_HEIGHT_ROWS : MIN_TILE_HEIGHT_ROWS
             const minW = isTextTile || isButtonTile ? 1 : 2
 

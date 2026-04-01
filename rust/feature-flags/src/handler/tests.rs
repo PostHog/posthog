@@ -30,9 +30,9 @@ use crate::{
     utils::{
         mock::MockInto,
         test_utils::{
-            insert_flags_for_team_in_redis, mock_group_type_cache, setup_hypercache_reader,
-            setup_pg_reader_client, setup_pg_writer_client, setup_redis_client,
-            setup_team_hypercache_reader, TestContext,
+            flag_list_with_metadata_and_filter, insert_flags_for_team_in_redis,
+            mock_group_type_cache, setup_hypercache_reader, setup_pg_reader_client,
+            setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader, TestContext,
         },
     },
 };
@@ -1300,7 +1300,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     };
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.clone(),
-        evaluation_metadata: Some(eval_metadata),
+        evaluation_metadata: eval_metadata,
         cohorts: None,
     };
     let json_string = serde_json::to_string(&wrapper).unwrap();
@@ -1324,11 +1324,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     .unwrap();
 
     assert_eq!(result.flags.len(), 2);
-    assert!(
-        result.evaluation_metadata.is_some(),
-        "evaluation_metadata should be preserved by fetch_and_filter, not dropped"
-    );
-    let ctx = result.evaluation_metadata.unwrap();
+    let ctx = &result.evaluation_metadata;
     assert_eq!(ctx.dependency_stages, vec![vec![1], vec![2]]);
     assert!(ctx.flags_with_missing_deps.is_empty());
     assert!(ctx.transitive_deps.contains_key(&2));
@@ -1482,15 +1478,16 @@ async fn test_parallel_path_matches_sequential_results() {
     // Flag id=4 is inactive (active=false), so it must be in the filter set
     let filtered_out_flag_ids = std::collections::HashSet::from([4]);
 
+    let seq_flag_list =
+        flag_list_with_metadata_and_filter(flags.clone(), filtered_out_flag_ids.clone());
+    let par_flag_list = flag_list_with_metadata_and_filter(flags, filtered_out_flag_ids);
+
     // Run sequential (threshold = 100, well above 4 flags)
     let sequential_context = FeatureFlagEvaluationContext {
         team_id: team.id,
         distinct_id: distinct_id.clone(),
         device_id: None,
-        feature_flags: mock!(FeatureFlagList,
-            from: flags.clone(),
-            filtered_out_flag_ids: filtered_out_flag_ids.clone()
-        ),
+        feature_flags: seq_flag_list,
         persons_reader: reader.clone(),
         persons_writer: writer.clone(),
         non_persons_reader: reader.clone(),
@@ -1518,10 +1515,7 @@ async fn test_parallel_path_matches_sequential_results() {
         team_id: team.id,
         distinct_id: distinct_id.clone(),
         device_id: None,
-        feature_flags: mock!(FeatureFlagList,
-            from: flags,
-            filtered_out_flag_ids: filtered_out_flag_ids
-        ),
+        feature_flags: par_flag_list,
         persons_reader: reader.clone(),
         persons_writer: writer.clone(),
         non_persons_reader: reader.clone(),

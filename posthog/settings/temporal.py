@@ -4,7 +4,7 @@ from posthog.settings.base_variables import DEBUG
 from posthog.settings.utils import get_from_env, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
-TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "127.0.0.1")
+TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "temporal")
 TEMPORAL_UI_HOST: str = os.getenv("TEMPORAL_UI_HOST", "http://localhost:8081" if DEBUG else "https://cloud.temporal.io")
 TEMPORAL_PORT: str = os.getenv("TEMPORAL_PORT", "7233")
 TEMPORAL_CLIENT_ROOT_CA: str | None = os.getenv("TEMPORAL_CLIENT_ROOT_CA", None)

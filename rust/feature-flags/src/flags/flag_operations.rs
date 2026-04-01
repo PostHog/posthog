@@ -1,6 +1,4 @@
-use crate::api::errors::FlagError;
 use crate::flags::flag_models::*;
-use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -133,45 +131,10 @@ pub fn flags_require_db_preparation<'a>(
         .collect()
 }
 
-impl DependencyProvider for FeatureFlag {
-    type Id = FeatureFlagId;
-    type Error = FlagError;
-
-    fn get_id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
-        // User-disabled or deleted flags don't need dependency extraction. Since
-        // runtime/tag filtering uses `filtered_out_flag_ids` (not `active`), this
-        // check only applies to genuinely user-disabled flags in the DB.
-        if !self.active || self.deleted {
-            return Ok(HashSet::new());
-        }
-
-        let mut dependencies = HashSet::new();
-        for group in &self.filters.groups {
-            if let Some(properties) = &group.properties {
-                for filter in properties {
-                    if filter.depends_on_feature_flag() {
-                        if let Some(feature_flag_id) = filter.get_feature_flag_id() {
-                            dependencies.insert(feature_flag_id);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(dependencies)
-    }
-
-    fn dependency_type() -> DependencyType {
-        DependencyType::Flag
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
+        api::errors::FlagError,
         flags::test_helpers::get_flags_from_redis,
         mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
@@ -289,186 +252,71 @@ mod tests {
         use crate::utils::graph_utils::DependencyProvider;
         use std::collections::HashSet;
 
-        // Test flag with no dependencies
-        let flag_no_deps = FeatureFlag {
-            id: 1,
-            team_id: 1,
-            name: Some("No Dependencies".to_string()),
-            key: "no_deps".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                    ..Default::default()
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                feature_enrollment: None,
-
-                holdout: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: None,
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        };
-
+        // Flag with no dependencies
+        let flag_no_deps = mock!(FeatureFlag, id: 1, key: "no_deps".mock_into());
         let deps = flag_no_deps.extract_dependencies().unwrap();
         assert!(deps.is_empty());
 
-        // Test flag with feature flag dependency
-        let flag_with_dep = FeatureFlag {
+        // Flag with feature flag dependency
+        let flag_with_dep = mock!(FeatureFlag,
             id: 2,
-            team_id: 1,
-            name: Some("With Dependency".to_string()),
-            key: "with_dep".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![PropertyFilter {
-                        key: "100".to_string(), // Feature flag ID as string
-                        value: Some(json!("true")),
-                        operator: Some(OperatorType::Exact),
-                        prop_type: PropertyType::Flag,
-                        group_type_index: None,
-                        negation: None,
-                        compiled_regex: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                    ..Default::default()
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                feature_enrollment: None,
-
-                holdout: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: None,
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        };
-
+            key: "with_dep".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "100".mock_into(),
+                value: Some(json!("true")),
+                prop_type: PropertyType::Flag
+            ).mock_into()
+        );
         let deps = flag_with_dep.extract_dependencies().unwrap();
         assert_eq!(deps, HashSet::from([100]));
 
-        // Test flag with multiple dependencies
-        let flag_with_multiple_deps = FeatureFlag {
+        // Flag with multiple dependencies across groups
+        let flag_with_multiple_deps = mock!(FeatureFlag,
             id: 3,
-            team_id: 1,
-            name: Some("Multiple Dependencies".to_string()),
-            key: "multiple_deps".to_string(),
+            key: "multiple_deps".mock_into(),
             filters: FlagFilters {
                 groups: vec![
                     FlagPropertyGroup {
-                        properties: Some(vec![PropertyFilter {
-                            key: "200".to_string(), // Feature flag ID as string
+                        properties: Some(vec![mock!(PropertyFilter,
+                            key: "200".mock_into(),
                             value: Some(json!("true")),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: PropertyType::Flag,
-                            group_type_index: None,
-                            negation: None,
-                            compiled_regex: None,
-                        }]),
+                            prop_type: PropertyType::Flag
+                        )]),
                         rollout_percentage: Some(50.0),
-                        variant: None,
                         ..Default::default()
                     },
                     FlagPropertyGroup {
-                        properties: Some(vec![PropertyFilter {
-                            key: "300".to_string(), // Feature flag ID as string
+                        properties: Some(vec![mock!(PropertyFilter,
+                            key: "300".mock_into(),
                             value: Some(json!("false")),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: PropertyType::Flag,
-                            group_type_index: None,
-                            negation: None,
-                            compiled_regex: None,
-                        }]),
+                            prop_type: PropertyType::Flag
+                        )]),
                         rollout_percentage: Some(50.0),
-                        variant: None,
                         ..Default::default()
                     },
                 ],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                feature_enrollment: None,
-
-                holdout: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: None,
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        };
-
+                ..Default::default()
+            }
+        );
         let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
         assert_eq!(deps, HashSet::from([200, 300]));
 
-        // Test flag with mixed property types (feature flag + regular properties)
-        let flag_with_mixed_props = FeatureFlag {
+        // Flag with mixed property types (feature flag + regular properties)
+        let flag_with_mixed_props = mock!(FeatureFlag,
             id: 4,
-            team_id: 1,
-            name: Some("Mixed Properties".to_string()),
-            key: "mixed_props".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![
-                        PropertyFilter {
-                            key: "400".to_string(), // Feature flag ID as string
-                            value: Some(json!("true")),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: PropertyType::Flag,
-                            group_type_index: None,
-                            negation: None,
-                            compiled_regex: None,
-                        },
-                        PropertyFilter {
-                            key: "regular_property".to_string(),
-                            value: Some(json!("value")),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: PropertyType::Person,
-                            group_type_index: None,
-                            negation: None,
-                            compiled_regex: None,
-                        },
-                    ]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                    ..Default::default()
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                feature_enrollment: None,
-
-                holdout: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: None,
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        };
-
+            key: "mixed_props".mock_into(),
+            filters: vec![
+                mock!(PropertyFilter,
+                    key: "400".mock_into(),
+                    value: Some(json!("true")),
+                    prop_type: PropertyType::Flag
+                ),
+                mock!(PropertyFilter,
+                    key: "regular_property".mock_into(),
+                    value: Some(json!("value"))
+                ),
+            ].mock_into()
+        );
         let deps = flag_with_mixed_props.extract_dependencies().unwrap();
         assert_eq!(deps, HashSet::from([400]));
     }
@@ -499,18 +347,13 @@ mod tests {
         ] {
             let mut flag = mock!(FeatureFlag, deleted: deleted, active: active);
 
-            flag.filters.groups = vec![crate::flags::flag_models::FlagPropertyGroup {
-                properties: Some(vec![PropertyFilter {
-                    key: "999".to_string(),
+            flag.filters.groups = vec![FlagPropertyGroup {
+                properties: Some(vec![mock!(PropertyFilter,
+                    key: "999".mock_into(),
                     value: Some(json!("true")),
-                    operator: Some(OperatorType::Exact),
-                    prop_type: PropertyType::Flag,
-                    group_type_index: None,
-                    negation: None,
-                    compiled_regex: None,
-                }]),
+                    prop_type: PropertyType::Flag
+                )]),
                 rollout_percentage: Some(100.0),
-                variant: None,
                 ..Default::default()
             }];
 

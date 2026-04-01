@@ -13,64 +13,56 @@ import {
     SurveysStatsRetrieve2QueryParams,
     SurveysStatsRetrieveQueryParams,
 } from '@/generated/surveys/api'
+import { withUiApp } from '@/resources/ui-apps'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SurveysGetAllSchema = SurveysListQueryParams
 
-const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, unknown> => ({
-    name: 'surveys-get-all',
-    schema: SurveysGetAllSchema,
-    handler: async (context: Context, params: z.infer<typeof SurveysGetAllSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSurveyList>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/surveys/`,
-            query: {
-                archived: params.archived,
-                limit: params.limit,
-                offset: params.offset,
-                search: params.search,
-            },
-        })
-        const items = (result as any).results ?? result
-        return {
-            ...(result as any),
-            results: (items as any[]).map((item: any) => ({
-                ...item,
-                _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/surveys/${item.id}`,
-            })),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/surveys`,
-        }
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/survey-list.html',
+const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Schemas.PaginatedSurveyList>> =>
+    withUiApp('survey-list', {
+        name: 'surveys-get-all',
+        schema: SurveysGetAllSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveysGetAllSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.PaginatedSurveyList>({
+                method: 'GET',
+                path: `/api/projects/${projectId}/surveys/`,
+                query: {
+                    archived: params.archived,
+                    limit: params.limit,
+                    offset: params.offset,
+                    search: params.search,
+                },
+            })
+            return await withPostHogUrl(
+                context,
+                {
+                    ...result,
+                    results: await Promise.all(
+                        result.results.map((item) => withPostHogUrl(context, item, `/surveys/${item.id}`))
+                    ),
+                },
+                '/surveys'
+            )
         },
-    },
-})
+    })
 
 const SurveyGetSchema = SurveysRetrieveParams.omit({ project_id: true })
 
-const surveyGet = (): ToolBase<typeof SurveyGetSchema, Schemas.Survey & { _posthogUrl: string }> => ({
-    name: 'survey-get',
-    schema: SurveyGetSchema,
-    handler: async (context: Context, params: z.infer<typeof SurveyGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Survey>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/surveys/${params.id}/`,
-        })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/surveys/${(result as any).id}`,
-        }
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/survey.html',
+const surveyGet = (): ToolBase<typeof SurveyGetSchema, WithPostHogUrl<Schemas.Survey>> =>
+    withUiApp('survey', {
+        name: 'survey-get',
+        schema: SurveyGetSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveyGetSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Survey>({
+                method: 'GET',
+                path: `/api/projects/${projectId}/surveys/${params.id}/`,
+            })
+            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
         },
-    },
-})
+    })
 
 const SurveyCreateSchema = SurveysCreateBody.omit({
     schedule: true,
@@ -96,65 +88,58 @@ const SurveyCreateSchema = SurveysCreateBody.omit({
 
 const surveyCreate = (): ToolBase<
     typeof SurveyCreateSchema,
-    Schemas.SurveySerializerCreateUpdateOnly & { _posthogUrl: string }
-> => ({
-    name: 'survey-create',
-    schema: SurveyCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SurveyCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.linked_flag_id !== undefined) {
-            body['linked_flag_id'] = params.linked_flag_id
-        }
-        if (params.targeting_flag_filters !== undefined) {
-            body['targeting_flag_filters'] = params.targeting_flag_filters
-        }
-        if (params.questions !== undefined) {
-            body['questions'] = params.questions
-        }
-        if (params.appearance !== undefined) {
-            body['appearance'] = params.appearance
-        }
-        if (params.start_date !== undefined) {
-            body['start_date'] = params.start_date
-        }
-        if (params.responses_limit !== undefined) {
-            body['responses_limit'] = params.responses_limit
-        }
-        if (params.iteration_count !== undefined) {
-            body['iteration_count'] = params.iteration_count
-        }
-        if (params.iteration_frequency_days !== undefined) {
-            body['iteration_frequency_days'] = params.iteration_frequency_days
-        }
-        if (params.enable_partial_responses !== undefined) {
-            body['enable_partial_responses'] = params.enable_partial_responses
-        }
-        const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
-            method: 'POST',
-            path: `/api/projects/${projectId}/surveys/`,
-            body,
-        })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/surveys/${(result as any).id}`,
-        }
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/survey.html',
+    WithPostHogUrl<Schemas.SurveySerializerCreateUpdateOnly>
+> =>
+    withUiApp('survey', {
+        name: 'survey-create',
+        schema: SurveyCreateSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveyCreateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.name !== undefined) {
+                body['name'] = params.name
+            }
+            if (params.description !== undefined) {
+                body['description'] = params.description
+            }
+            if (params.type !== undefined) {
+                body['type'] = params.type
+            }
+            if (params.linked_flag_id !== undefined) {
+                body['linked_flag_id'] = params.linked_flag_id
+            }
+            if (params.targeting_flag_filters !== undefined) {
+                body['targeting_flag_filters'] = params.targeting_flag_filters
+            }
+            if (params.questions !== undefined) {
+                body['questions'] = params.questions
+            }
+            if (params.appearance !== undefined) {
+                body['appearance'] = params.appearance
+            }
+            if (params.start_date !== undefined) {
+                body['start_date'] = params.start_date
+            }
+            if (params.responses_limit !== undefined) {
+                body['responses_limit'] = params.responses_limit
+            }
+            if (params.iteration_count !== undefined) {
+                body['iteration_count'] = params.iteration_count
+            }
+            if (params.iteration_frequency_days !== undefined) {
+                body['iteration_frequency_days'] = params.iteration_frequency_days
+            }
+            if (params.enable_partial_responses !== undefined) {
+                body['enable_partial_responses'] = params.enable_partial_responses
+            }
+            const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/surveys/`,
+                body,
+            })
+            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
         },
-    },
-})
+    })
 
 const SurveyUpdateSchema = SurveysPartialUpdateParams.omit({ project_id: true }).extend(
     SurveysPartialUpdateBody.omit({
@@ -176,92 +161,85 @@ const SurveyUpdateSchema = SurveysPartialUpdateParams.omit({ project_id: true })
 
 const surveyUpdate = (): ToolBase<
     typeof SurveyUpdateSchema,
-    Schemas.SurveySerializerCreateUpdateOnly & { _posthogUrl: string }
-> => ({
-    name: 'survey-update',
-    schema: SurveyUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof SurveyUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.schedule !== undefined) {
-            body['schedule'] = params.schedule
-        }
-        if (params.linked_flag_id !== undefined) {
-            body['linked_flag_id'] = params.linked_flag_id
-        }
-        if (params.targeting_flag_id !== undefined) {
-            body['targeting_flag_id'] = params.targeting_flag_id
-        }
-        if (params.targeting_flag_filters !== undefined) {
-            body['targeting_flag_filters'] = params.targeting_flag_filters
-        }
-        if (params.remove_targeting_flag !== undefined) {
-            body['remove_targeting_flag'] = params.remove_targeting_flag
-        }
-        if (params.questions !== undefined) {
-            body['questions'] = params.questions
-        }
-        if (params.conditions !== undefined) {
-            body['conditions'] = params.conditions
-        }
-        if (params.appearance !== undefined) {
-            body['appearance'] = params.appearance
-        }
-        if (params.start_date !== undefined) {
-            body['start_date'] = params.start_date
-        }
-        if (params.end_date !== undefined) {
-            body['end_date'] = params.end_date
-        }
-        if (params.archived !== undefined) {
-            body['archived'] = params.archived
-        }
-        if (params.responses_limit !== undefined) {
-            body['responses_limit'] = params.responses_limit
-        }
-        if (params.iteration_count !== undefined) {
-            body['iteration_count'] = params.iteration_count
-        }
-        if (params.iteration_frequency_days !== undefined) {
-            body['iteration_frequency_days'] = params.iteration_frequency_days
-        }
-        if (params.enable_partial_responses !== undefined) {
-            body['enable_partial_responses'] = params.enable_partial_responses
-        }
-        const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
-            method: 'PATCH',
-            path: `/api/projects/${projectId}/surveys/${params.id}/`,
-            body,
-        })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/surveys/${(result as any).id}`,
-        }
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/survey.html',
+    WithPostHogUrl<Schemas.SurveySerializerCreateUpdateOnly>
+> =>
+    withUiApp('survey', {
+        name: 'survey-update',
+        schema: SurveyUpdateSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveyUpdateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.name !== undefined) {
+                body['name'] = params.name
+            }
+            if (params.description !== undefined) {
+                body['description'] = params.description
+            }
+            if (params.type !== undefined) {
+                body['type'] = params.type
+            }
+            if (params.schedule !== undefined) {
+                body['schedule'] = params.schedule
+            }
+            if (params.linked_flag_id !== undefined) {
+                body['linked_flag_id'] = params.linked_flag_id
+            }
+            if (params.targeting_flag_id !== undefined) {
+                body['targeting_flag_id'] = params.targeting_flag_id
+            }
+            if (params.targeting_flag_filters !== undefined) {
+                body['targeting_flag_filters'] = params.targeting_flag_filters
+            }
+            if (params.remove_targeting_flag !== undefined) {
+                body['remove_targeting_flag'] = params.remove_targeting_flag
+            }
+            if (params.questions !== undefined) {
+                body['questions'] = params.questions
+            }
+            if (params.conditions !== undefined) {
+                body['conditions'] = params.conditions
+            }
+            if (params.appearance !== undefined) {
+                body['appearance'] = params.appearance
+            }
+            if (params.start_date !== undefined) {
+                body['start_date'] = params.start_date
+            }
+            if (params.end_date !== undefined) {
+                body['end_date'] = params.end_date
+            }
+            if (params.archived !== undefined) {
+                body['archived'] = params.archived
+            }
+            if (params.responses_limit !== undefined) {
+                body['responses_limit'] = params.responses_limit
+            }
+            if (params.iteration_count !== undefined) {
+                body['iteration_count'] = params.iteration_count
+            }
+            if (params.iteration_frequency_days !== undefined) {
+                body['iteration_frequency_days'] = params.iteration_frequency_days
+            }
+            if (params.enable_partial_responses !== undefined) {
+                body['enable_partial_responses'] = params.enable_partial_responses
+            }
+            const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/surveys/${params.id}/`,
+                body,
+            })
+            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
         },
-    },
-})
+    })
 
 const SurveyDeleteSchema = SurveysDestroyParams.omit({ project_id: true })
 
-const surveyDelete = (): ToolBase<typeof SurveyDeleteSchema, unknown> => ({
+const surveyDelete = (): ToolBase<typeof SurveyDeleteSchema, Schemas.SurveySerializerCreateUpdateOnly> => ({
     name: 'survey-delete',
     schema: SurveyDeleteSchema,
     handler: async (context: Context, params: z.infer<typeof SurveyDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/surveys/${params.id}/`,
             body: { archived: true },
@@ -274,54 +252,43 @@ const SurveyStatsSchema = SurveysStatsRetrieve2Params.omit({ project_id: true })
     SurveysStatsRetrieve2QueryParams.shape
 )
 
-const surveyStats = (): ToolBase<typeof SurveyStatsSchema, unknown> => ({
-    name: 'survey-stats',
-    schema: SurveyStatsSchema,
-    handler: async (context: Context, params: z.infer<typeof SurveyStatsSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/surveys/${params.id}/stats/`,
-            query: {
-                date_from: params.date_from,
-                date_to: params.date_to,
-            },
-        })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/surveys/${(result as any).survey_id}`,
-        }
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/survey-stats.html',
+const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schemas.SurveyStatsResponse>> =>
+    withUiApp('survey-stats', {
+        name: 'survey-stats',
+        schema: SurveyStatsSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveyStatsSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.SurveyStatsResponse>({
+                method: 'GET',
+                path: `/api/projects/${projectId}/surveys/${params.id}/stats/`,
+                query: {
+                    date_from: params.date_from,
+                    date_to: params.date_to,
+                },
+            })
+            return await withPostHogUrl(context, result, `/surveys/${result.survey_id}`)
         },
-    },
-})
+    })
 
 const SurveysGlobalStatsSchema = SurveysStatsRetrieveQueryParams
 
-const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, unknown> => ({
-    name: 'surveys-global-stats',
-    schema: SurveysGlobalStatsSchema,
-    handler: async (context: Context, params: z.infer<typeof SurveysGlobalStatsSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/surveys/stats/`,
-            query: {
-                date_from: params.date_from,
-                date_to: params.date_to,
-            },
-        })
-        return result
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/survey-global-stats.html',
+const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas.SurveyGlobalStatsResponse> =>
+    withUiApp('survey-global-stats', {
+        name: 'surveys-global-stats',
+        schema: SurveysGlobalStatsSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveysGlobalStatsSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.SurveyGlobalStatsResponse>({
+                method: 'GET',
+                path: `/api/projects/${projectId}/surveys/stats/`,
+                query: {
+                    date_from: params.date_from,
+                    date_to: params.date_to,
+                },
+            })
+            return result
         },
-    },
-})
+    })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'surveys-get-all': surveysGetAll,

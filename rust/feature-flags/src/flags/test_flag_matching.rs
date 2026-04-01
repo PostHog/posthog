@@ -12,7 +12,7 @@ mod tests {
         flags::{
             flag_group_type_mapping::GroupTypeCacheManager,
             flag_match_reason::FeatureFlagMatchReason,
-            flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
+            flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
             flag_matching_utils::{
                 get_fetch_calls_count, get_hash_key_override_lookup_count, reset_fetch_calls_count,
                 reset_hash_key_override_lookup_count, set_feature_flag_hash_key_overrides,
@@ -27,7 +27,7 @@ mod tests {
         utils::{
             graph_utils::PrecomputedDependencyGraph,
             mock::MockInto,
-            test_utils::{mock_group_type_cache, TestContext},
+            test_utils::{flag_list_with_metadata, mock_group_type_cache, TestContext},
         },
     };
 
@@ -187,10 +187,7 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
@@ -242,10 +239,7 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
@@ -334,10 +328,7 @@ mod tests {
             Some(groups),
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![person_flag.clone(), group_flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![person_flag.clone(), group_flag.clone()]);
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
@@ -428,10 +419,7 @@ mod tests {
             Some(groups),
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
@@ -509,14 +497,11 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![
-                independent_flag.clone(),
-                leaf_flag.clone(),
-                parent_flag.clone(),
-            ],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![
+            independent_flag.clone(),
+            leaf_flag.clone(),
+            parent_flag.clone(),
+        ]);
 
         {
             let overrides = HashMap::from([("email".to_string(), json!("override@example.com"))]);
@@ -679,10 +664,7 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
-        let flags = FeatureFlagList {
-            flags: vec![leaf_flag.clone(), parent_flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![leaf_flag.clone(), parent_flag.clone()]);
 
         {
             let overrides = HashMap::from([("email".to_string(), json!("control@example.com"))]);
@@ -828,15 +810,12 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![
-                independent_flag.clone(),
-                leaf_flag.clone(),
-                intermediate_flag.clone(),
-                parent_flag.clone(),
-            ],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![
+            independent_flag.clone(),
+            leaf_flag.clone(),
+            intermediate_flag.clone(),
+            parent_flag.clone(),
+        ]);
 
         reset_fetch_calls_count();
 
@@ -949,18 +928,15 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![
-                independent_flag.clone(),
-                leaf_flag.clone(),
-                cycle_node.clone(),
-                cycle_middle_flag.clone(),
-                cycle_start_flag.clone(),
-                parent_flag.clone(),
-                missing_dependency_flag.clone(),
-            ],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![
+            independent_flag.clone(),
+            leaf_flag.clone(),
+            cycle_node.clone(),
+            cycle_middle_flag.clone(),
+            cycle_start_flag.clone(),
+            parent_flag.clone(),
+            missing_dependency_flag.clone(),
+        ]);
 
         {
             // Leaf flag evaluates to true
@@ -1123,10 +1099,7 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
-        let flags = FeatureFlagList {
-            flags: vec![leaf_flag.clone(), parent_flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![leaf_flag.clone(), parent_flag.clone()]);
 
         {
             // Leaf flag evaluates to "control"
@@ -1299,8 +1272,15 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1343,8 +1323,15 @@ mod tests {
         matcher
             .flag_evaluation_state
             .add_flag_evaluation_result(1, FlagValue::Boolean(true));
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1420,8 +1407,14 @@ mod tests {
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
 
         // All filters match: should pass
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&person_properties),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &person_properties, None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1445,8 +1438,13 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
 
+        let ctx2 = PropertyContext {
+            person_properties: Some(&mismatched_properties),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher2
-            .is_condition_match(&flag, &condition, &mismatched_properties, None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx2, None, &None)
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -1465,8 +1463,13 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(false));
 
+        let ctx3 = PropertyContext {
+            person_properties: Some(&person_properties),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher3
-            .is_condition_match(&flag, &condition, &person_properties, None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx3, None, &None)
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -1556,10 +1559,7 @@ mod tests {
         reset_fetch_calls_count();
         let result = matcher
             .evaluate_all_feature_flags(
-                FeatureFlagList {
-                    flags: vec![flag.clone()],
-                    ..Default::default()
-                },
+                flag_list_with_metadata(vec![flag.clone()]),
                 Some(person_property_overrides),
                 None,
                 None,
@@ -1921,15 +1921,15 @@ mod tests {
             None,
         );
 
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &flag.filters.groups[0],
-                &HashMap::new(),
-                None,
-                None,
-                &None,
-            )
+            .is_condition_match(&flag, &flag.filters.groups[0], &ctx, None, &None)
             .unwrap();
 
         assert!(is_match);
@@ -3607,10 +3607,7 @@ mod tests {
         .await
         .unwrap();
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -3702,10 +3699,7 @@ mod tests {
             ensure_experience_continuity: Some(true)
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -3793,6 +3787,7 @@ mod tests {
 
         // Create flag without continuity
         let flag_no_continuity = mock!(FeatureFlag,
+            id: 2,
             team_id: team.id,
             key: "flag_no_continuity_mix".mock_into(),
             filters: FlagFilters {
@@ -3831,10 +3826,8 @@ mod tests {
         .await
         .unwrap();
 
-        let flags = FeatureFlagList {
-            flags: vec![flag_continuity.clone(), flag_no_continuity.clone()],
-            ..Default::default()
-        };
+        let flags =
+            flag_list_with_metadata(vec![flag_continuity.clone(), flag_no_continuity.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -4937,10 +4930,7 @@ mod tests {
 
         let result = matcher
             .evaluate_all_feature_flags(
-                FeatureFlagList {
-                    flags: vec![flag.clone()],
-                    ..Default::default()
-                },
+                flag_list_with_metadata(vec![flag.clone()]),
                 Some(person_property_overrides),
                 None,
                 None,
@@ -5697,10 +5687,7 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         reset_fetch_calls_count();
 
         let result = matcher
@@ -5969,10 +5956,7 @@ mod tests {
             Some(groups.clone()),
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let result = matcher
             .evaluate_all_feature_flags(
@@ -6339,14 +6323,10 @@ mod tests {
             key: "test-flag-normal".mock_into()
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag_with_continuity, flag_without_continuity],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag_with_continuity, flag_without_continuity]);
 
         // Build dependency graph for the flags
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         // Test the scenario where hash key override reading fails
         // This simulates the case where we have experience continuity flags but hash override reads fail
@@ -6448,12 +6428,15 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![filtered_continuity_flag, active_normal_flag],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: None,
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1, 2]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+            },
             cohorts: None,
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         // Simulate a hash-key-override read failure
         let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
@@ -6538,12 +6521,16 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![base_flag, dependent_flag],
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1], vec![2]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+            },
             ..Default::default()
         };
 
         // Build dependency graph for the flags
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -6639,12 +6626,15 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: None,
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1], vec![2]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+            },
             cohorts: None,
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -6735,12 +6725,15 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: None,
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1], vec![2]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+            },
             cohorts: None,
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -6835,13 +6828,9 @@ mod tests {
         ))
         .unwrap();
 
-        let flags = FeatureFlagList {
-            flags: vec![disabled_standalone, active_flag],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![disabled_standalone, active_flag]);
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -6928,12 +6917,19 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b, flag_c],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: None,
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1], vec![2], vec![3]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([
+                    (1, HashSet::new()),
+                    (2, HashSet::from([1])),
+                    (3, HashSet::from([1, 2])),
+                ]),
+            },
             cohorts: None,
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -7008,10 +7004,7 @@ mod tests {
             ensure_experience_continuity: Some(true)
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7088,10 +7081,7 @@ mod tests {
             ensure_experience_continuity: Some(true)
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7192,10 +7182,7 @@ mod tests {
             ensure_experience_continuity: Some(true)
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7301,10 +7288,7 @@ mod tests {
             ensure_experience_continuity: Some(true)
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7386,10 +7370,7 @@ mod tests {
             ensure_experience_continuity: Some(true)
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -7511,14 +7492,11 @@ mod tests {
             }
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![
-                flag_optimizable.clone(),
-                flag_needs_lookup.clone(),
-                flag_no_continuity.clone(),
-            ],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![
+            flag_optimizable.clone(),
+            flag_needs_lookup.clone(),
+            flag_no_continuity.clone(),
+        ]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7652,10 +7630,8 @@ mod tests {
             ensure_experience_continuity: Some(true)
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag_optimizable.clone(), flag_needs_lookup.clone()],
-            ..Default::default()
-        };
+        let flags =
+            flag_list_with_metadata(vec![flag_optimizable.clone(), flag_needs_lookup.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7762,10 +7738,8 @@ mod tests {
             ensure_experience_continuity: Some(true)
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag_needs_lookup.clone(), flag_depends_on_b.clone()],
-            ..Default::default()
-        };
+        let flags =
+            flag_list_with_metadata(vec![flag_needs_lookup.clone(), flag_depends_on_b.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7867,10 +7841,7 @@ mod tests {
         );
         let person_property_overrides =
             HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         reset_fetch_calls_count();
 
@@ -7983,10 +7954,7 @@ mod tests {
         let person_property_overrides =
             HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
             "test_user".to_string(),
@@ -8088,10 +8056,7 @@ mod tests {
         let person_property_overrides =
             HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -8534,7 +8499,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b, flag_c],
-            evaluation_metadata: Some(EvaluationMetadata {
+            evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -8542,17 +8507,11 @@ mod tests {
                     (2, HashSet::from([3])),
                     (3, HashSet::new()),
                 ]),
-            }),
+            },
             ..Default::default()
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build from precomputed metadata");
-
-        assert!(
-            !precomputed.is_graph_fallback,
-            "Should use the precomputed path"
-        );
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -8633,18 +8592,16 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b],
-            evaluation_metadata: Some(EvaluationMetadata {
+            evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![1],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
-            }),
+            },
             ..Default::default()
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build from precomputed metadata");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
-        assert!(!precomputed.is_graph_fallback);
         assert!(precomputed.flags_with_missing_deps.contains(&1));
 
         let router = context.create_postgres_router();
@@ -8750,10 +8707,7 @@ mod tests {
 
         let result = matcher
             .evaluate_all_feature_flags(
-                FeatureFlagList {
-                    flags: vec![flag.clone()],
-                    ..Default::default()
-                },
+                flag_list_with_metadata(vec![flag.clone()]),
                 None,
                 None,
                 None,
@@ -9504,5 +9458,316 @@ mod tests {
         // Group condition (index 0) matches first since both are 100% rollout
         assert!(result.matches);
         assert_eq!(result.condition_index, Some(0));
+    }
+
+    /// Scenario 3: A single condition combines person and group property filters. The
+    /// condition is group-aggregated (rollout hashes on the group key), but person filters
+    /// act as an additional gate — only pro users within enterprise companies.
+    #[rstest::rstest]
+    #[case("pro", "enterprise", true, "both filters match")]
+    #[case("free", "enterprise", false, "person filter fails")]
+    #[case("pro", "startup", false, "group filter fails")]
+    #[tokio::test]
+    async fn test_mixed_targeting_single_condition_with_person_and_group_filters(
+        #[case] plan: &str,
+        #[case] company_size: &str,
+        #[case] expected_match: bool,
+        #[case] scenario: &str,
+    ) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "mixed-single-condition".mock_into(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        mock!(PropertyFilter,
+                            key: "plan".mock_into(),
+                            value: Some(json!("pro")),
+                            prop_type: PropertyType::Person
+                        ),
+                        mock!(PropertyFilter,
+                            key: "size".mock_into(),
+                            value: Some(json!("enterprise")),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(0)
+                        ),
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: Some(Some(0)),
+                }],
+                ..Default::default()
+            }
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("company".to_string(), 0)].into_iter().collect());
+
+        let groups = HashMap::from([("company".to_string(), json!("acme"))]);
+        let person_overrides = HashMap::from([("plan".to_string(), json!(plan))]);
+        let group_overrides = HashMap::from([(
+            "company".to_string(),
+            HashMap::from([("size".to_string(), json!(company_size))]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(groups),
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(
+                &flag,
+                Some(&person_overrides),
+                Some(&group_overrides),
+                None,
+                &None,
+            )
+            .unwrap();
+        assert_eq!(
+            result.matches, expected_match,
+            "Scenario '{scenario}': expected matches={expected_match}"
+        );
+    }
+
+    /// Regression test: when a condition has an explicitly typed group filter for one index
+    /// and an untyped filter that falls back to the condition's aggregation index, properties
+    /// for the aggregation index must still be loaded.
+    #[tokio::test]
+    async fn test_mixed_typed_and_untyped_filters_loads_aggregation_properties() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // Condition aggregates on group index 1 (project), has an explicitly typed
+        // group filter for index 0 (company), plus an untyped filter that should
+        // resolve against index 1 via the aggregation fallback.
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "mixed-typed-untyped".mock_into(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        mock!(PropertyFilter,
+                            key: "size".mock_into(),
+                            value: Some(json!("enterprise")),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(0)
+                        ),
+                        // Untyped filter — resolve_for_filter falls back to aggregation index (1)
+                        mock!(PropertyFilter,
+                            key: "tier".mock_into(),
+                            value: Some(json!("premium")),
+                            prop_type: PropertyType::Group
+                        ),
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: Some(Some(1)),
+                }],
+                ..Default::default()
+            }
+        );
+
+        let group_type_cache = mock_group_type_cache(
+            [("company".to_string(), 0), ("project".to_string(), 1)]
+                .into_iter()
+                .collect(),
+        );
+
+        let groups = HashMap::from([
+            ("company".to_string(), json!("acme")),
+            ("project".to_string(), json!("proj-1")),
+        ]);
+        let group_overrides = HashMap::from([
+            (
+                "company".to_string(),
+                HashMap::from([("size".to_string(), json!("enterprise"))]),
+            ),
+            (
+                "project".to_string(),
+                HashMap::from([("tier".to_string(), json!("premium"))]),
+            ),
+        ]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(groups),
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag, None, Some(&group_overrides), None, &None)
+            .unwrap();
+
+        assert!(
+            result.matches,
+            "Both filters should match: typed filter against index 0, untyped filter against aggregation index 1"
+        );
+
+        // Verify routing: when the aggregation index's data doesn't match,
+        // the untyped filter should fail (proving it resolves against index 1, not index 0).
+        let group_overrides_mismatch = HashMap::from([
+            (
+                "company".to_string(),
+                HashMap::from([("size".to_string(), json!("enterprise"))]),
+            ),
+            (
+                "project".to_string(),
+                HashMap::from([("tier".to_string(), json!("basic"))]),
+            ),
+        ]);
+
+        let mut matcher2 = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(HashMap::from([
+                ("company".to_string(), json!("acme")),
+                ("project".to_string(), json!("proj-1")),
+            ])),
+        );
+        matcher2
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher2
+            .get_match(&flag, None, Some(&group_overrides_mismatch), None, &None)
+            .unwrap();
+
+        assert!(
+            !result.matches,
+            "Untyped filter should fail when aggregation index data doesn't match"
+        );
+    }
+
+    mod property_context_tests {
+        use super::*;
+        use crate::flags::flag_matching::PropertyContext;
+
+        fn person_filter(key: &str) -> PropertyFilter {
+            PropertyFilter {
+                key: key.to_string(),
+                value: Some(json!("v")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+            }
+        }
+
+        fn group_filter(key: &str, gti: Option<i32>) -> PropertyFilter {
+            PropertyFilter {
+                key: key.to_string(),
+                value: Some(json!("v")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Group,
+                group_type_index: gti,
+                negation: None,
+                compiled_regex: None,
+            }
+        }
+
+        #[test]
+        fn test_person_filter_uses_person_properties() {
+            let person_props = HashMap::from([("plan".into(), json!("pro"))]);
+            let group_props = HashMap::new();
+            let ctx = PropertyContext {
+                person_properties: Some(&person_props),
+                group_properties: &group_props,
+                aggregation: None,
+            };
+            let result = ctx.resolve_for_filter(&person_filter("plan"));
+            assert_eq!(result.get("plan"), Some(&json!("pro")));
+        }
+
+        #[test]
+        fn test_person_filter_returns_empty_when_no_person_properties() {
+            let group_props = HashMap::new();
+            let ctx = PropertyContext {
+                person_properties: None,
+                group_properties: &group_props,
+                aggregation: None,
+            };
+            let result = ctx.resolve_for_filter(&person_filter("plan"));
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_group_filter_with_explicit_index() {
+            let person_props = HashMap::new();
+            let group_props = HashMap::from([(
+                0,
+                HashMap::from([("size".to_string(), json!("enterprise"))]),
+            )]);
+            let ctx = PropertyContext {
+                person_properties: Some(&person_props),
+                group_properties: &group_props,
+                aggregation: Some(1),
+            };
+            // Explicit group_type_index takes precedence over aggregation
+            let result = ctx.resolve_for_filter(&group_filter("size", Some(0)));
+            assert_eq!(result.get("size"), Some(&json!("enterprise")));
+        }
+
+        #[test]
+        fn test_group_filter_without_index_falls_back_to_aggregation() {
+            let group_props =
+                HashMap::from([(1, HashMap::from([("tier".to_string(), json!("premium"))]))]);
+            let ctx = PropertyContext {
+                person_properties: None,
+                group_properties: &group_props,
+                aggregation: Some(1),
+            };
+            let result = ctx.resolve_for_filter(&group_filter("tier", None));
+            assert_eq!(result.get("tier"), Some(&json!("premium")));
+        }
+
+        #[test]
+        fn test_group_filter_with_no_index_and_no_aggregation_returns_empty() {
+            let group_props =
+                HashMap::from([(0, HashMap::from([("size".to_string(), json!("big"))]))]);
+            let ctx = PropertyContext {
+                person_properties: None,
+                group_properties: &group_props,
+                aggregation: None,
+            };
+            let result = ctx.resolve_for_filter(&group_filter("size", None));
+            assert!(result.is_empty());
+        }
     }
 }
