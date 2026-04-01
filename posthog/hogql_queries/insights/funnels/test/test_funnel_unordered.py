@@ -111,7 +111,6 @@ class TestFunnelUnorderedStepsBreakdown(
             funnel_window_interval=7,
         )
 
-
         # event
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
         _create_event(
@@ -1758,6 +1757,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             date_from="2024-03-01",
             date_to="2024-03-08",
             funnel_viz_type=FunnelVizType.TRENDS,
+            funnel_window_interval=8,
         )
         trend_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
@@ -1857,6 +1857,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             funnel_from_step=1,
             funnel_to_step=2,
             funnel_viz_type=FunnelVizType.TRENDS,
+            funnel_window_interval=8,
         )
         trend_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
@@ -1984,7 +1985,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             )
 
         # Define a 3-step funnel with unordered events
-        query = unordered_funnels_query(
+        base_query = unordered_funnels_query(
             series=[
                 EventsNode(event="event 1", name="event 1"),
                 EventsNode(event="event 2", name="event 2"),
@@ -1995,24 +1996,13 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             funnel_viz_type=FunnelVizType.TRENDS,
             funnel_window_interval=40,
         )
-        query.interval = IntervalType.MONTH
+        query = base_query.model_copy(update={"interval": IntervalType.MONTH})
         trend_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(trend_results[0]["reached_from_step_count"], 5)
         self.assertEqual(trend_results[0]["reached_to_step_count"], 5)
 
-        query = unordered_funnels_query(
-            series=[
-                EventsNode(event="event 1", name="event 1"),
-                EventsNode(event="event 2", name="event 2"),
-                EventsNode(event="event 3", name="event 3"),
-            ],
-            date_from="2024-12-01",
-            date_to="2024-12-31",
-            funnel_viz_type=FunnelVizType.TRENDS,
-            funnel_window_interval=40,
-        )
-        query.interval = IntervalType.WEEK
+        query = base_query.model_copy(update={"interval": IntervalType.WEEK})
         trend_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(trend_results), 5)
