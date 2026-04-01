@@ -1090,12 +1090,33 @@ def break_part(
                         f"{[r[0] for r in current_parts]}. Dropping the first match."
                     )
                 current_part_name = current_parts[0][0]
+
+                # DROP PART requires a shard leader replica so we route the DROP
+                # to a (leader-eligible) replica on the same shard.
                 context.log.info(f"Dropping oversized part {current_part_name} from {source_table}...")
-                client.execute(
-                    f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
-                    settings={"max_partition_size_to_drop": "0"},
-                )
-                context.log.info(f"Dropped {current_part_name}")
+                try:
+                    client.execute(
+                        f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
+                        settings={"max_partition_size_to_drop": "0"},
+                    )
+                    context.log.info(f"Dropped {current_part_name}")
+                except Exception as drop_err:
+                    if "not a leader" not in str(drop_err):
+                        raise
+                    context.log.info(f"Current replica is not a leader — routing DROP to an online replica...")
+
+                    def _drop_on_leader(leader_client: Client) -> None:
+                        leader_client.execute(
+                            f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
+                            settings={"max_partition_size_to_drop": "0"},
+                        )
+
+                    cluster.map_any_host_in_shards_by_role(
+                        {shard: _drop_on_leader},
+                        node_role=NodeRole.DATA,
+                        workload=Workload.ONLINE,
+                    ).result()
+                    context.log.info(f"Dropped {current_part_name} (via leader replica)")
             else:
                 context.log.warning(
                     f"Original oversized part (prefix {original_prefix}) not found in "
