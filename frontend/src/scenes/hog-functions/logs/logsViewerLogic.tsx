@@ -29,7 +29,7 @@ export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
-export const LOG_GROUP_TOTAL_LOGS_LIMIT = 500
+export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
 
 export type LogsViewerLogicProps = {
     logicKey?: string
@@ -143,19 +143,24 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
     )
 }
 
-const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
+const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: string[]): Promise<LogEntry[]> => {
+    const excludeFilter =
+        excludeInstanceIds && excludeInstanceIds.length > 0 ? hogql`AND instance_id NOT IN ${excludeInstanceIds}` : ''
+
     const query = hogql`
         SELECT instance_id, timestamp, level, message
         FROM log_entries
         WHERE 1=1
         ${hogql.raw(buildBoundaryFilters(request))}
         AND instance_id in (
-            SELECT DISTINCT instance_id
+            SELECT instance_id
             FROM log_entries
             WHERE 1=1
             ${hogql.raw(buildBoundaryFilters(request))}
             ${hogql.raw(buildSearchFilters(request))}
-            ORDER BY timestamp ${hogql.raw(request.order)}
+            ${hogql.raw(excludeFilter as string)}
+            GROUP BY instance_id
+            ORDER BY max(timestamp) ${hogql.raw(request.order)}
             LIMIT ${LOG_GROUP_LIMIT}
         )
         ORDER BY timestamp DESC
@@ -183,7 +188,7 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
     )
 }
 
-const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
+export const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
     const byId: Record<string, GroupedLogEntry> = {}
     const dedupeCache = new Set<string>()
 
@@ -340,10 +345,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
                         dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
-                        limit: values.groupedLogs.length + LOG_VIEWER_LIMIT,
                     }
 
-                    const results = await loadGroupedLogs(logParams)
+                    const existingInstanceIds = values.groupedLogs.map((group) => group.instanceId)
+                    const results = await loadGroupedLogs(logParams, existingInstanceIds)
 
                     if (!results.length) {
                         actions.markLogsEnd()

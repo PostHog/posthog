@@ -1632,6 +1632,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setEndReached: ({ reached }) => {
             if (reached) {
+                actions.endBuffer()
                 actions.setPause()
                 // TODO: this will be time-gated so won't happen immediately, but we need it to
                 if (!values.wasMarkedViewed) {
