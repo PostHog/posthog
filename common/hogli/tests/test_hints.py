@@ -71,10 +71,12 @@ class TestPickHint:
     )
     def test_returns_hint_when_stale(self, stale_command: str, expected_fragment: str):
         now = datetime.now(UTC)
+        threshold = next(h.threshold_days for h in hints._HINT_DEFS if h.command == stale_command)
         all_commands = {"doctor:disk", "doctor:zombies", "doctor"}
         state: hints.HintsState = {
             "last_runs": {
-                cmd: (now - timedelta(days=8 if cmd == stale_command else 0)).isoformat() for cmd in all_commands
+                cmd: (now - timedelta(days=threshold + 1 if cmd == stale_command else 0)).isoformat()
+                for cmd in all_commands
             }
         }
         result = hints._pick_hint(state, now)
