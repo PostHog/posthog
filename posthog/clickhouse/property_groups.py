@@ -257,7 +257,7 @@ property_groups = PropertyGroupManager(
                 ),
             },
         },
-        "trace_spans": {
+        "trace_spans_distributed": {
             "attributes": {
                 "str": PropertyGroupDefinition(
                     "key like '%__str'",
