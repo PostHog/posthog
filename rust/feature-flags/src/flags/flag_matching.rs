@@ -129,6 +129,23 @@ impl FeatureFlagMatch {
     }
 }
 
+/// Tracks person property state through the evaluation lifecycle.
+///
+/// Combines fetch status with property data so that impossible states (e.g. "fetched"
+/// but no properties) are unrepresentable. When request overrides cover all needed keys,
+/// DB prep is skipped and this stays `Skipped`. When DB prep runs, properties are stored
+/// directly in the `Fetched` variant.
+#[derive(Clone, Debug, Default)]
+pub(crate) enum PersonPropertyState {
+    /// DB prep has not yet run (initial state)
+    #[default]
+    Pending,
+    /// DB prep was skipped because request overrides covered all needed property keys
+    Skipped,
+    /// DB prep ran and populated person properties
+    Fetched(HashMap<String, Value>),
+}
+
 /// This struct maintains evaluation state by caching database-sourced data during feature flag evaluation.
 /// It stores person IDs, properties, group properties, and cohort matches that are fetched from the database,
 /// allowing them to be reused across multiple flag evaluations within the same request without additional DB lookups.
@@ -140,8 +157,8 @@ pub struct FlagEvaluationState {
     person_id: Option<PersonId>,
     /// The person UUID, needed for realtime cohort membership lookups
     person_uuid: Option<Uuid>,
-    /// Properties associated with the person, fetched from the database
-    pub(crate) person_properties: Option<HashMap<String, Value>>,
+    /// Person property fetch state: pending, skipped, or fetched (with property data)
+    person_property_state: PersonPropertyState,
     /// Properties for each group type involved in flag evaluation
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
     /// Cohorts for the current request
@@ -160,7 +177,10 @@ impl FlagEvaluationState {
     }
 
     pub fn get_person_properties(&self) -> Option<&HashMap<String, Value>> {
-        self.person_properties.as_ref()
+        match &self.person_property_state {
+            PersonPropertyState::Fetched(props) => Some(props),
+            _ => None,
+        }
     }
 
     pub fn get_group_properties(&self) -> &HashMap<GroupTypeIndex, HashMap<String, Value>> {
@@ -184,7 +204,11 @@ impl FlagEvaluationState {
     }
 
     pub fn set_person_properties(&mut self, properties: HashMap<String, Value>) {
-        self.person_properties = Some(properties);
+        self.person_property_state = PersonPropertyState::Fetched(properties);
+    }
+
+    pub fn skip_person_properties(&mut self) {
+        self.person_property_state = PersonPropertyState::Skipped;
     }
 
     pub fn set_cohorts(&mut self, cohorts: Vec<Cohort>) {
@@ -785,6 +809,7 @@ impl FeatureFlagMatcher {
         );
 
         if flags_requiring_db_preparation.is_empty() {
+            self.flag_evaluation_state.skip_person_properties();
             return false;
         }
 
@@ -1617,9 +1642,10 @@ impl FeatureFlagMatcher {
         &self,
         property_overrides: Option<&HashMap<String, Value>>,
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // Start with DB properties
+        // Start with DB properties (clone only when we need a mutable copy)
         let mut merged_properties = self
             .get_person_properties_from_evaluation_state()
+            .cloned()
             .unwrap_or_default();
 
         // Merge in overrides (overrides take precedence)
@@ -2114,39 +2140,42 @@ impl FeatureFlagMatcher {
         Ok(group_type_to_key)
     }
 
-    /// Get person properties from the `FlagEvaluationState` only, returning empty HashMap if not found.
+    /// Get person properties from the `FlagEvaluationState` only, returning a reference.
     fn get_person_properties_from_evaluation_state(
         &self,
-    ) -> Result<HashMap<String, Value>, FlagError> {
-        if let Some(properties) = self.flag_evaluation_state.get_person_properties() {
-            inc(
-                PROPERTY_CACHE_HITS_COUNTER,
-                &[("type".to_string(), "person_properties".to_string())],
-                1,
-            );
-            with_canonical_log(|log| log.eval.property_cache_hits += 1);
-            let mut result = HashMap::new();
-            result.clone_from(properties);
-            Ok(result)
-        } else {
-            inc(
-                PROPERTY_CACHE_MISSES_COUNTER,
-                &[("type".to_string(), "person_properties".to_string())],
-                1,
-            );
-            with_canonical_log(|log| {
-                log.eval.property_cache_misses += 1;
-                log.eval.person_properties_not_cached = true;
-            });
-            // Return empty HashMap instead of error - no properties is a valid state
-            // TODO probably worth error modeling empty cache vs error.
-            // Maybe an error is fine?  Idk.  I feel like the idea is that there's no matching properties,
-            // so it's not an error, it's just an empty result.
-            // i just want to be able to differentiate between no properties because we fetched no properties,
-            // and no properties because we failed to fetch
-            // maybe I need a fetch indicator in the cache?
-            tracing::warn!("Person properties not found in evaluation state cache");
-            Err(FlagError::PersonNotFound)
+    ) -> Result<&HashMap<String, Value>, FlagError> {
+        match &self.flag_evaluation_state.person_property_state {
+            PersonPropertyState::Fetched(properties) => {
+                inc(
+                    PROPERTY_CACHE_HITS_COUNTER,
+                    &[("type".to_string(), "person_properties".to_string())],
+                    1,
+                );
+                with_canonical_log(|log| log.eval.property_cache_hits += 1);
+                Ok(properties)
+            }
+            PersonPropertyState::Skipped => {
+                tracing::debug!(
+                    "Person properties not in cache — DB prep was skipped (overrides cover all needed keys)"
+                );
+                Err(FlagError::PersonNotFound)
+            }
+            PersonPropertyState::Pending => {
+                inc(
+                    PROPERTY_CACHE_MISSES_COUNTER,
+                    &[
+                        ("type".to_string(), "person_properties".to_string()),
+                        ("reason".to_string(), "db_prep_never_ran".to_string()),
+                    ],
+                    1,
+                );
+                with_canonical_log(|log| {
+                    log.eval.property_cache_misses += 1;
+                    log.eval.person_properties_not_cached = true;
+                });
+                tracing::error!("Person properties not found — DB prep never ran");
+                Err(FlagError::PersonNotFound)
+            }
         }
     }
 

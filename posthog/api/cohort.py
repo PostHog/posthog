@@ -28,7 +28,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ActorsQuery, HogQLQuery
+from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
@@ -41,6 +41,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET, PropertyOperatorType
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -1089,6 +1090,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # When realtime cohort flag targeting is enabled, realtime cohorts that have been
             # backfilled are allowed through.
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
+                # Avoid circular import: feature_flag imports cohort models
                 from posthog.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
                 allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
@@ -1211,6 +1213,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             filter = filter.shallow_clone({LIMIT: 100})
 
         query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         raw_result = sync_execute(
             query,
             {**params, **filter.hogql_context.values},
@@ -1484,6 +1487,8 @@ def will_create_loops(cohort: Cohort) -> bool:
 def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+
     CH_PAGE_SIZE = 10_000
 
     # Use cursor-based pagination to stream from ClickHouse in pages instead of
@@ -1527,6 +1532,7 @@ def insert_actors_into_cohort_by_query(
     *,
     team_id: int,
 ):
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {

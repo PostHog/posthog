@@ -30,7 +30,7 @@ import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
-import { buildGroupRepository } from '../ingestion/personhog'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
@@ -136,15 +136,25 @@ export class IngestionGeneralServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres, {
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
+        const personRepository = buildPersonRepository(
+            personhogClient,
+            postgresPersonRepository,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            clientLabel
+        )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
 
         const groupRepository = buildGroupRepository(
-            this.config,
+            personhogClient,
             postgresGroupRepository,
-            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            clientLabel
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
