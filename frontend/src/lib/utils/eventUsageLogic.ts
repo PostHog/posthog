@@ -268,6 +268,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
+        reportDashboardMetadataAiGenerated: (payload: { dashboardId: number }) => payload,
+        reportDashboardMetadataAiGenerationFailed: (payload: { dashboardId: number }) => payload,
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
@@ -319,6 +321,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportPropertyGroupFilterAdded: true,
+        reportPropertyGroupFilterRemoved: true,
+        reportPropertyGroupFilterDuplicated: true,
+        reportInsightDateRangeChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightBreakdownChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightCompareChanged: (queryKind: string | undefined) => ({ queryKind }),
         reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
             type,
             groupsLength,
@@ -1080,6 +1087,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightMetadataAiGenerationFailed: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generation failed', { query_kind: queryKind })
         },
+        reportDashboardMetadataAiGenerated: async ({ dashboardId }) => {
+            posthog.capture('dashboard metadata ai generated', { dashboard_id: dashboardId })
+        },
+        reportDashboardMetadataAiGenerationFailed: async ({ dashboardId }) => {
+            posthog.capture('dashboard metadata ai generation failed', { dashboard_id: dashboardId })
+        },
         reportInsightSaved: async ({ insight, query, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
@@ -1689,6 +1702,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
+        },
+        reportPropertyGroupFilterRemoved: () => {
+            posthog.capture('property group filter removed')
+        },
+        reportPropertyGroupFilterDuplicated: () => {
+            posthog.capture('property group filter duplicated')
+        },
+        reportInsightDateRangeChanged: ({ queryKind }) => {
+            posthog.capture('insight date range changed', { query_kind: queryKind })
+        },
+        reportInsightBreakdownChanged: ({ queryKind }) => {
+            posthog.capture('insight breakdown changed', { query_kind: queryKind })
+        },
+        reportInsightCompareChanged: ({ queryKind }) => {
+            posthog.capture('insight compare changed', { query_kind: queryKind })
         },
         reportChangeOuterPropertyGroupFiltersType: ({ type, groupsLength }) => {
             posthog.capture('outer match property groups type changed', { type, groupsLength })
