@@ -3026,6 +3026,8 @@ export type InsightEditorFilterGroup = {
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
     show?: boolean
+    /** Summary shown next to the title when the section is collapsed (e.g. "3 filters", "$browser, $os") */
+    collapsedSummary?: string | null
 }
 
 export interface SystemStatusSubrows {
