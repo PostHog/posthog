@@ -14,9 +14,9 @@ from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from ee.models import Role, RoleMembership
 from ee.models.rbac.access_control import AccessControl
@@ -384,7 +384,47 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "You cannot invite to a private project with a higher level than your own.",
+                "detail": "You cannot invite to a restricted project with a higher level than your own.",
+                "attr": "private_project_access",
+            },
+            response_data,
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
+    def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(self):
+        """
+        Regression test: when a project's default access_level is "member" (not "none"),
+        a standard member must still be prevented from requesting admin access.
+        """
+        email = "escalation@posthog.com"
+        count = OrganizationInvite.objects.count()
+        restricted_team = Team.objects.create(organization=self.organization, name="Member-Restricted Team")
+        organization_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        organization_membership.level = OrganizationMembership.Level.MEMBER
+        organization_membership.save()
+
+        # Restrict the project with default access level "member" (not "none")
+        AccessControl.objects.create(
+            team=restricted_team,
+            access_level="member",
+            resource="project",
+            resource_id=str(restricted_team.id),
+        )
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": restricted_team.id, "level": "admin"}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertDictEqual(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "You cannot invite to a restricted project with a higher level than your own.",
                 "attr": "private_project_access",
             },
             response_data,

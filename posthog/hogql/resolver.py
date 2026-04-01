@@ -48,6 +48,16 @@ USE_GLOBAL_JOINS = False
 
 EMPTY_SCOPE = ast.SelectQueryType()
 
+type PostgresKeywordType = type[ast.DateType] | type[ast.DateTimeType]
+
+POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
+    "current_date": ast.DateType,
+    "current_time": ast.DateTimeType,
+    "current_timestamp": ast.DateTimeType,
+    "localtime": ast.DateTimeType,
+    "localtimestamp": ast.DateTimeType,
+}
+
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
@@ -1423,8 +1433,10 @@ class Resolver(CloningVisitor):
         elif not isinstance(return_type, ast.UnknownType):  # why cannot we set nullability here?
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
 
-        if node.name.lower() in ("nullif", "toNullable") or node.name.lower().endswith("OrNull"):
+        if node.name.lower() in ("nullif", "tonullable") or node.name.lower().endswith("ornull"):
             return_type.nullable = True
+        elif node.name.lower() == "assumenotnull":
+            return_type.nullable = False
 
         node.type = ast.CallType(
             name=node.name,
@@ -1489,20 +1501,32 @@ class Resolver(CloningVisitor):
         if len(node.chain) == 0:
             raise ResolutionError("Invalid field access with empty chain")
 
+        scope = self._get_scope()
+        name = str(node.chain[0])
+
+        if self.dialect == "postgres" and len(node.chain) == 1:
+            keyword = name.lower()
+            if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
+                keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
+                return ast.Keyword(
+                    name=keyword,
+                    type=keyword_type(nullable=False),
+                    start=node.start,
+                    end=node.end,
+                )
+
         # Apply virtual property mapping before field resolution
         node = map_virtual_properties(node)
 
         node = super().visit_field(node)
+        name = str(node.chain[0])
 
         # Only look for fields in the last SELECT scope, instead of all previous select queries.
         # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:
         # - "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
         # But this is supported:
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
-        scope = self._get_scope()
-
         type: Optional[ast.Type] = None
-        name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
         type = lookup_table_by_name(scope, self.ctes, node)
@@ -1520,6 +1544,15 @@ class Resolver(CloningVisitor):
             type = ast.AsteriskType(table_type=table_type)
 
         # Field in scope
+        if (
+            not type
+            and len(node.chain) == 1
+            and self.dialect == "postgres"
+            and name.lower() in POSTGRES_KEYWORD_TYPES
+            and name in scope.columns
+        ):
+            type = scope.get_child(name, self.context)
+
         if not type:
             type = lookup_field_by_name(scope, name, self.context)
 

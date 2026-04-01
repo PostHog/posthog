@@ -19,7 +19,7 @@
  * With gather(), all results are collected and returned in a single batch.
  */
 import { GroupProcessingBuilder, newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { ok } from '../results'
 import { ProcessingStep } from '../steps'
 import { collectBatches } from './helpers'
@@ -63,7 +63,7 @@ describe('Gathering Results', () => {
             .concurrently((builder) => builder.pipe(createVariableDelayStep()))
             .build()
 
-        streamingPipeline.feed([1, 2, 3].map((n) => createContext(ok(n))))
+        streamingPipeline.feed([1, 2, 3].map((n) => createOkContext(n, {})))
         const streamingPromise = collectBatches(streamingPipeline)
         await jest.advanceTimersByTimeAsync(30)
         const streamingBatches = await streamingPromise
@@ -77,7 +77,7 @@ describe('Gathering Results', () => {
             .gather()
             .build()
 
-        gatheringPipeline.feed([1, 2, 3].map((n) => createContext(ok(n))))
+        gatheringPipeline.feed([1, 2, 3].map((n) => createOkContext(n, {})))
         const gatheringPromise = collectBatches(gatheringPipeline)
         await jest.advanceTimersByTimeAsync(30)
         const gatheringBatches = await gatheringPromise
@@ -124,7 +124,7 @@ describe('Gathering Results', () => {
             .concurrently(createGroupPipeline)
             .build()
 
-        streamingPipeline.feed(events.map((e) => createContext(ok(e))))
+        streamingPipeline.feed(events.map((e) => createOkContext(e, {})))
         // bob: 2 events x 10ms = 20ms, alice: 2 events x 30ms = 60ms
         const streamingPromise = collectBatches(streamingPipeline)
         await jest.advanceTimersByTimeAsync(60)
@@ -150,7 +150,7 @@ describe('Gathering Results', () => {
             .gather()
             .build()
 
-        gatheringPipeline.feed(events.map((e) => createContext(ok(e))))
+        gatheringPipeline.feed(events.map((e) => createOkContext(e, {})))
         const gatheringPromise = collectBatches(gatheringPipeline)
         await jest.advanceTimersByTimeAsync(60)
         const gatheringBatches = await gatheringPromise

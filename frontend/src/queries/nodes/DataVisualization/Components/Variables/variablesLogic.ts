@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { objectsEqual } from 'lib/utils'
@@ -45,7 +45,7 @@ export const variablesLogic = kea<variablesLogicType>([
     props({ key: '' } as VariablesLogicProps),
     key((props) => props.key),
     connect(() => ({
-        actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
+        actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['loadVariables']],
         values: [dataVisualizationLogic, ['query'], variableDataLogic, ['variables', 'variablesLoading']],
     })),
     actions(({ values }) => ({
@@ -69,7 +69,7 @@ export const variablesLogic = kea<variablesLogicType>([
     })),
     propsChanged(({ props, actions, values }) => {
         if (props.sourceQuery) {
-            const variables = Object.values(props.sourceQuery?.source.variables ?? {})
+            const variables = Object.values(props.sourceQuery?.source?.variables ?? {})
 
             if (variables.length) {
                 variables.forEach((variable) => {
@@ -172,7 +172,7 @@ export const variablesLogic = kea<variablesLogicType>([
     }),
     selectors({
         queryVariableCodeNames: [
-            (s) => [s.editorQuery, (_, props) => props.sourceQuery?.source.query],
+            (s) => [s.editorQuery, (_, props) => props.sourceQuery?.source?.query],
             (editorQuery, sourceQuery): string[] => {
                 const matches = getVariablesFromQuery(editorQuery ?? sourceQuery ?? '')
                 return Array.from(new Set(matches.filter((match): match is string => Boolean(match))))
@@ -396,7 +396,4 @@ export const variablesLogic = kea<variablesLogicType>([
             actions.updateSourceQuery()
         },
     })),
-    afterMount(({ actions }) => {
-        actions.getVariables()
-    }),
 ])

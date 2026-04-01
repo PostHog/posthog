@@ -101,7 +101,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                     SourceFieldInputConfig(
                         name="secret_token",
                         label="Secret token",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="sk_live_...",
                     ),

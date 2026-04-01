@@ -5,10 +5,11 @@ from posthog.test.base import APIBaseTest
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile, Text
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 
 
 class TestDashboardTileModel(APIBaseTest):

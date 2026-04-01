@@ -13,12 +13,16 @@ class SignalSourceConfig(UUIDModel):
         GITHUB = "github", "GitHub"
         LINEAR = "linear", "Linear"
         ZENDESK = "zendesk", "Zendesk"
+        ERROR_TRACKING = "error_tracking", "Error tracking"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION = "evaluation", "Evaluation"
         ISSUE = "issue", "Issue"
         TICKET = "ticket", "Ticket"
+        ISSUE_CREATED = "issue_created", "Issue created"
+        ISSUE_REOPENED = "issue_reopened", "Issue reopened"
+        ISSUE_SPIKING = "issue_spiking", "Issue spiking"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
@@ -28,6 +32,23 @@ class SignalSourceConfig(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    @classmethod
+    def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
+        """Check whether a given signal source is enabled for a team.
+
+        LLM analytics signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
+        For everything else, the team must have a SignalSourceConfig row with enabled=True.
+        """
+        if source_product == cls.SourceProduct.LLM_ANALYTICS:
+            return True
+
+        return cls.objects.filter(
+            team_id=team_id,
+            source_product=source_product,
+            source_type=source_type,
+            enabled=True,
+        ).exists()
 
     class Meta:
         constraints = [
@@ -65,6 +86,8 @@ class SignalReport(UUIDModel):
     # Incremented each summary run to prevent re-promoting on every signal.
     # The snooze action sets it to signal_count + N to delay re-promotion by N signals.
     signals_at_run = models.IntegerField(default=0)
+    # How many times the summary workflow has run for this report (incremented on each CANDIDATE -> IN_PROGRESS).
+    run_count = models.IntegerField(default=0)
 
     # LLM-generated during signal matching
     title = models.TextField(null=True, blank=True)
@@ -123,7 +146,9 @@ class SignalReport(UUIDModel):
 
         match (self.status, new_status):
             # Pipeline transitions
-            case (S.POTENTIAL, S.CANDIDATE):
+            # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
+            # - READY -> CANDIDATE to update the report with new signals context (every N signals)
+            case (S.POTENTIAL | S.READY, S.CANDIDATE):
                 self.promoted_at = timezone.now()
                 updated_fields.add("promoted_at")
 
@@ -132,7 +157,8 @@ class SignalReport(UUIDModel):
                     raise ValueError("signals_at_run_increment is required for candidate -> in_progress")
                 self.last_run_at = timezone.now()
                 self.signals_at_run = self.signal_count + signals_at_run_increment
-                updated_fields.update(["last_run_at", "signals_at_run"])
+                self.run_count += 1
+                updated_fields.update(["last_run_at", "signals_at_run", "run_count"])
 
             case (S.IN_PROGRESS, S.READY):
                 if title is None or summary is None:
@@ -196,6 +222,10 @@ class SignalReportArtefact(UUIDModel):
         VIDEO_SEGMENT = "video_segment"
         SAFETY_JUDGMENT = "safety_judgment"
         ACTIONABILITY_JUDGMENT = "actionability_judgment"
+        PRIORITY_JUDGMENT = "priority_judgment"
+        SIGNAL_FINDING = "signal_finding"
+        REPO_SELECTION = "repo_selection"
+        SUGGESTED_REVIEWERS = "suggested_reviewers"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")

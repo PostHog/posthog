@@ -1311,9 +1311,11 @@ class GoogleCloudIntegration:
                 "config": {
                     "expires_in": credentials.expiry.timestamp() - int(time.time()),
                     "refreshed_at": int(time.time()),
+                },
+                "sensitive_config": {
+                    "key_info": key_info,
                     "access_token": credentials.token,
                 },
-                "sensitive_config": key_info,
                 "created_by": created_by,
             },
         )
@@ -1346,9 +1348,8 @@ class GoogleCloudIntegration:
         else:
             raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
 
-        credentials = service_account.Credentials.from_service_account_info(
-            self.integration.sensitive_config, scopes=[scope]
-        )
+        key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
+        credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:
             credentials.refresh(GoogleRequest())
@@ -1358,12 +1359,27 @@ class GoogleCloudIntegration:
         self.integration.config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
-            "access_token": credentials.token,
         }
+        # Migrate pre-migration integrations where sensitive_config contains the
+        # keyfile directly (not nested under "key_info"). Without this, setting
+        # access_token pollutes the keyfile dict and breaks subsequent refreshes.
+        if "key_info" not in self.integration.sensitive_config:
+            self.integration.sensitive_config = {
+                "key_info": self.integration.sensitive_config,
+                "access_token": credentials.token,
+            }
+        else:
+            self.integration.sensitive_config["access_token"] = credentials.token
         self.integration.save()
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for {self}")
+
+    def get_access_token(self) -> str:
+        if self.access_token_expired():
+            self.refresh_access_token()
+        # Fall back to config for pre-migration integrations
+        return self.integration.sensitive_config.get("access_token") or self.integration.config.get("access_token", "")
 
 
 class FirebaseIntegration:
@@ -1849,6 +1865,13 @@ class JiraIntegration:
         return {"key": issue.get("key", ""), "id": issue.get("id", "")}
 
 
+@dataclass(frozen=True)
+class GitHubCommitAuthor:
+    login: str
+    name: str | None
+    commit_url: str
+
+
 class GitHubIntegration:
     integration: Integration
 
@@ -1928,6 +1951,15 @@ class GitHubIntegration:
 
         return integration
 
+    @classmethod
+    def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
+        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``)."""
+        for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
+            github = cls(integration)
+            if github.installation_can_access_repository(repository):
+                return github
+        return None
+
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
@@ -1970,6 +2002,78 @@ class GitHubIntegration:
 
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
+
+    def _installation_authenticated_get(self, url: str, *, timeout: int = 10) -> requests.Response | None:
+        """GET with installation token; refreshes on expiry or 401."""
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch() -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return requests.get(
+                url,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=timeout,
+            )
+
+        try:
+            response = fetch()
+            if response.status_code == 401:
+                try:
+                    self.refresh_access_token()
+                except Exception:
+                    logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                    return None
+                response = fetch()
+            return response
+        except Exception:
+            logger.warning("GitHubIntegration: installation GET failed", url=url, exc_info=True)
+            return None
+
+    def installation_can_access_repository(self, repository: str) -> bool:
+        """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
+        response = self._installation_authenticated_get(f"https://api.github.com/repos/{repository}")
+        if response is None:
+            return False
+        return response.status_code == 200
+
+    def get_commit_author_info(self, repository: str, sha: str) -> GitHubCommitAuthor | None:
+        """Resolve a commit SHA to author metadata via the GitHub API."""
+        response = self._installation_authenticated_get(f"https://api.github.com/repos/{repository}/commits/{sha}")
+        if response is None:
+            return None
+        if response.status_code != 200:
+            logger.info(
+                "GitHub API non-200 for commit lookup",
+                status_code=response.status_code,
+                sha_prefix=sha[:8],
+                repository=repository,
+            )
+            return None
+        try:
+            data = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: failed to parse commit JSON",
+                repository=repository,
+                sha_prefix=sha[:8],
+                exc_info=True,
+            )
+            return None
+        author = data.get("author")
+        if not author or not author.get("login"):
+            return None
+        git_author = data.get("commit", {}).get("author", {})
+        name = git_author.get("name") or author.get("login")
+        commit_url = data.get("html_url", f"https://github.com/{repository}/commit/{sha}")
+        return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url)
 
     def list_repositories(self, page: int = 1) -> list[dict]:
         # Proactively refresh token if it's close to expiring to avoid intermittent 401s

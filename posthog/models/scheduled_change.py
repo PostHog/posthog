@@ -39,6 +39,9 @@ class ScheduledChange(RootTeamMixin, models.Model):
     )
     # Tracks when a recurring schedule last executed successfully (for audit/debugging)
     last_executed_at = models.DateTimeField(null=True, blank=True)
+    # Cron expression for flexible recurring schedules (e.g., "0 9 * * 1-5" for weekdays at 9am).
+    # Mutually exclusive with recurrence_interval — validation enforced at the API layer.
+    cron_expression = models.CharField(max_length=100, null=True, blank=True)
     # Optional end date for recurring schedules - stops recurring after this date
     end_date = models.DateTimeField(null=True, blank=True)
 

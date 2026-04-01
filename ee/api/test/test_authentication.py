@@ -13,7 +13,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
-from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthFailed
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
@@ -373,22 +373,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         """
         We need the email address to know how to route the SAML request.
         """
-        with self.assertRaises(AuthMissingParameter) as e:
-            self.client.get("/login/saml/")
-
-        self.assertEqual(str(e.exception), "Missing needed parameter email")
+        response = self.client.get("/login/saml/")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     def test_cannot_initiate_saml_flow_for_unconfigured_domain(self):
         """
         SAML settings have not been configured for the domain.
         """
-        with self.assertRaises(AuthFailed) as e:
-            self.client.get("/login/saml/?email=hellohello@gmail.com")
-
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: SAML not configured for this user.",
-        )
+        response = self.client.get("/login/saml/?email=hellohello@gmail.com")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     def test_cannot_initiate_saml_flow_for_unverified_domain(self):
         """
@@ -398,13 +391,8 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.organization_domain.verified_at = None
         self.organization_domain.save()
 
-        with self.assertRaises(AuthFailed) as e:
-            self.client.get("/login/saml/?email=hellohello@gmail.com")
-
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: SAML not configured for this user.",
-        )
+        response = self.client.get("/login/saml/?email=hellohello@gmail.com")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     # Finish SAML flow (i.e. actual log in)
 
@@ -780,13 +768,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
             response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
         )
 
-        # Cannot start SAML flow
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Your organization does not have the required license to use SAML.",
-        )
+        # Cannot start SAML flow - sso_login catches AuthFailed and redirects
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
         # Attempting to use SAML fails
         _session = self.client.session
@@ -997,6 +981,45 @@ class TestCustomGoogleOAuth2(APILicensedTest):
             self.google_oauth.get_user_id(self.details, response)
 
         self.assertEqual(str(e.exception), "Google OAuth response missing 'sub' claim")
+
+
+@override_settings(
+    SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="google_key",
+    SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="google_secret",
+)
+class TestSSOLoginSessionHandling(APILicensedTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def test_sso_login_flushes_session_for_regular_login(self):
+        self.client.force_login(self.user)
+        old_session_key = self.client.session.session_key
+
+        response = self.client.get("/login/google-oauth2/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotEqual(self.client.session.session_key, old_session_key)
+
+    def test_sso_login_preserves_session_for_reauth(self):
+        self.client.force_login(self.user)
+        old_session_key = self.client.session.session_key
+
+        response = self.client.get("/login/google-oauth2/?reauth=true&email=test@posthog.com")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session.session_key, old_session_key)
+
+    def test_sso_login_flushes_session_when_reauth_but_not_authenticated(self):
+        self.client.force_login(self.user)
+        self.client.logout()
+
+        # Establish an anonymous session and capture its key
+        self.client.get("/")
+        anonymous_session_key = self.client.session.session_key
+
+        response = self.client.get("/login/google-oauth2/?reauth=true")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotEqual(self.client.session.session_key, anonymous_session_key)
 
 
 class TestSSOEnforcement(APILicensedTest):

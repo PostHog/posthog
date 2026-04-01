@@ -250,6 +250,11 @@ pub struct FlagsCanonicalLogLine {
     /// True when a rate limit warn threshold was exceeded but the request was still allowed.
     pub rate_limit_warned: bool,
 
+    // Transit time
+    /// Proxy-to-app queue time in milliseconds (server_now - X-Request-Start).
+    /// None when the header is missing or the computed delta is negative.
+    pub queue_time_ms: Option<i64>,
+
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
     pub team_cache_source: Option<&'static str>,
@@ -296,6 +301,7 @@ impl Default for FlagsCanonicalLogLine {
             evaluation_type: None,
             rate_limited: false,
             rate_limit_warned: false,
+            queue_time_ms: None,
             team_cache_source: None,
             http_status: 200,
             error_code: None,
@@ -360,6 +366,7 @@ impl FlagsCanonicalLogLine {
             evaluation_type = self.evaluation_type.map(|t| t.as_str()),
             rate_limited = self.rate_limited,
             rate_limit_warned = self.rate_limit_warned,
+            queue_time_ms = self.queue_time_ms,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             "canonical_log_line"
@@ -499,6 +506,7 @@ mod tests {
         assert!(log.team_cache_source.is_none());
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
+        assert!(log.queue_time_ms.is_none());
     }
 
     #[test]
@@ -532,6 +540,7 @@ mod tests {
         log.rate_limited = false;
         log.team_cache_source = Some("redis");
         log.http_status = 200;
+        log.queue_time_ms = Some(15);
         log.emit();
     }
 
