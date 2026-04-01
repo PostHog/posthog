@@ -36,6 +36,10 @@ function evaluateCondition(node: FilterConditionNode, event: { event_name?: stri
             return value === node.value
         case 'contains':
             return value.includes(node.value)
+        default: {
+            const _exhaustive: never = node.operator
+            throw new Error(`Unknown filter operator: ${_exhaustive}`)
+        }
     }
 }
 
