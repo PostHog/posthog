@@ -18,8 +18,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -432,7 +433,21 @@ const REFERENCES_COLUMNS: LemonTableColumns<ActionReference> = [
             return REFERENCE_TYPE_LABELS[ref.type] ?? ref.type
         },
     },
-    createdByColumn() as LemonTableColumns<ActionReference>[number],
+    {
+        title: 'Created by',
+        dataIndex: 'created_by',
+        render: function RenderCreatedBy(_, ref) {
+            if (!ref.created_by) {
+                return <span className="text-muted">Unknown</span>
+            }
+            return (
+                <div className="flex items-center gap-2">
+                    <ProfilePicture user={ref.created_by} size="sm" />
+                    <span>{ref.created_by.first_name || ref.created_by.email}</span>
+                </div>
+            )
+        },
+    },
     createdAtColumn() as LemonTableColumns<ActionReference>[number],
 ]
 
@@ -451,7 +466,7 @@ function ReferencesList({ references }: { references: ActionReference[] }): JSX.
     )
 
     return (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-4">
             <LemonInput type="search" placeholder="Search..." value={search} onChange={setSearch} />
             <LemonTable dataSource={filtered} columns={REFERENCES_COLUMNS} pagination={{ pageSize: 10 }} />
         </div>

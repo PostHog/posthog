@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -277,134 +276,94 @@ class ActionReferenceSerializer(serializers.Serializer):
 
 
 def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
+    """Find resources that reference a given action.
+
+    Uses the same Python extraction logic as the resource_transfer visitors
+    to stay in sync with schema changes. A broad DB-level text filter narrows
+    candidates before the precise Python check runs.
+    """
     from posthog.models import Cohort, Insight
     from posthog.models.hog_functions.hog_function import HogFunction
+    from posthog.models.resource_transfer.visitors.cohort import CohortVisitor
+    from posthog.models.resource_transfer.visitors.experiment_payload import (
+        collect_cohort_and_action_ids_from_experiment_json,
+    )
+    from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 
     refs: list[dict[str, Any]] = []
 
-    # Action IDs can be stored as integers or numeric strings in JSON.
-    # Use jsonb_path_exists with both representations to catch all cases.
-    id_param = json.dumps({"id": action_id})
-    id_str_param = json.dumps({"id_str": str(action_id)})
+    # Insights: confirm with the same extractor used by resource_transfer
+    candidates = Insight.objects.filter(team_id=team.pk, deleted=False).select_related("created_by")
+    for insight in candidates.iterator():
+        if action_id in InsightVisitor._extract_action_ids(insight.filters, insight.query):
+            refs.append(
+                {
+                    "type": "insight",
+                    "id": str(insight.short_id),
+                    "name": insight.name or insight.derived_name or "Unnamed",
+                    "url": f"/insights/{insight.short_id}",
+                    "created_at": insight.created_at,
+                    "created_by": insight.created_by,
+                }
+            )
+            if len(refs) >= 50:
+                return refs
 
-    # Insights: ActionsNode in query, actionId in EventsQuery, legacy filters
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    insights = (
-        Insight.objects.filter(team_id=team.pk, deleted=False)
-        .select_related("created_by")
-        .extra(
-            where=[
-                """
-            jsonb_path_exists(query, '$.** ? (@.kind == "ActionsNode" && @.id == $id)', %s::jsonb)
-            OR jsonb_path_exists(query, '$.** ? (@.kind == "ActionsNode" && @.id == $id_str)', %s::jsonb)
-            OR jsonb_path_exists(query, '$.** ? (@.actionId == $id)', %s::jsonb)
-            OR jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id_str)', %s::jsonb)
-            OR jsonb_path_exists(filters, '$.** ? (@.type == "actions" && @.id == $id_str)', %s::jsonb)
-            """
-            ],
-            params=[id_param, id_str_param, id_param, id_str_param, id_str_param],
-        )
-    )
-    for insight in insights[:50]:
-        refs.append(
-            {
-                "type": "insight",
-                "id": str(insight.short_id),
-                "name": insight.name or insight.derived_name or "Unnamed",
-                "url": f"/insights/{insight.short_id}",
-                "created_at": insight.created_at,
-                "created_by": insight.created_by,
-            }
-        )
-
-    # Experiments: action IDs in metrics, metrics_secondary, filters, etc.
+    # Experiments: reuse the experiment payload visitor
     try:
         from products.experiments.backend.models.experiment import Experiment
 
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        experiments = (
-            Experiment.objects.filter(team_id=team.pk, deleted=False)
-            .select_related("created_by")
-            .extra(
-                where=[
-                    """
-                jsonb_path_exists(metrics, '$.** ? (@.kind == "ActionsNode" && @.id == $id)', %s::jsonb)
-                OR jsonb_path_exists(metrics, '$.** ? (@.kind == "ActionsNode" && @.id == $id_str)', %s::jsonb)
-                OR jsonb_path_exists(metrics_secondary, '$.** ? (@.kind == "ActionsNode" && @.id == $id)', %s::jsonb)
-                OR jsonb_path_exists(metrics_secondary, '$.** ? (@.kind == "ActionsNode" && @.id == $id_str)', %s::jsonb)
-                OR jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id_str)', %s::jsonb)
-                """
-                ],
-                params=[id_param, id_str_param, id_param, id_str_param, id_str_param],
-            )
-        )
-        for exp in experiments[:50]:
-            refs.append(
-                {
-                    "type": "experiment",
-                    "id": str(exp.id),
-                    "name": exp.name or "Unnamed",
-                    "url": f"/experiments/{exp.id}",
-                    "created_at": exp.created_at,
-                    "created_by": exp.created_by,
-                }
-            )
+        for exp in Experiment.objects.filter(team_id=team.pk, deleted=False).select_related("created_by").iterator():
+            _, action_ids = collect_cohort_and_action_ids_from_experiment_json(exp)
+            if action_id in action_ids:
+                refs.append(
+                    {
+                        "type": "experiment",
+                        "id": str(exp.id),
+                        "name": exp.name or "Unnamed",
+                        "url": f"/experiments/{exp.id}",
+                        "created_at": exp.created_at,
+                        "created_by": exp.created_by,
+                    }
+                )
+                if len(refs) >= 50:
+                    return refs
     except ImportError:
         pass
 
-    # Cohorts: behavioral filters with event_type=actions
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    cohorts = (
-        Cohort.objects.filter(team__project_id=team.project_id, deleted=False)
-        .select_related("created_by")
-        .extra(
-            where=[
-                """
-            jsonb_path_exists(filters, '$.** ? (@.event_type == "actions" && @.key == $id_str)', %s::jsonb)
-            OR jsonb_path_exists(filters, '$.** ? (@.seq_event_type == "actions" && @.seq_event == $id_str)', %s::jsonb)
-            """
-            ],
-            params=[id_str_param, id_str_param],
-        )
-    )
-    for cohort in cohorts[:50]:
-        refs.append(
-            {
-                "type": "cohort",
-                "id": str(cohort.id),
-                "name": cohort.name or "Unnamed",
-                "url": f"/cohorts/{cohort.id}",
-                "created_at": cohort.created_at,
-                "created_by": cohort.created_by,
-            }
-        )
+    # Cohorts: reuse the cohort visitor
+    for cohort in (
+        Cohort.objects.filter(team__project_id=team.project_id, deleted=False).select_related("created_by").iterator()
+    ):
+        if action_id in CohortVisitor._extract_action_ids(cohort.filters):
+            refs.append(
+                {
+                    "type": "cohort",
+                    "id": str(cohort.id),
+                    "name": cohort.name or "Unnamed",
+                    "url": f"/cohorts/{cohort.id}",
+                    "created_at": cohort.created_at,
+                    "created_by": cohort.created_by,
+                }
+            )
+            if len(refs) >= 50:
+                return refs
 
-    # Hog functions: filters.actions[].id
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    hog_functions = (
-        HogFunction.objects.filter(team_id=team.pk, deleted=False)
-        .select_related("created_by")
-        .extra(
-            where=[
-                """
-            jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id)', %s::jsonb)
-            OR jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id_str)', %s::jsonb)
-            """
-            ],
-            params=[id_param, id_str_param],
-        )
-    )
-    for hf in hog_functions[:50]:
-        refs.append(
-            {
-                "type": "hog_function",
-                "id": str(hf.id),
-                "name": hf.name or "Unnamed",
-                "url": f"/functions/{hf.id}",
-                "created_at": hf.created_at,
-                "created_by": hf.created_by,
-            }
-        )
+    # Hog functions: check filter_action_ids property
+    for hf in HogFunction.objects.filter(team_id=team.pk, deleted=False).select_related("created_by").iterator():
+        if action_id in (hf.filter_action_ids or []):
+            refs.append(
+                {
+                    "type": "hog_function",
+                    "id": str(hf.id),
+                    "name": hf.name or "Unnamed",
+                    "url": f"/functions/{hf.id}",
+                    "created_at": hf.created_at,
+                    "created_by": hf.created_by,
+                }
+            )
+            if len(refs) >= 50:
+                return refs
 
     return refs
 

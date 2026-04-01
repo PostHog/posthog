@@ -228,21 +228,16 @@ export const actionEditLogic = kea<actionEditLogicType>([
             }
 
             if (values.references.length > 0) {
-                const typeLabels: Record<string, string> = {
-                    insight: 'Insight',
-                    experiment: 'Experiment',
-                    cohort: 'Cohort',
-                    hog_function: 'Destination',
-                }
-                const refSummary = values.references
-                    .slice(0, 5)
-                    .map((r) => `${typeLabels[r.type] ?? r.type}: ${r.name}`)
-                    .join('\n')
-                const extra = values.references.length > 5 ? `\n...and ${values.references.length - 5} more` : ''
+                const count = values.references.length
 
                 LemonDialog.open({
                     title: 'This action is used by other resources',
-                    description: `Deleting this action may break the following:\n\n${refSummary}${extra}`,
+                    description: (
+                        <>
+                            This action is referenced by <strong>{count}</strong> resource
+                            {count === 1 ? '' : 's'}. Deleting it may break them.
+                        </>
+                    ),
                     primaryButton: {
                         children: 'Delete anyway',
                         status: 'danger',
