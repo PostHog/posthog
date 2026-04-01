@@ -30,6 +30,10 @@ pub async fn apply_quota_limits(
     token: &str,
     events: &mut HashMap<Uuid, WrappedEvent>,
 ) -> Result<(), Error> {
+    if events.is_empty() {
+        return Ok(());
+    }
+
     // --- Global check — short-circuit ---
     if limiter
         .is_quota_limited_v1(token, &QuotaResource::Events)
@@ -645,23 +649,20 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn empty_batch_returns_error_when_global_limited() {
+    async fn empty_batch_returns_ok_when_global_limited() {
         let limiter = build_limiter("tok", true, &[]).await;
         let mut events: HashMap<Uuid, WrappedEvent> = HashMap::new();
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
-        // Global limit hit, 0 marked, still returns BillingLimitExceeded
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn empty_batch_returns_error_when_not_limited() {
+    async fn empty_batch_returns_ok_when_not_limited() {
         let limiter = build_limiter("tok", false, &[]).await;
         let mut events: HashMap<Uuid, WrappedEvent> = HashMap::new();
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
-        // No events → all_non_ok starts true → BillingLimitExceeded
-        // (vacuously true: "every event is non-Ok" when there are none)
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 }

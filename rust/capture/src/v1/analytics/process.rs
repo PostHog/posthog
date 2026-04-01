@@ -409,6 +409,13 @@ mod tests {
     }
 
     #[test]
+    fn batch_empty() {
+        let batch = valid_batch(vec![]);
+        let err = validate_batch(&batch).unwrap_err();
+        assert!(matches!(err, Error::EmptyBatch));
+    }
+
+    #[test]
     fn batch_bad_created_at() {
         let batch = Batch {
             created_at: "not-a-timestamp".to_string(),
