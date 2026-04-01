@@ -11,6 +11,8 @@ use crate::{HyperCacheConfig, HyperCacheError, KeyType, HYPER_CACHE_EMPTY_VALUE}
 
 const HYPERCACHE_OPERATION_COUNTER_NAME: &str = "posthog_hypercache_operation";
 const ETAG_KEY_SUFFIX: &str = ":etag";
+/// HyperCache always writes Redis values in Pickle format for Django compatibility.
+const REDIS_FORMAT: RedisValueFormat = RedisValueFormat::Pickle;
 
 /// Multi-tier cache writer for PostHog, matching Django's HyperCache write behavior.
 ///
@@ -48,12 +50,21 @@ impl HyperCacheWriter {
         let redis_key = self.config.get_redis_cache_key(key);
         let s3_key = self.config.get_s3_cache_key(key);
 
-        let (redis_result, s3_result) = tokio::join!(
-            self.redis_client
-                .setex(redis_key, json_data.to_string(), ttl_seconds),
+        let (redis_result, etag_result, s3_result) = tokio::join!(
+            self.redis_client.setex_with_format(
+                redis_key.clone(),
+                json_data.to_string(),
+                ttl_seconds,
+                REDIS_FORMAT,
+            ),
+            self.delete_etag(&redis_key),
             self.s3_client
                 .put_string(&self.config.s3_bucket, &s3_key, json_data),
         );
+
+        if let Err(e) = etag_result {
+            warn!(error = %e, "Failed to delete ETag key during set");
+        }
 
         self.check_results(redis_result, s3_result, "set")
     }
@@ -78,13 +89,13 @@ impl HyperCacheWriter {
                 key: redis_key,
                 value: json_data.to_string(),
                 seconds: ttl_seconds,
-                format: RedisValueFormat::Pickle,
+                format: REDIS_FORMAT,
             },
             PipelineCommand::SetEx {
                 key: etag_key,
                 value: etag.clone(),
                 seconds: ttl_seconds,
-                format: RedisValueFormat::Pickle,
+                format: REDIS_FORMAT,
             },
         ];
 
@@ -107,15 +118,19 @@ impl HyperCacheWriter {
     }
 
     /// Write the "__missing__" sentinel to Redis (for teams with no flags) and delete from S3.
-    /// Also removes the ETag key when ETags are enabled.
+    /// Also removes the ETag key.
     pub async fn set_empty(&self, key: &KeyType, ttl_seconds: u64) -> Result<(), HyperCacheError> {
         let redis_key = self.config.get_redis_cache_key(key);
         let s3_key = self.config.get_s3_cache_key(key);
 
         let (redis_result, etag_result, s3_result) = tokio::join!(
-            self.redis_client
-                .setex(redis_key, HYPER_CACHE_EMPTY_VALUE.to_string(), ttl_seconds),
-            self.delete_etag_if_enabled(key),
+            self.redis_client.setex_with_format(
+                redis_key.clone(),
+                HYPER_CACHE_EMPTY_VALUE.to_string(),
+                ttl_seconds,
+                REDIS_FORMAT,
+            ),
+            self.delete_etag(&redis_key),
             self.s3_client.delete(&self.config.s3_bucket, &s3_key),
         );
 
@@ -127,14 +142,14 @@ impl HyperCacheWriter {
     }
 
     /// Remove from both Redis and S3.
-    /// Also removes the ETag key when ETags are enabled.
+    /// Also removes the ETag key.
     pub async fn delete(&self, key: &KeyType) -> Result<(), HyperCacheError> {
         let redis_key = self.config.get_redis_cache_key(key);
         let s3_key = self.config.get_s3_cache_key(key);
 
         let (redis_result, etag_result, s3_result) = tokio::join!(
-            self.redis_client.del(redis_key),
-            self.delete_etag_if_enabled(key),
+            self.redis_client.del(redis_key.clone()),
+            self.delete_etag(&redis_key),
             self.s3_client.delete(&self.config.s3_bucket, &s3_key),
         );
 
@@ -145,21 +160,14 @@ impl HyperCacheWriter {
         self.check_results(redis_result, s3_result, "delete")
     }
 
-    /// Delete the ETag key from Redis if ETags are enabled, no-op otherwise.
-    async fn delete_etag_if_enabled(
-        &self,
-        key: &KeyType,
-    ) -> Result<(), common_redis::CustomRedisError> {
-        if self.config.enable_etag {
-            let etag_key = format!(
-                "{}{}",
-                self.config.get_redis_cache_key(key),
-                ETAG_KEY_SUFFIX
-            );
-            self.redis_client.del(etag_key).await
-        } else {
-            Ok(())
-        }
+    /// Delete the ETag key from Redis unconditionally.
+    ///
+    /// Always cleans up the ETag key as a safety net, even when `enable_etag` is false,
+    /// to prevent stale ETags from causing incorrect 304 responses if the flag was
+    /// previously enabled. Matches Python's `_set_cache_value_redis()` behavior.
+    async fn delete_etag(&self, redis_key: &str) -> Result<(), common_redis::CustomRedisError> {
+        let etag_key = format!("{redis_key}{ETAG_KEY_SUFFIX}");
+        self.redis_client.del(etag_key).await
     }
 
     /// Check Redis and S3 results, emit metrics, and return the first error (logging the
@@ -230,7 +238,7 @@ mod tests {
     use super::*;
     use crate::HyperCacheConfig;
     #[cfg(feature = "mock-client")]
-    use common_redis::{MockRedisClient, MockRedisValue};
+    use common_redis::{MockRedisClient, MockRedisValue, RedisValueFormat};
     #[cfg(feature = "mock-client")]
     use common_s3::MockS3Client;
 
@@ -241,12 +249,6 @@ mod tests {
             "us-east-1".to_string(),
             "test-bucket".to_string(),
         )
-    }
-
-    fn create_test_config_with_etag() -> HyperCacheConfig {
-        let mut config = create_test_config();
-        config.enable_etag = true;
-        config
     }
 
     #[cfg(feature = "mock-client")]
@@ -310,6 +312,10 @@ mod tests {
 
         let mut redis = MockRedisClient::new();
         redis.set_ret("posthog:1:cache/teams/123/feature_flags/flags.json", Ok(()));
+        redis.del_ret(
+            "posthog:1:cache/teams/123/feature_flags/flags.json:etag",
+            Ok(()),
+        );
 
         let mut s3 = MockS3Client::new();
         s3.expect_put_string()
@@ -328,15 +334,25 @@ mod tests {
         let calls = redis.get_calls();
         let setex_call = calls
             .iter()
-            .find(|c| c.op == "setex")
-            .expect("expected setex call");
+            .find(|c| c.op == "setex_with_format")
+            .expect("expected setex_with_format call");
         match &setex_call.value {
-            MockRedisValue::StringWithTTL(val, ttl) => {
+            MockRedisValue::StringWithTTLAndFormat(val, ttl, format) => {
                 assert_eq!(val, json_data);
                 assert_eq!(*ttl, 604800);
+                assert_eq!(*format, RedisValueFormat::Pickle);
             }
-            other => panic!("expected StringWithTTL, got {other:?}"),
+            other => panic!("expected StringWithTTLAndFormat, got {other:?}"),
         }
+        // set() always cleans up ETag as a safety net (matching Python behavior)
+        let etag_del = calls
+            .iter()
+            .find(|c| c.op == "del" && c.key.ends_with(":etag"))
+            .expect("expected del call for etag key");
+        assert_eq!(
+            etag_del.key,
+            "posthog:1:cache/teams/123/feature_flags/flags.json:etag"
+        );
     }
 
     #[cfg(feature = "mock-client")]
@@ -345,6 +361,10 @@ mod tests {
         let key = KeyType::int(789);
         let mut redis = MockRedisClient::new();
         redis.set_ret("posthog:1:cache/teams/789/feature_flags/flags.json", Ok(()));
+        redis.del_ret(
+            "posthog:1:cache/teams/789/feature_flags/flags.json:etag",
+            Ok(()),
+        );
 
         let mut s3 = MockS3Client::new();
         s3.expect_put_string()
@@ -404,6 +424,10 @@ mod tests {
 
         let mut redis = MockRedisClient::new();
         redis.set_ret("posthog:1:cache/teams/123/feature_flags/flags.json", Ok(()));
+        redis.del_ret(
+            "posthog:1:cache/teams/123/feature_flags/flags.json:etag",
+            Ok(()),
+        );
 
         let redis = Arc::new(redis);
         let writer = HyperCacheWriter::new(
@@ -416,45 +440,17 @@ mod tests {
         let calls = redis.get_calls();
         let setex_call = calls
             .iter()
-            .find(|c| c.op == "setex")
-            .expect("expected setex call");
+            .find(|c| c.op == "setex_with_format")
+            .expect("expected setex_with_format call");
         match &setex_call.value {
-            MockRedisValue::StringWithTTL(val, ttl) => {
+            MockRedisValue::StringWithTTLAndFormat(val, ttl, format) => {
                 assert_eq!(val, HYPER_CACHE_EMPTY_VALUE);
                 assert_eq!(*ttl, 86400);
+                assert_eq!(*format, RedisValueFormat::Pickle);
             }
-            other => panic!("expected StringWithTTL, got {other:?}"),
+            other => panic!("expected StringWithTTLAndFormat, got {other:?}"),
         }
-        // Verify no ETag deletion when enable_etag is false
-        assert!(
-            !calls
-                .iter()
-                .any(|c| c.op == "del" && c.key.ends_with(":etag")),
-            "should not delete ETag key when enable_etag is false"
-        );
-    }
-
-    #[cfg(feature = "mock-client")]
-    #[tokio::test]
-    async fn test_set_empty_deletes_etag_when_enabled() {
-        let key = KeyType::int(123);
-
-        let mut redis = MockRedisClient::new();
-        redis.set_ret("posthog:1:cache/teams/123/feature_flags/flags.json", Ok(()));
-        redis.del_ret(
-            "posthog:1:cache/teams/123/feature_flags/flags.json:etag",
-            Ok(()),
-        );
-
-        let redis = Arc::new(redis);
-        let writer = HyperCacheWriter::new(
-            redis.clone(),
-            Arc::new(mock_s3_delete_ok()),
-            create_test_config_with_etag(),
-        );
-        writer.set_empty(&key, 86400).await.unwrap();
-
-        let calls = redis.get_calls();
+        // ETag is always cleaned up as a safety net
         let etag_del = calls
             .iter()
             .find(|c| c.op == "del" && c.key.ends_with(":etag"))
@@ -472,36 +468,6 @@ mod tests {
 
         let mut redis = MockRedisClient::new();
         redis.del_ret("posthog:1:cache/teams/123/feature_flags/flags.json", Ok(()));
-
-        let mut s3 = MockS3Client::new();
-        s3.expect_delete()
-            .withf(|bucket, key| {
-                bucket == "test-bucket" && key == "cache/teams/123/feature_flags/flags.json"
-            })
-            .times(1)
-            .returning(|_, _| Box::pin(async { Ok(()) }));
-
-        let redis = Arc::new(redis);
-        let writer = HyperCacheWriter::new(redis.clone(), Arc::new(s3), create_test_config());
-        writer.delete(&key).await.unwrap();
-
-        // Verify no ETag deletion when enable_etag is false
-        let calls = redis.get_calls();
-        assert!(
-            !calls
-                .iter()
-                .any(|c| c.op == "del" && c.key.ends_with(":etag")),
-            "should not delete ETag key when enable_etag is false"
-        );
-    }
-
-    #[cfg(feature = "mock-client")]
-    #[tokio::test]
-    async fn test_delete_removes_etag_when_enabled() {
-        let key = KeyType::int(123);
-
-        let mut redis = MockRedisClient::new();
-        redis.del_ret("posthog:1:cache/teams/123/feature_flags/flags.json", Ok(()));
         redis.del_ret(
             "posthog:1:cache/teams/123/feature_flags/flags.json:etag",
             Ok(()),
@@ -516,10 +482,10 @@ mod tests {
             .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let redis = Arc::new(redis);
-        let writer =
-            HyperCacheWriter::new(redis.clone(), Arc::new(s3), create_test_config_with_etag());
+        let writer = HyperCacheWriter::new(redis.clone(), Arc::new(s3), create_test_config());
         writer.delete(&key).await.unwrap();
 
+        // ETag is always cleaned up as a safety net
         let calls = redis.get_calls();
         let etag_del = calls
             .iter()
