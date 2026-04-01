@@ -12,6 +12,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
@@ -622,6 +623,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // query source properties
         updateDateRange: async ({ dateRange, ignoreDebounce }, breakpoint) => {
+            eventUsageLogic.actions.reportInsightDateRangeChanged(values.querySource?.kind)
             if (!ignoreDebounce) {
                 await breakpoint(300)
             }
@@ -653,11 +655,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
+            eventUsageLogic.actions.reportInsightBreakdownChanged(values.querySource?.kind)
             await breakpoint(500) // extra debounce time because of number input
             const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
             actions.updateQuerySource(update)
         },
         updateCompareFilter: async ({ compareFilter }, breakpoint) => {
+            eventUsageLogic.actions.reportInsightCompareChanged(values.querySource?.kind)
             await breakpoint(500) // extra debounce time because of number input
             const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
             actions.updateQuerySource(update)
