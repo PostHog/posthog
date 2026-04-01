@@ -285,6 +285,11 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     selectors(() => ({
+        showVerifiedFilter: [
+            (s) => [s.eventDefinitions],
+            (eventDefinitions: EventDefinitionsPaginatedResponse): boolean =>
+                eventDefinitions.results.length > 0 && 'verified' in eventDefinitions.results[0],
+        ],
         // Convert filters to API params
         paramsFromFilters: [
             (s) => [s.filters],

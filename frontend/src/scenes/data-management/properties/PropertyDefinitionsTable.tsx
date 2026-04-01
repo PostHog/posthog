@@ -22,11 +22,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
 
 export function PropertyDefinitionsTable(): JSX.Element {
-    const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
+    const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions, showVerifiedFilter } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
-    const showVerifiedFilter =
-        propertyDefinitions.results.length > 0 && 'verified' in propertyDefinitions.results[0]
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {

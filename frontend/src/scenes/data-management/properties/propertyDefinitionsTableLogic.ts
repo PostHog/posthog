@@ -86,6 +86,11 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         ],
     }),
     selectors({
+        showVerifiedFilter: [
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinitionsPaginatedResponse): boolean =>
+                propertyDefinitions.results.length > 0 && 'verified' in propertyDefinitions.results[0],
+        ],
         propertyTypeOptions: [
             (s) => [s.groupTypes, s.aggregationLabel],
             (groupTypes, aggregationLabel) => {
