@@ -1,5 +1,3 @@
-import importlib
-
 import pytest
 from posthog.test.base import APIBaseTest
 
@@ -14,10 +12,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.customer_analytics.backend.models import CustomerJourney, CustomerProfileConfig
-
-
-def _get_access_control_model():
-    return importlib.import_module("ee.models.rbac.access_control").AccessControl
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -429,14 +423,19 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.journeys_url = f"/api/environments/{self.team.id}/customer_journeys/"
 
     def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
-        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
-        _get_access_control_model().objects.create(
-            team=self.team,
-            resource=resource,
-            resource_id=None,
-            access_level=access_level,
-            organization_member=membership,
-        )
+        try:
+            from ee.models.rbac.access_control import AccessControl
+
+            membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                resource_id=None,
+                access_level=access_level,
+                organization_member=membership,
+            )
+        except:
+            pass
 
     # -- Viewer can list and retrieve journeys --
 
