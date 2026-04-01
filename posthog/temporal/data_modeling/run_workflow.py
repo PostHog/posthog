@@ -1389,7 +1389,7 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
     )(
         status=DataModelingJob.Status.FAILED,
         rows_materialized=0,
-        error="Job timed out",
+        error="Preempted: This job did not complete before the next scheduled job was triggered.",
         updated_at=dt.datetime.now(dt.UTC),
     )
 
