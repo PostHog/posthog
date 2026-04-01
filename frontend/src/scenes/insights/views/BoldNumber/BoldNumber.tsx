@@ -237,8 +237,6 @@ function BoldNumberComparison({
                         ref={comparisonRef}
                         onMouseEnter={() => setIsTooltipShown(true)}
                         onMouseLeave={() => setIsTooltipShown(false)}
-                        onFocus={() => setIsTooltipShown(true)}
-                        onBlur={() => setIsTooltipShown(false)}
                     >
                         <Link
                             onClick={() => {
