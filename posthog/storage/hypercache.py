@@ -395,23 +395,25 @@ class HyperCache:
         Returns None for None/missing values, otherwise returns len(json_data).
         """
         cache_key = self.get_cache_key(key)
+        etag_key = self.get_etag_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
             self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
-            if self.enable_etag:
-                self.cache_client.delete(self.get_etag_key(key))
+            # Always delete ETag key to clean up stale ETags from when enable_etag was True
+            self.cache_client.delete(etag_key)
             return None
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
             # Use sort_keys for deterministic serialization (consistent ETags)
             json_data = json.dumps(data, sort_keys=True)
             if self.enable_etag:
-                etag_key = self.get_etag_key(key)
                 etag = self._compute_etag(json_data)
                 # Write data and ETag via pipeline (single Redis round trip)
                 # Note this is not strictly atomic, but good enough for our use case
                 self.cache_client.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout)
             else:
                 self.cache_client.set(cache_key, json_data, timeout=timeout)
+                # Clean up stale ETag if ETags were previously enabled
+                self.cache_client.delete(etag_key)
             return len(json_data)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):
