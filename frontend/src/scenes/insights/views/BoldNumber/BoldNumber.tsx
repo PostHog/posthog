@@ -64,15 +64,15 @@ function useBoldNumberTooltip({
     isTooltipShown: boolean
     seriesIndex?: number
     groupTypeLabel?: string
-}): React.RefObject<HTMLDivElement> {
+}): React.RefObject<HTMLElement | null> {
     const { insightProps } = useValues(insightLogic)
     const { series, insightData, trendsFilter, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
 
-    const divRef = useRef<HTMLDivElement>(null)
+    const elementRef = useRef<HTMLElement | null>(null)
 
-    const divRect = divRef.current?.getBoundingClientRect()
+    const elementRect = elementRef.current?.getBoundingClientRect()
     const { getTooltip } = useInsightTooltip()
     const [tooltipRoot, tooltipEl] = getTooltip()
 
@@ -106,15 +106,15 @@ function useBoldNumberTooltip({
 
     useEffect(() => {
         const tooltipRect = tooltipEl.getBoundingClientRect()
-        if (divRect) {
+        if (elementRect) {
             tooltipEl.style.top = `${
-                window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
+                window.scrollY + elementRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
             }px`
-            tooltipEl.style.left = `${divRect.left + divRect.width / 2 - tooltipRect.width / 2}px`
+            tooltipEl.style.left = `${elementRect.left + elementRect.width / 2 - tooltipRect.width / 2}px`
         }
     })
 
-    return divRef
+    return elementRef
 }
 
 export function BoldNumber({ showPersonsModal = true, context }: ChartParams): JSX.Element {
@@ -230,38 +230,33 @@ function BoldNumberComparison({
                 ) : previousValue === null || !showPersonsModal || !hasComparableDiff ? (
                     'previous period'
                 ) : (
-                    <span
+                    <Link
                         ref={comparisonRef}
                         onMouseEnter={() => setIsTooltipShown(true)}
                         onMouseLeave={() => setIsTooltipShown(false)}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ display: 'contents' }}
+                        onClick={() => {
+                            if (context?.onDataPointClick) {
+                                context.onDataPointClick({ compare: 'previous' }, currentPeriodSeries)
+                            } else {
+                                openPersonsModal({
+                                    title: previousPeriodSeries.label,
+                                    query: {
+                                        kind: NodeKind.InsightActorsQuery,
+                                        source: querySource!,
+                                        compare: 'previous',
+                                        includeRecordings: true,
+                                    },
+                                    additionalSelect: {
+                                        value_at_data_point: 'event_count',
+                                        matched_recordings: 'matched_recordings',
+                                    },
+                                    orderBy: ['event_count DESC, actor_id DESC'],
+                                })
+                            }
+                        }}
                     >
-                        <Link
-                            onClick={() => {
-                                if (context?.onDataPointClick) {
-                                    context.onDataPointClick({ compare: 'previous' }, currentPeriodSeries)
-                                } else {
-                                    openPersonsModal({
-                                        title: previousPeriodSeries.label,
-                                        query: {
-                                            kind: NodeKind.InsightActorsQuery,
-                                            source: querySource!,
-                                            compare: 'previous',
-                                            includeRecordings: true,
-                                        },
-                                        additionalSelect: {
-                                            value_at_data_point: 'event_count',
-                                            matched_recordings: 'matched_recordings',
-                                        },
-                                        orderBy: ['event_count DESC, actor_id DESC'],
-                                    })
-                                }
-                            }}
-                        >
-                            previous period
-                        </Link>
-                    </span>
+                        previous period
+                    </Link>
                 )}
             </span>
         </LemonRow>
