@@ -112,15 +112,24 @@ class TestBuildCommand:
         assert result.exit_code == 0
         assert "don't match any build trigger" in result.output
 
+    @pytest.mark.parametrize(
+        "changed_file,expected_command",
+        [
+            ("frontend/src/queries/schema/index.ts", "build:schema"),
+            ("posthog/taxonomy/foo.py", "build:taxonomy-json"),
+        ],
+    )
     @patch("hogli.build.subprocess.run")
     @patch("hogli.build._get_changed_files")
-    def test_smart_mode_runs_matching_command(self, mock_changed: MagicMock, mock_run: MagicMock) -> None:
-        mock_changed.return_value = {"frontend/src/queries/schema/index.ts"}
+    def test_smart_mode_runs_single_matching_pipeline(
+        self, mock_changed: MagicMock, mock_run: MagicMock, changed_file: str, expected_command: str
+    ) -> None:
+        mock_changed.return_value = {changed_file}
         mock_run.return_value = MagicMock(returncode=0)
         result = runner.invoke(cli, ["build"])
         assert result.exit_code == 0
         mock_run.assert_called_once()
-        assert "build:schema" in mock_run.call_args[0][0]
+        assert expected_command in mock_run.call_args[0][0]
 
     @patch("hogli.build.subprocess.run")
     def test_force_runs_all(self, mock_run: MagicMock) -> None:
@@ -129,12 +138,14 @@ class TestBuildCommand:
         assert result.exit_code == 0
         assert mock_run.call_count == len(TRIGGERS)
 
+    @patch("hogli.build.subprocess.run")
     @patch("hogli.build._get_changed_files")
-    def test_dry_run_does_not_execute(self, mock_changed: MagicMock) -> None:
+    def test_dry_run_does_not_execute(self, mock_changed: MagicMock, mock_run: MagicMock) -> None:
         mock_changed.return_value = {"posthog/api/views.py"}
         result = runner.invoke(cli, ["build", "--dry-run"])
         assert result.exit_code == 0
         assert "build:openapi" in result.output
+        mock_run.assert_not_called()
 
     @patch("hogli.build.subprocess.run")
     def test_force_dry_run_lists_all(self, mock_run: MagicMock) -> None:
@@ -151,11 +162,3 @@ class TestBuildCommand:
         assert result.exit_code == 1
         assert "failures" in result.output
         assert mock_run.call_count == len(TRIGGERS)
-
-    @patch("hogli.build.subprocess.run")
-    def test_single_pipeline_runs(self, mock_run: MagicMock) -> None:
-        mock_run.return_value = MagicMock(returncode=0)
-        with patch("hogli.build._get_changed_files", return_value={"posthog/taxonomy/foo.py"}):
-            result = runner.invoke(cli, ["build"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
