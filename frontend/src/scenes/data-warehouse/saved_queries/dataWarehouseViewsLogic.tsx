@@ -10,7 +10,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { userLogic } from 'scenes/userLogic'
 
 import { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery } from '~/types'
+import { DataWarehouseSavedQuery, DataWarehouseSavedQueryFolder } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
 
@@ -52,7 +52,10 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     return savedQueries.results
                 },
                 createDataWarehouseSavedQuery: async (
-                    view: Partial<DatabaseSchemaViewTable> & { types: string[][] }
+                    view: Partial<DatabaseSchemaViewTable> & {
+                        types: string[][]
+                        folder_id?: string | null
+                    }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
@@ -73,6 +76,8 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         lifecycle?: string
                         shouldRematerialize?: boolean
                         edited_history_id?: string
+                        folder_id?: string | null
+                        soft_update?: boolean
                     }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
@@ -85,10 +90,32 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
             },
         ],
+        dataWarehouseSavedQueryFolders: [
+            [] as DataWarehouseSavedQueryFolder[],
+            {
+                loadDataWarehouseSavedQueryFolders: async () => {
+                    return await api.dataWarehouseSavedQueryFolders.list()
+                },
+                createDataWarehouseSavedQueryFolder: async (name: string) => {
+                    const folder = await api.dataWarehouseSavedQueryFolders.create({ name })
+                    lemonToast.success('Folder created')
+                    return [...values.dataWarehouseSavedQueryFolders, folder].sort((a, b) =>
+                        a.name.localeCompare(b.name)
+                    )
+                },
+                deleteDataWarehouseSavedQueryFolder: async (folderId: string) => {
+                    await api.dataWarehouseSavedQueryFolders.delete(folderId)
+                    return values.dataWarehouseSavedQueryFolders.filter((folder) => folder.id !== folderId)
+                },
+            },
+        ],
     })),
     listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
+        },
+        createDataWarehouseSavedQueryFolderSuccess: () => {
+            actions.loadDataWarehouseSavedQueries()
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // in the case where we are scheduling a materialized view, send an event
@@ -103,15 +130,20 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.runDataWarehouseSavedQuery(payload.id)
             }
 
+            actions.loadDataWarehouseSavedQueries()
             actions.loadDatabase()
-
-            // Toast is handled by dataWarehouseSettingsSceneLogic when needed
         },
         updateDataWarehouseSavedQueryError: () => {
             lemonToast.error('Failed to update view')
+            actions.loadDataWarehouseSavedQueries()
         },
         deleteDataWarehouseSavedQuerySuccess: () => {
             lemonToast.success('View deleted')
+        },
+        deleteDataWarehouseSavedQueryFolderSuccess: () => {
+            lemonToast.success('Folder deleted')
+            actions.loadDataWarehouseSavedQueries()
+            actions.loadDatabase()
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             try {
@@ -205,10 +237,23 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 )
             },
         ],
+        dataWarehouseSavedQueryFoldersById: [
+            (s) => [s.dataWarehouseSavedQueryFolders],
+            (folders) => {
+                return folders.reduce(
+                    (acc, folder) => {
+                        acc[folder.id] = folder
+                        return acc
+                    },
+                    {} as Record<string, DataWarehouseSavedQueryFolder>
+                )
+            },
+        ],
     }),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
+            actions.loadDataWarehouseSavedQueryFolders()
         },
     })),
 ])

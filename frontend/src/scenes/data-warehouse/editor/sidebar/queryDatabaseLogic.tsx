@@ -28,7 +28,13 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink, QueryTabState } from '~/types'
+import {
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryFolder,
+    DataWarehouseViewLink,
+    QueryTabState,
+} from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -102,6 +108,7 @@ const posthogTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const systemTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
 const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
+const savedQueryFoldersFuse = new Fuse<DataWarehouseSavedQueryFolder>([], FUSE_OPTIONS)
 const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
 const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
 const endpointsFuse = new Fuse<DatabaseSchemaEndpointTable>([], FUSE_OPTIONS)
@@ -779,6 +786,38 @@ const createDraftNode = (
     }
 }
 
+const createViewFolderNode = (
+    folder: DataWarehouseSavedQueryFolder,
+    children: TreeDataItem[],
+    matches: FuseSearchMatch[] | null = null,
+    isSearch = false
+): TreeDataItem => {
+    return {
+        id: `${isSearch ? 'search-' : ''}view-folder-${folder.id}`,
+        name: folder.name,
+        type: 'node',
+        record: {
+            type: 'folder',
+            folderType: 'view-folder',
+            folder,
+            ...(matches && { searchMatches: matches }),
+        },
+        children:
+            children.length > 0
+                ? children
+                : [
+                      {
+                          id: `${isSearch ? 'search-' : ''}view-folder-${folder.id}-empty/`,
+                          name: 'Empty folder',
+                          type: 'empty-folder',
+                          record: {
+                              type: 'empty-folder',
+                          },
+                      },
+                  ],
+    }
+}
+
 const createViewNode = (
     view: DataWarehouseSavedQuery,
     matches: FuseSearchMatch[] | null = null,
@@ -1021,6 +1060,19 @@ const createTopLevelFolderNode = (
     }
 }
 
+const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[]): void => {
+    nodes.forEach((node) => {
+        if (node.record?.type === 'view-table') {
+            flattenedViews.push(node)
+            return
+        }
+
+        if (node.record?.type === 'folder' && node.record?.folderType === 'view-folder') {
+            flattenViewNodes(node.children ?? [], flattenedViews)
+        }
+    })
+}
+
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),
     actions({
@@ -1036,6 +1088,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         selectSourceTable: (tableName: string) => ({ tableName }),
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
         setEditingDraft: (draftId: string) => ({ draftId }),
+        setPendingViewFolderOverride: (viewId: string, folderId: string | null) => ({ viewId, folderId }),
+        clearPendingViewFolderOverride: (viewId: string) => ({ viewId }),
+        clearPendingViewFolderOverrides: true,
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
     }),
@@ -1060,7 +1115,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'connectionId',
             ],
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
+            [
+                'dataWarehouseSavedQueries',
+                'dataWarehouseSavedQueryFolders',
+                'dataWarehouseSavedQueryMapById',
+                'dataWarehouseSavedQueriesLoading',
+            ],
             draftsLogic,
             ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
             featureFlagLogic,
@@ -1073,6 +1133,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['toggleEditJoinModal', 'toggleJoinTableModal'],
             dataWarehouseSettingsLogic,
             ['deleteJoin'],
+            dataWarehouseViewsLogic,
+            [
+                'createDataWarehouseSavedQuerySuccess',
+                'updateDataWarehouseSavedQuerySuccess',
+                'updateDataWarehouseSavedQueryFailure',
+            ],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
         ],
@@ -1132,7 +1198,37 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 setSyncMoreNoticeDismissed: (_, { dismissed }) => dismissed,
             },
         ],
+        pendingViewFolderOverrides: [
+            {} as Record<string, string | null>,
+            {
+                setPendingViewFolderOverride: (state, { viewId, folderId }) => ({ ...state, [viewId]: folderId }),
+                clearPendingViewFolderOverride: (state, { viewId }) => {
+                    const nextState = { ...state }
+                    delete nextState[viewId]
+                    return nextState
+                },
+                clearPendingViewFolderOverrides: () => ({}),
+            },
+        ],
     }),
+    listeners(({ actions, values }) => ({
+        createDataWarehouseSavedQuerySuccess: ({ payload }) => {
+            if (payload?.folder_id) {
+                const folderNodeId = `view-folder-${payload.folder_id}`
+                actions.setExpandedFolders(Array.from(new Set([...values.expandedFolders, 'views', folderNodeId])))
+            }
+        },
+        updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
+            if (payload?.id) {
+                actions.clearPendingViewFolderOverride(payload.id)
+            } else {
+                actions.clearPendingViewFolderOverrides()
+            }
+        },
+        updateDataWarehouseSavedQueryFailure: () => {
+            actions.clearPendingViewFolderOverrides()
+        },
+    })),
     loaders(({ values }) => ({
         queryTabState: [
             null as QueryTabState | null,
@@ -1227,7 +1323,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
         relevantSavedQueries: [
-            (s) => [s.dataWarehouseSavedQueries, s.searchTerm],
+            (s) => [s.effectiveDataWarehouseSavedQueries, s.searchTerm],
             (
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 searchTerm: string
@@ -1237,8 +1333,37 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         .search(searchTerm)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
-                return dataWarehouseSavedQueries.map((query) => [query, null])
+                return (dataWarehouseSavedQueries ?? []).map((query) => [query, null])
             },
+        ],
+        relevantSavedQueryFolders: [
+            (s) => [s.dataWarehouseSavedQueryFolders, s.searchTerm],
+            (
+                dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+                searchTerm: string
+            ): [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][] => {
+                if (searchTerm) {
+                    return savedQueryFoldersFuse
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                }
+                return (dataWarehouseSavedQueryFolders ?? []).map((folder) => [folder, null])
+            },
+        ],
+        effectiveDataWarehouseSavedQueries: [
+            (s) => [s.dataWarehouseSavedQueries, s.pendingViewFolderOverrides],
+            (
+                dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+                pendingViewFolderOverrides: Record<string, string | null>
+            ): DataWarehouseSavedQuery[] =>
+                (dataWarehouseSavedQueries ?? []).map((savedQuery) =>
+                    Object.prototype.hasOwnProperty.call(pendingViewFolderOverrides, savedQuery.id)
+                        ? {
+                              ...savedQuery,
+                              folder_id: pendingViewFolderOverrides[savedQuery.id],
+                          }
+                        : savedQuery
+                ),
         ],
         relevantManagedViews: [
             (s) => [s.managedViews, s.searchTerm],
@@ -1287,12 +1412,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.allPosthogTables,
                 s.systemTables,
                 s.dataWarehouseTables,
-                s.dataWarehouseSavedQueries,
+                s.effectiveDataWarehouseSavedQueries,
+                s.dataWarehouseSavedQueryFolders,
                 s.managedViews,
                 s.relevantPosthogTables,
                 s.relevantSystemTables,
                 s.relevantDataWarehouseTables,
                 s.relevantSavedQueries,
+                s.relevantSavedQueryFolders,
                 s.relevantManagedViews,
                 s.relevantDrafts,
                 s.relevantEndpointTables,
@@ -1306,11 +1433,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 systemTables: DatabaseSchemaTable[],
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+                dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
                 managedViews: DatabaseSchemaManagedViewTable[],
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
                 relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
+                relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
                 relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
                 relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][],
@@ -1386,11 +1515,36 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const viewsChildren: TreeDataItem[] = []
                 const managedViewsChildren: TreeDataItem[] = []
                 const draftsChildren: TreeDataItem[] = []
+                const matchedFolderMap = new Map<
+                    string,
+                    { folder: DataWarehouseSavedQueryFolder; matches: FuseSearchMatch[] | null }
+                >()
+                const viewChildrenByFolderId = new Map<string, TreeDataItem[]>()
+
+                relevantSavedQueryFolders.forEach(([folder, matches]) => {
+                    matchedFolderMap.set(folder.id, { folder, matches })
+                })
 
                 // Add saved queries
                 relevantSavedQueries.forEach(([view, matches]) => {
                     const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
-                    viewsChildren.push(createViewNode(view, matches, true, tableLookup, tableNodeOptions, schemaTable))
+                    const viewNode = createViewNode(view, matches, true, tableLookup, tableNodeOptions, schemaTable)
+                    if (view.folder_id) {
+                        const currentChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
+                        currentChildren.push(viewNode)
+                        viewChildrenByFolderId.set(view.folder_id, currentChildren)
+                    } else {
+                        viewsChildren.push(viewNode)
+                    }
+                })
+
+                dataWarehouseSavedQueryFolders.forEach((folder) => {
+                    const folderChildren = viewChildrenByFolderId.get(folder.id) ?? []
+                    const folderMatch = matchedFolderMap.get(folder.id)?.matches ?? null
+                    if (folderChildren.length > 0 || folderMatch) {
+                        expandedIds.push(`search-view-folder-${folder.id}`)
+                        viewsChildren.push(createViewFolderNode(folder, folderChildren, folderMatch, true))
+                    }
                 })
 
                 // Add endpoint tables
@@ -1454,7 +1608,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.posthogTables,
                 s.systemTables,
                 s.dataWarehouseTables,
-                s.dataWarehouseSavedQueries,
+                s.effectiveDataWarehouseSavedQueries,
+                s.dataWarehouseSavedQueryFolders,
                 s.managedViews,
                 s.latestEndpointTables,
                 s.databaseLoading,
@@ -1473,6 +1628,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 systemTables: DatabaseSchemaTable[],
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+                dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
                 managedViews: DatabaseSchemaManagedViewTable[],
                 latestEndpointTables: DatabaseSchemaEndpointTable[],
                 databaseLoading: boolean,
@@ -1572,12 +1728,25 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         type: 'loading-indicator',
                     })
                 } else {
+                    const viewChildrenByFolderId = new Map<string, TreeDataItem[]>()
+
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
                         const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
-                        viewsChildren.push(
-                            createViewNode(view, null, false, tableLookup, tableNodeOptions, schemaTable)
-                        )
+                        const viewNode = createViewNode(view, null, false, tableLookup, tableNodeOptions, schemaTable)
+                        if (view.folder_id) {
+                            const folderChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
+                            folderChildren.push(viewNode)
+                            viewChildrenByFolderId.set(view.folder_id, folderChildren)
+                        } else {
+                            viewsChildren.push(viewNode)
+                        }
+                    })
+
+                    dataWarehouseSavedQueryFolders.forEach((folder) => {
+                        const folderChildren = viewChildrenByFolderId.get(folder.id) ?? []
+                        folderChildren.sort((a, b) => a.name.localeCompare(b.name))
+                        viewsChildren.push(createViewFolderNode(folder, folderChildren))
                     })
 
                     // Add latest endpoint tables
@@ -1718,12 +1887,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     if (item.record?.type === 'views') {
                         // In direct-connection mode, hide saved-query and managed view sections,
                         // and only keep DB-backed view nodes if they are present in schema.
-                        const viewChildren = item.children ?? []
-                        viewChildren.forEach((viewChild) => {
-                            if (viewChild.record?.type === 'view-table') {
-                                flattenedViews.push(viewChild)
-                            }
-                        })
+                        flattenViewNodes(item.children ?? [], flattenedViews)
                         return
                     }
 
@@ -1921,6 +2085,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
         dataWarehouseSavedQueries: (dataWarehouseSavedQueries: DataWarehouseSavedQuery[]) => {
             savedQueriesFuse.setCollection(dataWarehouseSavedQueries)
+        },
+        dataWarehouseSavedQueryFolders: (dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]) => {
+            savedQueryFoldersFuse.setCollection(dataWarehouseSavedQueryFolders)
         },
         managedViews: (managedViews: DatabaseSchemaManagedViewTable[]) => {
             managedViewsFuse.setCollection(managedViews)

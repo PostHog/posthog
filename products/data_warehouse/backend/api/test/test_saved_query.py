@@ -11,6 +11,7 @@ from products.data_warehouse.backend.models import (
     DataModelingJob,
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryFolder,
     DataWarehouseTable,
 )
 from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
@@ -18,6 +19,26 @@ from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKin
 
 
 class TestSavedQuery(APIBaseTest):
+    def test_create_with_folder(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Marketing", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "folder_id": str(folder.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        self.assertEqual(saved_query["folder_id"], str(folder.id))
+        self.assertEqual(saved_query["folder_name"], "Marketing")
+
     def test_create(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -305,6 +326,65 @@ class TestSavedQuery(APIBaseTest):
         assert saved_query.deleted_at is not None
         assert saved_query.deleted_name == query_name
         assert saved_query.name.startswith("POSTHOG_DELETED_")
+
+    def test_update_folder_assignment(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(
+            team=self.team, name="Warehouse ops", created_by=self.user
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="test_query", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/",
+            {"folder_id": str(folder.id), "soft_update": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        saved_query.refresh_from_db()
+        self.assertEqual(saved_query.folder_id, folder.id)
+
+    def test_create_folder_and_list_view_count(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_query_folders/",
+            {"name": "Finance"},
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        folder_id = response.json()["id"]
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="finance_view",
+            folder_id=folder_id,
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()[0]["name"], "Finance")
+        self.assertEqual(response.json()[0]["view_count"], 1)
+
+    def test_delete_folder_deletes_views(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Deprecated", created_by=self.user)
+        first_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_a", folder=folder)
+        second_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_b", folder=folder)
+
+        with patch(
+            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+        ) as mock_delete_saved_query_schedule:
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
+            )
+
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertEqual(mock_delete_saved_query_schedule.call_count, 2)
+        self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+
+        first_view.refresh_from_db()
+        second_view.refresh_from_db()
+        self.assertTrue(first_view.deleted)
+        self.assertTrue(second_view.deleted)
 
     def test_listing_deleted_queries(self):
         DataWarehouseSavedQuery.objects.create(

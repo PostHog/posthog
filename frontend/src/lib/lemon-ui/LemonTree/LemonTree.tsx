@@ -1,4 +1,14 @@
-import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
+import {
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    DragOverEvent,
+    DragStartEvent,
+    MouseSensor,
+    TouchSensor,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import React, {
     CSSProperties,
@@ -158,6 +168,12 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     contentRef?: React.RefObject<HTMLElement>
     /** Handler for when a drag operation completes */
     onDragEnd?: (dragEvent: DragEndEvent) => void
+    /** Handler for when a drag operation starts */
+    onDragStart?: (dragEvent: DragStartEvent) => void
+    /** Handler for when the drag target changes */
+    onDragOver?: (dragEvent: DragOverEvent) => void
+    /** Handler for when a drag operation is canceled */
+    onDragCancel?: () => void
     /** Whether the item is checked. */
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
     /** Whether to disable the scrollable shadows. */
@@ -571,7 +587,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     if (isItemDroppable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
+                            <TreeNodeDroppable id={item.id} isDroppable={isItemDroppable(item)}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )
@@ -598,6 +614,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             showFolderActiveState = false,
             contentRef,
             onDragEnd,
+            onDragStart,
+            onDragOver,
+            onDragCancel,
             expandedItemIds,
             onSetExpandedItemIds,
             isItemDraggable,
@@ -1243,6 +1262,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     if (item) {
                         setActiveDragItem(item)
                     }
+                    onDragStart?.(event)
+                }}
+                onDragOver={(dragEvent) => {
+                    onDragOver?.(dragEvent)
                 }}
                 onDragEnd={(dragEvent) => {
                     const active = dragEvent.active?.id
@@ -1253,6 +1276,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         onDragEnd?.(dragEvent)
                     }
                     setIsDragging(false)
+                    setActiveDragItem(null)
+                }}
+                onDragCancel={() => {
+                    setIsDragging(false)
+                    setActiveDragItem(null)
+                    onDragCancel?.()
                 }}
             >
                 <ScrollableShadows
