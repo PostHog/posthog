@@ -2,12 +2,12 @@ from datetime import datetime
 from typing import Any, Optional, cast
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
 import dateutil.parser
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_event_definition import EventData, capture_event

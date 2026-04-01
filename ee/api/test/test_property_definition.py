@@ -3,12 +3,12 @@ from typing import Optional, cast
 
 import pytest
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import APIBaseTest
 
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventProperty, Tag
