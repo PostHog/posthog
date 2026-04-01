@@ -1201,7 +1201,10 @@ async fn drain_status_write_failure_exits_cleanly() {
         .expect("pod should exit within 5s, not hang")
         .expect("pod task should not panic");
     // drain() failure is logged as a warning, run() still returns Ok
-    assert!(result.is_ok(), "pod should exit cleanly despite drain failure");
+    assert!(
+        result.is_ok(),
+        "pod should exit cleanly despite drain failure"
+    );
 
     coord_cancel.cancel();
 }
