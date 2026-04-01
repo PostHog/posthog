@@ -260,7 +260,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     ) : (
                         <LemonField name="steps">
                             {({ value: stepsValue, onChange }) => (
-                                <div className="grid @4xl:grid-cols-2 gap-3">
+                                <div className="grid @4xl:grid-cols-2 gap-3 items-start">
                                     {stepsValue.map((step: ActionStepType, index: number) => {
                                         const identifier = String(JSON.stringify(step))
                                         return (
@@ -286,7 +286,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                         )
                                     })}
 
-                                    <div>
+                                    <div className="h-fit flex items-center justify-center self-center">
                                         <LemonButton
                                             icon={<IconPlus />}
                                             type="secondary"
@@ -294,7 +294,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                                 onChange([...(action.steps || []), DEFAULT_ACTION_STEP])
                                             }}
                                             center
-                                            className="w-full h-full"
                                             disabledReason={cannotEditReason ?? undefined}
                                         >
                                             Add match group
