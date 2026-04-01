@@ -615,6 +615,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.addMessage(message)
             }
 
+            let caughtException = false
+
             try {
                 cache.generationController = new AbortController()
                 actions.resetSandboxEntries()
@@ -669,6 +671,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
+                caughtException = true
                 // Cancel any next iteration
                 actions.setForAnotherAgenticIteration(false)
 
@@ -687,6 +690,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         },
                         generationAttempt + 1
                     )
+                }
+
+                if (e instanceof DOMException && e.name === 'AbortError') {
+                    posthog.capture('max conversation turn completed', {
+                        status: 'cancelled',
+                        conversation_id: values.conversation?.id,
+                        trace_id: traceId,
+                        agent_mode: agentMode,
+                        generation_attempt: generationAttempt,
+                    })
                 }
 
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
@@ -776,6 +789,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
 
                     if (releaseException) {
+                        posthog.capture('max conversation turn completed', {
+                            status: 'failure',
+                            conversation_id: values.conversation?.id,
+                            trace_id: traceId,
+                            agent_mode: agentMode,
+                            generation_attempt: generationAttempt,
+                            error_status_code: e instanceof ApiError ? e.status : undefined,
+                            error_type: isNetworkError
+                                ? 'network_error'
+                                : e instanceof ApiError
+                                  ? 'api_error'
+                                  : 'unknown_error',
+                        })
                         // Remove streaming messages and reload from server (source of truth)
                         actions.finalizeStreamingMessages()
                         actions.addMessage(relevantErrorMessage)
@@ -791,6 +817,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.askMax(null)
             } else {
                 // Otherwise wrap things up
+                if (!caughtException) {
+                    const hasGenerationError = values.threadRaw.some((msg) => msg.status === 'error')
+                    posthog.capture('max conversation turn completed', {
+                        status: hasGenerationError ? 'generation_error' : 'success',
+                        conversation_id: values.conversation?.id,
+                        trace_id: traceId,
+                        agent_mode: agentMode,
+                        generation_attempt: generationAttempt,
+                    })
+                }
                 actions.completeThreadGeneration()
             }
             cache.generationController = undefined
