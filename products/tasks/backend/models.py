@@ -75,6 +75,7 @@ class Task(DeletedMetaFields, models.Model):
         null=True,
         blank=True,
         related_name="task",
+        db_index=False,
     )
 
     json_schema = models.JSONField(
@@ -95,6 +96,9 @@ class Task(DeletedMetaFields, models.Model):
     class Meta:
         db_table = "posthog_task"
         managed = True
+        indexes = [
+            models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
+        ]
 
     def __str__(self):
         return self.title
