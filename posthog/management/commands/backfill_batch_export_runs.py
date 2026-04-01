@@ -26,36 +26,30 @@ COVERED_STATUSES = [
 ]
 
 
-def get_backfill_bounds(interval: str, data_interval_end) -> tuple:
-    """Create tight bounds around a data_interval_end so the schedule backfill triggers exactly one run.
+def get_backfill_bounds(interval: str, first_end: datetime, last_end: datetime) -> tuple[datetime, datetime]:
+    """Create bounds around a range of data_interval_ends so the schedule backfill covers all runs.
 
-    The bounds need to be wide enough for Temporal to recognize one schedule tick
-    within the window, but narrow enough to avoid triggering multiple runs.
+    The end padding needs to be wide enough for Temporal to recognize the last schedule tick
+    within the window, but narrow enough to avoid triggering an extra run beyond the range.
     """
     if interval == "hour":
-        end_at = data_interval_end + timedelta(minutes=30)
+        padding = timedelta(minutes=30)
     elif interval == "day":
-        end_at = data_interval_end + timedelta(hours=2)
+        padding = timedelta(hours=2)
     elif interval == "week":
-        end_at = data_interval_end + timedelta(hours=6)
+        padding = timedelta(hours=6)
     elif interval.startswith("every"):
-        end_at = data_interval_end + timedelta(minutes=2)
+        padding = timedelta(minutes=2)
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
-    return (data_interval_end, end_at)
+    return (first_end, last_end + padding)
 
 
-def find_missing_runs(
-    start: datetime,
-    end: datetime,
+def get_batch_exports(
     batch_export_id: str | None = None,
     destination_type: str | None = None,
-) -> list[tuple[BatchExport, list[tuple]]]:
-    """Find batch exports with gaps in their run history.
-
-    Walks each export's expected schedule within the [start, end] window and identifies
-    intervals that have no run with a covered status.
-    """
+) -> list[BatchExport]:
+    """Fetch batch exports to check, filtering out deleted/paused ones."""
     if batch_export_id:
         try:
             export = BatchExport.objects.select_related("destination", "team").get(id=batch_export_id)
@@ -68,16 +62,25 @@ def find_missing_runs(
         if export.paused:
             logger.warning(f"Batch export {batch_export_id} is paused, skipping")
             return []
-        exports = [export]
-    else:
-        filters: dict = {"deleted": False, "paused": False}
-        if destination_type:
-            filters["destination__type"] = destination_type
-        exports = BatchExport.objects.filter(**filters).select_related("destination", "team")
+        return [export]
 
-    count = len(exports) if isinstance(exports, list) else exports.count()
-    logger.info(f"Checking {count} batch export(s) for missing runs ({start.isoformat()} to {end.isoformat()})")
+    filters: dict = {"deleted": False, "paused": False}
+    if destination_type:
+        filters["destination__type"] = destination_type
+    return list(BatchExport.objects.filter(**filters).select_related("destination", "team"))
 
+
+def find_missing_intervals(
+    exports: list[BatchExport],
+    start: datetime,
+    end: datetime,
+) -> list[tuple[BatchExport, list[tuple[datetime, datetime]]]]:
+    """Find gaps in run history for the given batch exports.
+
+    Walks each export's expected schedule within the [start, end] window, identifies
+    intervals that have no run with a covered status, and merges continuous gaps into
+    single ranges so they can be backfilled in fewer operations.
+    """
     results = []
 
     for export in exports:
@@ -99,15 +102,24 @@ def find_missing_runs(
         if interval_start < start:
             interval_start += interval_delta
 
-        missing = []
+        # Collect individual missing intervals, then merge continuous ones
+        missing_individual: list[tuple[datetime, datetime]] = []
         while interval_start + interval_delta <= end:
             interval_end = interval_start + interval_delta
             if interval_end not in covered_run_ends:
-                missing.append((interval_start, interval_end))
+                missing_individual.append((interval_start, interval_end))
             interval_start = interval_end
 
-        if missing:
-            results.append((export, missing))
+        # Merge continuous intervals into single ranges
+        merged: list[tuple[datetime, datetime]] = []
+        for gap_start, gap_end in missing_individual:
+            if merged and gap_start == merged[-1][1]:
+                merged[-1] = (merged[-1][0], gap_end)
+            else:
+                merged.append((gap_start, gap_end))
+
+        if merged:
+            results.append((export, merged))
 
     return results
 
@@ -117,6 +129,7 @@ async def backfill_export(
     export: BatchExport,
     missing_intervals: list[tuple],
     dry_run: bool,
+    overlap_policy: temporalio.client.ScheduleOverlapPolicy = temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
 ) -> int:
     """Trigger Temporal schedule backfills for the missing intervals of a single export.
 
@@ -134,7 +147,7 @@ async def backfill_export(
     count = 0
     for interval_start, interval_end in missing_intervals:
         try:
-            backfill_start, backfill_end = get_backfill_bounds(export.interval, interval_end)
+            backfill_start, backfill_end = get_backfill_bounds(export.interval, interval_start, interval_end)
         except ValueError as err:
             logger.warning(f"Unsupported interval for {batch_export_id} ({err}), skipping export")
             return count
@@ -146,9 +159,10 @@ async def backfill_export(
             backfill = temporalio.client.ScheduleBackfill(
                 start_at=backfill_start,
                 end_at=backfill_end,
-                overlap=temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
+                overlap=overlap_policy,
             )
             await handle.backfill(backfill)
+            # TODO: make this configurable
             await asyncio.sleep(2)
 
         count += 1
@@ -159,6 +173,7 @@ async def backfill_export(
 async def run_backfills(
     missing_by_export: list[tuple[BatchExport, list[tuple]]],
     dry_run: bool,
+    overlap_policy: temporalio.client.ScheduleOverlapPolicy = temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
 ) -> tuple[int, int]:
     """Connect to Temporal and trigger backfills for all missing intervals.
 
@@ -181,7 +196,7 @@ async def run_backfills(
             f"interval={export.interval}) — {len(missing_intervals)} missing"
         )
 
-        count = await backfill_export(client, export, missing_intervals, dry_run)
+        count = await backfill_export(client, export, missing_intervals, dry_run, overlap_policy)
         if count == 0 and len(missing_intervals) > 0:
             failed_exports += 1
         total_backfills += count
@@ -229,6 +244,17 @@ class Command(BaseCommand):
             default=None,
             help="Filter by destination type (e.g. Databricks, S3)",
         )
+        parser.add_argument(
+            "--overlap-policy",
+            type=str,
+            choices=["buffer_all", "allow_all"],
+            default="buffer_all",
+            help=(
+                "Temporal schedule overlap policy for backfills (default: buffer_all). "
+                "Only use allow_all when: (1) you are backfilling only the events model, "
+                "and (2) there are not many backfill intervals to run"
+            ),
+        )
 
     @staticmethod
     def _ensure_aware(dt: datetime) -> datetime:
@@ -264,12 +290,20 @@ class Command(BaseCommand):
 
         start, end = self._resolve_window(options)
 
-        missing_by_export = find_missing_runs(
-            start=start,
-            end=end,
+        exports = get_batch_exports(
             batch_export_id=options["batch_export_id"],
             destination_type=options["destination_type"],
         )
+
+        if not exports:
+            logger.info("No batch exports found")
+            return
+
+        logger.info(
+            f"Checking {len(exports)} batch export(s) for missing runs ({start.isoformat()} to {end.isoformat()})"
+        )
+
+        missing_by_export = find_missing_intervals(exports, start, end)
 
         if not missing_by_export:
             logger.info("No missing runs found")
@@ -278,11 +312,14 @@ class Command(BaseCommand):
         total_missing = sum(len(m) for _, m in missing_by_export)
         logger.info(f"Found {total_missing} missing interval(s) across {len(missing_by_export)} export(s)")
 
-        if options["dry_run"]:
-            self.stdout.write("[DRY RUN MODE]")
+        overlap_policy_map = {
+            "buffer_all": temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
+            "allow_all": temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
+        }
+        overlap_policy = overlap_policy_map[options["overlap_policy"]]
 
         total_backfills, failed_exports = asyncio.run(
-            run_backfills(missing_by_export, options["dry_run"]),
+            run_backfills(missing_by_export, options["dry_run"], overlap_policy),
         )
 
         prefix = "[DRY RUN] " if options["dry_run"] else ""
