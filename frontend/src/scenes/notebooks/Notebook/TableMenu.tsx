@@ -127,9 +127,14 @@ export function TableMenu(): JSX.Element | null {
         }
 
         const handleMouseMove = (e: MouseEvent): void => {
+            // When a menu is open, freeze the grip position
+            if (activeMenu) {
+                return
+            }
+
             const target = e.target as HTMLElement
 
-            // If mouse is over a button wrapper area, keep current state
+            // If mouse is over a grip wrapper, keep current state
             if (target.closest('[data-table-grip]')) {
                 return
             }
@@ -140,9 +145,7 @@ export function TableMenu(): JSX.Element | null {
             const editorEl = ttEditor.view.dom
 
             if (!cell || !table || !editorEl.contains(cell) || cell.closest('.NotebookNode')) {
-                if (!activeMenu) {
-                    setHoveredCell(null)
-                }
+                setHoveredCell(null)
                 return
             }
 
