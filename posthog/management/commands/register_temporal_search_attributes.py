@@ -1,3 +1,4 @@
+import os
 import asyncio
 import logging
 
@@ -48,6 +49,12 @@ class Command(BaseCommand):
     def handle(self, **options):
         logger.setLevel(logging.INFO)
         asyncio.run(self._run(options))
+        # The Temporal client's Rust/gRPC bridge spawns background threads that
+        # can outlive the event loop.  During CPython finalization those threads
+        # trip over a destroyed GIL → "PyGILState_Release: thread state … must
+        # be current" + SIGABRT.  Since the command is done at this point, skip
+        # interpreter teardown entirely.
+        os._exit(0)
 
     async def _run(self, options):
         namespace = options["namespace"]
