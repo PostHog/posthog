@@ -203,20 +203,25 @@ function mergePinnedFilters(
 
     const firstGroup = filterGroup.values[0]
     const isNestedGroup = firstGroup && 'values' in firstGroup && 'type' in firstGroup
-    const targetGroup = isNestedGroup
-        ? (firstGroup as UniversalFiltersGroup)
-        : { type: FilterLogicalOperator.And, values: [] as UniversalFilterValue[] }
 
-    const existingNonPinned = targetGroup.values.filter((v) => !pinnedValues.some((pv) => equal(v, pv)))
-
-    const mergedFirstGroup: UniversalFiltersGroup = {
-        ...targetGroup,
-        values: [...pinnedValues, ...existingNonPinned],
+    if (isNestedGroup) {
+        const nested = firstGroup as UniversalFiltersGroup
+        const existingNonPinned = nested.values.filter((v) => !pinnedValues.some((pv) => equal(v, pv)))
+        return {
+            ...filterGroup,
+            values: [{ ...nested, values: [...pinnedValues, ...existingNonPinned] }, ...filterGroup.values.slice(1)],
+        }
     }
 
+    const existingNonPinned = filterGroup.values.filter((v) => !pinnedValues.some((pv) => equal(v, pv)))
     return {
         ...filterGroup,
-        values: [mergedFirstGroup, ...(isNestedGroup ? filterGroup.values.slice(1) : filterGroup.values)],
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [...pinnedValues, ...existingNonPinned],
+            },
+        ],
     }
 }
 

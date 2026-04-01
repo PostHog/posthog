@@ -1189,6 +1189,32 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(logic).toMatchValues({ totalFiltersCount: 0 })
         })
 
+        it('merges pinned filters into flat filter groups without duplicating', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: PropertyFilterType.Person,
+                                key: 'email',
+                                operator: PropertyOperator.Exact,
+                                value: ['test@example.com'],
+                            },
+                        ],
+                    },
+                })
+            })
+
+            const filterGroup = logic.values.filters.filter_group
+            // Should have exactly one nested group
+            expect(filterGroup.values).toHaveLength(1)
+            const nestedGroup = filterGroup.values[0] as any
+            // Nested group should contain pinned + user filter, not duplicates
+            expect(nestedGroup.values).toHaveLength(2)
+            expect(nestedGroup.values).toContainEqual(groupPinnedFilters.values[0])
+        })
+
         it('counts user-added filters but not pinned ones', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilters({
