@@ -17,6 +17,7 @@ from posthog.schema import (
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsQuery,
+    EventsQueryActionStep,
     PropertyOperator,
 )
 
@@ -1038,3 +1039,31 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert response.nextCursor is not None
         self.assertEqual(datetime.fromisoformat(response.nextCursor), datetime.fromisoformat("2020-01-11T12:00:02Z"))
+
+    def test_action_steps_filters_events(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T12:00:01Z", {"$current_url": "https://example.com/page"}),
+            ],
+            event="$pageview",
+        )
+        self._create_events(
+            data=[
+                ("p2", "2020-01-11T12:00:02Z", {}),
+            ],
+            event="custom_event",
+        )
+
+        with freeze_time("2020-01-12"):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["*"],
+                after="2020-01-10",
+                actionSteps=[EventsQueryActionStep(event="$pageview")],
+            )
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0][0]["event"], "$pageview")
