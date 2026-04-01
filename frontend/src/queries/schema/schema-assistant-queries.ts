@@ -1232,7 +1232,7 @@ export interface AssistantErrorTrackingQuery {
      *
      * @default []
      */
-    properties?: AssistantPropertyFilter[]
+    filterGroup?: AssistantPropertyFilter[]
     /** Controls volume chart granularity. Use 1 for sparklines, 0 for counts only. */
     volumeResolution?: integer
     limit?: integer

@@ -22,7 +22,20 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
         handler: async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
             const params = config.schema.parse(rawParams)
-            const query = { ...params, kind: config.kind }
+            const query: Record<string, unknown> = { ...params, kind: config.kind }
+
+            // Convert flat filterGroup arrays (from assistant schemas) into the nested
+            // PropertyGroupFilter structure the query API expects.
+            if (Array.isArray(query.filterGroup)) {
+                if (query.filterGroup.length > 0) {
+                    query.filterGroup = {
+                        type: 'AND',
+                        values: [{ type: 'AND', values: query.filterGroup }],
+                    }
+                } else {
+                    delete query.filterGroup
+                }
+            }
             const result = await context.api.request<{
                 results: unknown
                 columns?: unknown

@@ -1215,6 +1215,14 @@
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range to filter results."
                 },
+                "filterGroup": {
+                    "default": [],
+                    "description": "Property filters for the query",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
                 "filterTestAccounts": {
                     "description": "Whether to filter out test accounts.",
                     "type": "boolean"
@@ -1241,14 +1249,6 @@
                     "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
-                },
-                "properties": {
-                    "default": [],
-                    "description": "Property filters for the query",
-                    "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
-                    },
-                    "type": "array"
                 },
                 "searchQuery": {
                     "description": "Free-text search across exception type, message, and stack frames.",
@@ -14523,13 +14523,6 @@
                 "personId": {
                     "type": "string"
                 },
-                "properties": {
-                    "description": "Property filters (flat list, alternative to filterGroup). Merged with filterGroup if both are present.",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
@@ -21534,6 +21527,11 @@
             "required": ["results"],
             "type": "object"
         },
+        "LogsOrderBy": {
+            "enum": ["latest", "earliest"],
+            "title": "LogsOrderBy",
+            "type": "string"
+        },
         "LogsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -21565,8 +21563,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
+                    "$ref": "#/definitions/LogsOrderBy"
                 },
                 "resourceFingerprint": {
                     "type": "string"
@@ -35487,8 +35484,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
+                    "$ref": "#/definitions/LogsOrderBy"
                 },
                 "prefetchSpans": {
                     "$ref": "#/definitions/integer",

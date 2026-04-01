@@ -2550,8 +2550,6 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
-    /** Property filters (flat list, alternative to filterGroup). Merged with filterGroup if both are present. */
-    properties?: AnyPropertyFilter[]
     /** Whether to filter out test accounts. */
     filterTestAccounts?: boolean
     /** Free-text search across exception type, message, and stack frames. */
@@ -2828,12 +2826,15 @@ export interface LogMessage {
 /** Field to break down sparkline data by */
 export type LogsSparklineBreakdownBy = 'severity' | 'service'
 
+/** @title LogsOrderBy */
+export type LogsOrderBy = 'latest' | 'earliest'
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: 'latest' | 'earliest'
+    orderBy?: LogsOrderBy
     searchTerm?: string
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
@@ -2942,7 +2943,7 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: 'latest' | 'earliest'
+    orderBy?: LogsOrderBy
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]

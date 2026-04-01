@@ -139,8 +139,6 @@ const DateRange = z.object({
         .optional(),
 })
 
-const ErrorTrackingOrderBy = z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
-
 const AssistantStringOrBooleanValuePropertyFilterOperator = z.enum([
     'exact',
     'is_not',
@@ -397,6 +395,8 @@ const AssistantPropertyFilter = z.union([
     AssistantFlagPropertyFilter,
 ])
 
+const ErrorTrackingOrderBy = z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+
 const ErrorTrackingIssueStatus = z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
 
 const ErrorTrackingQueryStatus = z.union([ErrorTrackingIssueStatus, z.literal('all')])
@@ -404,6 +404,7 @@ const ErrorTrackingQueryStatus = z.union([ErrorTrackingIssueStatus, z.literal('a
 const AssistantErrorTrackingQuery = z.object({
     assignee: z.union([ErrorTrackingIssueAssignee, z.null()]).describe('Filter by assignee.').optional(),
     dateRange: DateRange.describe('Date range to filter results.').optional(),
+    filterGroup: z.array(AssistantPropertyFilter).describe('Property filters for the query').default([]).optional(),
     filterTestAccounts: z.coerce.boolean().describe('Whether to filter out test accounts.').optional(),
     issueId: z.string().describe('Filter to a specific error tracking issue by ID.').optional(),
     kind: z.literal('ErrorTrackingQuery').default('ErrorTrackingQuery'),
@@ -411,7 +412,6 @@ const AssistantErrorTrackingQuery = z.object({
     offset: integer.optional(),
     orderBy: ErrorTrackingOrderBy.describe('Field to sort results by.').optional(),
     orderDirection: z.enum(['ASC', 'DESC']).describe('Sort direction.').optional(),
-    properties: z.array(AssistantPropertyFilter).describe('Property filters for the query').default([]).optional(),
     searchQuery: z.string().describe('Free-text search across exception type, message, and stack frames.').optional(),
     status: ErrorTrackingQueryStatus.describe('Filter by issue status.').optional(),
     volumeResolution: integer
