@@ -1816,6 +1816,8 @@ export interface EndpointRequest {
     version?: integer
     /** Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month). */
     bucket_overrides?: Record<string, string>
+    /** Set to true to soft-delete this endpoint */
+    deleted?: boolean
 }
 
 /**
@@ -2909,13 +2911,15 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     limit?: integer
     offset?: integer
     orderBy?: 'latest' | 'earliest'
-    searchTerm?: string
+    filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]
     traceId?: string
     rootSpans?: boolean
     /** Cursor for fetching the next page of results */
     after?: string
+    /** Prefetch up to this many spans per trace and include them in results */
+    prefetchSpans?: integer
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
