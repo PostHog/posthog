@@ -112,9 +112,6 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
         } as any,
         groupStore: {} as any,
-        kafkaProducer: {
-            queueMessages: jest.fn().mockResolvedValue(undefined),
-        } as any,
         splitAiEventsConfig: { enabled: false, enabledTeams: '*', stripHeavyProperties: false },
         groupId: 'test-group',
         topHog: (step) => step,
