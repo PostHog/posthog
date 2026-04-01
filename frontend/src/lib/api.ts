@@ -171,6 +171,7 @@ import {
     ProductTourStep,
     ProjectType,
     PropertyDefinition,
+    PropertyGroupFilter,
     PropertyDefinitionType,
     QueryBasedInsightModel,
     QueryTabState,
@@ -754,7 +755,7 @@ export class ApiRequest {
 
     // # Tracing
     public tracingSpans(): ApiRequest {
-        return this.projectsDetail().addPathComponent('tracing').addPathComponent('spans')
+        return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')
     }
 
     // # Data management
@@ -2575,24 +2576,45 @@ const api = {
 
     tracing: {
         async listSpans(query: {
-            dateRange?: { date_from?: string; date_to?: string }
+            dateRange?: { date_from?: string | null; date_to?: string | null }
             serviceNames?: string[]
             statusCodes?: number[]
-            searchTerm?: string
+            filterGroup?: PropertyGroupFilter
             orderBy?: 'latest' | 'earliest'
             limit?: number
             after?: string
+            prefetchSpans?: number
         }): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextCursor?: string }> {
             return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
         },
         async getTrace(
             traceId: string,
-            dateRange?: { date_from?: string; date_to?: string }
+            dateRange?: { date_from?: string | null; date_to?: string | null }
         ): Promise<{ results: Record<string, any>[] }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({ data: { dateRange: dateRange ?? { date_from: '-24h' } } })
+        },
+        async sparkline(query: {
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+            serviceNames?: string[]
+            statusCodes?: number[]
+            filterGroup?: PropertyGroupFilter
+        }): Promise<{ results: { time: string; service: string; count: number }[] }> {
+            return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
+        },
+        async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
+            return new ApiRequest()
+                .tracingSpans()
+                .withAction('service-names')
+                .withQueryString(
+                    Object.entries(params)
+                        .filter(([, v]) => v !== undefined && v !== '')
+                        .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`)
+                        .join('&')
+                )
+                .get()
         },
     },
 
