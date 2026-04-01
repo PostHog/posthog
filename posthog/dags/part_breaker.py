@@ -1093,20 +1093,16 @@ def break_part(
 
                 # DROP PART requires a shard leader replica so we route the DROP
                 # to a (leader-eligible) replica on the same shard.
-                is_leader_rows = client.execute(
-                    "SELECT is_leader FROM system.replicas WHERE database = %(db)s AND table = %(table)s",
-                    {"db": database, "table": source_table},
-                )
-                is_leader = bool(is_leader_rows and is_leader_rows[0][0])
-
-                if is_leader:
-                    context.log.info(f"Dropping oversized part {current_part_name} from {source_table}...")
+                context.log.info(f"Dropping oversized part {current_part_name} from {source_table}...")
+                try:
                     client.execute(
                         f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
                         settings={"max_partition_size_to_drop": "0"},
                     )
                     context.log.info(f"Dropped {current_part_name}")
-                else:
+                except Exception as drop_err:
+                    if "not a leader" not in str(drop_err):
+                        raise
                     context.log.info(f"Current replica is not a leader — routing DROP to an online replica...")
 
                     def _drop_on_leader(leader_client: Client) -> None:
