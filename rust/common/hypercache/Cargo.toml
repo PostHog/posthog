@@ -16,6 +16,7 @@ common-redis = { path = "../redis" }
 common-s3 = { path = "../s3" }
 common-types = { path = "../types" }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 serde-pickle = "1.2.0"
 thiserror = { workspace = true }
 tokio = { workspace = true }

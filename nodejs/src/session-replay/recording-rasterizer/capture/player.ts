@@ -1,80 +1,24 @@
-import { HTTPRequest, Page } from 'puppeteer'
+import type { Page } from 'puppeteer'
 
-import {
-    BLOCK_REQUEST_PREFIX,
-    PLAYER_CONFIG_KEY,
-    PLAYER_EMIT_FN,
-    PLAYER_START_EVENT,
-} from '@posthog/replay-headless/protocol'
+import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
 import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
-import { internalFetch } from '../../../utils/request'
-import { type RecordingBlock as FullRecordingBlock } from '../../recording-api/types'
-import { config as defaultConfig } from '../config'
 import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
-import { RasterizeRecordingInput } from '../types'
-
-type RecordingBlock = Pick<FullRecordingBlock, 'key' | 'start_byte' | 'end_byte'>
-
-export async function fetchBlockList(
-    input: RasterizeRecordingInput,
-    cfg: typeof defaultConfig
-): Promise<RecordingBlock[]> {
-    const url = `${cfg.recordingApiBaseUrl}/api/projects/${input.team_id}/recordings/${input.session_id}/blocks`
-    const resp = await internalFetch(url, {
-        headers: { 'X-Internal-Api-Secret': cfg.recordingApiSecret },
-    })
-    if (resp.status < 200 || resp.status >= 300) {
-        const body = await resp.text()
-        throw new RasterizationError(
-            `Failed to fetch block listing: ${resp.status} - ${body}`,
-            resp.status >= 500,
-            'BLOCK_LISTING_FAILED'
-        )
-    }
-    const data = await resp.json()
-    if (!Array.isArray(data.blocks)) {
-        throw new RasterizationError(
-            `Invalid block listing response: expected blocks array, got ${typeof data.blocks}`,
-            false,
-            'BLOCK_LISTING_FAILED'
-        )
-    }
-    return data.blocks as RecordingBlock[]
-}
-
-export function buildPlayerConfig(
-    input: RasterizeRecordingInput,
-    playbackSpeed: number,
-    blockCount: number
-): PlayerConfig {
-    return {
-        teamId: input.team_id,
-        sessionId: input.session_id,
-        playbackSpeed,
-        blockCount,
-        skipInactivity: input.skip_inactivity !== false,
-        mouseTail: input.mouse_tail !== false,
-        showMetadataFooter: input.show_metadata_footer,
-        startTimestamp: input.start_timestamp,
-        endTimestamp: input.end_timestamp,
-        viewportEvents: input.viewport_events || [],
-    }
-}
+import { BlockProxy } from './block-proxy'
+import { CapturePage } from './capture-page'
+import { RequestInterceptor } from './request-interceptor'
 
 /**
  * Controls communication with the in-browser replay player.
  *
- * The player sends messages via an exposed function callback
- * ({@link PLAYER_EMIT_FN}), and receives commands via custom DOM events.
- * This class accumulates player state from incoming messages so the rest
- * of the codebase doesn't need to poll browser globals.
- *
- * The protocol types are defined in @posthog/replay-headless/protocol,
- * shared with the player-side HostBridge.
+ * The player sends messages via {@link PLAYER_EMIT_FN} and receives
+ * commands via custom DOM events. This class accumulates player state
+ * so the capture loop can poll it without touching browser globals.
  */
 export class PlayerController {
+    private interceptor: RequestInterceptor
+
     private state = {
         ended: false,
         inactivityPeriods: [] as InactivityPeriod[],
@@ -84,19 +28,17 @@ export class PlayerController {
     private errorReject: ((err: RasterizationError) => void) | null = null
     private playbackError: RasterizationError | null = null
     private resetStaleTimer: (() => void) | null = null
-    private blockList: RecordingBlock[] | null = null
-
-    private readonly playerUrl: string
-    private readonly apiBase: string
 
     constructor(
-        private page: Page,
-        private html: string,
-        private cfg: { siteUrl: string; recordingApiBaseUrl: string; recordingApiSecret: string },
+        private capturePage: CapturePage,
+        blockProxy: BlockProxy,
         private log: Logger = createLogger()
     ) {
-        this.playerUrl = `${cfg.siteUrl}/player`
-        this.apiBase = `${cfg.recordingApiBaseUrl}/api/projects`
+        this.interceptor = new RequestInterceptor(capturePage, blockProxy, log)
+    }
+
+    get page(): Page {
+        return this.capturePage.page
     }
 
     private toError(err: { code: string; message: string; retryable: boolean }): RasterizationError {
@@ -188,16 +130,32 @@ export class PlayerController {
         })
     }
 
-    async load(playerConfig: PlayerConfig, blocks: RecordingBlock[]): Promise<void> {
-        this.blockList = blocks
+    /** Resolves when all tracked stylesheet requests have a response. */
+    waitForSettled(): Promise<void> {
+        return this.interceptor.waitForSettled()
+    }
 
-        await this.page.exposeFunction(PLAYER_EMIT_FN, (msg: PlayerMessage) => {
+    /**
+     * Install CDP guards that override screenshot format and gate
+     * beginFrame on pending stylesheet requests. Must be called
+     * after the player is loaded and before captureVideo().
+     */
+    prepareBrowserForCapture(screenshotFormat: 'jpeg' | 'png', screenshotQuality: number | undefined): void {
+        this.capturePage.installCDPGuards(screenshotFormat, screenshotQuality, () => this.waitForSettled())
+    }
+
+    /** Install request interception, set up the message bridge, and navigate. */
+    async load(playerConfig: PlayerConfig): Promise<void> {
+        const page = this.capturePage.page
+        await this.interceptor.install()
+
+        await page.exposeFunction(PLAYER_EMIT_FN, (msg: PlayerMessage) => {
             this.handleMessage(msg)
         })
 
         // Inject config as a window global before the page loads — the
         // browser-side HostBridge reads it synchronously on startup.
-        await this.page.evaluateOnNewDocument(
+        await page.evaluateOnNewDocument(
             (key, config) => {
                 ;(window as any)[key] = config
             },
@@ -205,80 +163,13 @@ export class PlayerController {
             playerConfig
         )
 
-        await this.page.setRequestInterception(true)
-        this.page.on('request', (request) => {
-            const url = request.url()
-            const path = new URL(url).pathname
-            if (url === this.playerUrl) {
-                void request.respond({
-                    status: 200,
-                    contentType: 'text/html',
-                    body: this.html,
-                })
-            } else if (path.startsWith(BLOCK_REQUEST_PREFIX)) {
-                void this.handleBlockRequest(request, path, playerConfig)
-            } else {
-                void request.continue()
-            }
-        })
-
-        await this.page.goto(this.playerUrl, { waitUntil: 'load', timeout: 30000 })
-        this.log.info({ origin: this.playerUrl }, 'player loaded')
+        await page.goto(this.capturePage.playerUrl, { waitUntil: 'load', timeout: 30000 })
+        this.log.info({ origin: this.capturePage.playerUrl }, 'player loaded')
     }
 
     /**
-     * Handle /__blocks/:index requests from the in-browser data-loader.
-     * Proxies to the real recording-api with auth headers and implementation
-     * details (S3 key, byte range, decompress) the player doesn't know about.
-     */
-    private async handleBlockRequest(request: HTTPRequest, path: string, playerConfig: PlayerConfig): Promise<void> {
-        try {
-            const index = parseInt(path.slice(BLOCK_REQUEST_PREFIX.length), 10)
-            if (!this.blockList || isNaN(index) || index < 0 || index >= this.blockList.length) {
-                this.log.warn({ path, index, blockCount: this.blockList?.length ?? 0 }, 'block not found')
-                await request.respond({ status: 404, body: 'block not found' })
-                return
-            }
-            const block = this.blockList[index]
-            const params = new URLSearchParams({
-                key: block.key,
-                start_byte: String(block.start_byte),
-                end_byte: String(block.end_byte),
-                decompress: 'true',
-            })
-            const url = `${this.apiBase}/${playerConfig.teamId}/recordings/${playerConfig.sessionId}/block?${params}`
-            const resp = await internalFetch(url, {
-                headers: { 'X-Internal-Api-Secret': this.cfg.recordingApiSecret },
-            })
-            if (resp.status < 200 || resp.status >= 300) {
-                const text = await resp.text()
-                this.log.warn({ index, status: resp.status, body: text }, 'upstream block fetch failed')
-                await request.respond({ status: resp.status, body: text })
-                return
-            }
-            const contentType = resp.headers['content-type'] || 'application/octet-stream'
-            const body = Buffer.from(await resp.text(), 'utf-8')
-            await request.respond({
-                status: resp.status,
-                contentType,
-                body,
-            })
-        } catch (err) {
-            this.log.error({ path, err }, 'block proxy failed')
-            try {
-                await request.respond({ status: 502, body: 'block proxy error' })
-            } catch (respondErr) {
-                this.log.debug({ path, respondErr }, 'could not send 502 response, page likely closed')
-            }
-        }
-    }
-
-    /**
-     * Wait for the player to finish loading recording data and signal started.
-     *
-     * The player reads its config synchronously from a window global
-     * (injected by {@link load} via evaluateOnNewDocument), so there's
-     * no config handshake — we just wait for the 'started' message.
+     * Wait for the player to finish loading and signal started.
+     * Times out if no loading_progress arrives within `staleMs`.
      */
     async waitForStart(playerConfig: PlayerConfig, staleMs = 30000): Promise<void> {
         const startedPromise = new Promise<void>((resolve) => {
@@ -296,7 +187,7 @@ export class PlayerController {
 
     async startPlayback(): Promise<void> {
         const startEvent = PLAYER_START_EVENT
-        await this.page.evaluate((evt) => {
+        await this.capturePage.page.evaluate((evt) => {
             window.dispatchEvent(new Event(evt))
         }, startEvent)
     }
@@ -318,6 +209,5 @@ export class PlayerController {
         this.errorReject = null
         this.playbackError = null
         this.resetStaleTimer = null
-        this.blockList = null
     }
 }

@@ -180,13 +180,13 @@ jobs:
             - name: Container image digest
               env:
                   DIGEST: ${{ steps.docker_build.outputs.digest }}
-              run: echo "$DIGEST" > /tmp/digest.txt
+              run: echo "$DIGEST" > /tmp/digest-${{ matrix.image }}.txt
 
             - name: Upload digest
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: digest-${{ matrix.image }}
-                  path: /tmp/digest.txt
+                  path: /tmp/digest-${{ matrix.image }}.txt
                   retention-days: 1
 
     collect:
@@ -204,7 +204,7 @@ jobs:
               with:
                   pattern: digest-*
                   path: /tmp/digests
-                  merge-multiple: false
+                  merge-multiple: true
 
             - name: Aggregate digests
               id: aggregate
@@ -214,12 +214,13 @@ jobs:
                   ls -laR /tmp/digests/ 2>/dev/null || echo "/tmp/digests/ does not exist"
                   digests='{}'
                   found=0
-                  for dir in /tmp/digests/digest-*; do
+                  for file in /tmp/digests/digest-*.txt; do
                       found=1
-                      name="${dir##*/digest-}"
-                      digest=$(cat "$dir/digest.txt")
+                      name="${file##*/digest-}"
+                      name="${name%.txt}"
+                      digest=$(cat "$file")
                       if [ -z "$digest" ]; then
-                          echo "::error::Empty digest for $name (file: $dir/digest.txt)"
+                          echo "::error::Empty digest for $name (file: $file)"
                           exit 1
                       fi
                       digests=$(echo "$digests" | jq -c --arg k "$name" --arg v "$digest" '. + {($k): $v}')

@@ -12,7 +12,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SDK_TYPE_READABLE_NAME, SdkSection } from './SdkDoctorComponents'
+import { SDK_TYPE_READABLE_NAME } from './sdkConstants'
+import { SdkSection } from './SdkDoctorComponents'
 import { type OutdatedTrafficAlert, SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
 import { sdkDoctorSceneLogic } from './sdkDoctorSceneLogic'
 

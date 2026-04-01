@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React, { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -104,7 +104,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                     </LemonButton>
                 </AccessControlAction>
             )}
-            <LLMAnalyticsReloadAction />
+            {activeTab !== 'sentiment' && <LLMAnalyticsReloadAction />}
         </div>
     )
 }
@@ -589,9 +589,17 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT_TAB]) {
         tabs.push({
             key: 'sentiment',
-            label: 'Sentiment',
+            label: (
+                <>
+                    Sentiment
+                    <LemonTag type="warning" className="ml-1.5 uppercase">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: (
                 <LLMAnalyticsSetupPrompt>
+                    <Filters />
                     <LLMAnalyticsSentiment />
                 </LLMAnalyticsSetupPrompt>
             ),

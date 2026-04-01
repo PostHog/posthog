@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconTrash } from '@posthog/icons'
 
@@ -11,10 +11,10 @@ import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
 import { LemonTableColumns } from './types'
 
-type Story = StoryObj<typeof LemonTable>
-const meta: Meta<typeof LemonTable> = {
+type Story = StoryObj<LemonTableProps<any>>
+const meta: Meta<LemonTableProps<any>> = {
     title: 'Lemon UI/Lemon Table',
-    component: LemonTable,
+    component: LemonTable as any,
     tags: ['autodocs'],
 }
 export default meta
@@ -90,8 +90,7 @@ const WIDE_COLUMNS: LemonTableColumns<MockPerson> = [
     },
 ]
 
-// @ts-expect-error
-const GroupedTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<MockFunnelSeries>) => {
+const renderGrouped = (props: LemonTableProps<MockFunnelSeries>): JSX.Element => {
     return (
         <LemonTable
             {...props}
@@ -160,8 +159,7 @@ const GroupedTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<Mock
     )
 }
 
-// @ts-expect-error
-const BasicTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<MockPerson>) => {
+const renderBasic = (props: LemonTableProps<MockPerson>): JSX.Element => {
     return (
         <LemonTable
             {...props}
@@ -206,7 +204,7 @@ const BasicTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<MockPe
     )
 }
 
-const EmptyTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<Record<string, any>>) => {
+const renderEmpty = (props: LemonTableProps<Record<string, any>>): JSX.Element => {
     return (
         <LemonTable
             {...props}
@@ -219,271 +217,295 @@ const EmptyTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<Record
     )
 }
 
-export const Basic: Story = BasicTemplate.bind({})
-Basic.args = {}
+export const Basic: Story = { render: renderBasic as any, args: {} }
 
-export const Grouped: Story = GroupedTemplate.bind({})
-Grouped.args = {}
+export const Grouped: Story = { render: renderGrouped as any, args: {} }
 
-export const Empty: Story = EmptyTemplate.bind({})
-Empty.args = {}
+export const Empty: Story = { render: renderEmpty as any, args: {} }
 
-export const PaginatedAutomatically: Story = BasicTemplate.bind({})
-PaginatedAutomatically.args = { nouns: ['person', 'people'], pagination: { pageSize: 3 } }
+export const PaginatedAutomatically: Story = {
+    render: renderBasic as any,
+    args: { nouns: ['person', 'people'], pagination: { pageSize: 3 } },
+}
 
-export const WithExpandableRows: Story = BasicTemplate.bind({})
-WithExpandableRows.args = {
-    expandable: {
-        rowExpandable: (record) => record.occupation !== 'Retired',
-        expandedRowRender: function RenderCow() {
-            return <img src="https://c.tenor.com/WAFH6TX2VIYAAAAC/polish-cow.gif" alt="Dancing cow" />
+export const WithExpandableRows: Story = {
+    render: renderBasic as any,
+    args: {
+        expandable: {
+            rowExpandable: (record) => record.occupation !== 'Retired',
+            expandedRowRender: function RenderCow() {
+                return <img src="https://c.tenor.com/WAFH6TX2VIYAAAAC/polish-cow.gif" alt="Dancing cow" />
+            },
         },
     },
 }
 
-export const Small: Story = BasicTemplate.bind({})
-Small.args = { size: 'small' }
+export const Small: Story = { render: renderBasic as any, args: { size: 'small' } }
 
-export const Embedded: Story = BasicTemplate.bind({})
-Embedded.args = { embedded: true }
+export const Embedded: Story = { render: renderBasic as any, args: { embedded: true } }
 
-export const Stealth: Story = BasicTemplate.bind({})
-Stealth.args = { stealth: true }
+export const Stealth: Story = { render: renderBasic as any, args: { stealth: true } }
 
-export const Loading: Story = BasicTemplate.bind({})
-Loading.args = { loading: true }
-Loading.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-        waitForSelector: '.LemonTableLoader',
+export const Loading: Story = {
+    render: renderBasic as any,
+    args: { loading: true },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '.LemonTableLoader',
+        },
     },
 }
 
-export const EmptyLoading: Story = EmptyTemplate.bind({})
-EmptyLoading.args = { loading: true }
-EmptyLoading.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-        waitForSelector: '.LemonTableLoader',
+export const EmptyLoading: Story = {
+    render: renderEmpty as any,
+    args: { loading: true },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '.LemonTableLoader',
+        },
     },
 }
 
-export const EmptyLoadingWithManySkeletonRows: Story = EmptyTemplate.bind({})
-EmptyLoadingWithManySkeletonRows.args = { loading: true, loadingSkeletonRows: 10 }
-EmptyLoadingWithManySkeletonRows.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-        waitForSelector: '.LemonTableLoader',
+export const EmptyLoadingWithManySkeletonRows: Story = {
+    render: renderEmpty as any,
+    args: { loading: true, loadingSkeletonRows: 10 },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '.LemonTableLoader',
+        },
     },
 }
 
-export const WithoutHeader: Story = BasicTemplate.bind({})
-WithoutHeader.args = { showHeader: false }
+export const WithoutHeader: Story = { render: renderBasic as any, args: { showHeader: false } }
 
-export const WithoutUppercasingInHeader: Story = BasicTemplate.bind({})
-WithoutUppercasingInHeader.args = { uppercaseHeader: false }
+export const WithoutUppercasingInHeader: Story = { render: renderBasic as any, args: { uppercaseHeader: false } }
 
-export const WithFooter: Story = BasicTemplate.bind({})
-WithFooter.args = {
-    footer: (
-        <>
-            <div className="flex items-center m-2">
-                <LemonButton center fullWidth>
-                    Load more rows
-                </LemonButton>
-            </div>
-        </>
-    ),
+export const WithFooter: Story = {
+    render: renderBasic as any,
+    args: {
+        footer: (
+            <>
+                <div className="flex items-center m-2">
+                    <LemonButton center fullWidth>
+                        Load more rows
+                    </LemonButton>
+                </div>
+            </>
+        ),
+    },
 }
 
-export const WithColorCodedRows: Story = BasicTemplate.bind({})
-WithColorCodedRows.args = {
-    rowRibbonColor: ({ occupation }) =>
-        occupation === 'Engineer'
-            ? 'var(--success)'
-            : occupation === 'Retired'
-              ? 'var(--warning)'
-              : occupation === 'Body-builder'
-                ? 'var(--danger)'
-                : null,
+export const WithColorCodedRows: Story = {
+    render: renderBasic as any,
+    args: {
+        rowRibbonColor: ({ occupation }) =>
+            occupation === 'Engineer'
+                ? 'var(--success)'
+                : occupation === 'Retired'
+                  ? 'var(--warning)'
+                  : occupation === 'Body-builder'
+                    ? 'var(--danger)'
+                    : null,
+    },
 }
 
-export const WithHighlightedRows: Story = BasicTemplate.bind({})
-WithHighlightedRows.args = {
-    rowStatus: ({ occupation }) => (['Retired', 'Body-builder'].includes(occupation) ? 'highlighted' : null),
+export const WithHighlightedRows: Story = {
+    render: renderBasic as any,
+    args: {
+        rowStatus: ({ occupation }) => (['Retired', 'Body-builder'].includes(occupation) ? 'highlighted' : null),
+    },
 }
 
-export const WithMandatorySorting: Story = BasicTemplate.bind({})
-WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true }
+export const WithMandatorySorting: Story = {
+    render: renderBasic as any,
+    args: { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true },
+}
 
-export const WithStickyFirstColumn = (): JSX.Element => {
-    useDelayedOnMountEffect(() => {
-        const scrollableInner = document.querySelector(
-            '#story--lemon-ui-lemon-table--with-sticky-first-column .scrollable__inner'
+export const WithStickyFirstColumn: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            const scrollableInner = document.querySelector(
+                '#story--lemon-ui-lemon-table--with-sticky-first-column .scrollable__inner'
+            )
+            if (scrollableInner) {
+                scrollableInner.scrollLeft = 20
+            }
+        })
+
+        return (
+            <LemonTable
+                className="max-w-100"
+                firstColumnSticky
+                columns={WIDE_COLUMNS.slice(0, 5)}
+                dataSource={MANY_PEOPLE.slice(0, 5)}
+            />
         )
-        if (scrollableInner) {
-            scrollableInner.scrollLeft = 20
-        }
-    })
-
-    return (
-        <LemonTable
-            className="max-w-100"
-            firstColumnSticky
-            columns={WIDE_COLUMNS.slice(0, 5)}
-            dataSource={MANY_PEOPLE.slice(0, 5)}
-        />
-    )
+    },
 }
 
-export const WithLink = (): JSX.Element => {
-    return (
-        <LemonTable
-            columns={[
-                {
-                    title: 'Name',
-                    dataIndex: 'name',
-                    sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
-                    render: (_, item) => (
-                        <LemonTableLink
-                            title={item.name}
-                            to="/test"
-                            description={`${item.name} is a ${item.occupation.toLowerCase()} who is ${
-                                item.name.length * 12
-                            } years old.`}
-                        />
-                    ),
-                },
-                ...WIDE_COLUMNS.slice(1, 5),
-            ]}
-            dataSource={MANY_PEOPLE.slice(0, 5)}
-        />
-    )
+export const WithLink: Story = {
+    render: () => {
+        return (
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Name',
+                        dataIndex: 'name',
+                        sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
+                        render: (_, item) => (
+                            <LemonTableLink
+                                title={item.name}
+                                to="/test"
+                                description={`${item.name} is a ${item.occupation.toLowerCase()} who is ${
+                                    item.name.length * 12
+                                } years old.`}
+                            />
+                        ),
+                    },
+                    ...WIDE_COLUMNS.slice(1, 5),
+                ]}
+                dataSource={MANY_PEOPLE.slice(0, 5)}
+            />
+        )
+    },
 }
 
-export const WithCellActions = (): JSX.Element => {
-    return (
-        <LemonTable
-            columns={[
-                {
-                    title: 'Name',
-                    dataIndex: 'name',
-                    cellActions: (value) => (
-                        <>
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                icon={<IconLink />}
-                                onClick={() => alert(`Viewing profile for ${value}`)}
-                            >
-                                View profile
-                            </LemonButton>
-                            <LemonButton fullWidth size="small" onClick={() => alert(`Copying ${value}`)}>
-                                Copy name
-                            </LemonButton>
-                        </>
-                    ),
-                },
-                {
-                    title: 'Occupation',
-                    dataIndex: 'occupation',
-                    cellActions: (value, record) => (
-                        <>
-                            <LemonButton fullWidth size="small" onClick={() => alert(`Filtering to ${value}`)}>
-                                Filter to {value}
-                            </LemonButton>
-                            <LemonDivider />
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                status="danger"
-                                icon={<IconTrash />}
-                                onClick={() => alert(`Removing ${record.name}`)}
-                            >
-                                Remove person
-                            </LemonButton>
-                        </>
-                    ),
-                },
-                {
-                    title: 'Age',
-                    key: 'age',
-                    render: (_, person) => `${person.name.length * 12} years`,
-                },
-            ]}
-            dataSource={MANY_PEOPLE.slice(0, 5)}
-        />
-    )
+export const WithCellActions: Story = {
+    render: () => {
+        return (
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Name',
+                        dataIndex: 'name',
+                        cellActions: (value) => (
+                            <>
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    icon={<IconLink />}
+                                    onClick={() => alert(`Viewing profile for ${value}`)}
+                                >
+                                    View profile
+                                </LemonButton>
+                                <LemonButton fullWidth size="small" onClick={() => alert(`Copying ${value}`)}>
+                                    Copy name
+                                </LemonButton>
+                            </>
+                        ),
+                    },
+                    {
+                        title: 'Occupation',
+                        dataIndex: 'occupation',
+                        cellActions: (value, record) => (
+                            <>
+                                <LemonButton fullWidth size="small" onClick={() => alert(`Filtering to ${value}`)}>
+                                    Filter to {value}
+                                </LemonButton>
+                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    status="danger"
+                                    icon={<IconTrash />}
+                                    onClick={() => alert(`Removing ${record.name}`)}
+                                >
+                                    Remove person
+                                </LemonButton>
+                            </>
+                        ),
+                    },
+                    {
+                        title: 'Age',
+                        key: 'age',
+                        render: (_, person) => `${person.name.length * 12} years`,
+                    },
+                ]}
+                dataSource={MANY_PEOPLE.slice(0, 5)}
+            />
+        )
+    },
 }
 
-export const WithRowActions = (): JSX.Element => {
-    return (
-        <LemonTable
-            columns={[
-                {
-                    title: 'Name',
-                    dataIndex: 'name',
-                },
-                {
-                    title: 'Occupation',
-                    dataIndex: 'occupation',
-                },
-                {
-                    title: 'Age',
-                    key: 'age',
-                    render: (_, person) => `${person.name.length * 12} years`,
-                },
-            ]}
-            rowActions={(record) => (
-                <>
-                    <LemonButton
-                        fullWidth
-                        size="small"
-                        icon={<IconLink />}
-                        onClick={() => alert(`Viewing ${record.name}'s profile`)}
-                    >
-                        View profile
-                    </LemonButton>
-                    <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
-                        Edit
-                    </LemonButton>
-                    <LemonDivider />
-                    <LemonButton
-                        fullWidth
-                        size="small"
-                        status="danger"
-                        icon={<IconTrash />}
-                        onClick={() => alert(`Deleting ${record.name}`)}
-                    >
-                        Delete
-                    </LemonButton>
-                </>
-            )}
-            dataSource={MANY_PEOPLE.slice(0, 5)}
-        />
-    )
+export const WithRowActions: Story = {
+    render: () => {
+        return (
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Name',
+                        dataIndex: 'name',
+                    },
+                    {
+                        title: 'Occupation',
+                        dataIndex: 'occupation',
+                    },
+                    {
+                        title: 'Age',
+                        key: 'age',
+                        render: (_, person) => `${person.name.length * 12} years`,
+                    },
+                ]}
+                rowActions={(record) => (
+                    <>
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            icon={<IconLink />}
+                            onClick={() => alert(`Viewing ${record.name}'s profile`)}
+                        >
+                            View profile
+                        </LemonButton>
+                        <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
+                            Edit
+                        </LemonButton>
+                        <LemonDivider />
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            status="danger"
+                            icon={<IconTrash />}
+                            onClick={() => alert(`Deleting ${record.name}`)}
+                        >
+                            Delete
+                        </LemonButton>
+                    </>
+                )}
+                dataSource={MANY_PEOPLE.slice(0, 5)}
+            />
+        )
+    },
 }
 
-export const WithHorizontalOverflow = (): JSX.Element => {
-    return (
-        <div className="max-w-120">
-            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} />
-        </div>
-    )
+export const WithHorizontalOverflow: Story = {
+    render: () => {
+        return (
+            <div className="max-w-120">
+                <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} />
+            </div>
+        )
+    },
 }
 
-export const WithVerticalOverflow = (): JSX.Element => {
-    return (
-        <div className="max-h-60 flex flex-col overflow-auto">
-            <LemonTable columns={WIDE_COLUMNS.slice(0, 2)} dataSource={MANY_PEOPLE} />
-        </div>
-    )
+export const WithVerticalOverflow: Story = {
+    render: () => {
+        return (
+            <div className="max-h-60 flex flex-col overflow-auto">
+                <LemonTable columns={WIDE_COLUMNS.slice(0, 2)} dataSource={MANY_PEOPLE} />
+            </div>
+        )
+    },
 }
 
-export const WithHorizontalAndVerticalOverflow = (): JSX.Element => {
-    return (
-        <div className="max-w-120 max-h-60 flex flex-col overflow-auto">
-            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE} />
-        </div>
-    )
+export const WithHorizontalAndVerticalOverflow: Story = {
+    render: () => {
+        return (
+            <div className="max-w-120 max-h-60 flex flex-col overflow-auto">
+                <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE} />
+            </div>
+        )
+    },
 }

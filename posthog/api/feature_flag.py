@@ -5,6 +5,7 @@ import json
 import math
 import time
 import logging
+import functools
 from datetime import datetime
 from typing import Any, Optional, cast
 
@@ -25,7 +26,6 @@ from posthog.schema import ProductKey, PropertyOperator
 from posthog.hogql.property import parse_semver
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
@@ -60,6 +60,7 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.evaluation_context import normalize_context_name
 from posthog.models.feature_flag import (
@@ -87,11 +88,59 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
 from posthog.views import format_bytes
 
+from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
+
+REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
+
+
+def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
+    """Check whether the realtime cohort flag targeting feature is enabled for this request."""
+    try:
+        user = getattr(request, "user", None)
+        if user is None or user.is_anonymous:
+            return False
+        return posthoganalytics.feature_enabled(
+            REALTIME_COHORT_FLAG_TARGETING_FLAG,
+            user.distinct_id,
+            groups={"organization": str(user.organization.id)},
+            group_properties={"organization": {"id": str(user.organization.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return False
+
+
+def _validate_behavioral_cohort_for_feature_flag(cohort: Cohort, *, allow_realtime_backfilled: bool = False) -> None:
+    """
+    Raises a validation error unless the cohort is flag-compatible.
+
+    When allow_realtime_backfilled is True, realtime cohorts that have been backfilled
+    are permitted. Otherwise all behavioral cohorts are rejected.
+    """
+    if allow_realtime_backfilled:
+        if cohort.is_flag_compatible:
+            return
+        if cohort.cohort_type != CohortType.REALTIME:
+            raise serializers.ValidationError(
+                detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
+                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+            )
+        raise serializers.ValidationError(
+            detail=f"Cohort '{cohort.name}' is still being backfilled and cannot be used in feature flags yet. It will become available once its initial backfill completes.",
+            code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+        )
+
+    raise serializers.ValidationError(
+        detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
+        code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+    )
+
 
 # Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
 # None means "no operator specified" which defaults to exact.
@@ -760,6 +809,15 @@ class FeatureFlagSerializer(
             is_create=self.instance is None,
         )
 
+    @functools.cached_property
+    def _allow_realtime_backfilled(self) -> bool:
+        """Lazily check whether realtime cohort flag targeting is enabled.
+
+        This avoids a potentially expensive feature_enabled() call for flags that don't
+        reference any cohort properties.
+        """
+        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
+
     def validate_filters(self, filters):
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
         # If we see this, just return the current filters
@@ -827,15 +885,11 @@ class FeatureFlagSerializer(
             )
 
         # Normalize: distribute the flag-level aggregation_group_type_index to each
-        # condition set that doesn't already have one. Only set the field when the
-        # value is non-null to avoid adding new keys to persisted JSON that would
-        # change behavior for frontend code using `!== undefined` checks.
-        # TODO #52024: once frontend null checks are fixed, always set this field
-        # (including None) so every condition set explicitly carries its aggregation mode.
-        if flag_level_aggregation is not None:
-            for condition in filters["groups"]:
-                if condition.get("aggregation_group_type_index") is None:
-                    condition["aggregation_group_type_index"] = flag_level_aggregation
+        # condition set that doesn't already have one, so every condition set
+        # explicitly carries its aggregation mode (including None for person-aggregated).
+        for condition in filters["groups"]:
+            if "aggregation_group_type_index" not in condition:
+                condition["aggregation_group_type_index"] = flag_level_aggregation
 
         # Derive the flag-level field from condition sets for backward compatibility.
         # If all condition sets share the same value, use that; otherwise reject.
@@ -848,12 +902,7 @@ class FeatureFlagSerializer(
                     "Mixed aggregation types across condition sets are not yet supported. "
                     "All condition sets must use the same aggregation type."
                 )
-            # Only set the flag-level field if the resolved value is non-null.
-            # Leaving it absent for person-aggregated flags preserves backward
-            # compatibility with frontend code that uses `!== undefined` checks.
-            # TODO #52024: once frontend null checks are fixed, always set this field.
-            if condition_aggregations[0] is not None:
-                filters["aggregation_group_type_index"] = condition_aggregations[0]
+            filters["aggregation_group_type_index"] = condition_aggregations[0]
 
         # Check Early Access Feature constraint: no condition set can use group
         # aggregation if the flag is linked to an Early Access Feature.
@@ -941,9 +990,8 @@ class FeatureFlagSerializer(
                         dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
                         for cohort in [initial_cohort, *dependency_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
-                                raise serializers.ValidationError(
-                                    detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
-                                    code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+                                _validate_behavioral_cohort_for_feature_flag(
+                                    cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
@@ -1203,7 +1251,12 @@ class FeatureFlagSerializer(
             return  # Skip validation for flag dependencies
 
         try:
-            check_flag_evaluation_query_is_ok(temporary_flag, team_id, project_id)
+            check_flag_evaluation_query_is_ok(
+                temporary_flag,
+                team_id,
+                project_id,
+                allow_realtime_backfilled=self._allow_realtime_backfilled,
+            )
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
@@ -1653,7 +1706,8 @@ class FeatureFlagSerializer(
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
-    from posthog.models.dashboard import Dashboard
+
+    from products.dashboards.backend.models.dashboard import Dashboard
 
     usage_dashboard = Dashboard.objects.create(
         name="Generated Dashboard: " + feature_flag.key + " Usage",
@@ -1789,6 +1843,11 @@ class UserBlastRadiusResponseSerializer(serializers.Serializer):
     total_users = serializers.IntegerField(help_text="Total number of users in the project")
 
 
+# HYPERCACHE CONTRACT: This serializer defines the JSON schema that the Rust feature-flags
+# service deserializes. Field changes (renames, removals, type changes) must follow the
+# expand-and-contract pattern. Run the contract tests to verify compatibility:
+#   pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+# See also: rust/feature-flags/src/flags/flag_models.rs (FeatureFlag struct)
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     evaluation_contexts = serializers.SerializerMethodField()

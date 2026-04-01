@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from freezegun.api import freeze_time
@@ -27,7 +27,7 @@ from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_he
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
-from posthog.models.dashboard import Dashboard
+from posthog.models.cohort.cohort import CohortType
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus
@@ -35,12 +35,13 @@ from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import Person
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
@@ -1369,8 +1370,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                                 }
                                             ],
                                             "rollout_percentage": 65,
+                                            "aggregation_group_type_index": None,
                                         }
                                     ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -1666,10 +1669,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                         }
                                     ],
                                     "rollout_percentage": 100,
+                                    "aggregation_group_type_index": None,
                                 }
                             ],
                             "payloads": {},
                             "multivariate": None,
+                            "aggregation_group_type_index": None,
                         },
                     },
                     "version": original_version,
@@ -2113,8 +2118,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                                 }
                                             ],
                                             "rollout_percentage": 65,
+                                            "aggregation_group_type_index": None,
                                         }
                                     ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -2507,8 +2514,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                         {
                                             "properties": [],
                                             "rollout_percentage": 74,
+                                            "aggregation_group_type_index": None,
                                         }
                                     ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -2626,8 +2635,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                         {
                                             "properties": [],
                                             "rollout_percentage": 74,
+                                            "aggregation_group_type_index": None,
                                         }
                                     ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -3951,6 +3962,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 }
                             ],
                             "rollout_percentage": 100,
+                            "aggregation_group_type_index": None,
                         },
                         {
                             "variant": "test",
@@ -3963,6 +3975,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 }
                             ],
                             "rollout_percentage": 100,
+                            "aggregation_group_type_index": None,
                         },
                     ],
                     "multivariate": {
@@ -3971,6 +3984,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {"key": "test", "name": "", "rollout_percentage": 0},
                         ]
                     },
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -4062,6 +4076,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     "value": cohort_valid_for_ff.pk,
                                 }
                             ],
+                            "aggregation_group_type_index": None,
                         }
                     ],
                     "multivariate": {
@@ -4083,6 +4098,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                         ]
                     },
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -4298,6 +4314,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         {
                             "rollout_percentage": 20,
                             "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
+                            "aggregation_group_type_index": None,
                         }
                     ],
                     "multivariate": {
@@ -4319,6 +4336,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                         ]
                     },
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -4342,8 +4360,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 }
                             ],
                             "rollout_percentage": 20,
+                            "aggregation_group_type_index": None,
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -5028,6 +5048,91 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             cohort_request.json().items(),
         )
 
+    @parameterized.expand(
+        [
+            (
+                "realtime_backfilled_flag_on",
+                CohortType.REALTIME,
+                True,
+                True,
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "realtime_not_backfilled_flag_on",
+                CohortType.REALTIME,
+                False,
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "is still being backfilled",
+            ),
+            (
+                "non_realtime_flag_on",
+                None,
+                False,
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "filters on events",
+            ),
+            (
+                "realtime_backfilled_flag_off",
+                CohortType.REALTIME,
+                True,
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                "filters on events",
+            ),
+        ]
+    )
+    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_behavioral_cohort_flag_validation(
+        self,
+        _name,
+        cohort_type,
+        is_backfilled,
+        flag_enabled,
+        expected_status,
+        expected_detail_fragment,
+        mock_feature_enabled,
+    ):
+        mock_feature_enabled.return_value = flag_enabled
+
+        cohort_kwargs: dict[str, Any] = {
+            "team": self.team,
+            "name": "test-cohort",
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+        }
+        if cohort_type is not None:
+            cohort_kwargs["cohort_type"] = cohort_type
+        if is_backfilled:
+            cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
+
+        cohort = Cohort.objects.create(**cohort_kwargs)
+
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=expected_status,
+        )
+        self.assertEqual(response.status_code, expected_status)
+
+        if expected_detail_fragment is not None:
+            self.assertIn(expected_detail_fragment, response.json()["detail"])
+
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
             "groups-flag",
@@ -5293,6 +5398,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         activity_response = self._get_feature_flag_activity(flag_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
         self.maxDiff = None
         assert activity == expected
 

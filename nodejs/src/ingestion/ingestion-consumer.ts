@@ -5,9 +5,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { CommonConfig } from '../common/config'
-import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
-import { KafkaProducerWrapper } from '../kafka/producer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -35,16 +33,22 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
-import { AiEventOutput, EventOutput, HeatmapsOutput } from './analytics/outputs'
-import { IngestionWarningsOutput } from './common/outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    HeatmapsOutput,
+    PersonDistinctIdsOutput,
+    PersonsOutput,
+} from './analytics/outputs'
+import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput, TophogOutput } from './common/outputs'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
 import { IngestionOutputs } from './outputs/ingestion-outputs'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
-import { createContext } from './pipelines/helpers'
-import { ok } from './pipelines/results'
+import { createOkContext } from './pipelines/helpers'
 import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
@@ -57,9 +61,19 @@ export type IngestionConsumerFullConfig = IngestionConsumerConfig &
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
-    kafkaProducer: KafkaProducerWrapper
-    kafkaMetricsProducer: KafkaProducerWrapper
-    outputs: IngestionOutputs<EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput>
+    outputs: IngestionOutputs<
+        | EventOutput
+        | AiEventOutput
+        | HeatmapsOutput
+        | IngestionWarningsOutput
+        | DlqOutput
+        | OverflowOutput
+        | AsyncOutput
+        | GroupsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
+        | TophogOutput
+    >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
@@ -80,12 +94,8 @@ export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
     protected topic: string
-    protected dlqTopic: string
-    protected overflowTopic?: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
-    protected kafkaProducer?: KafkaProducerWrapper
-    protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
@@ -103,7 +113,8 @@ export class IngestionConsumer {
         JoinedIngestionPipelineInput,
         void,
         JoinedIngestionPipelineContext,
-        JoinedIngestionPipelineContext
+        JoinedIngestionPipelineContext,
+        OverflowOutput | AsyncOutput
     >
 
     constructor(
@@ -122,8 +133,6 @@ export class IngestionConsumer {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? config.INGESTION_CONSUMER_GROUP_ID
         this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? config.INGESTION_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic = overrides.INGESTION_CONSUMER_OVERFLOW_TOPIC ?? config.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? config.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokenDistinctIdsToDrop = config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToSkipPersons = config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
@@ -167,7 +176,7 @@ export class IngestionConsumer {
 
         this.hogTransformer = deps.hogTransformer
 
-        this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.deps.kafkaProducer, {
+        this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.deps.outputs, {
             dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             useBatchUpdates: this.config.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
             maxConcurrentUpdates: this.config.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -177,7 +186,7 @@ export class IngestionConsumer {
         })
 
         this.groupStore = new BatchWritingGroupStore(
-            this.deps.kafkaProducer,
+            this.deps.outputs,
             this.deps.groupRepository,
             this.deps.clickhouseGroupRepository,
             {
@@ -192,12 +201,8 @@ export class IngestionConsumer {
             topic: this.topic,
         })
 
-        // Use the kafka producer from deps
-        this.kafkaProducer = this.deps.kafkaProducer
-
         this.topHog = new TopHog({
-            kafkaProducer: this.deps.kafkaMetricsProducer,
-            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            outputs: this.deps.outputs,
             pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
             lane: this.config.INGESTION_LANE ?? 'unknown',
         })
@@ -212,13 +217,7 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
-        await Promise.all([
-            this.hogTransformer.start(),
-            // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CONSUMER').then((producer) => {
-                this.kafkaOverflowProducer = producer
-            }),
-        ])
+        await this.hogTransformer.start()
 
         this.topHog.start()
 
@@ -235,8 +234,6 @@ export class IngestionConsumer {
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
-            overflowTopic: this.overflowTopic || '',
-            dlqTopic: this.dlqTopic,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
@@ -250,14 +247,12 @@ export class IngestionConsumer {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
-                PERSON_MERGE_ASYNC_TOPIC: this.config.PERSON_MERGE_ASYNC_TOPIC,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             },
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
-            kafkaProducer: this.kafkaProducer!,
             personsStore: this.personsStore,
             groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
@@ -297,9 +292,6 @@ export class IngestionConsumer {
         await this.kafkaConsumer?.disconnect()
         logger.info('🔁', `${this.name} - stopping tophog`)
         await this.topHog.stop()
-        // NOTE: Don't disconnect kafkaProducer here as it's shared from deps and managed by the server
-        logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
-        await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
         logger.info('👍', `${this.name} - stopped!`)
@@ -380,7 +372,7 @@ export class IngestionConsumer {
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
-        const batch = messages.map((message) => createContext(ok({ message }), { message }))
+        const batch = messages.map((message) => createOkContext({ message }, { message }))
 
         this.joinedPipeline.feed(batch)
 

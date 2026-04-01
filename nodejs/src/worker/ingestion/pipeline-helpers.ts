@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { emitIngestionWarning } from '../../ingestion/common/ingestion-warnings'
+import { DLQ_OUTPUT, DlqOutput, IngestionWarningsOutput } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { captureIngestionWarning } from './utils'
 
 /**
  * Helper function to copy and extend headers from a Kafka message
@@ -69,14 +70,13 @@ function getEventMetadata(message: Message): { teamId?: string; distinctId?: str
 }
 
 /**
- * Send a Kafka message to the dead letter queue with proper logging and metrics
+ * Send a Kafka message to the dead letter queue with proper logging and metrics.
  */
-export async function sendMessageToDLQ(
-    kafkaProducer: KafkaProducerWrapper,
+export async function produceMessageToDLQ(
+    outputs: IngestionOutputs<DlqOutput | IngestionWarningsOutput>,
     originalMessage: Message,
     error: unknown,
-    stepName: string,
-    dlqTopic: string
+    stepName: string
 ): Promise<void> {
     const step = stepName
     const messageInfo = getEventMetadata(originalMessage)
@@ -92,8 +92,8 @@ export async function sendMessageToDLQ(
 
     try {
         if (messageInfo.teamId) {
-            await captureIngestionWarning(
-                kafkaProducer,
+            await emitIngestionWarning(
+                outputs,
                 parseInt(messageInfo.teamId, 10),
                 'pipeline_step_dlq',
                 {
@@ -107,8 +107,7 @@ export async function sendMessageToDLQ(
             )
         }
 
-        await kafkaProducer.produce({
-            topic: dlqTopic,
+        await outputs.produce(DLQ_OUTPUT, {
             value: originalMessage.value,
             key: originalMessage.key ?? null,
             headers: copyAndExtendHeaders(originalMessage, {
@@ -139,11 +138,11 @@ export async function sendMessageToDLQ(
 /**
  * Redirect a Kafka message to a specified Kafka topic
  */
-export async function redirectMessageToTopic(
-    kafkaProducer: KafkaProducerWrapper,
+export async function redirectMessageToOutput<O extends string>(
+    outputs: IngestionOutputs<O>,
+    output: O,
     promiseScheduler: PromiseScheduler,
     originalMessage: Message,
-    topic: string,
     stepName?: string,
     preserveKey: boolean = true,
     awaitAck: boolean = true
@@ -156,10 +155,10 @@ export async function redirectMessageToTopic(
             'redirect-timestamp': new Date().toISOString(),
         })
 
-        const producePromise = kafkaProducer.produce({
-            topic: topic,
+        const key = preserveKey ? (originalMessage.key ?? null) : null
+        const producePromise = outputs.produce(output, {
             value: originalMessage.value,
-            key: preserveKey ? (originalMessage.key ?? null) : null,
+            key: key,
             headers: headers,
         })
 
@@ -176,7 +175,7 @@ export async function redirectMessageToTopic(
                 pipeline_step: step,
             },
             extra: {
-                topic,
+                output,
                 distinct_id: eventMetadata.distinctId,
                 event: eventMetadata.event,
                 error: redirectError,

@@ -1,39 +1,69 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
-import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
+import { MetricConversionWindow } from '../ExperimentForm/MetricsPanel/MetricConversionWindow'
+import { MetricEventDetails } from '../ExperimentForm/MetricsPanel/MetricEventDetails'
+import { MetricGoal } from '../ExperimentForm/MetricsPanel/MetricGoal'
+import { MetricOutlierHandling } from '../ExperimentForm/MetricsPanel/MetricOutlierHandling'
+import { MetricStepOrder } from '../ExperimentForm/MetricsPanel/MetricStepOrder'
+import { getDefaultMetricTitle, getMetricTag } from '../MetricsView/shared/utils'
+import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
+import { sharedMetricsLogic } from '../SharedMetrics/sharedMetricsLogic'
+import { matchesSharedMetricSearch } from '../utils'
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
 function MetricSummary({ metric }: { metric: SharedMetric }): JSX.Element {
+    const experimentMetric = metric.query as ExperimentMetric
+
     return (
-        <div className="deprecated-space-y-2">
-            <div className="flex items-center gap-2">
-                <h3 className="font-semibold m-0 flex items-center">{metric.name}</h3>
-                <Link
-                    target="_blank"
-                    className="font-semibold flex items-center"
-                    to={urls.experimentsSharedMetric(metric.id)}
-                >
-                    <IconOpenInNew fontSize="18" />
-                </Link>
-            </div>
-            {metric.description && <p className="mt-2">{metric.description}</p>}
-            <div className="text-xs text-muted">
-                <p>Type: {metric.query.metric_type}</p>
-                <p>Metric: {getDefaultMetricTitle(metric.query as ExperimentMetric)}</p>
-                <p>Goal: {metric.query.goal}</p>
+        <div className="border rounded bg-surface-primary p-4">
+            <div className="space-y-3">
+                <div className="flex-1 min-w-0 gap-2">
+                    <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-sm break-words">
+                            {metric.name || getDefaultMetricTitle(experimentMetric)}
+                        </span>
+                        <Link
+                            target="_blank"
+                            className="font-semibold flex items-center"
+                            to={urls.experimentsSharedMetric(metric.id)}
+                        >
+                            <IconOpenInNew fontSize="18" />
+                        </Link>
+                    </div>
+                    {metric.description && <p className="text-xs text-muted m-0 mb-2">{metric.description}</p>}
+                    <MetricEventDetails metric={experimentMetric} />
+                    <div className="flex items-center mt-2 gap-1">
+                        <LemonTag type="muted" size="small">
+                            {getMetricTag(experimentMetric)}
+                        </LemonTag>
+                        <LemonTag type="option" size="small">
+                            Shared metric
+                        </LemonTag>
+                    </div>
+                </div>
+
+                <div className="border-t border-border" />
+
+                <div className="space-y-1">
+                    <MetricGoal metric={experimentMetric} />
+                    <MetricConversionWindow metric={experimentMetric} />
+                    <MetricStepOrder metric={experimentMetric} />
+                    <MetricOutlierHandling metric={experimentMetric} />
+                </div>
             </div>
         </div>
     )
@@ -48,9 +78,11 @@ export function SharedMetricModal({
     onSave: (metrics: SharedMetric[], context: MetricContext) => void
     onDelete: (metric: SharedMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode } =
+    const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode, searchTerm } =
         useValues(sharedMetricModalLogic)
-    const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
+    const { closeSharedMetricModal, setSearchTerm, updateSharedMetricTags } = useActions(sharedMetricModalLogic)
+    const { savingTagsMetricId } = useValues(sharedMetricsLogic)
+    const { tags: allTags } = useValues(tagsModel)
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
 
@@ -74,13 +106,13 @@ export function SharedMetricModal({
             !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
     )
 
+    const searchLower = searchTerm.toLowerCase()
+    const filteredMetrics = searchTerm
+        ? availableSharedMetrics.filter((metric) => matchesSharedMetricSearch(metric, searchLower))
+        : availableSharedMetrics
+
     const availableTags = Array.from(
-        new Set(
-            availableSharedMetrics
-                .filter((metric: SharedMetric) => metric.tags)
-                .flatMap((metric: SharedMetric) => metric.tags)
-                .filter(Boolean)
-        )
+        new Set(filteredMetrics.flatMap((metric: SharedMetric) => metric.tags ?? []).filter(Boolean))
     ).sort()
 
     return (
@@ -146,15 +178,20 @@ export function SharedMetricModal({
                                     } already in use with this experiment.`}
                                 </LemonBanner>
                             )}
+                            <LemonInput
+                                type="search"
+                                placeholder="Search shared metrics..."
+                                value={searchTerm}
+                                onChange={setSearchTerm}
+                                fullWidth
+                            />
                             <div className="flex flex-wrap gap-2">
                                 <LemonLabel>Quick select:</LemonLabel>
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
                                     onClick={() => {
-                                        setSelectedMetricIds(
-                                            availableSharedMetrics.map((metric: SharedMetric) => metric.id)
-                                        )
+                                        setSelectedMetricIds(filteredMetrics.map((metric: SharedMetric) => metric.id))
                                     }}
                                 >
                                     All
@@ -177,7 +214,7 @@ export function SharedMetricModal({
                                         type="secondary"
                                         onClick={() => {
                                             setSelectedMetricIds(
-                                                availableSharedMetrics
+                                                filteredMetrics
                                                     .filter((metric: SharedMetric) => metric.tags?.includes(tag))
                                                     .map((metric: SharedMetric) => metric.id)
                                             )
@@ -188,7 +225,7 @@ export function SharedMetricModal({
                                 ))}
                             </div>
                             <LemonTable
-                                dataSource={availableSharedMetrics}
+                                dataSource={filteredMetrics}
                                 columns={[
                                     {
                                         title: '',
@@ -224,7 +261,12 @@ export function SharedMetricModal({
                                         dataIndex: 'tags' as keyof SharedMetric,
                                         key: 'tags',
                                         render: (_: any, metric: SharedMetric) => (
-                                            <ObjectTags tags={metric.tags || []} staticOnly />
+                                            <InlineTagEditor
+                                                metric={metric}
+                                                allTags={allTags}
+                                                onSave={(newTags) => updateSharedMetricTags(metric.id, newTags)}
+                                                saving={savingTagsMetricId === metric.id}
+                                            />
                                         ),
                                     },
                                     {

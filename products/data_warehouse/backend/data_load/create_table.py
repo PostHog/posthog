@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 from django.conf import settings
 
@@ -25,6 +26,13 @@ from products.data_warehouse.backend.s3 import get_size_of_folder
 LOGGER = get_logger(__name__)
 
 
+@dataclasses.dataclass
+class CreateTableResult:
+    table: DataWarehouseTable
+    storage_delta_mib: float | None
+    total_storage_mib: float | None
+
+
 async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int, queryable_folder: str) -> float:
     bind_contextvars(team_id=team_id)
     logger = LOGGER.bind()
@@ -46,7 +54,7 @@ async def create_table_from_saved_query(
     saved_query_id: str,
     team_id: int,
     queryable_folder: str,
-) -> DataWarehouseTable:
+) -> CreateTableResult:
     """
     Create a table from a saved query if it doesn't exist.
     """
@@ -92,6 +100,9 @@ async def create_table_from_saved_query(
 
         saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
+        storage_delta_mib: float | None = None
+        total_storage_mib: float | None = None
+
         try:
             if saved_query:
                 existing_size: float = table_created.size_in_s3_mib or 0
@@ -113,12 +124,19 @@ async def create_table_from_saved_query(
 
                 saved_query.table = table_created
                 await asave_saved_query(saved_query)
+
+                storage_delta_mib = job.storage_delta_mib
+                total_storage_mib = table_created.size_in_s3_mib
         except Exception as e:
             capture_exception(e)
             await logger.adebug("Error raised from calcuting table size")
             await logger.adebug(str(e))
 
-        return table_created
+        return CreateTableResult(
+            table=table_created,
+            storage_delta_mib=storage_delta_mib,
+            total_storage_mib=total_storage_mib,
+        )
     except ServerException as err:
         logger.exception(
             f"Data Warehouse: Unknown ServerException {saved_query.pk}",

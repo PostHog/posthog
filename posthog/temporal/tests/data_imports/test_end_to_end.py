@@ -93,6 +93,8 @@ from products.data_warehouse.backend.models import ExternalDataJob, ExternalData
 from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
 from products.data_warehouse.backend.models.external_table_definitions import external_tables
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
+from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -3498,5 +3500,199 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     assert len(res.results) == 2
 
     # Verify webhook parquet file was deleted from S3 after consumption
+    files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
+    assert files.get("Contents") is None or len(files.get("Contents", [])) == 0
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_client, minio_client):
+    # 1. Initial sync to create delta table and mark initial_sync_complete
+    _, inputs = await _run(
+        team=team,
+        schema_name=STRIPE_CHARGE_RESOURCE_NAME,
+        table_name="stripe_charge",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_charge["data"],
+        sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
+    assert len(res.results) == 1
+
+    # 2. Create a webhook HogFunction linked to this schema
+    schema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
+    schema_id_str = str(schema.id)
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        deleted=False,
+        type="warehouse_source_webhook",
+        inputs_schema=[{"key": "schema_mapping", "type": "json"}, {"key": "source_id", "type": "string"}],
+        inputs={
+            "schema_mapping": {"value": {"charge": schema_id_str}},
+            "source_id": {"value": str(inputs.external_data_source_id)},
+        },
+    )
+
+    assert schema.initial_sync_complete is True
+
+    # 3. Simulate the Kafka message that would be produced by the Node.js webhook handler
+    webhook_event = {
+        "id": "evt_abc123",
+        "type": "charge.refunded",
+        "data": {
+            "object": {
+                "id": "ch_abc123",
+                "amount": 5000,
+                "amount_refunded": 5000,
+                "refunded": True,
+                "object": "charge",
+                "amount_captured": 1099,
+                "application": None,
+                "application_fee": None,
+                "application_fee_amount": None,
+                "balance_transaction": "txn_3MmlLrLkdIwHu7ix0uke3Ezy",
+                "billing_details": {
+                    "address": {
+                        "city": None,
+                        "country": None,
+                        "line1": None,
+                        "line2": None,
+                        "postal_code": None,
+                        "state": None,
+                    },
+                    "email": None,
+                    "name": None,
+                    "phone": None,
+                },
+                "calculated_statement_descriptor": "Stripe",
+                "captured": True,
+                "created": 1679090539,
+                "currency": "usd",
+                "customer": None,
+                "description": None,
+                "disputed": False,
+                "failure_balance_transaction": None,
+                "failure_code": None,
+                "failure_message": None,
+                "fraud_details": {},
+                "invoice": None,
+                "livemode": False,
+                "metadata": {},
+                "on_behalf_of": None,
+                "outcome": {
+                    "network_status": "approved_by_network",
+                    "reason": None,
+                    "risk_level": "normal",
+                    "risk_score": 32,
+                    "seller_message": "Payment complete.",
+                    "type": "authorized",
+                },
+                "paid": True,
+                "payment_intent": None,
+                "payment_method": "card_1MmlLrLkdIwHu7ixIJwEWSNR",
+                "payment_method_details": {
+                    "card": {
+                        "brand": "visa",
+                        "checks": {"address_line1_check": None, "address_postal_code_check": None, "cvc_check": None},
+                        "country": "US",
+                        "exp_month": 3,
+                        "exp_year": 2024,
+                        "fingerprint": "mToisGZ01V71BCos",
+                        "funding": "credit",
+                        "installments": None,
+                        "last4": "4242",
+                        "mandate": None,
+                        "network": "visa",
+                        "three_d_secure": None,
+                        "wallet": None,
+                    },
+                    "type": "card",
+                },
+                "receipt_email": None,
+                "receipt_number": None,
+                "receipt_url": "https://pay.stripe.com/receipts/payment/CAcaFwoVYWNjdF8xTTJKVGtMa2RJd0h1N2l4KOvG06AGMgZfBXyr1aw6LBa9vaaSRWU96d8qBwz9z2J_CObiV_H2-e8RezSK_sw0KISesp4czsOUlVKY",
+                "review": None,
+                "shipping": None,
+                "source_transfer": None,
+                "statement_descriptor": None,
+                "statement_descriptor_suffix": None,
+                "status": "succeeded",
+                "transfer_data": None,
+                "transfer_group": None,
+            }
+        },
+    }
+
+    kafka_message_value = orjson.dumps(
+        {
+            "team_id": team.id,
+            "schema_id": schema_id_str,
+            "payload": orjson.dumps(webhook_event).decode("utf-8"),
+        }
+    )
+
+    # 4. Feed the raw Kafka message through the consumer's processing and flush,
+    #    following the same pattern as _replay_v3_consumer (exercise processing logic
+    #    directly rather than mocking the Kafka transport layer)
+    config = WebhookConsumerConfig(
+        input_topic="test-webhooks",
+        consumer_group="test-group",
+        dlq_topic="test-dlq",
+    )
+
+    consumer = WebhookS3Sink(
+        config=config,
+        kafka_hosts=["localhost:9092"],
+        kafka_security_protocol="PLAINTEXT",
+    )
+    consumer._consumer = mock.MagicMock()
+
+    with override_settings(
+        BUCKET_URL=f"s3://{BUCKET_NAME}",
+        BUCKET_PATH=BUCKET_NAME,
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_BUCKET=BUCKET_NAME,
+    ):
+        consumer._process_message(kafka_message_value)
+        assert consumer._buffer.total_messages == 1
+
+        await sync_to_async(consumer._flush_all)("test")
+
+    # 5. Verify the consumer wrote a parquet file to S3
+    webhook_prefix = f"source_webhook_producer/{team.id}/{schema.id}"
+    files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
+    parquet_files = files.get("Contents", [])
+    assert len(parquet_files) == 1
+    assert parquet_files[0]["Key"].endswith(".parquet")
+
+    # Verify offsets were committed
+    consumer._consumer.commit.assert_called_once_with(asynchronous=False)
+
+    # 6. Run the import pipeline with webhook feature flag enabled to ingest the parquet
+    with (
+        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+    ):
+        workflow_id = str(uuid.uuid4())
+        await _execute_run(workflow_id, inputs, stripe_charge["data"])
+
+        await _replay_v3_consumer(team_id=team.pk, schema_id=schema.id)
+
+    # 7. Verify job completed
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+    # 8. Verify webhook data was ingested alongside the original charge
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
+    assert len(res.results) == 2
+
+    # 9. Verify webhook parquet file was cleaned up after consumption
     files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
     assert files.get("Contents") is None or len(files.get("Contents", [])) == 0

@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -12,8 +12,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof PlayerInspector>
-const meta: Meta<typeof PlayerInspector> = {
+type Story = StoryObj<{}>
+const meta: Meta = {
     title: 'Components/PlayerInspector',
     component: PlayerInspector,
     decorators: [
@@ -91,37 +91,40 @@ const meta: Meta<typeof PlayerInspector> = {
             },
         }),
     ],
+    render: () => {
+        const dataLogic = sessionRecordingDataCoordinatorLogic({
+            sessionRecordingId: '12345',
+            playerKey: 'story-template',
+        })
+        const { sessionPlayerMetaData } = useValues(dataLogic)
+
+        const { loadSnapshots, loadEvents } = useActions(dataLogic)
+        loadSnapshots()
+
+        // TODO you have to call actions in a particular order
+        // and only when some other data has already been loaded
+        // 🫠
+        useEffect(() => {
+            loadEvents()
+        }, [sessionPlayerMetaData]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+        return (
+            <div className="flex flex-col gap-2 min-w-96 min-h-120">
+                <BindLogic
+                    logic={sessionRecordingPlayerLogic}
+                    props={{
+                        sessionRecordingId: '12345',
+                        playerKey: 'story-template',
+                    }}
+                >
+                    <PlayerInspector />
+                </BindLogic>
+            </div>
+        )
+    },
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
-    const dataLogic = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '12345', playerKey: 'story-template' })
-    const { sessionPlayerMetaData } = useValues(dataLogic)
-
-    const { loadSnapshots, loadEvents } = useActions(dataLogic)
-    loadSnapshots()
-
-    // TODO you have to call actions in a particular order
-    // and only when some other data has already been loaded
-    // 🫠
-    useEffect(() => {
-        loadEvents()
-    }, [sessionPlayerMetaData]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    return (
-        <div className="flex flex-col gap-2 min-w-96 min-h-120">
-            <BindLogic
-                logic={sessionRecordingPlayerLogic}
-                props={{
-                    sessionRecordingId: '12345',
-                    playerKey: 'story-template',
-                }}
-            >
-                <PlayerInspector />
-            </BindLogic>
-        </div>
-    )
+export const Default: Story = {
+    args: {},
 }
-
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}

@@ -22,22 +22,22 @@ from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
-from posthog.models.dashboard import Dashboard
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
@@ -53,12 +53,18 @@ def team_api_test_factory():
 
             starting_log_response = self.client.get(f"/api/environments/{team_id}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_organization_activity_log(self, expected: list[dict]) -> None:
             starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_activity_log_is_empty(self) -> None:
             self._assert_activity_log([])
