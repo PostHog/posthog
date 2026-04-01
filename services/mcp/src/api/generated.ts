@@ -11699,21 +11699,6 @@ export namespace Schemas {
       readonly expires_at: string | null;
     }
 
-    export type DataWarehouseSyncInterval = typeof DataWarehouseSyncInterval[keyof typeof DataWarehouseSyncInterval];
-
-
-    export const DataWarehouseSyncInterval = {
-      '5min': '5min',
-      '15min': '15min',
-      '30min': '30min',
-      '1hour': '1hour',
-      '6hour': '6hour',
-      '12hour': '12hour',
-      '24hour': '24hour',
-      '7day': '7day',
-      '30day': '30day',
-    } as const;
-
     export type HedgehogActorAccessoryOption = typeof HedgehogActorAccessoryOption[keyof typeof HedgehogActorAccessoryOption];
 
 
@@ -12567,8 +12552,45 @@ export namespace Schemas {
       conclusion_comment?: string | null;
     }
 
+    /**
+     * A column in the endpoint's query result.
+     */
+    export interface EndpointColumn {
+      /** Column name from the query SELECT clause. */
+      name: string;
+      /** Serialized column type: integer, float, string, datetime, date, boolean, array, json, or unknown. */
+      type: string;
+    }
+
     export interface EndpointLastExecutionTimesRequest {
       names: string[];
+    }
+
+    /**
+     * Materialization status for an endpoint version.
+     */
+    export interface EndpointMaterialization {
+      /** Current materialization status (e.g. 'Completed', 'Running'). */
+      status?: string;
+      /** Whether this endpoint query can be materialized. */
+      can_materialize: boolean;
+      /**
+       * Reason why materialization is not possible (only when can_materialize is false).
+       * @nullable
+       */
+      reason?: string | null;
+      /**
+       * ISO 8601 timestamp of the last successful materialization.
+       * @nullable
+       */
+      last_materialized_at?: string | null;
+      /** Last materialization error message, if any. */
+      error?: string;
+      /**
+       * How often the materialization refreshes (e.g. 'every_hour').
+       * @nullable
+       */
+      sync_frequency?: string | null;
     }
 
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
@@ -12581,45 +12603,140 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+     * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
      * @nullable
      */
-    export type EndpointRequestBucketOverrides = {[key: string]: string} | null | null;
+    export type EndpointRequestBucketOverrides = {[key: string]: unknown} | null | null;
 
+    /**
+     * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
+     */
     export interface EndpointRequest {
       /**
-       * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+       * Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.
        * @nullable
        */
-      bucket_overrides?: EndpointRequestBucketOverrides;
-      /** @nullable */
+      name?: string | null;
+      /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
+      query?: unknown | null;
+      /**
+       * Human-readable description of what this endpoint returns.
+       * @nullable
+       */
+      description?: string | null;
+      /**
+       * Cache TTL in seconds (60–86400).
+       * @nullable
+       */
       cache_age_seconds?: number | null;
       /**
-       * Set to true to soft-delete this endpoint
+       * Whether this endpoint is available for execution via the API.
        * @nullable
        */
-      deleted?: boolean | null;
-      /** @nullable */
-      derived_from_insight?: string | null;
-      /** @nullable */
-      description?: string | null;
-      /** @nullable */
       is_active?: boolean | null;
       /**
-       * Whether this endpoint's query results are materialized to S3
+       * Whether query results are materialized to S3.
        * @nullable
        */
       is_materialized?: boolean | null;
-      /** @nullable */
-      name?: string | null;
-      query?: HogQLQuery | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | null;
-      /** How frequently should the underlying materialized view be updated */
-      sync_frequency?: DataWarehouseSyncInterval | null;
       /**
-       * Target a specific version for updates (optional, defaults to current version)
+       * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
+       * @nullable
+       */
+      sync_frequency?: string | null;
+      /**
+       * Short ID of the insight this endpoint was derived from.
+       * @nullable
+       */
+      derived_from_insight?: string | null;
+      /**
+       * Target a specific version for updates (defaults to current version).
        * @nullable
        */
       version?: number | null;
+      /**
+       * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
+       * @nullable
+       */
+      bucket_overrides?: EndpointRequestBucketOverrides;
+      /**
+       * Set to true to soft-delete this endpoint.
+       * @nullable
+       */
+      deleted?: boolean | null;
+    }
+
+    /**
+     * Per-column bucket overrides for range variable materialization.
+     * @nullable
+     */
+    export type EndpointResponseBucketOverrides = {[key: string]: unknown} | null | null;
+
+    /**
+     * Full endpoint representation returned by list/retrieve/create/update.
+     */
+    export interface EndpointResponse {
+      /** Unique endpoint identifier (UUID). */
+      id: string;
+      /** URL-safe endpoint name, unique per team. */
+      name: string;
+      /**
+       * Human-readable description of the endpoint.
+       * @nullable
+       */
+      description: string | null;
+      /** The HogQL or insight query definition (JSON object with 'kind' key). */
+      query: unknown;
+      /** Whether the endpoint can be executed via the API. */
+      is_active: boolean;
+      /**
+       * Cache TTL in seconds, or null for default interval-based caching.
+       * @nullable
+       */
+      cache_age_seconds: number | null;
+      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      endpoint_path: string;
+      /**
+       * Absolute URL to execute this endpoint.
+       * @nullable
+       */
+      url: string | null;
+      /**
+       * Absolute URL to view this endpoint in the PostHog UI.
+       * @nullable
+       */
+      ui_url: string | null;
+      /** When the endpoint was created (ISO 8601). */
+      created_at: string;
+      /** When the endpoint was last updated (ISO 8601). */
+      updated_at: string;
+      /** User who created the endpoint. */
+      readonly created_by: UserBasic;
+      /** Whether the current version's results are pre-computed to S3. */
+      is_materialized: boolean;
+      /** Latest version number. */
+      current_version: number;
+      /** Total number of versions for this endpoint. */
+      versions_count: number;
+      /**
+       * Short ID of the source insight, if derived from one.
+       * @nullable
+       */
+      derived_from_insight: string | null;
+      /**
+       * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+       * @nullable
+       */
+      last_executed_at: string | null;
+      /** Materialization status and configuration for the current version. */
+      materialization: EndpointMaterialization;
+      /**
+       * Per-column bucket overrides for range variable materialization.
+       * @nullable
+       */
+      bucket_overrides: EndpointResponseBucketOverrides;
+      /** Column names and types from the query's SELECT clause. */
+      columns: EndpointColumn[];
     }
 
     /**
@@ -12677,6 +12794,89 @@ export namespace Schemas {
        * @nullable
        */
       version?: number | null;
+    }
+
+    /**
+     * Per-column bucket overrides for range variable materialization.
+     * @nullable
+     */
+    export type EndpointVersionResponseBucketOverrides = {[key: string]: unknown} | null | null;
+
+    /**
+     * Extended endpoint representation when viewing a specific version.
+     */
+    export interface EndpointVersionResponse {
+      /** Unique endpoint identifier (UUID). */
+      id: string;
+      /** URL-safe endpoint name, unique per team. */
+      name: string;
+      /**
+       * Human-readable description of the endpoint.
+       * @nullable
+       */
+      description: string | null;
+      /** The HogQL or insight query definition (JSON object with 'kind' key). */
+      query: unknown;
+      /** Whether the endpoint can be executed via the API. */
+      is_active: boolean;
+      /**
+       * Cache TTL in seconds, or null for default interval-based caching.
+       * @nullable
+       */
+      cache_age_seconds: number | null;
+      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      endpoint_path: string;
+      /**
+       * Absolute URL to execute this endpoint.
+       * @nullable
+       */
+      url: string | null;
+      /**
+       * Absolute URL to view this endpoint in the PostHog UI.
+       * @nullable
+       */
+      ui_url: string | null;
+      /** When the endpoint was created (ISO 8601). */
+      created_at: string;
+      /** When the endpoint was last updated (ISO 8601). */
+      updated_at: string;
+      /** User who created the endpoint. */
+      readonly created_by: UserBasic;
+      /** Whether the current version's results are pre-computed to S3. */
+      is_materialized: boolean;
+      /** Latest version number. */
+      current_version: number;
+      /** Total number of versions for this endpoint. */
+      versions_count: number;
+      /**
+       * Short ID of the source insight, if derived from one.
+       * @nullable
+       */
+      derived_from_insight: string | null;
+      /**
+       * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+       * @nullable
+       */
+      last_executed_at: string | null;
+      /** Materialization status and configuration for the current version. */
+      materialization: EndpointMaterialization;
+      /**
+       * Per-column bucket overrides for range variable materialization.
+       * @nullable
+       */
+      bucket_overrides: EndpointVersionResponseBucketOverrides;
+      /** Column names and types from the query's SELECT clause. */
+      columns: EndpointColumn[];
+      /** Version number. */
+      version: number;
+      /** Version unique identifier (UUID). */
+      version_id: string;
+      /** Whether the parent endpoint is active (distinct from version.is_active). */
+      endpoint_is_active: boolean;
+      /** ISO 8601 timestamp when this version was created. */
+      version_created_at: string;
+      /** User who created this version. */
+      readonly version_created_by: UserBasic | null;
     }
 
     export type EndpointsUsageOverviewItemKey = typeof EndpointsUsageOverviewItemKey[keyof typeof EndpointsUsageOverviewItemKey];
@@ -19106,6 +19306,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Element[];
+    }
+
+    export interface PaginatedEndpointResponseList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EndpointResponse[];
+    }
+
+    export interface PaginatedEndpointVersionResponseList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EndpointVersionResponse[];
     }
 
     export interface PaginatedEnterpriseEventDefinitionList {
@@ -30146,6 +30364,32 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsEndpointsListParams = {
+    created_by?: number;
+    is_active?: boolean;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsEndpointsVersionsListParams = {
+    created_by?: number;
+    is_active?: boolean;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsEventsListParams = {
     /**
      * Only return events with a timestamp after this time. Default: now() - 24 hours.
@@ -32795,6 +33039,32 @@ export namespace Schemas {
     };
 
     export type ElementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EndpointsListParams = {
+    created_by?: number;
+    is_active?: boolean;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EndpointsVersionsListParams = {
+    created_by?: number;
+    is_active?: boolean;
     /**
      * Number of results to return per page.
      */

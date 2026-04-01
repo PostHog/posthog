@@ -78,12 +78,13 @@ export const endpointsLogic = kea<endpointsLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions }) => ({
-        [urls.endpoints()]: () => {
-            actions.setActiveTab('endpoints')
-            actions.loadEndpoints()
-        },
-        [urls.endpointsUsage()]: () => {
-            actions.setActiveTab('usage')
+        [urls.endpoints()]: (_, searchParams) => {
+            if (searchParams.tab === 'usage') {
+                actions.setActiveTab('usage')
+            } else {
+                actions.setActiveTab('endpoints')
+                actions.loadEndpoints()
+            }
         },
     })),
 ])
