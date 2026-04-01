@@ -11,6 +11,7 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 
 import { TASK_STATUS_CONFIG } from '../lib/task-status'
@@ -77,21 +78,7 @@ export function TasksList(): JSX.Element {
             title: 'Created',
             key: 'created_at',
             width: '10%',
-            render: (_: any, task: Task) => {
-                const date = new Date(task.created_at)
-                const now = new Date()
-                const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60)
-
-                if (diffInHours < 1) {
-                    return <span className="text-sm">Just now</span>
-                }
-                if (diffInHours < 24) {
-                    const hours = Math.floor(diffInHours)
-                    return <span className="text-sm">{hours}h ago</span>
-                }
-                const days = Math.floor(diffInHours / 24)
-                return <span className="text-sm">{days}d ago</span>
-            },
+            render: (_: any, task: Task) => <TZLabel time={task.created_at} showSeconds className="text-sm" />,
         },
     ]
 
