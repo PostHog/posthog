@@ -80,6 +80,7 @@ export function NavTabChat({
         <div className="flex flex-col flex-1 overflow-hidden">
             <Combobox.Root
                 items={conversationGroups}
+                itemToStringLabel={(item: Conversation) => item?.title ?? ''}
                 itemToStringValue={(item: Conversation) => item?.title ?? ''}
                 open
                 autoHighlight
@@ -141,8 +142,12 @@ export function NavTabChat({
                                 <Combobox.List className="flex flex-col">
                                     {(group: ConversationGroup) => (
                                         <Collapsible
-                                            key={group.value}
-                                            defaultOpen={group.value === 'Today' || conversationGroups.length === 1}
+                                            key={`${group.value}-${!!inputValue}`}
+                                            defaultOpen={
+                                                !!inputValue ||
+                                                group.value === 'Today' ||
+                                                conversationGroups.length === 1
+                                            }
                                         >
                                             <Combobox.Group items={group.items}>
                                                 <Combobox.GroupLabel
@@ -222,11 +227,13 @@ export function NavTabChat({
                                         </Collapsible>
                                     )}
                                 </Combobox.List>
-                                <Combobox.Empty className="empty:hidden">
-                                    <div className="flex flex-col items-center justify-center text-center py-8 text-muted border border-dashed rounded-md">
-                                        <p className="text-xs mb-0">No chats found</p>
-                                    </div>
-                                </Combobox.Empty>
+                                <div className="p-2 empty:hidden">
+                                    <Combobox.Empty className="empty:hidden">
+                                        <div className="flex flex-col items-center justify-center text-center py-8 text-muted border border-dashed rounded-md">
+                                            <p className="text-xs mb-0">No chats found</p>
+                                        </div>
+                                    </Combobox.Empty>
+                                </div>
                             </>
                         )}
                     </ScrollableShadows>

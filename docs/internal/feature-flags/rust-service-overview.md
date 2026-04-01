@@ -99,7 +99,7 @@ The POST handler follows this pipeline:
 1. **Rate limiting**: IP-based check (DDoS defense), then token-based check (per-project limits)
 2. **Body decoding**: JSON, base64, or gzip-compressed bodies
 3. **Authentication**: Extracts API token from body, query params, or headers
-4. **Team lookup**: HyperCache (Redis -> S3) with PostgreSQL fallback
+4. **Team lookup**: HyperCache (Redis -> S3) with PostgreSQL fallback (configurable via `SKIP_PG_TEAM_FALLBACK`)
 5. **Flag definitions fetch**: HyperCache (Redis -> S3) with PostgreSQL fallback
 6. **Billing check**: Verifies the team's feature flag quota hasn't been exceeded
 7. **Flag evaluation**: Core matching logic (see [flag-evaluation-engine.md](flag-evaluation-engine.md))
@@ -252,6 +252,16 @@ The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement t
 | `OBJECT_STORAGE_REGION`   | `us-east-1` | AWS region                       |
 | `OBJECT_STORAGE_ENDPOINT` | (empty)     | Custom S3 endpoint for local dev |
 
+### Team lookup
+
+| Variable                          | Default | Purpose                                                                                                                                                          |
+| --------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SKIP_PG_TEAM_FALLBACK`           | `false` | When enabled, skip PostgreSQL fallback for team token lookups. HyperCache (Redis/S3) is treated as the source of truth — a cache miss means the token is invalid |
+| `TEAM_NEGATIVE_CACHE_TTL_SECONDS` | `30`    | TTL (seconds) for negative cache entries for invalid team tokens                                                                                                 |
+| `TEAM_NEGATIVE_CACHE_CAPACITY`    | `10000` | Max entries in the negative cache for invalid team tokens                                                                                                        |
+
+When `SKIP_PG_TEAM_FALLBACK` is enabled, HyperCache misses return a token validation error instead of querying PostgreSQL. This eliminates database pressure from requests with invalid tokens. Transient errors (Redis/S3 timeouts) bypass the fallback entirely and are not negative-cached.
+
 ### Rate limiting
 
 See [rate-limiting.md](rate-limiting.md) for the full configuration reference.
@@ -283,6 +293,47 @@ See [Behavioral cohorts](#behavioral-cohorts) for cohort membership cache settin
 | `OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS` | `true`                     | Skip DB lookups for 100%-rollout flags |
 | `FLAGS_SESSION_REPLAY_QUOTA_CHECK`       | `false`                    | Check session replay quota             |
 
+## Cache invalidation
+
+The Rust service caches auth token metadata in the flags Redis (dedicated when configured, otherwise shared) under the key pattern `posthog:auth_token:{token_hash}`. Entries are populated lazily by the Rust service on first use and invalidated by Django signal handlers when individual tokens change.
+
+For bulk invalidation of all cached tokens associated with a team, use the `invalidate_flags_auth_cache` management command. This forces the Rust service to re-validate against Postgres on the next request. It does **not** revoke any tokens.
+
+### Usage
+
+```bash
+# Invalidate all cached auth tokens for a team
+python manage.py invalidate_flags_auth_cache --team-id 12345
+
+# Preview what would be invalidated without deleting
+python manage.py invalidate_flags_auth_cache --team-id 12345 --dry-run
+```
+
+### Token sources
+
+The command collects token hashes from three sources and batch-deletes the corresponding Redis cache entries:
+
+| Source                  | Description                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Team secret tokens      | `secret_api_token` and `secret_api_token_backup`, hashed with SHA-256                                                |
+| Project secret API keys | `ProjectSecretAPIKey.secure_value` for the team                                                                      |
+| Personal API keys       | `PersonalAPIKey` entries for users in the team's organization, filtered by `scoped_teams` and `scoped_organizations` |
+
+### When to use
+
+- **Security incidents**: Force re-validation after a suspected token compromise
+- **Token rotation**: Clear stale cache entries after rotating team secret tokens
+- **Debugging**: Diagnose cache staleness issues by forcing a cache miss
+
+### Options
+
+| Flag                   | Description                                                                                          |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `--team-id` (required) | Team ID whose flags auth cache entries to invalidate                                                 |
+| `--dry-run`            | Show what would be invalidated without deleting. Works even when `FLAGS_REDIS_URL` is not configured |
+
+> **Note:** Without `--dry-run`, the command requires `FLAGS_REDIS_URL` to be configured.
+
 ## Key dependencies
 
 | Crate                                   | Purpose                                                           |
@@ -311,17 +362,19 @@ Applied in order via Axum layers (defined in `router.rs`):
 
 ## Related files
 
-| File                                             | Purpose                                           |
-| ------------------------------------------------ | ------------------------------------------------- |
-| `rust/feature-flags/src/main.rs`                 | Binary entry point, tracing setup                 |
-| `rust/feature-flags/src/server.rs`               | Service initialization, resource creation         |
-| `rust/feature-flags/src/router.rs`               | Axum router, routes, shared state                 |
-| `rust/feature-flags/src/config.rs`               | Environment variable configuration                |
-| `rust/feature-flags/src/api/endpoint.rs`         | `/flags` and `/decide` handler                    |
-| `rust/feature-flags/src/api/flag_definitions.rs` | `/flags/definitions` handler                      |
-| `rust/feature-flags/src/api/auth.rs`             | Authentication (secret tokens, personal API keys) |
-| `rust/feature-flags/src/api/types.rs`            | Request/response types                            |
-| `rust/feature-flags/src/handler/flags.rs`        | Core request processing pipeline                  |
+| File                                                         | Purpose                                           |
+| ------------------------------------------------------------ | ------------------------------------------------- |
+| `rust/feature-flags/src/main.rs`                             | Binary entry point, tracing setup                 |
+| `rust/feature-flags/src/server.rs`                           | Service initialization, resource creation         |
+| `rust/feature-flags/src/router.rs`                           | Axum router, routes, shared state                 |
+| `rust/feature-flags/src/config.rs`                           | Environment variable configuration                |
+| `rust/feature-flags/src/api/endpoint.rs`                     | `/flags` and `/decide` handler                    |
+| `rust/feature-flags/src/api/flag_definitions.rs`             | `/flags/definitions` handler                      |
+| `rust/feature-flags/src/api/auth.rs`                         | Authentication (secret tokens, personal API keys) |
+| `rust/feature-flags/src/api/types.rs`                        | Request/response types                            |
+| `rust/feature-flags/src/handler/flags.rs`                    | Core request processing pipeline                  |
+| `posthog/storage/team_access_cache.py`                       | Token auth cache with targeted invalidation       |
+| `posthog/management/commands/invalidate_flags_auth_cache.py` | Bulk cache invalidation management command        |
 
 ## See also
 

@@ -89,6 +89,7 @@ class Command(BaseCommand):
         for batch in Paginator(queryset, BATCH_SIZE):
             for saved_query in batch.object_list:
                 try:
+                    saved_query.setup_model_paths()
                     sync_saved_query_workflow(saved_query, create=False)
                     updated += 1
                 except temporalio.service.RPCError as e:
@@ -101,9 +102,8 @@ class Command(BaseCommand):
                 except Exception:
                     failed += 1
                     logger.exception("Error updating schedule", saved_query_id=str(saved_query.id))
-
-            processed += len(batch.object_list)
-            logger.info(f"Progress: {processed}/{total}")
+                processed += 1
+                logger.info(f"Progress: {processed}/{total}")
             time.sleep(BATCH_DELAY_SECONDS)
 
         logger.info(f"Done! Updated: {updated}, Failed: {failed}, Not found: {len(not_found_ids)}")

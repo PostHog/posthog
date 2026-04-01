@@ -82,7 +82,9 @@ export function LemonBanner({
                     ))}
                 <div className="grow overflow-hidden">{children}</div>
                 {action && <LemonButton className="!hidden @md:!flex" type="secondary" {...action} />}
-                {showCloseButton && <LemonButton size="small" icon={<IconX />} onClick={_onClose} aria-label="close" />}
+                {showCloseButton && (
+                    <LemonButton size="xsmall" icon={<IconX />} onClick={_onClose} aria-label="close" />
+                )}
             </div>
             {action && <LemonButton className="@md:!hidden" type="secondary" fullWidth {...action} />}
         </div>

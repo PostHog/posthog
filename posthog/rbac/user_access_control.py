@@ -55,7 +55,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "dashboard",
     "experiment",
-    "experiment_saved_metric",
     "external_data_source",
     "feature_flag",
     "insight",
@@ -68,6 +67,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "activity_log",
     "error_tracking",
     "logs",
+    "tracing",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
@@ -78,6 +78,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
+    "experiment_saved_metric": "experiment",
 }
 
 
@@ -258,6 +259,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "project"
     if name == "featureflag":
         return "feature_flag"
+    if name == "earlyaccessfeature":
+        return "early_access_feature"
     if name == "plugin_config":
         return "plugin"
     if name == "sessionrecording":

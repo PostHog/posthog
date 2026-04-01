@@ -32,6 +32,7 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
+import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
@@ -391,6 +392,41 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 })
             },
         ],
+        sessionSummarySegmentRanges: [
+            (s) => [s.sessionSummary],
+            (sessionSummary: SessionSummaryContent | null) => {
+                if (!sessionSummary?.segments || !sessionSummary?.key_actions) {
+                    return null
+                }
+                const ranges: SeekbarSegmentRange[] = []
+                for (const segment of sessionSummary.segments) {
+                    if (segment.index == null || !segment.name) {
+                        continue
+                    }
+                    const segmentKeyActions = sessionSummary.key_actions.filter(
+                        (ka) => ka.segment_index === segment.index
+                    )
+                    const allEvents = segmentKeyActions.flatMap((ka) => ka.events ?? [])
+                    const validEvents = allEvents.filter(
+                        (e) => e.milliseconds_since_start != null && e.milliseconds_since_start >= 0
+                    )
+                    if (validEvents.length === 0) {
+                        continue
+                    }
+                    const startMs = Math.min(...validEvents.map((e) => e.milliseconds_since_start!))
+                    const endMs = Math.max(...validEvents.map((e) => e.milliseconds_since_start!))
+                    const outcome = sessionSummary.segment_outcomes?.find((o) => o.segment_index === segment.index)
+                    ranges.push({
+                        index: segment.index,
+                        name: segment.name,
+                        startMs,
+                        endMs: endMs > startMs ? endMs : startMs + 1000,
+                        success: outcome?.success ?? null,
+                    })
+                }
+                return ranges.length > 0 ? ranges : null
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
@@ -416,11 +452,20 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 actions.setSessionSummaryContent(aiSummaryMock)
                 return
             }
-            // TODO: Stop loading/reset the state when failing to avoid endless "thinking" state
             const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
             if (!id) {
                 return
             }
+
+            // Give up waiting after 10 minutes. If the workflow finishes later,
+            // the summary will show up next time the user opens this recording
+            const timeout = setTimeout(
+                () => {
+                    actions.setSessionSummaryLoading(false)
+                },
+                10 * 60 * 1000
+            )
+
             try {
                 const response = await api.recordings.summarizeStream(id)
                 const reader = response.body?.getReader()
@@ -431,7 +476,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const parser = createParser({
                     onEvent: ({ event, data }) => {
                         try {
-                            // Stop loading and show error if encountered an error event
+                            // The workflow itself failed, not just the connection
                             if (event === 'session-summary-error') {
                                 lemonToast.error(data)
                                 actions.setSessionSummaryLoading(false)
@@ -456,11 +501,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     const decodedValue = decoder.decode(value)
                     parser.feed(decodedValue)
                 }
+                clearTimeout(timeout)
             } catch (err) {
-                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
-                throw err
-            } finally {
-                actions.setSessionSummaryLoading(false)
+                // Connection dropped but the workflow keeps running.
+                // Keep the spinner going until the timeout kicks in
+                posthog.captureException(err)
             }
         },
     })),

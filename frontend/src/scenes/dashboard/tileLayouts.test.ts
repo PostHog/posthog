@@ -24,8 +24,8 @@ describe('calculating tile layouts', () => {
         ]
         expect(calculateLayouts(tiles)).toEqual({
             sm: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 1, minH: 1 }],
-            // xs layout uses default height of 2 for text tiles (since no stored layout)
-            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 2, minW: 1, minH: 1 }],
+            // xs uses the same row height as sm when sm is present
+            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 1, minH: 1 }],
         })
     })
 
@@ -57,8 +57,33 @@ describe('calculating tile layouts', () => {
         expect(actual.xs?.map((layout) => layout.i)).toEqual(['1', '3', '4', '2'])
         // one col all start at x: 0
         expect(actual.xs?.map((layout) => layout.x)).toEqual([0, 0, 0, 0])
-        // one col with equal height of 6 should be
-        expect(actual.xs?.map((layout) => layout.y)).toEqual([0, 2, 4, 6])
+        // one col: xs keeps each tile's sm row height (h:6), so y advances by 6 per tile
+        expect(actual.xs?.map((layout) => layout.y)).toEqual([0, 6, 12, 18])
+    })
+
+    it.each([
+        {
+            name: 'no sm layout on tile',
+            layouts: {} as Record<DashboardLayoutSize, TileLayout>,
+            expectedXsH: 2,
+        },
+        {
+            name: 'sm layout without usable h (zero)',
+            layouts: { sm: { i: '1', x: 0, y: 0, w: 2, h: 0 } } as Record<DashboardLayoutSize, TileLayout>,
+            expectedXsH: 2,
+        },
+        {
+            name: 'sm h is not a number (fallback to text default)',
+            layouts: { sm: { i: '1', x: 0, y: 0, w: 2, h: '3' as unknown as number } } as Record<
+                DashboardLayoutSize,
+                TileLayout
+            >,
+            expectedXsH: 2,
+        },
+    ])('xs uses text default row height when $name', ({ layouts, expectedXsH }) => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [textTileWithLayout(layouts, 1)]
+        const result = calculateLayouts(tiles)
+        expect(result.xs?.[0]?.h).toBe(expectedXsH)
     })
 })
 

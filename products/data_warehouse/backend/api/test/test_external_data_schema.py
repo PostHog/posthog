@@ -266,7 +266,7 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("incremental_field_type") == "integer"
             assert schema.sync_type_config.get("incremental_field_last_value") == 1
 
-    def test_update_schema_to_incremental_triggers_webhook_creation(self):
+    def test_update_schema_to_webhook_triggers_webhook_creation(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
         )
@@ -307,12 +307,42 @@ class TestExternalDataSchema(APIBaseTest):
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "incremental", "incremental_field": "created", "incremental_field_type": "integer"},
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
             )
 
         assert response.status_code == 200
         mock_get_or_create.assert_called_once()
         mock_create_webhook.assert_called_once()
+
+    def test_update_schema_to_incremental_does_not_trigger_webhook(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function"
+            ) as mock_get_or_create,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "incremental", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == 200
+        mock_get_or_create.assert_not_called()
 
     def test_update_schema_to_full_refresh_does_not_trigger_webhook(self):
         source = ExternalDataSource.objects.create(
@@ -344,7 +374,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == 200
         mock_get_or_create.assert_not_called()
 
-    def test_update_schema_to_incremental_non_webhook_source_no_webhook_result(self):
+    def test_update_schema_to_webhook_non_webhook_source_no_webhook_result(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -378,13 +408,13 @@ class TestExternalDataSchema(APIBaseTest):
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "incremental", "incremental_field": "id", "incremental_field_type": "integer"},
+                data={"sync_type": "webhook", "incremental_field": "id", "incremental_field_type": "integer"},
             )
 
         assert response.status_code == 200
         mock_get_or_create.assert_not_called()
 
-    def test_update_schema_to_incremental_non_webhook_schema_no_webhook_result(self):
+    def test_update_schema_to_webhook_non_webhook_schema_no_webhook_result(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
         )
@@ -418,7 +448,7 @@ class TestExternalDataSchema(APIBaseTest):
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "incremental", "incremental_field": "created", "incremental_field_type": "integer"},
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
             )
 
         assert response.status_code == 200

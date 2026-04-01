@@ -13,7 +13,7 @@ use axum::{
     routing::{any, get},
     Router,
 };
-use common_cache::NegativeCache;
+use common_cache::{NegativeCache, ReadThroughCacheWithMetrics};
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
@@ -42,8 +42,8 @@ use crate::{
     flags::flag_group_type_mapping::GroupTypeCacheManager,
     metrics::{
         consts::{
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_REQUEST_TIMEOUT_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+            FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
         },
         utils::team_id_label_filter,
     },
@@ -89,6 +89,9 @@ pub struct State {
     /// In-memory negative cache for invalid API tokens, preventing repeated
     /// Redis/S3/PG lookups for tokens that don't correspond to any team
     pub team_negative_cache: NegativeCache,
+    /// Read-through cache for auth tokens (secret + personal API keys).
+    /// Handles Redis-backed positive caching and loader ordering.
+    pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     /// Provider for realtime/behavioral cohort membership lookups
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
 }
@@ -111,6 +114,7 @@ pub fn router(
     config_hypercache_reader: Arc<HyperCacheReader>,
     rayon_dispatcher: RayonDispatcher,
     team_negative_cache: NegativeCache,
+    auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     config: Config,
 ) -> Router {
@@ -118,8 +122,10 @@ pub fn router(
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
         config.flag_definitions_rate_limits.0.clone(),
+        config.rate_limiting_allow_list_teams.0.clone(),
         FLAG_DEFINITIONS_REQUESTS_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
@@ -195,6 +201,7 @@ pub fn router(
         rayon_dispatcher,
         team_negative_cache,
         cohort_membership_provider,
+        auth_token_cache,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -250,6 +257,16 @@ pub fn router(
             )
             .route(
                 "/flags/definitions/",
+                any(flag_definitions::flags_definitions),
+            )
+            // Alias for Django's local_evaluation endpoint — allows Contour to route
+            // traffic to Rust without path rewriting (same pattern as /decide → /flags)
+            .route(
+                "/api/feature_flag/local_evaluation",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/api/feature_flag/local_evaluation/",
                 any(flag_definitions::flags_definitions),
             );
     }

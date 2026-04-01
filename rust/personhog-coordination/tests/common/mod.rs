@@ -81,6 +81,7 @@ pub fn start_coordinator_named(
 
 pub struct PodHandles {
     pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    pub join_handle: Option<JoinHandle<Result<()>>>,
 }
 
 pub fn start_pod(store: Arc<PersonhogStore>, name: &str, cancel: CancellationToken) -> PodHandles {
@@ -106,8 +107,11 @@ pub fn start_pod_with_lease_ttl(
         Arc::new(handler),
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { pod.run(token).await });
-    PodHandles { events }
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
 }
 
 /// Start a pod whose warm_partition blocks forever. Useful for testing
@@ -131,8 +135,11 @@ pub fn start_pod_blocking(
         Arc::new(handler),
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { pod.run(token).await });
-    PodHandles { events }
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
 }
 
 pub fn start_coordinator_with_debounce(
@@ -169,8 +176,11 @@ pub fn start_pod_slow(
         Arc::new(handler),
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { pod.run(token).await });
-    PodHandles { events }
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
 }
 
 pub struct RouterHandles {
@@ -191,11 +201,10 @@ pub fn start_router(
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
         },
-        Arc::new(handler),
     );
     let table = router.table_handle();
     let token = cancel.child_token();
-    tokio::spawn(async move { router.run(token).await });
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
     RouterHandles { events, table }
 }
 
