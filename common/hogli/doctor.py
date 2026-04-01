@@ -1710,16 +1710,26 @@ def doctor() -> None:
         lambda: _check_migrations(),
     ]
 
+
     # Run all checks concurrently — each is I/O-bound and independent.
     results: list[CheckResult | None] = [None] * len(checks)
     with ThreadPoolExecutor(max_workers=len(checks)) as pool:
         future_to_idx = {pool.submit(fn): i for i, fn in enumerate(checks)}
         for future in as_completed(future_to_idx):
-            results[future_to_idx[future]] = future.result()
+            try:
+                results[future_to_idx[future]] = future.result()
+            except Exception as e:
+                idx = future_to_idx[future]
+                results[idx] = CheckResult(
+                    name=f"Check {idx + 1}",
+                    status=CheckStatus.ERROR,
+                    summary=f"Check failed with error: {str(e)}",
+                )
 
     for result in results:
         assert result is not None
         _print_check_result(result)
+
 
     click.echo()
 
