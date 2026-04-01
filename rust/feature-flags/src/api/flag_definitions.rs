@@ -24,10 +24,98 @@ use axum::{
 };
 use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
+use common_types::TeamId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::PgPool;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{info, warn};
+
+const ALLOWLIST_TTL_SECS: u64 = 60;
+const CONSTANCE_KEY: &str = "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS";
+
+/// Refresh the rate limit allowlist from the database if stale, then update the limiter.
+/// Matches Django's `get_team_allow_list(round(time.time() / 60))` pattern.
+/// The cache is per-instance (stored on the rate limiter), not global.
+///
+/// To avoid stampeding the database at the TTL boundary (10k+ req/s),
+/// `claim_allowlist_refresh` atomically checks staleness and marks as refreshed,
+/// so only one request triggers the DB query. If the query fails, we serve stale
+/// data for another TTL cycle.
+async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
+    if !state
+        .flag_definitions_limiter
+        .claim_allowlist_refresh(ALLOWLIST_TTL_SECS)
+    {
+        return;
+    }
+
+    match fetch_allowlist_from_db(&state.database_pools.non_persons_reader).await {
+        Ok(Some(new_allowlist)) => {
+            state
+                .flag_definitions_limiter
+                .update_allowlist(new_allowlist);
+        }
+        Ok(None) => {
+            // Row not in DB — keep the env var default
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to refresh rate limit allowlist from database, using cached value");
+        }
+    }
+}
+
+/// Query the posthog_instancesetting table for the rate limit allowlist.
+/// The key is stored with the constance prefix: "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS"
+/// Returns None if the row doesn't exist (env var default should be kept),
+/// Some(set) if the row exists (overrides the env var).
+pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<TeamId>>, String> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT raw_value FROM posthog_instancesetting WHERE key = $1")
+            .bind(CONSTANCE_KEY)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("DB query failed: {e}"))?;
+
+    let raw_value = match row {
+        Some((val,)) => val,
+        None => return Ok(None),
+    };
+
+    // Match Django's InstanceSetting.value: try json.loads first, fall back to raw string.
+    // Handles JSON strings ("\"23047,12345\""), null, and bare strings ("23047,12345").
+    let value = match serde_json::from_str::<serde_json::Value>(&raw_value) {
+        Ok(serde_json::Value::String(s)) => s,
+        Ok(serde_json::Value::Null) => return Ok(Some(HashSet::new())),
+        _ => raw_value, // non-string JSON or invalid JSON, treat as bare string (like Django)
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(Some(HashSet::new()));
+    }
+
+    let mut team_ids = HashSet::new();
+    for part in value.split(',').map(|p| p.trim()) {
+        if part.is_empty() {
+            continue;
+        }
+        match part.parse::<TeamId>() {
+            Ok(id) => {
+                team_ids.insert(id);
+            }
+            Err(e) => {
+                warn!(
+                    part = part,
+                    error = %e,
+                    "Skipping invalid team ID in RATE_LIMITING_ALLOW_LIST_TEAMS"
+                );
+            }
+        }
+    }
+
+    Ok(Some(team_ids))
+}
 
 /// Response for flag definitions endpoint
 /// This is returned as raw JSON from cache to avoid deserialization overhead
@@ -88,6 +176,9 @@ pub async fn flags_definitions(
 
     // Authenticate against the specified team
     authenticate_flag_definitions(&state, &team, &headers).await?;
+
+    // Refresh the rate limit allowlist from the database if stale (every ~60s)
+    refresh_rate_limit_allowlist_if_stale(&state).await;
 
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;

@@ -7,9 +7,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KAFKA_CLICKHOUSE_TOPHOG } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { logger } from '../../utils/logger'
@@ -71,7 +69,6 @@ export interface ErrorTrackingHogTransformer {
  */
 export interface ErrorTrackingConsumerDeps {
     outputs: ErrorTrackingOutputs
-    kafkaMetricsProducer: KafkaProducerWrapper
     teamManager: TeamManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
@@ -195,8 +192,7 @@ export class ErrorTrackingConsumer {
 
         // Initialize TopHog for metrics
         this.topHog = new TopHog({
-            kafkaProducer: this.deps.kafkaMetricsProducer,
-            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            outputs: this.deps.outputs,
             pipeline: this.config.pipeline,
             lane: this.config.lane,
         })

@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '../../session-recording/sessions/session-batch-recorder'
@@ -9,11 +10,16 @@ import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { parseJSON } from '../../utils/json-parse'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { OVERFLOW_OUTPUT } from '../common/outputs'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { drop, ok, redirect } from '../pipelines/results'
-import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'
+import {
+    SessionReplayPipelineConfig,
+    createSessionReplayPipeline,
+    runSessionReplayPipeline,
+} from './session-replay-pipeline'
 
 jest.mock('../event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
@@ -91,6 +97,7 @@ describe('session-replay-pipeline', () => {
     let mockSessionBatchManager: jest.Mocked<SessionBatchManager>
     let promiseScheduler: PromiseScheduler
     let topHog: MockTopHogRegistry
+    let outputs: SessionReplayPipelineConfig['outputs']
 
     // Debug logging disabled by default in tests
     const isDebugLoggingEnabled = () => false
@@ -146,6 +153,11 @@ describe('session-replay-pipeline', () => {
 
         mockKafkaProducer = createMockKafkaProducer()
         mockIngestionWarningProducer = createMockKafkaProducer()
+        outputs = new IngestionOutputs({
+            [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: mockIngestionWarningProducer },
+            [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockKafkaProducer },
+            [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockKafkaProducer },
+        })
 
         // The restriction manager is not actually used since we mock createApplyEventRestrictionsStep
         mockRestrictionManager = {} as unknown as EventIngestionRestrictionManager
@@ -243,15 +255,12 @@ describe('session-replay-pipeline', () => {
     describe('runSessionReplayPipeline', () => {
         it('passes through messages when no restrictions apply', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -278,15 +287,12 @@ describe('session-replay-pipeline', () => {
             )
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -306,15 +312,12 @@ describe('session-replay-pipeline', () => {
 
         it('filters out messages that fail to parse', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -342,15 +345,12 @@ describe('session-replay-pipeline', () => {
 
         it('sends messages that fail to parse to the DLQ topic', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -394,15 +394,12 @@ describe('session-replay-pipeline', () => {
             )
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -432,15 +429,12 @@ describe('session-replay-pipeline', () => {
 
         it('returns empty array for empty input', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -462,15 +456,12 @@ describe('session-replay-pipeline', () => {
             )
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -509,15 +500,12 @@ describe('session-replay-pipeline', () => {
             )
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -542,15 +530,12 @@ describe('session-replay-pipeline', () => {
 
         it('processes large batch with all messages passing through', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -583,15 +568,12 @@ describe('session-replay-pipeline', () => {
             } as unknown as TeamService
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: teamServiceThatDropsSecond,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -611,15 +593,12 @@ describe('session-replay-pipeline', () => {
 
         it('sends messages with no token header to DLQ', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -635,15 +614,12 @@ describe('session-replay-pipeline', () => {
 
         it('sends ingestion warning for old lib version', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -669,15 +645,12 @@ describe('session-replay-pipeline', () => {
 
         it('does not send ingestion warning for new lib version', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -692,15 +665,12 @@ describe('session-replay-pipeline', () => {
 
         it('does not send ingestion warning when no lib version header', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -715,15 +685,12 @@ describe('session-replay-pipeline', () => {
 
         it('sends ingestion warning when message timestamps are too old', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -747,15 +714,12 @@ describe('session-replay-pipeline', () => {
 
         it('records messages to session batch', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -779,15 +743,12 @@ describe('session-replay-pipeline', () => {
 
         it('records multiple messages to session batch', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -809,15 +770,12 @@ describe('session-replay-pipeline', () => {
             mockCreateApplyEventRestrictionsStep.mockReturnValue(() => Promise.resolve(drop('dropped by restriction')))
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -837,15 +795,12 @@ describe('session-replay-pipeline', () => {
             } as unknown as TeamService
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: teamServiceThatReturnsNull,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -861,15 +816,12 @@ describe('session-replay-pipeline', () => {
 
         it('records parse time metric via TopHog', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -890,15 +842,12 @@ describe('session-replay-pipeline', () => {
 
         it('records message size metric via TopHog', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -919,15 +868,12 @@ describe('session-replay-pipeline', () => {
 
         it('records consume time metric via TopHog', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -948,15 +894,12 @@ describe('session-replay-pipeline', () => {
 
         it('records TopHog metrics for multiple messages', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -998,15 +941,12 @@ describe('session-replay-pipeline', () => {
             mockCreateApplyEventRestrictionsStep.mockReturnValue(() => Promise.resolve(drop('dropped')))
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })
@@ -1042,15 +982,12 @@ describe('session-replay-pipeline', () => {
             )
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer,
+                outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
-                overflowTopic: 'overflow-topic',
-                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
                 topHog,
-                ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
             })

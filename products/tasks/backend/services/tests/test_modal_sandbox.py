@@ -158,7 +158,7 @@ class TestModalSandboxAgentServer:
         with pytest.raises(RuntimeError, match="Sandbox not in running state"):
             mock_sandbox.get_connect_credentials()
 
-    def test_start_agent_server_success(self, mock_sandbox: Any):
+    def test_start_agent_server_success_without_domains_skips_agentsh(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
@@ -166,7 +166,7 @@ class TestModalSandboxAgentServer:
             ]
         )
 
-        with patch.object(mock_sandbox, "_setup_agentsh"):
+        with patch.object(mock_sandbox, "_setup_agentsh") as mock_setup:
             mock_sandbox.start_agent_server(
                 repository="posthog/posthog",
                 task_id="task-123",
@@ -174,6 +174,7 @@ class TestModalSandboxAgentServer:
                 mode="background",
             )
 
+        mock_setup.assert_not_called()
         start_call = mock_sandbox.execute.call_args_list[0]
         command = start_call[0][0]
         import shlex
@@ -183,6 +184,8 @@ class TestModalSandboxAgentServer:
         assert f"--taskId {shlex.quote('task-123')}" in command
         assert f"--runId {shlex.quote('run-456')}" in command
         assert f"--mode {shlex.quote('background')}" in command
+        assert "agentsh exec" not in command
+        assert "nohup" in command
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
