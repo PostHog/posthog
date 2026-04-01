@@ -1,3 +1,4 @@
+import { Counter, Gauge } from 'prom-client'
 import { z } from 'zod'
 
 import { InternalFetchService } from '~/common/services/internal-fetch'
@@ -12,6 +13,33 @@ import {
 } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
+
+const schedulerPollCounter = new Counter({
+    name: 'cdp_hogflow_scheduler_polls',
+    help: 'Number of scheduler poll cycles completed',
+    labelNames: ['status'],
+})
+
+const schedulerDispatchedCounter = new Counter({
+    name: 'cdp_hogflow_scheduler_dispatched',
+    help: 'Number of batch triggers dispatched to Kafka',
+})
+
+const schedulerInitializedCounter = new Counter({
+    name: 'cdp_hogflow_scheduler_initialized',
+    help: 'Number of schedules initialized with next_run_at',
+})
+
+const schedulerFailedCounter = new Counter({
+    name: 'cdp_hogflow_scheduler_failed',
+    help: 'Number of schedule processing failures',
+    labelNames: ['stage'],
+})
+
+const schedulerPollDurationGauge = new Gauge({
+    name: 'cdp_hogflow_scheduler_poll_duration_ms',
+    help: 'Duration of the last poll cycle in milliseconds',
+})
 
 const ProcessedScheduleSchema = z.object({
     schedule_id: z.string(),
@@ -90,6 +118,7 @@ export class HogFlowScheduleService {
     }
 
     async pollAndDispatch(): Promise<boolean> {
+        const startTime = Date.now()
         try {
             const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
                 urlPath: '/api/internal/hog_flows/process_due_schedules',
@@ -102,6 +131,8 @@ export class HogFlowScheduleService {
                 logger.error('HogFlowScheduleService: failed to call Django endpoint', {
                     error: String(fetchError),
                 })
+                schedulerPollCounter.inc({ status: 'error' })
+                schedulerFailedCounter.inc({ stage: 'fetch' })
                 return false
             }
 
@@ -111,12 +142,15 @@ export class HogFlowScheduleService {
                     status: fetchResponse.status,
                     error: errorText,
                 })
+                schedulerPollCounter.inc({ status: 'error' })
+                schedulerFailedCounter.inc({ stage: 'django' })
                 return false
             }
 
             const data = ProcessDueSchedulesResponseSchema.parse(parseJSON(await fetchResponse.text()))
 
             if (data.initialized.length > 0) {
+                schedulerInitializedCounter.inc(data.initialized.length)
                 logger.info('HogFlowScheduleService: initialized schedules', {
                     count: data.initialized.length,
                     scheduleIds: data.initialized,
@@ -124,6 +158,7 @@ export class HogFlowScheduleService {
             }
 
             if (data.failed.length > 0) {
+                schedulerFailedCounter.inc({ stage: 'process' }, data.failed.length)
                 logger.error('HogFlowScheduleService: schedules failed to process', {
                     count: data.failed.length,
                     scheduleIds: data.failed,
@@ -135,10 +170,13 @@ export class HogFlowScheduleService {
             )
 
             const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+            const dispatched = data.processed.length - failures.length
+
             if (failures.length > 0) {
                 const failedIds = data.processed
                     .filter((_, i) => results[i].status === 'rejected')
                     .map((s) => s.schedule_id)
+                schedulerFailedCounter.inc({ stage: 'dispatch' }, failures.length)
                 logger.error('HogFlowScheduleService: failed to dispatch some schedules', {
                     failedCount: failures.length,
                     totalCount: data.processed.length,
@@ -150,6 +188,7 @@ export class HogFlowScheduleService {
                 const dispatchedIds = data.processed
                     .filter((_, i) => results[i].status === 'fulfilled')
                     .map((s) => s.schedule_id)
+                schedulerDispatchedCounter.inc(dispatched)
                 logger.info('HogFlowScheduleService: processed due schedules', {
                     count: data.processed.length,
                     dispatched: dispatchedIds.length,
@@ -157,10 +196,15 @@ export class HogFlowScheduleService {
                 })
             }
 
+            schedulerPollCounter.inc({ status: 'success' })
             return true
         } catch (err) {
             logger.error('HogFlowScheduleService: failed to poll', { error: String(err) })
+            schedulerPollCounter.inc({ status: 'error' })
+            schedulerFailedCounter.inc({ stage: 'poll' })
             return false
+        } finally {
+            schedulerPollDurationGauge.set(Date.now() - startTime)
         }
     }
 

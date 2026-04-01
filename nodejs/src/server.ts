@@ -24,8 +24,6 @@ import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfi
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
 import { KafkaProducerWrapper } from './kafka/producer'
-import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
-import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -90,9 +88,6 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow
         )
-        const needsLogs = !!capabilities.logsIngestion
-        const needsTraces = !!capabilities.tracesIngestion
-
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
 
@@ -102,10 +97,10 @@ export class PluginServer implements NodeServer {
             cdpServices = await this.createCdpSharedServices()
         }
 
-        // 3. CDP + Logs + Traces services (posthog redis, quota limiting)
-        let cdpLogsServices: ReturnType<typeof this.createCdpLogsServices> | undefined
-        if (needsCdp || needsLogs || needsTraces) {
-            cdpLogsServices = this.createCdpLogsServices(teamManager)
+        // 3. CDP services (posthog redis, quota limiting)
+        let cdpQuotaServices: ReturnType<typeof this.createCdpQuotaServices> | undefined
+        if (needsCdp) {
+            cdpQuotaServices = this.createCdpQuotaServices(teamManager)
         }
 
         // Build typed deps objects for consumers
@@ -121,7 +116,7 @@ export class PluginServer implements NodeServer {
                   personRepository: cdpServices!.personRepository,
                   geoipService: cdpServices!.geoipService,
                   groupRepository: cdpServices!.groupRepository,
-                  quotaLimiting: cdpLogsServices!.quotaLimiting,
+                  quotaLimiting: cdpQuotaServices!.quotaLimiting,
               }
             : undefined
 
@@ -258,31 +253,9 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        if (capabilities.logsIngestion) {
-            serviceLoaders.push(async () => {
-                const consumer = new LogsIngestionConsumer(this.config, {
-                    teamManager,
-                    quotaLimiting: cdpLogsServices!.quotaLimiting,
-                })
-                await consumer.start()
-                return consumer.service
-            })
-        }
-
         if (capabilities.cdpBatchHogFlow) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
-                await consumer.start()
-                return consumer.service
-            })
-        }
-
-        if (capabilities.tracesIngestion) {
-            serviceLoaders.push(async () => {
-                const consumer = new TracesIngestionConsumer(this.config, {
-                    teamManager,
-                    quotaLimiting: cdpLogsServices!.quotaLimiting,
-                })
                 await consumer.start()
                 return consumer.service
             })
@@ -376,7 +349,7 @@ export class PluginServer implements NodeServer {
         }
     }
 
-    private createCdpLogsServices(teamManager: TeamManager): { quotaLimiting: QuotaLimiting } {
+    private createCdpQuotaServices(teamManager: TeamManager): { quotaLimiting: QuotaLimiting } {
         logger.info('🤔', 'Connecting to PostHog Redis...')
         this.posthogRedisPool = createRedisPoolFromConfig({
             connection: createPosthogRedisConnectionConfig(this.config),
