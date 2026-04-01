@@ -15,7 +15,7 @@ interface AggregatedMetric {
  * single set of Kafka messages after the batch completes.
  *
  * Instead of producing one Kafka message per matched event, this accumulates
- * counts per (teamId, metricName) and produces one message per unique
+ * counts per (teamId, filterId, metricName) and produces one message per unique
  * combination at flush time.
  */
 export class EventFiltersBatchAppMetrics {

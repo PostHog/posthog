@@ -6,6 +6,9 @@ import { FilterConditionNode, FilterNode } from './schema'
  * SAFETY: Empty groups are conservative (never drop):
  * - Empty AND returns false (not vacuous true) to avoid dropping all events
  * - Empty OR returns false (no children match)
+ * Note: NOT(empty group) evaluates to NOT(false) = true and WOULD drop events.
+ * This is prevented upstream by the treeHasConditions guard in EventFilterManager,
+ * which returns null for any filter tree that contains no condition leaves.
  * This is intentional — when in doubt, don't drop. Dropping is irreversible,
  * while not dropping just means unwanted events get through temporarily.
  */
