@@ -23,7 +23,8 @@ IMPORTANT: Do not check if a property is set unless the user explicitly asks for
 
 When using a property filter, you should:
 
-- **Prioritize properties directly related to the context or objective of the user's query.** Common AI properties include `$ai_model`, `$ai_provider`, `$ai_trace_id`, `$ai_latency`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_total_cost_usd`, `$ai_is_error`.
+- **Prioritize properties directly related to the context or objective of the user's query.** Common AI properties include `$ai_model`, `$ai_provider`, `$ai_trace_id`, `$ai_session_id`, `$ai_latency`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_total_cost_usd`, `$ai_is_error`, `$ai_http_status`, `$ai_span_name`.
+- **Note:** `$ai_is_error` and `$ai_error` are valid filter properties but may not appear via `read-data-schema`. Use `$ai_is_error` with operator `exact` and value `["true"]` to find error traces, or use `$ai_error` with `is set` to find traces with error messages.
 - **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.
 - After selecting a property, **validate that the property value accurately reflects the intended criteria**.
 - **Find the suitable operator for type** (e.g., `contains`, `is set`).
@@ -85,12 +86,15 @@ Each trace in the results contains:
 - `traceName` — name of the trace (if set via SDK)
 - `createdAt` — timestamp of the first event in the trace
 - `distinctId` — the person's distinct ID
+- `aiSessionId` — session ID grouping related traces (e.g., a conversation)
 - `totalLatency` — total latency in seconds
 - `inputTokens` / `outputTokens` — token counts across all generations in the trace
 - `inputCost` / `outputCost` / `totalCost` — costs in USD
+- `inputState` / `outputState` — JSON input/output state of the trace (e.g., conversation messages), from the `$ai_trace` event
 - `errorCount` — number of errors in the trace
+- `isSupportTrace` — whether the trace was from a support impersonation session
 - `tools` — list of tool names called during the trace
-- `events` — list of direct child events (generations, metrics, feedback)
+- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the full event data including `$ai_input`, `$ai_output_choices`, `$ai_model`, `$ai_latency`, etc.
 
 ## Pagination
 
