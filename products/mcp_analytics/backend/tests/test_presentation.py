@@ -91,7 +91,7 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/mcp_analytics/feedback/", payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert field in response.json()
+        assert response.json()["attr"] == field
 
     def test_create_missing_capability_submission_defaults_blocked(self) -> None:
         response = self.client.post(
@@ -128,7 +128,7 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert field in response.json()
+        assert response.json()["attr"] == field
 
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(
