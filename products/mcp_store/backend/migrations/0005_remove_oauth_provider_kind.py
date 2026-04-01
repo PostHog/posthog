@@ -9,8 +9,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="mcpserver",
-            name="oauth_provider_kind",
+        # Phase 1: Remove the field from Django's state only, keeping the column in
+        # the database so that old code still works during the rollout window.
+        # Phase 2 (future PR): DROP COLUMN via RunSQL with drop-column-ignore.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="mcpserver",
+                    name="oauth_provider_kind",
+                ),
+            ],
+            database_operations=[],
         ),
     ]
