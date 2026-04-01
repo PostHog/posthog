@@ -1,4 +1,5 @@
 import { createTestEventHeaders } from '../../../../tests/helpers/event-headers'
+import { getMetricValues, resetMetrics } from '../../../../tests/helpers/metrics'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { isDropResult, isOkResult, ok } from '../../pipelines/results'
@@ -85,6 +86,7 @@ describe('createApplyEventFiltersStep', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        resetMetrics()
     })
 
     it('passes through when no filter exists for the team', async () => {
@@ -165,6 +167,81 @@ describe('createApplyEventFiltersStep', () => {
         await step(input)
 
         expect(incrementSpy).not.toHaveBeenCalled()
+    })
+
+    it('increments dropped prometheus metric in live mode', async () => {
+        mockManager.getFilter.mockReturnValue({
+            id: 'f1',
+            team_id: 1,
+            mode: 'live',
+            filter_tree: cond('event_name', 'exact', '$internal'),
+        })
+        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const step = createApplyEventFiltersStep(mockManager)
+
+        await step({
+            team: createTestTeam({ id: 1 }),
+            headers: createTestEventHeaders({ event: '$internal' }),
+            eventFiltersBatchAppMetrics: metrics,
+        })
+
+        const values = await getMetricValues('ingestion_filters_events_evaluated')
+        expect(values).toEqual([{ labels: { outcome: 'dropped' }, value: 1 }])
+    })
+
+    it('increments shadow_dropped prometheus metric in dry_run mode', async () => {
+        mockManager.getFilter.mockReturnValue({
+            id: 'f1',
+            team_id: 1,
+            mode: 'dry_run',
+            filter_tree: cond('event_name', 'exact', '$internal'),
+        })
+        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const step = createApplyEventFiltersStep(mockManager)
+
+        await step({
+            team: createTestTeam({ id: 1 }),
+            headers: createTestEventHeaders({ event: '$internal' }),
+            eventFiltersBatchAppMetrics: metrics,
+        })
+
+        const values = await getMetricValues('ingestion_filters_events_evaluated')
+        expect(values).toEqual([{ labels: { outcome: 'shadow_dropped' }, value: 1 }])
+    })
+
+    it('increments ingested prometheus metric when filter does not match', async () => {
+        mockManager.getFilter.mockReturnValue({
+            id: 'f1',
+            team_id: 1,
+            mode: 'live',
+            filter_tree: cond('event_name', 'exact', '$internal'),
+        })
+        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const step = createApplyEventFiltersStep(mockManager)
+
+        await step({
+            team: createTestTeam({ id: 1 }),
+            headers: createTestEventHeaders({ event: '$pageview' }),
+            eventFiltersBatchAppMetrics: metrics,
+        })
+
+        const values = await getMetricValues('ingestion_filters_events_evaluated')
+        expect(values).toEqual([{ labels: { outcome: 'ingested' }, value: 1 }])
+    })
+
+    it('does not increment prometheus metric when no filter exists', async () => {
+        mockManager.getFilter.mockReturnValue(null)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const step = createApplyEventFiltersStep(mockManager)
+
+        await step({
+            team: createTestTeam({ id: 1 }),
+            headers: createTestEventHeaders({ event: '$pageview' }),
+            eventFiltersBatchAppMetrics: metrics,
+        })
+
+        const values = await getMetricValues('ingestion_filters_events_evaluated')
+        expect(values).toEqual([])
     })
 
     // Mirrors Python test_complex_tree_with_many_test_cases:

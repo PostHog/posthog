@@ -5,6 +5,7 @@ import { PipelineResult, drop, ok } from '../../pipelines/results'
 import { ProcessingStep } from '../../pipelines/steps'
 import { EventFilterManager, evaluateFilterTree } from '../event-filters'
 import { EventFiltersBatchAppMetrics } from '../event-filters/batch-app-metrics'
+import { eventFiltersEventsEvaluated } from '../event-filters/metrics'
 import { AppMetricsOutput } from '../outputs'
 
 export interface EventFiltersBatchContext {
@@ -77,10 +78,15 @@ export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
             // Only drop in live mode — any other mode (dry_run, or unexpected values)
             // lets the event through to avoid accidental data loss
             if (isLive) {
+                eventFiltersEventsEvaluated.inc({ outcome: 'dropped' })
                 return Promise.resolve(drop('event_filter'))
             }
+
+            eventFiltersEventsEvaluated.inc({ outcome: 'shadow_dropped' })
+            return Promise.resolve(ok(input))
         }
 
+        eventFiltersEventsEvaluated.inc({ outcome: 'ingested' })
         return Promise.resolve(ok(input))
     }
 }
