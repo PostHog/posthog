@@ -740,11 +740,17 @@ class TestCommitStatusChecks:
         ids=["toggle_off", "no_pr", "no_changes", "observe_purpose"],
     )
     def test_complete_run_does_not_comment(
-        self, enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose, github_repo, mock_github_api
+        self, enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose, github_repo, mock_github_api, mocker
     ):
         if enable_pr_comments:
             github_repo.enable_pr_comments = True
             github_repo.save(update_fields=["enable_pr_comments"])
+
+        # Mock baseline for classification at complete time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value=dict(baseline_hashes),
+        )
 
         run, _ = logic.create_run(
             repo_id=github_repo.id,
@@ -758,7 +764,7 @@ class TestCommitStatusChecks:
             purpose=purpose,
         )
 
-        logic.mark_run_completed(run.id)
+        logic.complete_run(run.id)
 
         assert len(mock_github_api.issue_comments) == 0
 

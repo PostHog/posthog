@@ -589,7 +589,9 @@ def complete_run(run_id: UUID) -> Run:
         snapshot.baseline_hash = baseline_hash or ""
         snapshot.baseline_artifact = baseline_artifact
         snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
-        snapshot.save(using=WRITER_DB, update_fields=["result", "baseline_hash", "baseline_artifact", "current_artifact"])
+        snapshot.save(
+            using=WRITER_DB, update_fields=["result", "baseline_hash", "baseline_artifact", "current_artifact"]
+        )
 
     # Detect removed: baseline identifiers with no RunSnapshot row
     if baseline:
