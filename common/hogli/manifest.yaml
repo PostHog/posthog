@@ -553,6 +553,7 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 tools:
+    doctor: null # Click-defined, placed here for categorization
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
