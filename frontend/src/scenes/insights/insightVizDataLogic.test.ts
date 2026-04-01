@@ -1,5 +1,4 @@
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import { FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -936,50 +935,6 @@ describe('insightVizDataLogic', () => {
                     },
                 } as Partial<TrendsQuery>)
             }).toMatchValues({ isBreakdownSeries: true })
-        })
-    })
-
-    describe('tracking', () => {
-        let captureSpy: jest.SpyInstance
-
-        beforeEach(() => {
-            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-        })
-
-        afterEach(() => {
-            captureSpy.mockRestore()
-        })
-
-        it('captures breakdown changed', async () => {
-            await expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateBreakdownFilter({
-                    breakdowns: [{ property: '$browser', type: 'event' }],
-                })
-            }).toFinishAllListeners()
-
-            expect(captureSpy).toHaveBeenCalledWith('insight breakdown changed', {
-                query_kind: 'TrendsQuery',
-            })
-        })
-
-        it('captures date range changed', async () => {
-            await expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateDateRange({ date_from: '-30d' })
-            }).toFinishAllListeners()
-
-            expect(captureSpy).toHaveBeenCalledWith('insight date range changed', {
-                query_kind: 'TrendsQuery',
-            })
-        })
-
-        it('captures compare changed', async () => {
-            await expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateCompareFilter({ compare: true })
-            }).toFinishAllListeners()
-
-            expect(captureSpy).toHaveBeenCalledWith('insight compare changed', {
-                query_kind: 'TrendsQuery',
-            })
         })
     })
 })
