@@ -107,6 +107,51 @@ describe('FilterNodeSchema', () => {
         })
         expect(result.success).toBe(false)
     })
+
+    it('rejects condition missing field', () => {
+        const result = FilterNodeSchema.safeParse({ type: 'condition', operator: 'exact', value: 'x' })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects condition missing operator', () => {
+        const result = FilterNodeSchema.safeParse({ type: 'condition', field: 'event_name', value: 'x' })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects condition missing value', () => {
+        const result = FilterNodeSchema.safeParse({ type: 'condition', field: 'event_name', operator: 'exact' })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects condition with non-string value', () => {
+        const result = FilterNodeSchema.safeParse({
+            type: 'condition',
+            field: 'event_name',
+            operator: 'exact',
+            value: 123,
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects missing type', () => {
+        const result = FilterNodeSchema.safeParse({ children: [] })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects non-object node', () => {
+        const result = FilterNodeSchema.safeParse('string')
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects AND with non-list children', () => {
+        const result = FilterNodeSchema.safeParse({ type: 'and', children: 'not_a_list' })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects OR with non-list children', () => {
+        const result = FilterNodeSchema.safeParse({ type: 'or', children: 'not_a_list' })
+        expect(result.success).toBe(false)
+    })
 })
 
 describe('EventFilterRowSchema', () => {
