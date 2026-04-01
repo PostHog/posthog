@@ -28,11 +28,10 @@ class EmitBackfillSignalInput:
 @activity.defn
 async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput) -> list[ErrorTrackingIssueData]:
     """Fetch the 100 most recent error tracking issues ordered by first seen."""
-    from asgiref.sync import sync_to_async
-
     from posthog.schema import DateRange, ErrorTrackingQuery
 
     from posthog.models import Team
+    from posthog.sync import database_sync_to_async
 
     from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
@@ -54,7 +53,7 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
         )
         return runner.calculate()
 
-    response = await sync_to_async(_run_query, thread_sensitive=False)()
+    response = await database_sync_to_async(_run_query)()
 
     issues: list[ErrorTrackingIssueData] = []
     for result in response.results:
