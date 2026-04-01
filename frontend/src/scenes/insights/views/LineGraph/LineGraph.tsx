@@ -303,7 +303,7 @@ export function LineGraph_({
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
-    const hasMultipleSeries = new Set(_datasets.map((d) => d.action?.order ?? 0)).size > 1
+    const hasMultipleSeries = new Set(_datasets.map((d) => d.action?.order).filter((o) => o !== undefined)).size > 1
     const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
     const zoomPluginOptions = useChartZoom({
         datasets,
