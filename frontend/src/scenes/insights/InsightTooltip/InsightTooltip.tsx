@@ -214,10 +214,10 @@ export function InsightTooltip({
                             renderCount,
                             seriesColumnData?.color
                         )
-                        if (onRowClick && seriesColumnData) {
+                        if (onRowClick && seriesColumnData && numDataPoints > 1) {
                             return (
                                 <div
-                                    className="cursor-pointer hover:bg-accent-highlight-secondary -m-1 p-1"
+                                    className="cursor-pointer hover:bg-accent-highlight-secondary -mx-2 px-2 -my-1 py-1"
                                     onClick={() => onRowClick(seriesColumnData)}
                                 >
                                     {cell}
