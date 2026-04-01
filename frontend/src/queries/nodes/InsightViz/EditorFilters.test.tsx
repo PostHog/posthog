@@ -4,6 +4,7 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -110,54 +111,76 @@ describe('EditorFilters', () => {
         cleanup()
     })
 
-    it.each([
-        {
-            name: 'trends',
-            query: makeTrendsQuery(),
-            expectedPresent: ['Enable formula mode', 'Filters'],
-            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types', 'Starts at'],
-        },
-        {
-            name: 'lifecycle',
-            query: makeLifecycleQuery(),
-            expectedPresent: ['Lifecycle Toggles', 'Filters'],
-            expectedAbsent: ['Enable formula mode', 'Retention condition', 'Event Types', 'Stickiness Criteria'],
-        },
-        {
-            name: 'stickiness',
-            query: makeStickinessQuery(),
-            expectedPresent: ['Stickiness Criteria', 'Compute as', 'Filters'],
-            expectedAbsent: ['Enable formula mode', 'Lifecycle Toggles', 'Retention condition', 'Event Types'],
-        },
-        {
-            name: 'retention',
-            query: makeRetentionQuery(),
-            expectedPresent: ['Retention condition', 'Calculation options', 'Filters'],
-            expectedAbsent: ['Enable formula mode', 'Lifecycle Toggles', 'Stickiness Criteria', 'Event Types'],
-        },
-        {
-            name: 'funnels',
-            query: makeFunnelsQuery(),
-            expectedPresent: ['Filters', 'Advanced options'],
-            expectedAbsent: ['Enable formula mode', 'Lifecycle Toggles', 'Retention condition', 'Event Types'],
-        },
-        {
-            name: 'paths',
-            query: makePathsQuery(),
-            expectedPresent: ['Event Types', 'Starts at', 'Filters'],
-            expectedAbsent: ['Enable formula mode', 'Lifecycle Toggles', 'Retention condition', 'Stickiness Criteria'],
-        },
-    ])('$name shows correct filter labels', ({ query, expectedPresent, expectedAbsent }) => {
-        setupAndRender(query)
-        for (const text of expectedPresent) {
-            expect(screen.getByText(text)).toBeInTheDocument()
-        }
-        for (const text of expectedAbsent) {
-            expect(screen.queryByText(text)).not.toBeInTheDocument()
-        }
+    describe.each([
+        { flagEnabled: false, label: 'flag off' },
+        { flagEnabled: true, label: 'flag on' },
+    ])('PRODUCT_ANALYTICS_SIMPLE_EDITOR $label', ({ flagEnabled }) => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: flagEnabled,
+            })
+        })
+
+        it.each([
+            {
+                name: 'trends',
+                query: makeTrendsQuery(),
+                expectedPresent: ['Filters'],
+                expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types', 'Starts at'],
+            },
+            {
+                name: 'lifecycle',
+                query: makeLifecycleQuery(),
+                expectedPresent: ['Lifecycle Toggles', 'Filters'],
+                expectedAbsent: ['Retention condition', 'Event Types', 'Stickiness Criteria'],
+            },
+            {
+                name: 'stickiness',
+                query: makeStickinessQuery(),
+                expectedPresent: ['Stickiness Criteria', 'Filters'],
+                expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types'],
+            },
+            {
+                name: 'retention',
+                query: makeRetentionQuery(),
+                expectedPresent: ['Retention condition', 'Calculation options', 'Filters'],
+                expectedAbsent: ['Lifecycle Toggles', 'Stickiness Criteria', 'Event Types'],
+            },
+            {
+                name: 'funnels',
+                query: makeFunnelsQuery(),
+                expectedPresent: ['Filters', 'Advanced options'],
+                expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types'],
+            },
+            {
+                name: 'paths',
+                query: makePathsQuery(),
+                expectedPresent: ['Event Types', 'Starts at', 'Filters'],
+                expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Stickiness Criteria'],
+            },
+        ])('$name shows correct filter labels', ({ query, expectedPresent, expectedAbsent }) => {
+            setupAndRender(query)
+            for (const text of expectedPresent) {
+                expect(screen.getByText(text)).toBeInTheDocument()
+            }
+            for (const text of expectedAbsent) {
+                expect(screen.queryByText(text)).not.toBeInTheDocument()
+            }
+        })
     })
 
-    describe('formula mode toggle', () => {
+    describe('classic layout (flag off)', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: false,
+            })
+        })
+
+        it('shows formula mode toggle for trends', () => {
+            setupAndRender(makeTrendsQuery())
+            expect(screen.getByText('Enable formula mode')).toBeInTheDocument()
+        })
+
         it('toggles to "Disable formula mode" after clicking', async () => {
             const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
             jest.useFakeTimers()
@@ -171,19 +194,39 @@ describe('EditorFilters', () => {
             expect(screen.getByText('Disable formula mode')).toBeInTheDocument()
             jest.useRealTimers()
         })
-    })
 
-    describe('advanced options', () => {
         it('expands advanced options section on click', async () => {
             setupAndRender(makeFunnelsQuery())
 
-            // Starts collapsed — PoeFilter content not visible
             expect(screen.queryByText('Use person properties from query time')).not.toBeInTheDocument()
 
             await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
 
-            // Expanded — PoeFilter content now visible
             expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
+        })
+    })
+
+    describe('panels layout (flag on)', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: true,
+            })
+        })
+
+        it('hides formula mode toggle for trends', () => {
+            setupAndRender(makeTrendsQuery())
+            expect(screen.queryByText('Enable formula mode')).not.toBeInTheDocument()
+        })
+
+        it('shows funnel settings collapsed by default and expandable', async () => {
+            setupAndRender(makeFunnelsQuery())
+
+            const settingsButton = screen.getByRole('button', { name: /Funnel settings/ })
+            expect(settingsButton).toBeInTheDocument()
+            expect(settingsButton).toHaveAttribute('title', 'Show more')
+
+            await userEvent.click(settingsButton)
+            expect(settingsButton).toHaveAttribute('title', 'Show less')
         })
     })
 })
