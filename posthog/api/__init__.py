@@ -302,6 +302,9 @@ projects_router.register(r"signal_reports", signals.SignalReportViewSet, "projec
 projects_router.register(
     r"signal_source_configs", signals.SignalSourceConfigViewSet, "project_signal_source_configs", ["team_id"]
 )
+projects_router.register(
+    r"signal_grouping_pause", signals.SignalGroupingPauseViewSet, "project_signal_grouping_pause", ["team_id"]
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])

@@ -48,6 +48,7 @@ from products.signals.backend.serializers import (
     SignalSourceConfigSerializer,
 )
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
+from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
@@ -555,3 +556,34 @@ class SignalReportViewSet(
             )
 
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
+
+
+class PauseUntilSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(help_text="Pause the grouping pipeline until this timestamp (ISO 8601).")
+
+
+class SignalGroupingPauseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Control pause state of the signal grouping v2 pipeline for a team."""
+
+    scope_object = "INTERNAL"
+
+    @extend_schema(request=PauseUntilSerializer, responses={200: None})
+    @action(methods=["POST"], detail=False, url_path="pause")
+    def pause(self, request: Request, *args, **kwargs) -> Response:
+        serializer = PauseUntilSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        timestamp = serializer.validated_data["timestamp"]
+        async_to_sync(TeamSignalGroupingV2Workflow.pause_until)(self.team.id, timestamp)
+        return Response({"status": "paused", "paused_until": timestamp.isoformat()})
+
+    @extend_schema(request=None, responses={200: None})
+    @action(methods=["POST"], detail=False, url_path="unpause")
+    def unpause(self, request: Request, *args, **kwargs) -> Response:
+        was_paused = async_to_sync(TeamSignalGroupingV2Workflow.unpause)(self.team.id)
+        return Response({"status": "unpaused", "was_paused": was_paused})
+
+    @extend_schema(request=None, responses={200: None})
+    @action(methods=["GET"], detail=False, url_path="state")
+    def paused_state(self, request: Request, *args, **kwargs) -> Response:
+        state = async_to_sync(TeamSignalGroupingV2Workflow.paused_state)(self.team.id)
+        return Response({"paused_until": state.isoformat() if state else None})
