@@ -95,7 +95,20 @@ tools:
             use force_refresh to recompute. Rate-limited.
     llm-analytics-summarization-create:
         operation: llm_analytics_summarization_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Summarize trace or generation
+        description: >
+            Generate an AI-powered summary of an LLM trace or generation. Pass a
+            trace_id or generation_id with a date_from — the backend fetches the data
+            and returns a structured summary with title, flow diagram, summary bullets,
+            and interesting notes. Results are cached. Use mode "minimal" (default) for
+            3-5 points or "detailed" for 5-10 points. Rate-limited.
     llm-analytics-summarization-batch-check-create:
         operation: llm_analytics_summarization_batch_check_create
         enabled: false
