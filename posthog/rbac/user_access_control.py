@@ -80,7 +80,6 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
     "customer_journey": "customer_analytics",
-    "customer_profile_config": "customer_analytics",
     "experiment_saved_metric": "experiment",
 }
 
@@ -278,8 +277,6 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "external_data_schema"
     if name == "customerjourney":
         return "customer_journey"
-    if name == "customerprofileconfig":
-        return "customer_profile_config"
 
     if name not in API_SCOPE_OBJECTS:
         return None

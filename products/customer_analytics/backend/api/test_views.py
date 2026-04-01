@@ -393,6 +393,13 @@ class TestCustomerJourneyViewSet(APIBaseTest):
 
 @pytest.mark.ee
 class TestCustomerAnalyticsAccessControl(APIBaseTest):
+    """Resource-level access control tests for customer journeys.
+
+    Note: CustomerProfileConfig is a settings resource and uses project-level
+    admin permissions, not resource-level RBAC. See TestCustomerProfileConfigViewSet
+    for those tests.
+    """
+
     def setUp(self):
         super().setUp()
 
@@ -413,19 +420,12 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.no_access_user = User.objects.create_and_join(self.organization, "noaccess@posthog.com", "testtest")
 
         self.insight = Insight.objects.create(team=self.team)
-        self.profile_config = CustomerProfileConfig.objects.create(
-            team=self.team,
-            scope="person",
-            content=[{"type": "ph-node-foo", "index": 0}],
-            sidebar=[{"type": "ph-node-bar"}],
-        )
         self.journey = CustomerJourney.objects.create(
             team=self.team,
             insight=self.insight,
             name="Test Journey",
         )
 
-        self.profile_configs_url = f"/api/environments/{self.team.id}/customer_profile_configs/"
         self.journeys_url = f"/api/environments/{self.team.id}/customer_journeys/"
 
     def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
@@ -438,26 +438,13 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
-    # -- Viewer can list and retrieve --
+    # -- Viewer can list and retrieve journeys --
 
-    @parameterized.expand(
-        [
-            ("customer_profile_configs",),
-            ("customer_journeys",),
-        ]
-    )
-    def test_viewer_can_list(self, endpoint):
+    def test_viewer_can_list_journeys(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
-        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_viewer_can_retrieve_profile_config(self):
-        self._set_access_level(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.get(f"{self.profile_configs_url}{self.profile_config.id}/")
+        response = self.client.get(self.journeys_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_viewer_can_retrieve_journey(self):
@@ -467,18 +454,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         response = self.client.get(f"{self.journeys_url}{self.journey.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    # -- Viewer cannot create/update/delete --
-
-    def test_viewer_cannot_create_profile_config(self):
-        self._set_access_level(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.post(
-            self.profile_configs_url,
-            {"scope": "group_0", "content": {}, "sidebar": {}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    # -- Viewer cannot create/update/delete journeys --
 
     def test_viewer_cannot_create_journey(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -488,17 +464,6 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         response = self.client.post(
             self.journeys_url,
             {"insight": insight2.id, "name": "New Journey"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_viewer_cannot_update_profile_config(self):
-        self._set_access_level(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.patch(
-            f"{self.profile_configs_url}{self.profile_config.id}/",
-            {"scope": "group_0"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -514,13 +479,6 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_viewer_cannot_delete_profile_config(self):
-        self._set_access_level(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.delete(f"{self.profile_configs_url}{self.profile_config.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_viewer_cannot_delete_journey(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
@@ -528,18 +486,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # -- Editor can create/update/delete --
-
-    def test_editor_can_create_profile_config(self):
-        self._set_access_level(self.editor_user, access_level="editor")
-        self.client.force_login(self.editor_user)
-
-        response = self.client.post(
-            self.profile_configs_url,
-            {"scope": "group_0", "content": {}, "sidebar": {}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+    # -- Editor can create/update/delete journeys --
 
     def test_editor_can_create_journey(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -553,17 +500,6 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_editor_can_update_profile_config(self):
-        self._set_access_level(self.editor_user, access_level="editor")
-        self.client.force_login(self.editor_user)
-
-        response = self.client.patch(
-            f"{self.profile_configs_url}{self.profile_config.id}/",
-            {"scope": "group_0"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
     def test_editor_can_update_journey(self):
         self._set_access_level(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
@@ -575,13 +511,6 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_editor_can_delete_profile_config(self):
-        self._set_access_level(self.editor_user, access_level="editor")
-        self.client.force_login(self.editor_user)
-
-        response = self.client.delete(f"{self.profile_configs_url}{self.profile_config.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
     def test_editor_can_delete_journey(self):
         self._set_access_level(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
@@ -591,57 +520,32 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
     # -- None access blocks everything --
 
-    @parameterized.expand(
-        [
-            ("customer_profile_configs",),
-            ("customer_journeys",),
-        ]
-    )
-    def test_none_access_blocks_list(self, endpoint):
+    def test_none_access_blocks_journey_list(self):
         self._set_access_level(self.no_access_user, access_level="none")
         self.client.force_login(self.no_access_user)
 
-        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        response = self.client.get(self.journeys_url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # -- Resource inheritance: customer_analytics access cascades to child resources --
+    # -- Resource inheritance: customer_analytics access cascades to journeys --
 
-    @parameterized.expand(
-        [
-            ("customer_profile_configs",),
-            ("customer_journeys",),
-        ]
-    )
-    def test_customer_analytics_viewer_can_list_child_resources(self, endpoint):
+    def test_customer_analytics_viewer_can_list_journeys(self):
         self._set_access_level(self.viewer_user, resource="customer_analytics", access_level="viewer")
         self.client.force_login(self.viewer_user)
 
-        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        response = self.client.get(self.journeys_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    @parameterized.expand(
-        [
-            ("customer_profile_configs",),
-            ("customer_journeys",),
-        ]
-    )
-    def test_customer_analytics_none_blocks_child_resource_list(self, endpoint):
+    def test_customer_analytics_none_blocks_journey_list(self):
         self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
         self.client.force_login(self.no_access_user)
 
-        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        response = self.client.get(self.journeys_url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_customer_analytics_editor_can_create_child_resources(self):
+    def test_customer_analytics_editor_can_create_journey(self):
         self._set_access_level(self.editor_user, resource="customer_analytics", access_level="editor")
         self.client.force_login(self.editor_user)
-
-        response = self.client.post(
-            self.profile_configs_url,
-            {"scope": "group_1", "content": {}, "sidebar": {}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         insight2 = Insight.objects.create(team=self.team)
         response = self.client.post(
@@ -651,16 +555,9 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_customer_analytics_viewer_cannot_create_child_resources(self):
+    def test_customer_analytics_viewer_cannot_create_journey(self):
         self._set_access_level(self.viewer_user, resource="customer_analytics", access_level="viewer")
         self.client.force_login(self.viewer_user)
-
-        response = self.client.post(
-            self.profile_configs_url,
-            {"scope": "group_1", "content": {}, "sidebar": {}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         insight2 = Insight.objects.create(team=self.team)
         response = self.client.post(
@@ -678,13 +575,6 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         membership.save()
 
         self.client.force_login(self.editor_user)
-
-        response = self.client.post(
-            self.profile_configs_url,
-            {"scope": "group_2", "content": {}, "sidebar": {}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         insight2 = Insight.objects.create(team=self.team)
         response = self.client.post(

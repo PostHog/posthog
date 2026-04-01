@@ -342,9 +342,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
 
-    // Customer analytics
-    [Scene.CustomerAnalytics]: AccessControlResourceType.CustomerAnalytics,
-    [Scene.CustomerAnalyticsConfiguration]: AccessControlResourceType.CustomerAnalytics,
+    // Customer analytics (only journey scenes — configuration uses project-level admin)
     [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,
     [Scene.CustomerJourneyTemplates]: AccessControlResourceType.CustomerAnalytics,
 

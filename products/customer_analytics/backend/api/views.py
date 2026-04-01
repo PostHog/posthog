@@ -10,7 +10,7 @@ from .serializers import CustomerJourneySerializer, CustomerProfileConfigSeriali
 from .utils import log_customer_profile_config_activity
 
 
-class CustomerProfileConfigViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class CustomerProfileConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "customer_profile_config"
     queryset = CustomerProfileConfig.objects.all()
     serializer_class = CustomerProfileConfigSerializer
