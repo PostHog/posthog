@@ -12,7 +12,6 @@ from django.test.client import Client
 from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models.team import Team
 from posthog.utils import encode_get_request_params
 
@@ -30,16 +29,6 @@ def get_stickiness_ok(client: Client, team: Team, request: dict[str, Any]):
 def get_stickiness_time_series_ok(client: Client, team: Team, request: dict[str, Any]):
     data = get_stickiness_ok(client=client, request=request, team=team)
     return get_time_series_ok(data)
-
-
-def get_stickiness_people(client: Client, team_id: int, request: dict[str, Any]):
-    return client.get("/api/person/stickiness/", data=request)
-
-
-def get_stickiness_people_ok(client: Client, team_id: int, request: dict[str, Any]):
-    response = get_stickiness_people(client=client, team_id=team_id, request=encode_get_request_params(data=request))
-    assert response.status_code == 200
-    return response.json()
 
 
 def get_time_series_ok(data):
@@ -511,92 +500,6 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["label"], "watch movie action")
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")
-
-        @snapshot_clickhouse_queries
-        def test_stickiness_people_endpoint(self):
-            person1, _, _, person4 = self._create_multiple_people()
-
-            watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
-
-            stickiness_response = get_stickiness_people_ok(
-                client=self.client,
-                team_id=self.team.pk,
-                request={
-                    "shown_as": "Stickiness",
-                    "stickiness_days": 1,
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-08",
-                    "entity_id": watched_movie.id,
-                    "entity_type": "actions",
-                    "actions": [{"id": watched_movie.id, "type": "actions"}],
-                },
-            )
-            people = stickiness_response["results"][0]["people"]
-
-            all_people_ids = [str(person["id"]) for person in people]
-            self.assertListEqual(sorted(all_people_ids), sorted([str(person1.uuid), str(person4.uuid)]))
-
-        def test_stickiness_people_with_entity_filter(self):
-            person1, _, _, _ = self._create_multiple_people()
-
-            stickiness_response = get_stickiness_people_ok(
-                client=self.client,
-                team_id=self.team.pk,
-                request={
-                    "shown_as": "Stickiness",
-                    "stickiness_days": 1,
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-08",
-                    "events": [
-                        {
-                            "id": "watched movie",
-                            "type": "events",
-                            "properties": [{"key": "$browser", "value": "Chrome"}],
-                        }
-                    ],
-                    "entity_id": "watched movie",
-                },
-            )
-            people = stickiness_response["results"][0]["people"]
-
-            self.assertEqual(len(people), 1)
-            self.assertEqual(str(people[0]["id"]), str(person1.uuid))
-
-        @snapshot_clickhouse_queries
-        def test_stickiness_people_paginated(self):
-            for i in range(150):
-                person_name = f"person{i}"
-                person_factory(
-                    team_id=self.team.id,
-                    distinct_ids=[person_name],
-                    properties={"name": person_name},
-                )
-                event_factory(
-                    team=self.team,
-                    event="watched movie",
-                    distinct_id=person_name,
-                    timestamp="2020-01-01T12:00:00.00Z",
-                    properties={"$browser": "Chrome"},
-                )
-            watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
-
-            result = get_stickiness_people_ok(
-                client=self.client,
-                team_id=self.team.pk,
-                request={
-                    "shown_as": "Stickiness",
-                    "stickiness_days": 1,
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-08",
-                    ENTITY_TYPE: "actions",
-                    ENTITY_ID: watched_movie.id,
-                },
-            )
-
-            self.assertEqual(len(result["results"][0]["people"]), 100)
-
-            second_result = self.client.get(result["next"]).json()
-            self.assertEqual(len(second_result["results"][0]["people"]), 50)
 
         @snapshot_clickhouse_queries
         def test_compare(self):
