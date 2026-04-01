@@ -88,15 +88,6 @@ class TestStoreOrgMappingsInRedis:
             mock_pipe.execute.assert_called_once()
 
 
-def _make_pipeline_mock(exists_result, lrange_result):
-    """Create a mock Redis client whose pipeline returns EXISTS + LRANGE atomically."""
-    mock_pipe = AsyncMock()
-    mock_pipe.execute.return_value = [exists_result, lrange_result]
-    mock_redis = AsyncMock()
-    mock_redis.pipeline.return_value = mock_pipe
-    return mock_redis, mock_pipe
-
-
 class TestGetOrgMappingsPageFromRedis:
     @pytest.mark.asyncio
     async def test_get_page_success(self):
@@ -104,7 +95,8 @@ class TestGetOrgMappingsPageFromRedis:
             json.dumps({"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"}).encode(),
             json.dumps({"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"}).encode(),
         ]
-        mock_redis, mock_pipe = _make_pipeline_mock(True, raw_items)
+        mock_redis = AsyncMock()
+        mock_redis.lrange.return_value = raw_items
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -119,7 +111,8 @@ class TestGetOrgMappingsPageFromRedis:
 
     @pytest.mark.asyncio
     async def test_get_page_cache_miss(self):
-        mock_redis, _ = _make_pipeline_mock(False, [])
+        mock_redis = AsyncMock()
+        mock_redis.lrange.return_value = []
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -132,7 +125,7 @@ class TestGetOrgMappingsPageFromRedis:
     @pytest.mark.asyncio
     async def test_get_page_redis_error(self):
         mock_redis = AsyncMock()
-        mock_redis.pipeline.side_effect = Exception("Redis connection error")
+        mock_redis.lrange.side_effect = Exception("Redis connection error")
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -151,7 +144,8 @@ class TestGetOrgMappingsFromRedis:
         raw_items = [
             json.dumps({"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"}).encode(),
         ]
-        mock_redis, _ = _make_pipeline_mock(True, raw_items)
+        mock_redis = AsyncMock()
+        mock_redis.lrange.return_value = raw_items
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -163,7 +157,8 @@ class TestGetOrgMappingsFromRedis:
 
     @pytest.mark.asyncio
     async def test_get_all_cache_miss(self):
-        mock_redis, _ = _make_pipeline_mock(False, [])
+        mock_redis = AsyncMock()
+        mock_redis.lrange.return_value = []
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
@@ -227,27 +222,18 @@ class TestStoreAndRetrieveRoundTrip:
         ]
 
         stored_list: list[str] = []
-        call_count = 0
 
-        def make_pipe():
-            nonlocal call_count
-            call_count += 1
-            pipe = AsyncMock()
+        store_pipe = AsyncMock()
 
-            if call_count == 1:
-                # Store pipeline: capture rpush calls
-                def mock_rpush(key, *values):
-                    stored_list.extend(values)
+        def mock_rpush(key, *values):
+            stored_list.extend(values)
 
-                pipe.rpush = mock_rpush
-            else:
-                # Read pipeline: return stored data
-                pipe.execute.return_value = [True, stored_list]
-
-            return pipe
+        store_pipe.rpush = mock_rpush
 
         mock_redis = AsyncMock()
-        mock_redis.pipeline = AsyncMock(side_effect=make_pipe)
+        mock_redis.pipeline.return_value = store_pipe
+        # lrange returns whatever was stored via rpush
+        mock_redis.lrange = AsyncMock(side_effect=lambda key, start, end: stored_list)
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",

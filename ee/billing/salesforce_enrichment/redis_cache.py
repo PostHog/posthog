@@ -14,8 +14,10 @@ def _compress_redis_data(input_data: str) -> bytes:
 
 
 def _decompress_and_parse_redis_data(raw_redis_data: bytes) -> list[dict[str, Any]]:
-    """Decompress gzip data and parse JSON in a single call to minimize thread scheduling overhead."""
-    return json.loads(gzip.decompress(raw_redis_data).decode("utf-8"))
+    parsed = json.loads(gzip.decompress(raw_redis_data).decode("utf-8"))
+    if not isinstance(parsed, list):
+        raise TypeError(f"Expected list from Redis cache, got {type(parsed).__name__}")
+    return parsed
 
 
 async def _get_cached_list(cache_key: str, timeout: float = 30.0) -> list[dict[str, Any]] | None:
@@ -31,7 +33,7 @@ async def _get_cached_list(cache_key: str, timeout: float = 30.0) -> list[dict[s
         if not raw_redis_data:
             return None
 
-        return await asyncio.to_thread(_decompress_and_parse_redis_data, raw_redis_data)
+        return _decompress_and_parse_redis_data(raw_redis_data)
 
     except TimeoutError:
         capture_exception(TimeoutError(f"Redis operation timed out after {timeout}s for key {cache_key}"))
@@ -112,22 +114,12 @@ async def store_org_mappings_in_redis(
 
 
 async def _lrange_json_or_none(key: str, start: int, end: int) -> list[dict[str, Any]] | None:
-    """Atomically check key existence and fetch a range from a Redis List.
-
-    Uses a pipeline so the EXISTS and LRANGE execute in a single round-trip,
-    avoiding a TOCTOU race where the key could expire between two separate calls.
-
-    Returns:
-        Parsed list of dicts, or None if the key does not exist or on error.
-    """
+    """Fetch a range from a Redis List, returning None on cache miss or error."""
     try:
         redis_client = get_async_client()
-        pipe = await redis_client.pipeline()
-        pipe.exists(key)
-        pipe.lrange(key, start, end)
-        exists, raw_items = await pipe.execute()
+        raw_items = await redis_client.lrange(key, start, end)
 
-        if not exists:
+        if not raw_items:
             return None
 
         return [json.loads(item) for item in raw_items]
