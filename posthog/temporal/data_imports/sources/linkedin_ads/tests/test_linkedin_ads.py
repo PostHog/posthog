@@ -127,6 +127,7 @@ class TestFlattenLinkedinRecord:
         [
             ("costInUsd", "25.50", 25.50),
             ("costInLocalCurrency", "30.75", 30.75),
+            ("conversionValueInLocalCurrency", "12.34", 12.34),
         ],
     )
     def test_flatten_float_fields(self, field_name: str, raw_value: str, expected: float):
