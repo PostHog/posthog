@@ -272,7 +272,6 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         assert isinstance(trace_id_query, ast.SelectQuery)
         trace_id_query.order_by = [
             parse_order_expr(f"timestamp {order_dir}"),
-            parse_order_expr(f"uuid {order_dir}"),
         ]
 
         query = parse_select(
@@ -303,7 +302,6 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
 
         query.order_by = [
             parse_order_expr(f"timestamp {order_dir}"),
-            parse_order_expr(f"uuid {order_dir}"),
         ]
 
         query.limit_by = ast.LimitByExpr(
