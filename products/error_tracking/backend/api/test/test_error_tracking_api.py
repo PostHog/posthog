@@ -825,6 +825,50 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         assert len(rows) == 1
         assert str(rows[0][5]) == str(role.id)  # assigned_role_id
 
+    def test_status_change_syncs(self):
+        issue = self._create_issue(fingerprints=["fp_1"])
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data={"status": "resolved"},
+        )
+
+        rows = self._get_issue_state_rows()
+        assert len(rows) == 1
+        assert rows[0][3] == "resolved"  # issue_status
+
+    def test_bulk_status_change_syncs(self):
+        issue_one = self._create_issue(fingerprints=["fp_one"])
+        issue_two = self._create_issue(fingerprints=["fp_two"])
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+            data={"ids": [str(issue_one.id), str(issue_two.id)], "action": "set_status", "status": "resolved"},
+        )
+
+        rows = self._get_issue_state_rows()
+        assert len(rows) == 2
+        for row in rows:
+            assert row[3] == "resolved"  # issue_status
+
+    def test_bulk_assign_syncs(self):
+        issue_one = self._create_issue(fingerprints=["fp_one"])
+        issue_two = self._create_issue(fingerprints=["fp_two"])
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+            data={
+                "ids": [str(issue_one.id), str(issue_two.id)],
+                "action": "assign",
+                "assignee": {"id": self.user.id, "type": "user"},
+            },
+        )
+
+        rows = self._get_issue_state_rows()
+        assert len(rows) == 2
+        for row in rows:
+            assert row[4] == self.user.id  # assigned_user_id
+
     def test_merge_syncs(self):
         issue_one = self._create_issue(fingerprints=["fp_one"])
         issue_two = self._create_issue(fingerprints=["fp_two"])
