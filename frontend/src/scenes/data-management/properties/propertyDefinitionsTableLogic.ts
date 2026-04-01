@@ -86,11 +86,6 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         ],
     }),
     selectors({
-        showVerifiedFilter: [
-            (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinitionsPaginatedResponse): boolean =>
-                propertyDefinitions.results.length > 0 && 'verified' in propertyDefinitions.results[0],
-        ],
         propertyTypeOptions: [
             (s) => [s.groupTypes, s.aggregationLabel],
             (groupTypes, aggregationLabel) => {
@@ -161,6 +156,13 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                     return cache.apiCache[values.propertyDefinitions.current]
                 },
             },
+        ],
+    })),
+    selectors(() => ({
+        showVerifiedFilter: [
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinitionsPaginatedResponse): boolean =>
+                propertyDefinitions.results.length > 0 && 'verified' in propertyDefinitions.results[0],
         ],
     })),
     listeners(({ actions, values, cache }) => ({
