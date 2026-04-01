@@ -6,7 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Case, CharField, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Subquery, Value, When
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Value, When
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -260,7 +260,6 @@ class SignalReportViewSet(
         "is_suggested_reviewer": "is_suggested_reviewer",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
-        "priority": "priority_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
@@ -320,29 +319,6 @@ class SignalReportViewSet(
                 default=Value(50),
                 output_field=IntegerField(),
             )
-        )
-        # `ordering=priority` uses a numeric rank derived from the latest
-        # priority_judgment artefact (P0=0 … P4=4, null=99).
-        latest_priority_content = Subquery(
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"),
-                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-            )
-            .order_by("-created_at")
-            .values("content")[:1],
-            output_field=CharField(),
-        )
-        qs = qs.annotate(
-            _priority_str=latest_priority_content,
-            priority_rank=Case(
-                When(_priority_str__contains='"P0"', then=Value(0)),
-                When(_priority_str__contains='"P1"', then=Value(1)),
-                When(_priority_str__contains='"P2"', then=Value(2)),
-                When(_priority_str__contains='"P3"', then=Value(3)),
-                When(_priority_str__contains='"P4"', then=Value(4)),
-                default=Value(99),
-                output_field=IntegerField(),
-            ),
         )
         qs = qs.prefetch_related(
             Prefetch(
