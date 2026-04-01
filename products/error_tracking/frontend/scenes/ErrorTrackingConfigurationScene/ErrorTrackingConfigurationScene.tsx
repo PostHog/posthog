@@ -14,6 +14,7 @@ import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingConfigurationSceneType'
 
 export type ConfigurationSceneTabType =
+    | 'error-tracking-exception-autocapture'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-spike-detection'
     | 'error-tracking-auto-assignment'
@@ -35,7 +36,7 @@ export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurati
             settingsLogic({
                 logicKey: ERROR_TRACKING_LOGIC_KEY,
                 sectionId: 'environment-error-tracking-configuration',
-                settingId: initialTab || 'error-tracking-suppression-rules',
+                settingId: initialTab || 'error-tracking-alerting',
             }),
             ['selectSetting'],
         ],
@@ -111,11 +112,7 @@ export function ErrorTrackingConfigurationScene(): JSX.Element {
                 <SceneBreadcrumbBackButton />
             </div>
             <ErrorTrackingSetupPrompt>
-                <Settings
-                    logicKey={ERROR_TRACKING_LOGIC_KEY}
-                    sectionId="environment-error-tracking-configuration"
-                    handleLocally
-                />
+                <Settings logicKey={ERROR_TRACKING_LOGIC_KEY} sectionId={sectionId} handleLocally />
             </ErrorTrackingSetupPrompt>
         </>
     )

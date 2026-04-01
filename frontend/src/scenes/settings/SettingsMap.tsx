@@ -1017,6 +1017,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
                 component: <ExceptionAutocaptureToggle />,
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                flag: 'ERROR_TRACKING_SETTINGS_SPLIT',
             },
             {
                 id: 'error-tracking-integrations',
@@ -1024,13 +1025,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Connect error tracking with external services like GitHub or Linear.',
                 component: <ErrorTrackingIntegrations />,
                 keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
-            },
-            {
-                id: 'error-tracking-alerting',
-                title: 'Alerting',
-                description: 'Configure alerts to get notified when new errors occur or error rates spike.',
-                component: <ErrorTrackingAlerting />,
-                keywords: ['notification', 'alert', 'threshold', 'spike'],
             },
         ],
     },
@@ -1041,6 +1035,24 @@ export const SETTINGS_MAP: SettingSection[] = [
         group: 'Products',
         hideFromNavigation: true,
         settings: [
+            {
+                id: 'error-tracking-exception-autocapture',
+                title: 'Exception autocapture',
+                description:
+                    'Automatically capture frontend exceptions using onError and onUnhandledRejection listeners in the web JavaScript SDK.',
+                docsUrl: 'https://posthog.com/docs/error-tracking',
+                platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
+                component: <ExceptionAutocaptureToggle />,
+                keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                flag: '!ERROR_TRACKING_SETTINGS_SPLIT',
+            },
+            {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                description: 'Configure alerts to get notified when new errors occur or error rates spike.',
+                component: <ErrorTrackingAlerting />,
+                keywords: ['notification', 'alert', 'threshold', 'spike'],
+            },
             {
                 id: 'error-tracking-suppression-rules',
                 title: 'Suppression rules',

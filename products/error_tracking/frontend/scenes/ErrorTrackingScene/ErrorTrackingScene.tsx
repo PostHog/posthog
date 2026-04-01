@@ -48,7 +48,6 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasInsights = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
-
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
         api.hogFunctions
@@ -96,7 +95,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 <Settings
                     logicKey={ERROR_TRACKING_LOGIC_KEY}
                     sectionId="environment-error-tracking-configuration"
-                    settingId="error-tracking-suppression-rules"
+                    settingId="error-tracking-alerting"
                     handleLocally
                 />
             ),
