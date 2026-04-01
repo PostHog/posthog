@@ -45,6 +45,13 @@ class PinterestAdsAdapter(MarketingSourceAdapter[PinterestAdsConfig]):
                     stats_table=self.config.stats_table.name,
                 )
 
+            for col in ("total_impression", "total_clickthrough", "spend_in_dollar"):
+                if not self._has_stats_column(col):
+                    self.logger.warning(
+                        f"Pinterest Ads stats table missing '{col}' column, metric will be reported as 0",
+                        stats_table=self.config.stats_table.name,
+                    )
+
             is_valid = len(errors) == 0
             self._log_validation_errors(errors)
 
