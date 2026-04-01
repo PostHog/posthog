@@ -479,16 +479,15 @@ export const workflowLogic = kea<workflowLogicType>([
             const workflowId = originalWorkflow.id
             const pendingSchedule = values.pendingSchedule
             const existingScheduleId = values.currentSchedule?.id
+            const hasScheduleChanges = pendingSchedule !== false && !!workflowId
 
-            if (pendingSchedule !== false && workflowId) {
+            if (hasScheduleChanges) {
                 try {
-                    if (pendingSchedule === null) {
-                        if (existingScheduleId) {
-                            await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
-                        }
-                    } else if (existingScheduleId) {
+                    if (pendingSchedule === null && existingScheduleId) {
+                        await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+                    } else if (pendingSchedule !== null && existingScheduleId) {
                         await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
-                    } else {
+                    } else if (pendingSchedule !== null) {
                         await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
                     }
 
