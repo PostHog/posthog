@@ -10,7 +10,9 @@ from hogli import hints
 
 
 @pytest.fixture(autouse=True)
-def _isolated_state(tmp_path):
+def _isolated_state(tmp_path, monkeypatch):
+    monkeypatch.delenv("HOGLI_NO_HINTS", raising=False)
+    monkeypatch.delenv("CI", raising=False)
     state_path = tmp_path / "hogli_hints.json"
     with patch.object(hints, "_get_state_path", return_value=state_path):
         yield state_path

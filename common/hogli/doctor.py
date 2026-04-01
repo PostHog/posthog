@@ -1519,7 +1519,7 @@ def _check_disk(repo_root: Path) -> CheckResult:
     return CheckResult(
         name="Disk usage",
         status=CheckStatus.OK,
-        summary=_format_size(total) + " reclaimable" if total > 0 else "clean",
+        summary=(_format_size(total) + " reclaimable") if total > 0 else "clean",
     )
 
 
