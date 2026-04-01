@@ -46,7 +46,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         query: FunnelsQuery,
         funnel_trends_entrance_period_start: Optional[str] = None,
         funnel_trends_drop_off: Optional[bool] = None,
-    ) -> list[str]:
+    ) -> list[dict]:
         actors = get_actors(
             query,
             self.team,
