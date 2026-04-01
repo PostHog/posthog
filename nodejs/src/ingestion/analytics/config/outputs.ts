@@ -1,16 +1,27 @@
 import {
+    KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+    KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
     KAFKA_GROUPS,
     KAFKA_INGESTION_WARNINGS,
+    KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
 } from '../../../config/kafka-topics'
-import { DLQ_OUTPUT, GROUPS_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../../common/outputs'
+import {
+    APP_METRICS_OUTPUT,
+    DLQ_OUTPUT,
+    GROUPS_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
+    OVERFLOW_OUTPUT,
+    TOPHOG_OUTPUT,
+} from '../../common/outputs'
 import { IngestionOutputDefinition } from '../../outputs/resolver'
 import {
     AI_EVENTS_OUTPUT,
@@ -83,5 +94,23 @@ export const INGESTION_OUTPUT_DEFINITIONS: Record<string, IngestionOutputDefinit
         defaultProducerName: DEFAULT_PRODUCER,
         producerOverrideEnvVar: 'INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER',
         topicOverrideEnvVar: 'INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC',
+    },
+    [APP_METRICS_OUTPUT]: {
+        defaultTopic: KAFKA_APP_METRICS_2,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'INGESTION_OUTPUT_APP_METRICS_PRODUCER',
+        topicOverrideEnvVar: 'INGESTION_OUTPUT_APP_METRICS_TOPIC',
+    },
+    [LOG_ENTRIES_OUTPUT]: {
+        defaultTopic: KAFKA_LOG_ENTRIES,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER',
+        topicOverrideEnvVar: 'INGESTION_OUTPUT_LOG_ENTRIES_TOPIC',
+    },
+    [TOPHOG_OUTPUT]: {
+        defaultTopic: KAFKA_CLICKHOUSE_TOPHOG,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'INGESTION_OUTPUT_TOPHOG_PRODUCER',
+        topicOverrideEnvVar: 'INGESTION_OUTPUT_TOPHOG_TOPIC',
     },
 }

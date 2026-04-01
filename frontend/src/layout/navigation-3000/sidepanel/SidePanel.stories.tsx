@@ -77,6 +77,7 @@ export const SidePanelDocs: Story = {
         testOptions: {
             // Skip iframe wait since the external docs iframe fails to load in CI
             skipIframeWait: true,
+            snapshotBrowsers: [], // disable visual regression — external iframe is non-deterministic
         },
     },
 }

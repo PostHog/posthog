@@ -44,29 +44,17 @@ jobs:
             - name: Set up Depot CLI
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
 
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
               with:
-                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
-                  aws-region: us-east-1
-
-            - name: Login to Amazon ECR
-              id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
-
-            - name: Login to DockerHub
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-              with:
-                  username: ${{ secrets.DOCKERHUB_USER }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            - name: Login to ghcr.io
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-                  logout: false
+                  image-name: posthog
+                  ecr-image-name: posthog-cloud
+                  push-to-dockerhub: 'true'
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Build and push container image
               id: build
@@ -74,7 +62,8 @@ jobs:
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
-                  tags: ghcr.io/posthog/posthog:latest,ghcr.io/posthog/posthog:${{ github.sha }},posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
@@ -422,21 +411,28 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            - name: Check for changes that affect health check temporal worker
+            - name: Check for changes that affect temporal workers (dorny)
               uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
-              id: check_changes_health_check_temporal_worker
+              id: check_temporal_worker_changes
               with:
                   filters: |
-                      shouldRun:
+                      healthCheck:
                         - 'posthog/temporal/health_checks/**'
                         - 'products/.*/backend/temporal/health_checks/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
+                      logsAlerting:
+                        - 'posthog/temporal/logs_alerting/**'
+                        - 'products/logs/backend/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
 
             - name: Trigger Health Check Temporal Worker Cloud deployment
-              if: steps.check_changes_health_check_temporal_worker.outputs.shouldRun == 'true'
+              if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -500,6 +496,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-messaging",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Logs Alerting Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.logsAlerting == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-logs-alerting",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

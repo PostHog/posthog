@@ -314,9 +314,7 @@ export function Nav(): JSX.Element {
                     showRecents
                 />
             )}
-            {activePanelIdentifier === 'Products' && (
-                <ProjectTree root="custom-products://" searchPlaceholder="Search apps" />
-            )}
+            {activePanelIdentifier === 'Products' && <ProjectTree root="products://" searchPlaceholder="Search apps" />}
             {activePanelIdentifier === 'Shortcuts' && (
                 <ProjectTree root="shortcuts://" searchPlaceholder="Search starred items" />
             )}

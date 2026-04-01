@@ -37,7 +37,7 @@ class TraceSpansTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "trace_spans"
+        return "trace_spans_distributed"
 
     def to_printed_hogql(self):
         return "trace_spans"
@@ -58,7 +58,7 @@ class TraceAttributesTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "trace_attributes"
+        return "trace_attributes_distributed"
 
     def to_printed_hogql(self):
         return "trace_attributes"

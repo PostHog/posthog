@@ -5,7 +5,7 @@ import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
 import React from 'react'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -935,6 +935,56 @@ describe('maxThreadLogic', () => {
                     },
                 ],
             })
+        })
+    })
+
+    describe('400 error message handling', () => {
+        it('surfaces server detail message for 400 errors', async () => {
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(
+                new ApiError('Bad Request', 400, undefined, { detail: 'The server error message' })
+            )
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            })
+                .toDispatchActions(['askMax', 'addMessage', 'completeThreadGeneration'])
+                .toMatchValues({
+                    threadGrouped: expect.arrayContaining([
+                        expect.objectContaining({
+                            type: AssistantMessageType.Failure,
+                            content: 'The server error message',
+                        }),
+                    ]),
+                })
+        })
+
+        it('shows content length message for 400 errors with content attr', async () => {
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(
+                new ApiError('Bad Request', 400, undefined, { attr: 'content', detail: 'Content too long' })
+            )
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            })
+                .toDispatchActions(['askMax', 'addMessage', 'completeThreadGeneration'])
+                .toMatchValues({
+                    threadGrouped: expect.arrayContaining([
+                        expect.objectContaining({
+                            type: AssistantMessageType.Failure,
+                            content: 'Oops! Your message is too long. Ensure it has no more than 40000 characters.',
+                        }),
+                    ]),
+                })
         })
     })
 
