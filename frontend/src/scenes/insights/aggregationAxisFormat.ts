@@ -20,7 +20,7 @@ export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[
     { value: 'short', label: 'Short Number' },
 ]
 
-export const INSIGHT_UNIT_OPTIONS_SHORT: Record<string, string> = {
+export const INSIGHT_UNIT_OPTIONS_SHORT: Record<AggregationAxisFormat, string> = {
     numeric: '',
     duration: 's',
     duration_ms: 'ms',
