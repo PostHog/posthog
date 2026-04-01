@@ -341,19 +341,21 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                 settings.map((x, index) => (
                     <div key={`${x.id}-${index}`} className="relative last:mb-4">
                         {!settingsInSidebar && x.title && (
-                            <h2 id={x.id} className="flex gap-2 items-center text-base font-semibold mb-0">
-                                {x.title}
-                                {props.logicKey === 'settingsScene' && (
-                                    <LemonButton
-                                        icon={<IconLink />}
-                                        size="small"
-                                        to={urls.settings(selectedSectionId ?? selectedLevel, x.id)}
-                                        onClick={(e) => {
-                                            selectSetting(x.id)
-                                            e.preventDefault()
-                                        }}
-                                    />
-                                )}
+                            <h2 id={x.id} className="flex flex-wrap gap-2 items-center text-base font-semibold mb-0">
+                                <span className="flex gap-2 items-center">
+                                    {x.title}
+                                    {props.logicKey === 'settingsScene' && (
+                                        <LemonButton
+                                            icon={<IconLink />}
+                                            size="small"
+                                            to={urls.settings(selectedSectionId ?? selectedLevel, x.id)}
+                                            onClick={(e) => {
+                                                selectSetting(x.id)
+                                                e.preventDefault()
+                                            }}
+                                        />
+                                    )}
+                                </span>
                                 {x.platformSupport && <SupportedPlatforms config={x.platformSupport} />}
                             </h2>
                         )}

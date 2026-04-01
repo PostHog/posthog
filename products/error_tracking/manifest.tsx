@@ -15,18 +15,21 @@ export const manifest: ProductManifest = {
             name: 'Error tracking',
             iconType: 'error_tracking',
             description: 'Track and analyze your error tracking data to understand and fix issues.',
+            settingsSection: 'environment-error-tracking',
         },
         ErrorTrackingIssue: {
             import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
             layout: 'app-raw',
+            settingsSection: 'environment-error-tracking',
         },
         ErrorTrackingIssueFingerprints: {
             import: () =>
                 import('./frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
             projectBased: true,
             name: 'Error tracking issue fingerprints',
+            settingsSection: 'environment-error-tracking',
         },
     },
     routes: {

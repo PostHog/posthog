@@ -1,4 +1,12 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { ConversationsApiKeySetting } from '@posthog/products-conversations/frontend/settings/ConversationsApiKeySetting'
+import { ConversationsApiSetting } from '@posthog/products-conversations/frontend/settings/ConversationsApiSetting'
+import { ConversationsEmailSetting } from '@posthog/products-conversations/frontend/settings/ConversationsEmailSetting'
+import { ConversationsNotificationsSetting } from '@posthog/products-conversations/frontend/settings/ConversationsNotificationsSetting'
+import { ConversationsPublicTokenSetting } from '@posthog/products-conversations/frontend/settings/ConversationsPublicTokenSetting'
+import { ConversationsSlackSetting } from '@posthog/products-conversations/frontend/settings/ConversationsSlackSetting'
+import { ConversationsWidgetConfigSetting } from '@posthog/products-conversations/frontend/settings/ConversationsWidgetConfigSetting'
+import { ConversationsWidgetSetting } from '@posthog/products-conversations/frontend/settings/ConversationsWidgetSetting'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -11,6 +19,7 @@ import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
+import { VisualReviewSettings } from '@posthog/products-visual-review/frontend/settings/VisualReviewSettings'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
@@ -1217,6 +1226,92 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/privacy',
                 component: <IPCapture />,
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation', 'discard'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-conversations',
+        title: 'Conversations',
+        group: 'Products',
+        flag: 'PRODUCT_CONVERSATIONS',
+        settings: [
+            {
+                id: 'conversations-api',
+                title: 'Conversations API',
+                description: 'Enable the conversations API to allow access for tickets and messages from your users.',
+                docsUrl: 'https://posthog.com/docs/support/javascript-api',
+                component: <ConversationsApiSetting />,
+                keywords: ['support', 'chat', 'ticket', 'message', 'conversation'],
+            },
+            {
+                id: 'conversations-notifications',
+                title: 'Notifications',
+                description: 'Configure email and browser notifications for new tickets and messages.',
+                component: <ConversationsNotificationsSetting />,
+                keywords: ['notification', 'email', 'browser', 'alert'],
+            },
+            {
+                id: 'conversations-slack',
+                title: 'Slack integration',
+                description:
+                    'Connect Slack to receive ticket notifications and manage conversations from your workspace.',
+                component: <ConversationsSlackSetting />,
+                keywords: ['slack', 'integration', 'channel', 'notification'],
+            },
+            {
+                id: 'conversations-email-channel',
+                title: 'Email channel',
+                description: 'Connect email addresses to send and receive support messages via email.',
+                component: <ConversationsEmailSetting />,
+                flag: 'PRODUCT_SUPPORT_EMAIL_CHANNEL',
+                keywords: ['email', 'channel', 'smtp', 'inbound'],
+            },
+            {
+                id: 'conversations-widget',
+                title: 'In-app widget',
+                description: 'Add a chat widget to your website for customers to reach you directly.',
+                docsUrl: 'https://posthog.com/docs/support/widget',
+                component: <ConversationsWidgetSetting />,
+                keywords: ['widget', 'chat', 'support', 'embed'],
+            },
+            {
+                id: 'conversations-widget-config',
+                title: 'Widget configuration',
+                description: 'Configure the appearance, domains, and identification form for the in-app widget.',
+                docsUrl: 'https://posthog.com/docs/support/widget',
+                component: <ConversationsWidgetConfigSetting />,
+                keywords: ['widget', 'domain', 'color', 'position', 'greeting', 'form'],
+            },
+            {
+                id: 'conversations-api-key',
+                title: 'API key',
+                description: 'Manage the secret API key for server-side conversations API access.',
+                component: <ConversationsApiKeySetting />,
+                keywords: ['api', 'key', 'secret', 'token', 'authentication'],
+            },
+            {
+                id: 'conversations-public-token',
+                title: 'Public token',
+                description: 'View and regenerate the public token used to authenticate widget requests.',
+                component: <ConversationsPublicTokenSetting />,
+                keywords: ['token', 'public', 'widget', 'authentication'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-visual-review',
+        title: 'Visual review',
+        group: 'Products',
+        flag: 'VISUAL_REVIEW',
+        settings: [
+            {
+                id: 'visual-review-repos',
+                title: 'Repository configuration',
+                description: 'Connect GitHub repositories and configure baseline paths for visual regression testing.',
+                component: <VisualReviewSettings />,
+                keywords: ['github', 'visual', 'review', 'snapshot', 'baseline', 'regression'],
             },
         ],
     },

@@ -49,7 +49,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
-    SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
@@ -109,7 +108,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
-    VisualReviewSettings: () => import('../../products/visual_review/frontend/scenes/VisualReviewSettingsScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
@@ -124,7 +122,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transformations': ['Transformations', 'transformations'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
-    '/support/settings': ['SupportSettings', 'supportSettings'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
@@ -192,7 +189,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/user_interviews': ['UserInterviews', 'userInterviews'],
     '/user_interviews/:id': ['UserInterview', 'userInterview'],
     '/visual_review': ['VisualReviewRuns', 'visualReviewRuns'],
-    '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
@@ -211,6 +207,7 @@ export const productRedirects: Record<
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
     '/support': '/support/tickets',
+    '/support/settings': '/settings/environment-conversations',
     '/customer_analytics': (_params, searchParams, hashParams) =>
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
@@ -267,16 +264,30 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'HogFunction',
         iconType: 'data_pipeline',
     },
-    SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
-    SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
-    SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
+    SupportTickets: {
+        name: 'Ticket list',
+        projectBased: true,
+        layout: 'app-container',
+        settingsSection: 'environment-conversations',
+    },
+    SupportTicketDetail: {
+        name: 'Ticket detail',
+        projectBased: true,
+        layout: 'app-container',
+        settingsSection: 'environment-conversations',
+    },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
+        settingsSection: 'environment-customer-analytics',
     },
-    CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
+    CustomerAnalyticsConfiguration: {
+        projectBased: true,
+        name: 'Customer analytics configuration',
+        settingsSection: 'environment-customer-analytics',
+    },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
     DataOps: {
@@ -332,6 +343,28 @@ export const productConfiguration: Record<string, any> = {
         name: 'Error tracking',
         iconType: 'error_tracking',
         description: 'Track and analyze your error tracking data to understand and fix issues.',
+        settingsSection: 'environment-error-tracking',
+    },
+    ErrorTrackingIssue: {
+        projectBased: true,
+        name: 'Error tracking issue',
+        layout: 'app-raw',
+        settingsSection: 'environment-error-tracking',
+    },
+    ErrorTrackingIssueFingerprints: {
+        projectBased: true,
+        name: 'Error tracking issue fingerprints',
+        settingsSection: 'environment-error-tracking',
+    },
+    ErrorTrackingConfiguration: {
+        projectBased: true,
+        name: 'Error tracking configuration',
+        settingsSection: 'environment-error-tracking',
+    },
+    FeatureFlagTemplates: {
+        projectBased: true,
+        name: 'Feature flag templates',
+        settingsSection: 'environment-feature-flags',
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
@@ -363,6 +396,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Test and experiment with LLM prompts in a sandbox environment.',
         layout: 'app-full-scene-height',
         iconType: 'llm_playground',
+        settingsSection: 'environment-llm-analytics',
     },
     LLMAnalyticsDatasets: {
         projectBased: true,
@@ -384,6 +418,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_evaluations',
+        settingsSection: 'environment-llm-analytics',
     },
     LLMAnalyticsEvaluation: {
         projectBased: true,
@@ -391,6 +426,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_evaluations',
+        settingsSection: 'environment-llm-analytics',
     },
     LLMAnalyticsEvaluationTemplates: {
         projectBased: true,
@@ -398,6 +434,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_evaluations',
+        settingsSection: 'environment-llm-analytics',
     },
     LLMAnalyticsPrompts: {
         projectBased: true,
@@ -429,6 +466,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         name: 'Logs',
         activityScope: ActivityScope.LOG,
+        settingsSection: 'environment-logs',
         layout: 'app-container',
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
@@ -448,6 +486,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         iconType: 'revenue_analytics',
         description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
+        settingsSection: 'environment-revenue-analytics',
     },
     SessionGroupSummariesTable: {
         name: 'Session summaries',
@@ -492,9 +531,18 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'user_interview',
     },
     UserInterview: { name: 'User interview', projectBased: true, activityScope: 'UserInterview' },
-    VisualReviewRuns: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
-    VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
-    VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
+    VisualReviewRuns: {
+        name: 'Visual review',
+        projectBased: true,
+        iconType: 'visual_review',
+        settingsSection: 'environment-visual-review',
+    },
+    VisualReviewRun: {
+        name: 'Visual review run',
+        projectBased: true,
+        iconType: 'visual_review',
+        settingsSection: 'environment-visual-review',
+    },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',
@@ -521,7 +569,6 @@ export const productUrls = {
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
-    supportSettings: (): string => '/support/settings',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
@@ -853,7 +900,6 @@ export const productUrls = {
     userInterviews: (): string => '/user_interviews',
     userInterview: (id: string): string => `/user_interviews/${id}`,
     visualReviewRuns: (): string => '/visual_review',
-    visualReviewSettings: (): string => '/visual_review/settings',
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
@@ -1584,7 +1630,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
+        sceneKeys: ['SupportTickets', 'SupportTicketDetail'],
     },
     {
         path: 'Surveys',
@@ -1654,7 +1700,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.VISUAL_REVIEW,
         tags: ['alpha'],
         sceneKey: 'VisualReviewRuns',
-        sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings'],
+        sceneKeys: ['VisualReviewRuns', 'VisualReviewRun'],
     },
     {
         path: 'Web analytics',
