@@ -104,7 +104,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             response_data = UtmAuditResponseSerializer(asdict(audit_response)).data
             return Response(response_data)
         except Exception:
-            logger.exception("utm_audit_failed")
+            logger.exception("utm_audit_failed", team_id=self.team.pk, date_from=date_from, date_to=date_to)
             return Response(
                 {"detail": "Failed to run UTM audit. Check server logs for details."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
