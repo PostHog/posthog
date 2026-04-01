@@ -1051,28 +1051,15 @@ describe('LLM Analytics utils', () => {
     })
 
     describe('LangChain/LangGraph format', () => {
-        it('isLangChainMessage matches human type', () => {
-            expect(isLangChainMessage({ type: 'human', content: 'Hello' })).toBe(true)
-        })
-
-        it('isLangChainMessage matches ai type', () => {
-            expect(isLangChainMessage({ type: 'ai', content: 'Hi there', tool_calls: [] })).toBe(true)
-        })
-
-        it('isLangChainMessage matches tool type', () => {
-            expect(isLangChainMessage({ type: 'tool', content: 'result', tool_call_id: 'toolu_123' })).toBe(true)
-        })
-
-        it('isLangChainMessage matches context type', () => {
-            expect(isLangChainMessage({ type: 'context', content: '<system_reminder>...' })).toBe(true)
-        })
-
-        it('isLangChainMessage rejects messages with role field', () => {
-            expect(isLangChainMessage({ role: 'user', type: 'human', content: 'Hello' })).toBe(false)
-        })
-
-        it('isLangChainMessage rejects unknown types', () => {
-            expect(isLangChainMessage({ type: 'text', content: 'Hello' })).toBe(false)
+        it.each([
+            ['human type', { type: 'human', content: 'Hello' }, true],
+            ['ai type', { type: 'ai', content: 'Hi there', tool_calls: [] }, true],
+            ['tool type', { type: 'tool', content: 'result', tool_call_id: 'toolu_123' }, true],
+            ['context type', { type: 'context', content: '<system_reminder>...' }, true],
+            ['rejects messages with role field', { role: 'user', type: 'human', content: 'Hello' }, false],
+            ['rejects unknown types', { type: 'text', content: 'Hello' }, false],
+        ])('isLangChainMessage: %s', (_, input, expected) => {
+            expect(isLangChainMessage(input)).toBe(expected)
         })
 
         it('normalizeMessage maps human type to user role', () => {
