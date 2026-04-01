@@ -1335,9 +1335,10 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             return
 
         # Build lookup map from merged results
-        flag_updates: dict[tuple[int, str], datetime] = {
-            key: ts for key, (ts, _count) in merged_results.items() if ts is not None
-        }
+        flag_updates: dict[tuple[int, str], datetime] = {}
+        for key, (ts, _count) in merged_results.items():
+            if ts is not None:
+                flag_updates[key] = ts
 
         if not flag_updates:
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
