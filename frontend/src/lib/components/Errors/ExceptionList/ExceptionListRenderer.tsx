@@ -6,14 +6,12 @@ type ExceptionListRendererProps = {
     className?: string
     exceptionList: ErrorTrackingExceptionList
     renderException: (exception: ErrorTrackingExceptionList[number], index: number) => React.ReactNode
-    nestedExceptionLabel?: string
 }
 
 export function ExceptionListRenderer({
     className,
     exceptionList,
     renderException,
-    nestedExceptionLabel = 'Caused by',
 }: ExceptionListRendererProps): JSX.Element {
     return (
         <div className={cn('space-y-2', className)}>
@@ -22,7 +20,7 @@ export function ExceptionListRenderer({
                     {index > 0 && (
                         <div className="flex items-center gap-2 my-2 ml-2 text-xs font-semibold text-muted uppercase tracking-wide">
                             <span>↳</span>
-                            <span>{nestedExceptionLabel}</span>
+                            <span>Caused by</span>
                             <div className="flex-1 border-t border-dashed border-border" />
                         </div>
                     )}
