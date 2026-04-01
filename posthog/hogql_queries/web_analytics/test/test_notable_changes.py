@@ -1,9 +1,10 @@
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 from posthog.schema import CompareFilter, DateRange, HogQLQueryModifiers, WebNotableChangesQuery
 
 from posthog.hogql_queries.web_analytics.notable_changes import WebNotableChangesQueryRunner
+from posthog.models.utils import uuid7
 
 
 @snapshot_clickhouse_queries
@@ -80,7 +81,7 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(scored), 1)
         self.assertLessEqual(scored[0].percent_change, 10.0)
 
-    def test_limit_applied(self):
+    def test_scoring_returns_all_items_before_limit(self):
         runner = WebNotableChangesQueryRunner(
             team=self.team,
             query=self._create_query(limit=2),
@@ -109,3 +110,63 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         scored = runner._score_results(results)
         self.assertEqual(len(scored), 1)
         self.assertAlmostEqual(scored[0].percent_change, -0.25, places=2)
+
+    @snapshot_clickhouse_queries
+    def test_integration_with_events(self):
+        # Current period: 2025-01-22 to 2025-01-29
+        # Previous period: 2025-01-15 to 2025-01-22
+        s_current_1 = str(uuid7("2025-01-23"))
+        s_current_2 = str(uuid7("2025-01-24"))
+        s_current_3 = str(uuid7("2025-01-25"))
+        s_previous_1 = str(uuid7("2025-01-16"))
+
+        for distinct_id, session_id, timestamp, pathname, browser in [
+            # Current period: 3 visitors to /blog
+            ("p1", s_current_1, "2025-01-23", "/blog", "Chrome"),
+            ("p2", s_current_2, "2025-01-24", "/blog", "Chrome"),
+            ("p3", s_current_3, "2025-01-25", "/blog", "Firefox"),
+            # Current period: 2 visitors to /home
+            ("p1", s_current_1, "2025-01-23", "/home", "Chrome"),
+            ("p2", s_current_2, "2025-01-24", "/home", "Chrome"),
+            # Previous period: 1 visitor to /blog, 1 to /home
+            ("p1", s_previous_1, "2025-01-16", "/blog", "Chrome"),
+            ("p1", s_previous_1, "2025-01-16", "/home", "Chrome"),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={
+                    "$session_id": session_id,
+                    "$pathname": pathname,
+                    "$browser": browser,
+                    "$device_type": "Desktop",
+                    "$host": "example.com",
+                },
+            )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = self._create_query(limit=50)
+            runner = WebNotableChangesQueryRunner(
+                team=self.team,
+                query=query,
+                modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False),
+            )
+            response = runner.calculate()
+
+            self.assertFalse(response.usedPreAggregatedTables)
+            self.assertGreater(len(response.results), 0)
+
+            # Results should be sorted by impact_score descending
+            scores = [item.impact_score for item in response.results]
+            self.assertEqual(scores, sorted(scores, reverse=True))
+
+            # Every result should have valid fields
+            for item in response.results:
+                self.assertIn(
+                    item.dimension_type,
+                    ["Page", "Entry page", "Referrer", "Device", "Browser", "Country", "Channel", "UTM source"],
+                )
+                self.assertIsNotNone(item.dimension_value)
+                self.assertIsNotNone(item.percent_change)

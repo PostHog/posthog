@@ -1,5 +1,5 @@
 import math
-from typing import Union
+from typing import Required, TypedDict, Union
 
 import structlog
 
@@ -25,7 +25,16 @@ logger = structlog.get_logger(__name__)
 MIN_TRAFFIC_THRESHOLD = 10
 DEFAULT_LIMIT = 8
 
-DIMENSIONS: list[dict] = [
+
+class DimensionConfig(TypedDict, total=False):
+    label: Required[str]
+    field: str | None
+    is_path: bool
+    is_channel: bool
+    raw_field: list[str] | None
+
+
+DIMENSIONS: list[DimensionConfig] = [
     {"label": "Page", "field": "pathname", "is_path": True, "raw_field": ["events", "properties", "$pathname"]},
     {"label": "Entry page", "field": "entry_pathname", "is_path": True, "raw_field": ["session", "$entry_pathname"]},
     {"label": "Referrer", "field": "referring_domain", "raw_field": ["session", "$entry_referring_domain"]},
@@ -46,7 +55,7 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
         self.preaggregated_query_builder = _NotableChangesPreAggregatedQueryBuilder(self)
 
     def to_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
-        return self.preaggregated_query_builder.get_query()
+        return self._raw_events_query()
 
     def _calculate(self) -> WebNotableChangesQueryResponse:
         pre_agg_response = self._get_pre_aggregated_response()
@@ -56,7 +65,7 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
         else:
             response = execute_hogql_query(
                 query_type="web_notable_changes_query",
-                query=self._raw_events_query(),
+                query=self.to_query(),
                 team=self.team,
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -99,7 +108,7 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
 
             response = execute_hogql_query(
                 query_type="web_notable_changes_query",
-                query=self.to_query(),
+                query=self.preaggregated_query_builder.get_query(),
                 team=self.team,
                 timings=self.timings,
                 modifiers=pre_agg_modifiers,
@@ -249,7 +258,7 @@ class _NotableChangesPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBui
 
     def _build_dimension_subquery(
         self,
-        dim: dict,
+        dim: DimensionConfig,
         table_name: str,
         current_period_filter: ast.Expr,
         previous_period_filter: ast.Expr,
