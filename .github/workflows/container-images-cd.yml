@@ -411,21 +411,28 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            - name: Check for changes that affect health check temporal worker
+            - name: Check for changes that affect temporal workers (dorny)
               uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
-              id: check_changes_health_check_temporal_worker
+              id: check_temporal_worker_changes
               with:
                   filters: |
-                      shouldRun:
+                      healthCheck:
                         - 'posthog/temporal/health_checks/**'
                         - 'products/.*/backend/temporal/health_checks/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
+                      logsAlerting:
+                        - 'posthog/temporal/logs_alerting/**'
+                        - 'products/logs/backend/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
 
             - name: Trigger Health Check Temporal Worker Cloud deployment
-              if: steps.check_changes_health_check_temporal_worker.outputs.shouldRun == 'true'
+              if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -489,6 +496,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-messaging",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Logs Alerting Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.logsAlerting == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-logs-alerting",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

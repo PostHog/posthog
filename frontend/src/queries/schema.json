@@ -784,6 +784,9 @@
                     "$ref": "#/definitions/LogPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/SpanPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
                 }
             ]
@@ -13513,6 +13516,35 @@
             "required": ["results"],
             "type": "object"
         },
+        "EnrichedReviewer": {
+            "additionalProperties": false,
+            "properties": {
+                "github_login": {
+                    "type": "string"
+                },
+                "github_name": {
+                    "type": ["string", "null"]
+                },
+                "relevant_commits": {
+                    "items": {
+                        "$ref": "#/definitions/RelevantCommit"
+                    },
+                    "type": "array"
+                },
+                "user": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/SignalReviewerUserInfo"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["github_login", "github_name", "relevant_commits", "user"],
+            "type": "object"
+        },
         "EnsembleDetectorConfig": {
             "additionalProperties": false,
             "properties": {
@@ -15413,9 +15445,6 @@
                 "name": {
                     "type": "string"
                 },
-                "only_count_matured_users": {
-                    "type": "boolean"
-                },
                 "response": {
                     "type": "object"
                 },
@@ -15715,9 +15744,6 @@
                 "name": {
                     "type": "string"
                 },
-                "only_count_matured_users": {
-                    "type": "boolean"
-                },
                 "response": {
                     "type": "object"
                 },
@@ -15807,9 +15833,6 @@
                 },
                 "name": {
                     "type": "string"
-                },
-                "only_count_matured_users": {
-                    "type": "boolean"
                 },
                 "response": {
                     "type": "object"
@@ -16123,9 +16146,6 @@
                 "numerator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
-                "only_count_matured_users": {
-                    "type": "boolean"
-                },
                 "response": {
                     "type": "object"
                 },
@@ -16194,9 +16214,6 @@
                 },
                 "name": {
                     "type": "string"
-                },
-                "only_count_matured_users": {
-                    "type": "boolean"
                 },
                 "response": {
                     "type": "object"
@@ -25198,6 +25215,9 @@
                 "log",
                 "log_attribute",
                 "log_resource_attribute",
+                "span",
+                "span_attribute",
+                "span_resource_attribute",
                 "workflow_variable",
                 "empty"
             ],
@@ -30629,6 +30649,22 @@
             ],
             "type": "string"
         },
+        "RelevantCommit": {
+            "additionalProperties": false,
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "sha": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            },
+            "required": ["sha", "url", "reason"],
+            "type": "object"
+        },
         "ReplayInactivityPeriod": {
             "additionalProperties": false,
             "properties": {
@@ -33187,6 +33223,28 @@
             "required": ["source_product"],
             "type": "object"
         },
+        "SignalReviewerUserInfo": {
+            "additionalProperties": false,
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "first_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "last_name": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "uuid", "first_name", "last_name", "email"],
+            "type": "object"
+        },
         "SignalSourceProduct": {
             "enum": ["session_replay", "llm_analytics", "github", "linear", "zendesk", "error_tracking"],
             "type": "string"
@@ -33634,6 +33692,32 @@
                 }
             },
             "type": "object"
+        },
+        "SpanPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "$ref": "#/definitions/SpanPropertyFilterType"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "SpanPropertyFilterType": {
+            "enum": ["span", "span_attribute", "span_resource_attribute"],
+            "type": "string"
         },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
@@ -34489,6 +34573,9 @@
                 "logs",
                 "log_attributes",
                 "log_resource_attributes",
+                "spans",
+                "span_attributes",
+                "span_resource_attributes",
                 "replay",
                 "replay_saved_filters",
                 "revenue_analytics_properties",
@@ -34989,6 +35076,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
                 "kind": {
                     "const": "TraceSpansQuery",
                     "type": "string"
@@ -35007,14 +35097,15 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
+                "prefetchSpans": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Prefetch up to this many spans per trace and include them in results"
+                },
                 "response": {
                     "$ref": "#/definitions/TraceSpansQueryResponse"
                 },
                 "rootSpans": {
                     "type": "boolean"
-                },
-                "searchTerm": {
-                    "type": "string"
                 },
                 "serviceNames": {
                     "items": {

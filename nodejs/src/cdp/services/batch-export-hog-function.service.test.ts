@@ -30,6 +30,7 @@ type MockPersonHogClient = {
             'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
         >
     >
+    persons: jest.Mocked<Pick<PersonHogClient['persons'], 'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds'>>
 }
 
 describe('BatchExportHogFunctionService', () => {
@@ -458,6 +459,10 @@ describe('BatchExportHogFunctionService', () => {
                         return Promise.resolve(result)
                     }),
                     fetchGroupTypesByProjectIds: jest.fn(),
+                },
+                persons: {
+                    fetchPersonsByDistinctIds: jest.fn(),
+                    fetchPersonsByPersonIds: jest.fn(),
                 },
             }
 

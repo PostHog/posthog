@@ -137,14 +137,14 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 		}
 		m.applyCopyStyle()
 
-	case key.Matches(msg, m.keys.NextProc):
+	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
 		if m.copyCursor < m.viewport.TotalLineCount()-1 {
 			m.copyCursor++
 			m.ensureCopyCursorVisible()
 			m.applyCopyStyle()
 		}
 
-	case key.Matches(msg, m.keys.PrevProc):
+	case key.Matches(msg, m.keys.PrevProc), key.Matches(msg, m.keys.KeyUp):
 		if m.copyCursor > 0 {
 			m.copyCursor--
 			m.ensureCopyCursorVisible()
@@ -174,14 +174,9 @@ func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 
 	case key.Matches(msg, m.keys.Info), msg.Code == tea.KeyEscape:
 		m.infoMode = false
+		m.disableAllMetrics()
 		if !m.isDockerMode() {
-			m.activeContent = m.buildContent()
-			if m.activeContent == "" {
-				m.activeLineCount = 0
-			} else {
-				m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
-			}
-			m.viewport.SetContent(m.activeContent)
+			m.reloadActiveLines()
 			m.viewport.GotoBottom()
 			m.viewportAtBottom = true
 		}
@@ -218,8 +213,8 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 	p := m.activeProc()
 	procHasPrompt := p != nil && m.focusedPane == focusOutput && p.HasPrompt()
 	// Control keys are excluded so navigation still works.
-	isControlKey := key.Matches(msg, m.keys.NextProc) ||
-		key.Matches(msg, m.keys.PrevProc) ||
+	isControlKey := key.Matches(msg, m.keys.KeyDown) ||
+		key.Matches(msg, m.keys.KeyUp) ||
 		key.Matches(msg, m.keys.NextPane) ||
 		key.Matches(msg, m.keys.PrevPane) ||
 		key.Matches(msg, m.keys.GotoTop) ||
@@ -274,7 +269,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 	case key.Matches(msg, m.keys.PrevPane):
 		m.cyclePane(-1)
 
-	case key.Matches(msg, m.keys.NextProc):
+	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
 		if m.focusedPane == focusServices {
 			if m.servicesCursor < len(m.services)-1 {
 				prev := m.servicesCursor
@@ -296,7 +291,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 
-	case key.Matches(msg, m.keys.PrevProc):
+	case key.Matches(msg, m.keys.PrevProc), key.Matches(msg, m.keys.KeyUp):
 		if m.focusedPane == focusServices {
 			if m.servicesCursor > 0 {
 				prev := m.servicesCursor
@@ -368,6 +363,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 	case key.Matches(msg, m.keys.Info):
 		m.infoMode = true
+		m.toggleMetricsOnSelectedProc()
 		m.refreshInfoContent()
 		m.viewport.GotoTop()
 		m.dbg("info mode: enter")

@@ -111,8 +111,8 @@ class TestFunnelUnorderedStepsBreakdown(
                 },
             ],
         )
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [person1.uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(query, 1, ["Safari"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(query, 2, ["Safari"]), [person1.uuid])
         assert_funnel_results_equal(
             results[1],
             [
@@ -144,8 +144,8 @@ class TestFunnelUnorderedStepsBreakdown(
                 },
             ],
         )
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [person1.uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
+        self.assertCountEqual(self._get_actor_ids_at_step(query, 1, ["Chrome"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(query, 2, ["Chrome"]), [])
 
     def test_funnel_step_breakdown_with_step_attribution(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa
@@ -211,7 +211,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         self.assertEqual(len(results), 6)
 
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Mac"), [people["person3"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(query, 1, "Mac"), [people["person3"].uuid])
 
     def test_funnel_step_breakdown_with_step_one_attribution(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa
