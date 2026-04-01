@@ -116,17 +116,17 @@ async def _handle_partial_data_loading(
         new_file_uris = list(set(current_file_uris) - set(previous_file_uris))
         modified_files = set(previous_file_uris) - set(current_file_uris)
         if modified_files:
-            await logger.awarning(
+            logger.warning(
                 "Found modified files during first sync, skipping partial data loading",
                 modified_count=len(modified_files),
             )
             return
 
     if not new_file_uris:
-        await logger.adebug("No new files to make queryable")
+        logger.debug("No new files to make queryable")
         return
 
-    await logger.adebug(
+    logger.debug(
         "partial_data_loading",
         batch_index=export_signal.batch_index,
         new_file_count=len(new_file_uris),

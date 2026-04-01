@@ -28,6 +28,7 @@ import { SessionInsights } from 'products/customer_analytics/frontend/components
 
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
+import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
 import { DeleteJourneyButton } from './components/CustomerJourneys/DeleteJourneyButton'
 import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
 import { FeedbackBanner } from './components/FeedbackBanner'
@@ -53,6 +54,7 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
     const { searchParams } = useValues(router)
     const { isEditMode, stagedNodes, isSaving } = useValues(journeyEditorLogic)
     const { saveChanges, cancelChanges } = useActions(journeyEditorLogic)
+    const { activeJourney } = useValues(customerJourneysLogic)
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
@@ -145,6 +147,16 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                 >
                                     New journey
                                 </LemonButton>
+                                {activeJourney && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        to={`${urls.customerJourneyEdit(activeJourney.id)}?insightId=${activeJourney.insight}`}
+                                        data-attr="edit-journey"
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                )}
                                 <DeleteJourneyButton />
                             </>
                         ) : (

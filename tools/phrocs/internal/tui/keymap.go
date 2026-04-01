@@ -5,6 +5,8 @@ import "charm.land/bubbles/v2/key"
 type keyMap struct {
 	PrevProc   key.Binding
 	NextProc   key.Binding
+	KeyUp      key.Binding
+	KeyDown    key.Binding
 	ScrollUp   key.Binding
 	ScrollDown key.Binding
 	GotoTop    key.Binding
@@ -14,23 +16,33 @@ type keyMap struct {
 	Restart    key.Binding
 	Stop       key.Binding
 	CopyMode   key.Binding
-	CopyEsc    key.Binding
 	Search     key.Binding
 	SearchNext key.Binding
 	SearchPrev key.Binding
 	Quit       key.Binding
 	Help       key.Binding
 	Backspace  key.Binding
+	Hedgehog   key.Binding
+	Info       key.Binding
+	Sort       key.Binding
+	LazyDocker key.Binding
+	ProcViewer key.Binding
 }
 
 func defaultKeyMap() keyMap {
 	return keyMap{
 		PrevProc: key.NewBinding(
-			key.WithKeys("j", "up"),
-			key.WithHelp("↑:", "prev"),
+			key.WithKeys("k"),
 		),
 		NextProc: key.NewBinding(
-			key.WithKeys("k", "down"),
+			key.WithKeys("j"),
+		),
+		KeyUp: key.NewBinding(
+			key.WithKeys("up"),
+			key.WithHelp("↑:", "prev"),
+		),
+		KeyDown: key.NewBinding(
+			key.WithKeys("down"),
 			key.WithHelp("↓:", "next"),
 		),
 		ScrollUp: key.NewBinding(
@@ -69,10 +81,6 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("c"),
 			key.WithHelp("c:", "copy"),
 		),
-		CopyEsc: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc:", "esc copy"),
-		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),
 			key.WithHelp("/:", "search"),
@@ -97,20 +105,42 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("backspace"),
 			key.WithHelp("⌫:", "del char"),
 		),
+		Hedgehog: key.NewBinding(
+			key.WithKeys("h"),
+			key.WithHelp("h:", "hedgehog"),
+		),
+		Info: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i:", "info"),
+		),
+		Sort: key.NewBinding(
+			key.WithKeys("o"),
+			key.WithHelp("o:", "sort"),
+		),
+		LazyDocker: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d:", "lazydocker"),
+			key.WithDisabled(),
+		),
+		ProcViewer: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p:", "htop"),
+			key.WithDisabled(),
+		),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextProc, k.NextPane, k.Search, k.CopyMode, k.Restart, k.Stop, k.Quit, k.Help}
+	return []key.Binding{k.KeyDown, k.NextPane, k.Search, k.CopyMode, k.Info, k.Sort, k.Restart, k.Stop, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.NextProc, k.PrevProc},
+		{k.KeyDown, k.KeyUp, k.Sort},
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
-		{k.NextPane, k.PrevPane},
-		{k.Restart, k.Stop},
+		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
+		{k.Restart, k.Stop, k.Info},
 		{k.Search, k.SearchNext, k.SearchPrev},
 		{k.CopyMode, k.Quit, k.Help},
 	}

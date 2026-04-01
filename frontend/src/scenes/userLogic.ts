@@ -168,6 +168,14 @@ export const userLogic = kea<userLogicType>([
                 upgradeImpersonationFailure: () => false,
             },
         ],
+        optimisticThemeMode: [
+            null as UserTheme | null,
+            {
+                updateUser: (prev, { user }) => (user?.theme_mode !== undefined ? user.theme_mode : prev),
+                updateUserSuccess: () => null,
+                updateUserFailure: () => null,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         logout: () => {
@@ -398,9 +406,9 @@ export const userLogic = kea<userLogicType>([
         ],
 
         themeMode: [
-            (s) => [s.user],
-            (user): UserTheme => {
-                return user?.theme_mode || 'light'
+            (s) => [s.user, s.optimisticThemeMode],
+            (user, optimisticThemeMode): UserTheme => {
+                return optimisticThemeMode ?? user?.theme_mode ?? 'light'
             },
         ],
 

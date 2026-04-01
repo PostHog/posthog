@@ -22,22 +22,22 @@ from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
-from posthog.models.dashboard import Dashboard
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
@@ -53,12 +53,18 @@ def team_api_test_factory():
 
             starting_log_response = self.client.get(f"/api/environments/{team_id}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_organization_activity_log(self, expected: list[dict]) -> None:
             starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_activity_log_is_empty(self) -> None:
             self._assert_activity_log([])
@@ -533,6 +539,7 @@ def team_api_test_factory():
                     event="team deleted",
                     properties=mock.ANY,
                     groups=mock.ANY,
+                    send_feature_flags=False,
                 ),
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -542,6 +549,7 @@ def team_api_test_factory():
                         event="project deleted",
                         properties=mock.ANY,
                         groups=mock.ANY,
+                        send_feature_flags=False,
                     )
                 )
                 mock_delete_task_project.delay.assert_called_once_with(
@@ -2337,6 +2345,238 @@ def team_api_test_factory():
                 ).count(),
                 1,
             )
+
+        def test_can_set_session_recording_trigger_groups(self):
+            """Test that we can create and update session_recording_trigger_groups field"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "test-group-1",
+                        "name": "Test Group",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 5000,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["pageview"],
+                            "flag": "test-flag-key",
+                        },
+                    }
+                ],
+            }
+
+            # Test creating with trigger groups
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+            # Test that it persisted
+            self.team.refresh_from_db()
+            assert self.team.session_recording_trigger_groups == trigger_groups
+
+            # Test updating
+            trigger_groups["groups"][0]["sampleRate"] = 1.0  # type: ignore
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"]["groups"][0]["sampleRate"] == 1.0
+
+            # Test clearing (set to null)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": None},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] is None
+
+        @parameterized.expand(
+            [
+                (
+                    "missing_version",
+                    {"groups": []},
+                    "version",
+                ),
+                (
+                    "invalid_version",
+                    {"version": 1, "groups": []},
+                    "version",
+                ),
+                (
+                    "missing_groups",
+                    {"version": 2},
+                    "groups",
+                ),
+                (
+                    "invalid_sample_rate_above_one",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 1.5,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "negative_sample_rate",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": -0.1,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "invalid_match_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {"matchType": "invalid"},
+                            }
+                        ],
+                    },
+                    "matchtype",
+                ),
+                (
+                    "invalid_regex",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "urls": [{"url": "[invalid(regex", "matching": "regex"}],
+                                },
+                            }
+                        ],
+                    },
+                    "regex",
+                ),
+                (
+                    "invalid_min_duration_negative",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": -100,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_too_large",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": 40000,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_boolean",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": True,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+            ]
+        )
+        def test_session_recording_trigger_groups_validation_errors(
+            self, name: str, trigger_groups: dict, expected_error_fragment: str
+        ):
+            """Test various validation failures for trigger groups"""
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert expected_error_fragment in str(response.json()).lower()
+
+        def test_session_recording_trigger_groups_complex_valid_config(self):
+            """Test that complex valid configurations pass validation"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "errors",
+                        "name": "Error Tracking",
+                        "sampleRate": 1.0,
+                        "minDurationMs": 0,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["error", "crash"],
+                            "urls": [{"url": "/checkout.*", "matching": "regex"}],
+                        },
+                    },
+                    {
+                        "id": "feature-flag",
+                        "name": "Feature Flag Testing",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 10000,
+                        "conditions": {
+                            "matchType": "all",
+                            "flag": {"key": "variant-test", "variant": "control"},
+                        },
+                    },
+                    {
+                        "id": "simple-flag",
+                        "name": "Simple Flag",
+                        "sampleRate": 0.3,
+                        "conditions": {
+                            "matchType": "any",
+                            "flag": "simple-feature-flag",
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
 
     return TestTeamAPI
 

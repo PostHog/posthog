@@ -1,17 +1,22 @@
 import os
 import json
+import asyncio
 import datetime as dt
 import operator
 import collections.abc
 
 import pytest
 
-from google.cloud import bigquery
+from google.cloud import bigquery, iam_admin_v1
 
+from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import bigquery_default_fields
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
+    bigquery_default_fields,
+    get_our_google_cloud_credentials,
+)
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
@@ -233,3 +238,78 @@ async def assert_clickhouse_records_in_bigquery(
             "Must set `min_ingested_timestamp` for comparison with exported value"
         )
         assert all(ts >= min_ingested_timestamp for ts in inserted_bq_ingested_timestamp)
+
+
+async def key_file_integration(ateam, bigquery_config):
+    integration = await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        integration_id=f"{ateam.id}-{bigquery_config['client_email']}",
+        config={
+            "project_id": bigquery_config["project_id"],
+            "service_account_email": bigquery_config["client_email"],
+        },
+        sensitive_config={
+            "private_key": bigquery_config["private_key"],
+            "private_key_id": bigquery_config["private_key_id"],
+            "token_uri": bigquery_config["token_uri"],
+        },
+    )
+    return integration
+
+
+async def impersonated_integration(ateam, bigquery_config):
+    """Configure integration to impersonate our test service account.
+
+    This requires the `BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT` setting to be set, as
+    that's the original service account that will be assumed to do the impersonation.
+    """
+    integration = await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        integration_id=f"{ateam.id}-{bigquery_config['client_email']}",
+        config={
+            "project_id": bigquery_config["project_id"],
+            "service_account_email": bigquery_config["client_email"],
+        },
+    )
+    return integration
+
+
+async def set_service_account_description_for_integration(
+    base_integration: Integration,
+    description: str,
+):
+    """Update test service account description using our credentials.
+
+    When doing multiple updates in a row (e.g. when running a lot of tests) updates can
+    take some time to propagate, and you can end up failing a test due to missing an
+    update.
+
+    So, we wait until the description matches what we updated. This is an annoying loop,
+    but in practice it doesn't take too long.
+    """
+    integration = GoogleCloudServiceAccountIntegration(base_integration)
+
+    our_credentials = get_our_google_cloud_credentials()
+    client = iam_admin_v1.IAMAsyncClient(credentials=our_credentials)
+    service_account_name = f"projects/{integration.project_id}/serviceAccounts/{integration.service_account_email}"
+
+    current = await client.get_service_account(request={"name": service_account_name})
+
+    while True:
+        _ = await client.patch_service_account(
+            request=iam_admin_v1.PatchServiceAccountRequest(
+                service_account=iam_admin_v1.ServiceAccount(
+                    name=service_account_name,
+                    description=description,
+                ),
+                update_mask={"paths": ["description"]},
+            )
+        )
+        current = await client.get_service_account(request={"name": service_account_name})
+
+        if current.description == description:
+            break
+
+        await asyncio.sleep(1)

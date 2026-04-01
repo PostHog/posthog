@@ -129,7 +129,7 @@ class HogQLCohortQuery:
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
-            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),
+            settings=HogQLGlobalSettings(enable_analyzer=None),
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
@@ -1167,7 +1167,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     team_id = {team_id}
                     AND condition = {condition_hash}
                 GROUP BY person_id
-                HAVING argMax(matches, _timestamp) = 1
+                HAVING argMax(matches, _offset) = 1
             """
 
             return cast(

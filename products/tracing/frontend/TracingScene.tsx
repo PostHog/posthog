@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonModal, LemonTable, LemonTableColumns, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { formatDuration, TraceFlameChart } from './TraceFlameChart'
+import { TracingFilterBar } from './TracingFilterBar'
 import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
@@ -79,18 +81,16 @@ const columns: LemonTableColumns<Span> = [
 
 export default function TracingScene(): JSX.Element {
     const {
+        rootSpans,
         spans,
         spansLoading,
         isTraceModalOpen,
-        traceSpans,
-        traceSpansLoading,
         selectedTraceId,
         sparklineData,
-        sparklineRowsLoading,
+        sparklineLoading,
+        totalSpansMatchingFilters,
     } = useValues(tracingSceneLogic)
-    const { openTraceModal, closeTraceModal } = useActions(tracingSceneLogic)
-
-    const rootSpan = traceSpans.find((s) => !s.parent_span_id)
+    const { openTraceModal, closeTraceModal, setDateRange } = useActions(tracingSceneLogic)
 
     return (
         <SceneContent>
@@ -103,12 +103,20 @@ export default function TracingScene(): JSX.Element {
             />
             <TracingSparkline
                 sparklineData={sparklineData}
-                sparklineLoading={sparklineRowsLoading}
+                sparklineLoading={sparklineLoading}
+                onDateRangeChange={setDateRange}
                 displayTimezone="UTC"
             />
+            <SceneDivider />
+            <TracingFilterBar />
+            {!sparklineLoading && totalSpansMatchingFilters > 0 && (
+                <div className="text-xs text-muted px-1">
+                    {totalSpansMatchingFilters.toLocaleString()} traces matching filters
+                </div>
+            )}
             <LemonTable
                 columns={columns}
-                dataSource={spans}
+                dataSource={rootSpans}
                 loading={spansLoading}
                 rowKey="uuid"
                 emptyState="No spans found"
@@ -118,18 +126,13 @@ export default function TracingScene(): JSX.Element {
                 })}
             />
             <LemonModal
-                title={
-                    rootSpan
-                        ? `${rootSpan.name} — ${formatDuration(rootSpan.duration_nano)}`
-                        : `Trace ${selectedTraceId?.substring(0, 16)}...`
-                }
+                title={`Trace ${selectedTraceId}`}
                 isOpen={isTraceModalOpen}
                 onClose={closeTraceModal}
                 width="90vw"
             >
                 <div className="relative min-h-32">
-                    {traceSpansLoading && <SpinnerOverlay />}
-                    <TraceFlameChart spans={traceSpans} />
+                    <TraceFlameChart spans={spans.filter((s) => s.trace_id === selectedTraceId)} />
                 </div>
             </LemonModal>
         </SceneContent>

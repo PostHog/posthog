@@ -4,7 +4,7 @@ import logging
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.models import Survey
+from products.surveys.backend.models import Survey
 
 logger = logging.getLogger(__name__)
 

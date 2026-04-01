@@ -11,9 +11,8 @@ use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_leader::cache::PartitionedCache;
 use personhog_leader::service::PersonHogLeaderService;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
-use personhog_proto::personhog::leader::v1::{
-    LeaderGetPersonRequest, UpdatePersonPropertiesRequest,
-};
+use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
+use personhog_proto::personhog::types::v1::UpdatePersonPropertiesRequest;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
@@ -59,10 +58,13 @@ async fn service_accepts_requests_after_coordination_warmup() {
     })
     .await;
 
-    // All partitions should be warmed in the cache
-    for p in 0..NUM_PARTITIONS {
-        assert!(pod.cache.has_partition(p), "partition {p} should be warmed");
-    }
+    // Wait for all partitions to be warmed in the cache (may lag behind etcd state)
+    let check_cache = Arc::clone(&pod.cache);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let cache = Arc::clone(&check_cache);
+        async move { (0..NUM_PARTITIONS).all(|p| cache.has_partition(p)) }
+    })
+    .await;
 
     // Seed a person into partition 0
     let person = test_cached_person();
@@ -227,6 +229,14 @@ async fn release_partition_stops_serving() {
     })
     .await;
 
+    // Wait for cache to reflect assignments (may lag behind etcd state)
+    let check_cache = Arc::clone(&pod1.cache);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let cache = Arc::clone(&check_cache);
+        async move { (0..NUM_PARTITIONS).all(|p| cache.has_partition(p)) }
+    })
+    .await;
+
     // Seed a person into partition 0
     seed_person(&pod1.cache, 0, test_cached_person());
 
@@ -266,6 +276,16 @@ async fn release_partition_stops_serving() {
         .find(|a| a.owner == "leader-1")
         .expect("pod 2 should own at least one partition")
         .partition;
+
+    // Wait for caches to reflect the rebalance (may lag behind etcd state)
+    let check_cache1 = Arc::clone(&pod1.cache);
+    let check_cache2 = Arc::clone(&pod2.cache);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let c1 = Arc::clone(&check_cache1);
+        let c2 = Arc::clone(&check_cache2);
+        async move { !c1.has_partition(moved_partition) && c2.has_partition(moved_partition) }
+    })
+    .await;
 
     // Pod 1: released partition → FailedPrecondition
     let result = client1
@@ -366,13 +386,13 @@ async fn rewarm_after_pod_crash() {
     })
     .await;
 
-    // Pod 2 should own all partitions (re-warmed the crashed pod's partitions)
-    for p in 0..NUM_PARTITIONS {
-        assert!(
-            pod2.cache.has_partition(p),
-            "pod 2 should own partition {p} after crash"
-        );
-    }
+    // Wait for pod 2 to re-warm all partitions (may lag behind etcd state)
+    let check_cache = Arc::clone(&pod2.cache);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let cache = Arc::clone(&check_cache);
+        async move { (0..NUM_PARTITIONS).all(|p| cache.has_partition(p)) }
+    })
+    .await;
 
     // Partitions are warm but empty → NotFound
     let mut client2 = create_leader_client(pod2.leader_addr).await;

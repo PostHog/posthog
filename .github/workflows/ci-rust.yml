@@ -49,6 +49,11 @@ jobs:
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'
+                        # Hypercache contract: Python serializer changes may break Rust deserialization
+                        - 'posthog/api/feature_flag.py'
+                        - 'posthog/models/feature_flag/flags_cache.py'
+                        - 'posthog/models/feature_flag/feature_flag.py'
+                        - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
 
             # Bin-pack packages into balanced test shards.
             # Weights are approximate test durations in seconds — update periodically.
@@ -83,10 +88,6 @@ jobs:
                       "feature-flags": 241,
                       "health": 8,
                       "hogvm": 5,
-                      "hook-api": 88,
-                      "hook-common": 73,
-                      "hook-janitor": 94,
-                      "hook-worker": 100,
                       "kafka-assigner": 30,
                       "kafka-deduplicator": 239,
                       "limiters": 23,
@@ -131,6 +132,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 15
 
         defaults:
             run:
@@ -206,7 +208,7 @@ jobs:
                   ../bin/ci-wait-for-docker launch --down
                   ../bin/ci-wait-for-docker wait
 
-                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Dump Kafka logs on failure
               if: failure()
@@ -296,6 +298,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 15
 
         defaults:
             run:
@@ -362,6 +365,7 @@ jobs:
         needs: [changes, build, test, linting]
         name: Rust Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all Rust jobs

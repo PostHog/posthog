@@ -11,10 +11,10 @@ import {
     createPosthogRedisConnectionConfig,
 } from '../../config/redis-pools'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../../ingestion/personhog'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
 import { isTestEnv } from '../env-utils'
@@ -55,7 +55,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
     logger.info('👍', `Kafka ready`)
 
-    const postgres = new PostgresRouter(serverConfig)
+    const postgres = new PostgresRouter(serverConfig, serverConfig.PLUGIN_SERVER_MODE ?? undefined)
     logger.info('👍', `Postgres Router ready`)
 
     logger.info('🤔', `Connecting to ingestion Redis...`)
@@ -86,15 +86,30 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const pubSub = new PubSub(redisPool)
     await pubSub.start()
 
-    const groupRepository = new PostgresGroupRepository(postgres)
+    const personhogClient = createPersonHogClient(serverConfig)
+    const clientLabel = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
+
+    const postgresGroupRepository = new PostgresGroupRepository(postgres)
+
+    const postgresPersonRepository = new PostgresPersonRepository(postgres, {
+        calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+    })
+    const personRepository = buildPersonRepository(
+        personhogClient,
+        postgresPersonRepository,
+        serverConfig.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+        clientLabel
+    )
+
+    const groupRepository = buildGroupRepository(
+        personhogClient,
+        postgresGroupRepository,
+        serverConfig.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+        clientLabel
+    )
+
     const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
-    const personRepositoryOptions = {
-        calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-    }
-    const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
-
-    const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
@@ -117,7 +132,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         groupTypeManager,
         teamManager,
         groupRepository,
-        clickhouseGroupRepository,
         personRepository,
         geoipService,
         encryptedFields,

@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.models.surveys.survey import Survey
+from products.surveys.backend.models import Survey
 
 
 class TestSurveyQuestionIds(BaseTest):

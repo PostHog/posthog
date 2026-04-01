@@ -20,6 +20,7 @@ import { SurveyQuestionBranchingType } from '~/types'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
+import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
 import { doesSurveyHaveDisplayConditions } from '../utils'
 import { MaxTip } from './MaxTip'
@@ -142,7 +143,14 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         }
 
         if (conditions?.events?.values && conditions.events.values.length > 0) {
-            const eventNames = conditions.events.values.map((e) => e.name).join(', ')
+            const eventNames = conditions.events.values
+                .map((event) => {
+                    const propertyFilterCount = getEventPropertyFilterCount(event.propertyFilters)
+                    return propertyFilterCount > 0
+                        ? `${event.name} (${propertyFilterCount} property filter${propertyFilterCount !== 1 ? 's' : ''})`
+                        : event.name
+                })
+                .join(', ')
             summary.push(`User performed event: ${eventNames}`)
         }
 

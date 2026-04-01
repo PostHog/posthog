@@ -20,7 +20,7 @@ export const scene: SceneExport = {
 }
 
 export function CustomerJourneyBuilderScene(): JSX.Element {
-    const { journeyName, journeyDescription, isSaving } = useValues(journeyBuilderLogic)
+    const { journeyName, journeyDescription, isSaving, isEditMode } = useValues(journeyBuilderLogic)
     const { setJourneyName, setJourneyDescription, saveJourney } = useActions(journeyBuilderLogic)
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
@@ -50,7 +50,7 @@ export function CustomerJourneyBuilderScene(): JSX.Element {
                         data-attr="journey-builder-save"
                         disabledReason={accessControlDisabledReason}
                     >
-                        Save
+                        {isEditMode ? 'Update' : 'Save'}
                     </LemonButton>
                 }
             />

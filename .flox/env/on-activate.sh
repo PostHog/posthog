@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # PostHog flox on-activate hook
 # Sourced (not executed) from manifest.toml — env vars persist into profile scripts.
+#
+# IMPORTANT: This script must NEVER use sudo. It runs automatically on every
+# shell activation, so requiring elevated privileges would condition developers
+# to blindly grant root access to code that changes without notice.
 
 set -euo pipefail
 
@@ -232,11 +236,23 @@ fi
 run_step "Node packages" pnpm install
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
-if grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
+if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
   done_step "System hosts"
 else
-  echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1>/dev/null
-  done_step "System hosts (updated)"
+  echo ""
+  echo -e "  ${C_YELLOW}┃${C_RESET} ${C_YELLOW}${C_BOLD}Action required${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET} PostHog services need hostnames in /etc/hosts."
+  echo -e "  ${C_YELLOW}┃${C_RESET} Copy and run this to update them:"
+  echo -e "  ${C_YELLOW}┃${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}   ${C_DIM}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}"
+  echo ""
+  if [[ -t 0 ]]; then
+    read -n 1 -s -r -p "  Press any key to continue..."
+    echo ""
+  fi
 fi
 
 # ── Step 4: Environment variables ───────────────────────────────────
@@ -268,6 +284,9 @@ if [[ -x "$_rustup_rustc" ]] && [[ -n "$_flox_rustc_ver" ]]; then
 elif [[ -n "$_flox_rustc_ver" ]]; then
   done_step "Rust toolchain (rustc ${_flox_rustc_ver})"
 fi
+
+# Share a single Cargo target dir so worktrees skip redundant linking
+export CARGO_TARGET_DIR="$HOME/.cargo/target"
 
 # ── Summary ─────────────────────────────────────────────────────────
 _activation_end=$(date +%s)
@@ -301,7 +320,7 @@ ${C_GREEN}${C_BOLD}hogli start${C_RESET}
 ${C_DIM}Interactive wizard to configure which services to run:${C_RESET}
 ${C_GREEN}hogli dev:setup${C_RESET}
 
-${C_ITALIC}Useful processes available in hogli start (mprocs)${C_RESET}
+${C_ITALIC}Useful processes available in hogli start (phrocs)${C_RESET}
 ${C_DIM}  press ${C_BOLD}r${C_RESET}${C_DIM} to start manually:${C_RESET}
 ${C_DIM}  generate-demo-data${C_RESET}          Create a user with demo data
 ${C_DIM}  storybook${C_RESET}                   Run storybook locally
@@ -314,7 +333,7 @@ ${C_DIM}  hogli --help${C_RESET}                Browse all available commands
 ${C_DIM}  hogli migrations:run${C_RESET}        Run pending migrations
 ${C_DIM}  hogli dev:reset${C_RESET}             Wipe volumes, migrate, load demo data
 ${C_DIM}  hogli doctor:disk${C_RESET}           Free up disk space from dev bloat
-${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in mprocs${C_RESET}             Quit / restart a process
+${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in phrocs${C_RESET}             Quit / restart a process
 "
 fi
 

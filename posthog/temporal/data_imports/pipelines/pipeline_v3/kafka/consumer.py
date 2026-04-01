@@ -14,6 +14,7 @@ import posthoganalytics
 from confluent_kafka import (
     Consumer as ConfluentConsumer,
     KafkaError,
+    KafkaException,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -115,8 +116,14 @@ class KafkaConsumerService:
             )
         try:
             consumer.commit(asynchronous=False)
-        except Exception:
-            logger.warning("failed_to_commit_on_revoke")
+        except KafkaException as e:
+            kafka_error = e.args[0]
+            if hasattr(kafka_error, "code") and kafka_error.code() == KafkaError._NO_OFFSET:  # type: ignore[attr-defined]
+                logger.debug("no_offsets_to_commit_on_revoke")
+            else:
+                logger.warning("failed_to_commit_on_revoke", error=str(e))
+        except Exception as e:
+            logger.warning("failed_to_commit_on_revoke", error=str(e))
 
     def _get_dlq_producer(self) -> _KafkaProducer:
         if self._dlq_producer is None:

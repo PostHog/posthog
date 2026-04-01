@@ -24,6 +24,7 @@ jobs:
                 github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build-ai-evals-image')
             )
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary

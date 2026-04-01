@@ -1,6 +1,10 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
+
+[options]
+exclude-newer = "2026-03-25T13:19:39.075073716Z"
+exclude-newer-span = "P7D"
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -980,7 +984,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "gunicorn", specifier = ">=23.0.0" },
     { name = "httpx", specifier = ">=0.28.0" },
-    { name = "litellm", specifier = ">=1.81.0" },
+    { name = "litellm", specifier = "==1.81.13" },
     { name = "orjson", specifier = ">=3.10.0" },
     { name = "posthoganalytics", specifier = ">=3.0.0" },
     { name = "prometheus-client", specifier = ">=0.21.0" },

@@ -3,13 +3,13 @@ import { actions, kea, key, path, props, reducers } from 'kea'
 import type { navPanelAdvertisementLogicType } from './NavPanelAdvertisementLogicType'
 
 export type NavPanelAdvertisementLogicProps = {
-    productKey: string
+    campaign: string
 }
 
 export const navPanelAdvertisementLogic = kea<navPanelAdvertisementLogicType>([
     path(['lib', 'components', 'NavPanelAdvertisementLogic']),
     props({} as NavPanelAdvertisementLogicProps),
-    key(({ productKey }) => productKey),
+    key(({ campaign }) => campaign),
     actions(() => ({
         hideAdvertisement: () => true,
         showAdvertisement: () => false,

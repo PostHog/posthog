@@ -59,6 +59,11 @@ def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
 def _cross_validate_issuer(declared_issuer: str) -> dict:
     metadata = _fetch_auth_server_metadata(declared_issuer)
     if metadata.get("issuer", "").rstrip("/") != declared_issuer.rstrip("/"):
+        logger.warning(
+            "OAuth issuer mismatch during cross-validation",
+            declared_issuer=declared_issuer,
+            metadata_issuer=metadata.get("issuer", ""),
+        )
         raise ValueError("Issuer mismatch in authorization server metadata")
     return metadata
 
@@ -101,6 +106,9 @@ def discover_oauth_metadata(server_url: str) -> dict:
     # Step 2: Fall back to fetching authorization server metadata directly from the origin.
     # Many MCP servers (e.g. Linear) serve /.well-known/oauth-authorization-server
     # without implementing the protected resource metadata endpoint.
+    logger.info(
+        "RFC 9728 protected resource metadata not available, falling back to direct discovery", server_url=server_url
+    )
     return _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
 
 
@@ -182,11 +190,18 @@ def refresh_oauth_token(
         resp.raise_for_status()
     except SSRFBlockedError:
         raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        logger.warning(
+            "OAuth token refresh request failed",
+            token_url=token_url,
+            status_code=status_code,
+        )
         raise TokenRefreshError("Token refresh request failed")
 
     token_data = resp.json()
     if "access_token" not in token_data:
+        logger.warning("OAuth token refresh response missing access_token", token_url=token_url)
         raise TokenRefreshError("Token refresh response missing access_token")
 
     return token_data
@@ -196,6 +211,7 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
     sensitive = installation.sensitive_configuration or {}
     refresh_token_value = sensitive.get("refresh_token")
     if not refresh_token_value:
+        logger.warning("No refresh token available for installation", installation_id=str(installation.id))
         raise TokenRefreshError("No refresh token available")
 
     server = installation.server
@@ -240,6 +256,7 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
     installation.sensitive_configuration = updated
     installation.save(update_fields=["sensitive_configuration", "updated_at"])
 
+    logger.info("OAuth token refreshed successfully", installation_id=str(installation.id))
     return updated
 
 

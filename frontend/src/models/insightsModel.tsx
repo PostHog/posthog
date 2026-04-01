@@ -16,7 +16,7 @@ export const insightsModel = kea<insightsModelType>([
     connect(() => ({ logic: [teamLogic] })),
     actions(() => ({
         renameInsight: (item: QueryBasedInsightModel) => ({ item }),
-        updateInsightDirect: (item: QueryBasedInsightModel, updates: { name?: string; description?: string }) => ({
+        updateInsightDirect: (item: QueryBasedInsightModel, updates: Partial<QueryBasedInsightModel>) => ({
             item,
             updates,
         }),

@@ -10,6 +10,43 @@ import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig
 
+export interface SubDetectorScores {
+    type: string
+    scores: (number | null)[]
+}
+
+export interface BreakdownSimulationResult {
+    label: string
+    data: number[]
+    dates: string[]
+    scores: (number | null)[]
+    triggered_indices: number[]
+    triggered_dates: string[]
+    total_points: number
+    anomaly_count: number
+    sub_detector_scores?: SubDetectorScores[]
+}
+
+export interface AlertSimulationResult {
+    data: number[]
+    dates: string[]
+    scores: (number | null)[]
+    triggered_indices: number[]
+    triggered_dates: string[]
+    interval: string | null
+    total_points: number
+    anomaly_count: number
+    sub_detector_scores?: SubDetectorScores[]
+    breakdown_results?: BreakdownSimulationResult[]
+}
+
+export interface AnomalyPoint {
+    index: number
+    date: string
+    score: number | null
+    seriesIndex: number
+}
+
 export interface AlertTypeBase {
     name: string
     condition: AlertCondition
@@ -38,6 +75,7 @@ export interface AlertCheck {
     triggered_points?: number[] | null
     triggered_dates?: string[] | null
     interval?: string | null
+    triggered_metadata?: Record<string, unknown> | null
 }
 
 export interface AlertType extends AlertTypeBase {
