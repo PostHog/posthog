@@ -4,6 +4,11 @@ from products.signals.backend.temporal.agentic.report import (
     signals_legacy_report_gate_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
+from products.signals.backend.temporal.backfill_error_tracking import (
+    BackfillErrorTrackingWorkflow,
+    emit_backfill_signal_activity,
+    fetch_error_tracking_issues_activity,
+)
 from products.signals.backend.temporal.buffer import (
     BufferSignalsWorkflow,
     flush_signals_to_s3_activity,
@@ -46,6 +51,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
     BufferSignalsWorkflow,
@@ -58,6 +64,8 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     actionability_judge_activity,
+    emit_backfill_signal_activity,
+    fetch_error_tracking_issues_activity,
     assign_and_emit_signal_activity,
     delete_report_activity,
     emit_eval_signal_activity,
