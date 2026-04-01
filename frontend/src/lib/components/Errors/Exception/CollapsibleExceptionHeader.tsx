@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -31,13 +31,21 @@ export function CollapsibleExceptionHeader({
 
     const [expanded, setExpanded] = useState(false)
     const [isClamped, setIsClamped] = useState(false)
+    const valueRef = useRef<HTMLDivElement | null>(null)
+
     // line-clamp-3 constrains clientHeight to the visible area;
-    // if scrollHeight exceeds it, the content is truncated and we show a toggle
-    const valueRef = useCallback((node: HTMLDivElement | null) => {
-        if (node) {
-            setIsClamped(node.scrollHeight > node.clientHeight)
+    // if scrollHeight exceeds it, the content is truncated and we show a toggle.
+    // Only re-check when value changes (not on expand, since unclamped scrollHeight === clientHeight).
+    useEffect(() => {
+        if (valueRef.current) {
+            setIsClamped(valueRef.current.scrollHeight > valueRef.current.clientHeight)
         }
-    }, [])
+    }, [value])
+
+    // Reset collapsed state when viewing a different exception
+    useEffect(() => {
+        setExpanded(false)
+    }, [value])
 
     return (
         <div className="pb-1">
@@ -66,13 +74,15 @@ export function CollapsibleExceptionHeader({
                         {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value}
                     </div>
                     {!truncate && isClamped && (
-                        <button
-                            type="button"
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            noPadding
                             onClick={() => setExpanded(!expanded)}
-                            className="text-xs text-muted hover:text-default mt-0.5 cursor-pointer"
+                            className="mt-0.5"
                         >
                             {expanded ? 'Show less' : 'Show more…'}
-                        </button>
+                        </LemonButton>
                     )}
                 </div>
             )}
