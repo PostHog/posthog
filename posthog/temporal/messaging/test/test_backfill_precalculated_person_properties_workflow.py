@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -180,3 +182,79 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
 
         # Basic verification that the filter was stored correctly
         assert inputs.filter_storage_key == storage_key
+
+    @pytest.mark.asyncio
+    async def test_hogvm_filter_evaluation_produces_events_for_matching_persons(self):
+        """Should execute HogVM bytecode correctly and produce events only for matching persons."""
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="enterprise_filter",
+                bytecode=[],  # Mock bytecode
+                cohort_ids=[100],
+                property_key="plan",
+            ),
+        ]
+
+        storage_key = store_filters(filters, team_id=1)
+
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key=storage_key,
+            cohort_ids=[100],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
+
+        # Mock ClickHouse response with matching and non-matching persons
+        mock_clickhouse_response = [
+            {"id": "person1", "properties": '{"plan": "enterprise"}'},  # Should match
+            {"id": "person2", "properties": '{"plan": "free"}'},  # Should not match
+            {"id": "person3", "properties": '{"plan": "enterprise"}'},  # Should match
+        ]
+
+        # Mock HogVM execution to return True for enterprise plans, False for others
+        def mock_execute_bytecode(bytecode, hog_globals):
+            mock_result = Mock()
+            person_plan = hog_globals.get("person", {}).get("properties", {}).get("plan")
+            mock_result.result = person_plan == "enterprise"
+            return mock_result
+
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client"
+        ) as mock_get_client:
+            mock_client = mock_get_client.return_value.__aenter__.return_value
+            mock_client.stream_query_as_jsonl.return_value = mock_clickhouse_response
+
+            with patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.execute_bytecode",
+                side_effect=mock_execute_bytecode,
+            ):
+                with patch("posthog.kafka_client.client.KafkaProducer") as mock_kafka_producer:
+                    mock_producer_instance = mock_kafka_producer.return_value
+                    mock_producer_instance.send.return_value = "mock_produce_result"
+
+                    with patch("temporalio.activity.info") as mock_activity_info:
+                        mock_info = Mock()
+                        mock_info.heartbeat_timeout = None
+                        mock_activity_info.return_value = mock_info
+
+                        result = await backfill_precalculated_person_properties_activity(inputs)
+
+                    # Should process all 3 persons but only produce events for 2 matching ones
+                    assert result.persons_processed == 3
+                    assert result.events_produced == 2
+
+                    # Verify Kafka send was called only for matching persons
+                    send_calls = mock_producer_instance.send.call_args_list
+                    assert len(send_calls) == 2
+
+                    # Verify the person IDs in the sent events
+                    sent_person_ids = []
+                    for call in send_calls:
+                        event_data = json.loads(call[1]["value"])
+                        sent_person_ids.append(event_data["person_id"])
+
+                    assert "person1" in sent_person_ids
+                    assert "person3" in sent_person_ids
+                    assert "person2" not in sent_person_ids
