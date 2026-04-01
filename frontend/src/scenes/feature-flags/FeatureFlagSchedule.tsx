@@ -42,7 +42,6 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import {
-    FeatureFlagFilters,
     FeatureFlagType,
     MultivariateFlagVariant,
     RecurrenceInterval,
@@ -1003,7 +1002,13 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         </label>
                         <LemonCalendarSelectInput
                             value={editScheduledAt}
-                            onChange={(value) => setEditScheduledAt(value)}
+                            onChange={(value) => {
+                                setEditScheduledAt(value)
+                                if (editRepeatsValue === 'cron' && editCronExpression && value) {
+                                    // Re-snap to the next cron match from the newly picked date
+                                    setEditCronExpression(editCronExpression)
+                                }
+                            }}
                             placeholder="Select date"
                             selectionPeriod="upcoming"
                             granularity={editRepeatsValue === 'cron' ? 'day' : 'minute'}
@@ -1066,15 +1071,11 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         </div>
                     )}
 
-                    {editOperationType === ScheduledChangeOperationType.AddReleaseCondition && editingSchedule && (
+                    {editingSchedule?.payload.operation === ScheduledChangeOperationType.AddReleaseCondition && (
                         <div className="flex flex-col gap-1">
                             <label className="text-xs font-medium text-muted">Release condition</label>
                             <div className="rounded border p-2 bg-bg-light text-sm">
-                                {groupFilters(
-                                    editingSchedule.payload.value as FeatureFlagFilters,
-                                    undefined,
-                                    aggregationLabel
-                                )}
+                                {groupFilters(editingSchedule.payload.value, undefined, aggregationLabel)}
                             </div>
                             <span className="text-xs text-muted">
                                 To change the release condition, delete this schedule and create a new one.

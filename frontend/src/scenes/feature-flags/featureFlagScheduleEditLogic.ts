@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 
+import { teamLogic } from '../teamLogic'
 import { describeCron, featureFlagLogic } from './featureFlagLogic'
 import type { featureFlagScheduleEditLogicType } from './featureFlagScheduleEditLogicType'
 
@@ -185,7 +186,8 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                     // User is in cron mode (cron is '' rather than null) but hasn't entered an expression
                     errors.cronExpression = 'Enter a cron expression'
                 }
-                if (endDate && scheduledAt && endDate.isBefore(scheduledAt)) {
+                const normalizedEndDate = endDate ? endDate.endOf('day') : null
+                if (normalizedEndDate && scheduledAt && normalizedEndDate.isBefore(scheduledAt)) {
                     errors.endDate = 'End date must be after the scheduled start date'
                 }
                 return errors
@@ -218,8 +220,12 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                 return
             }
             try {
-                const baseDate = values.editScheduledAt?.toDate() ?? new Date()
-                const interval = CronExpressionParser.parse(cron, { currentDate: baseDate })
+                // Use the later of now or the existing date so that paused/old
+                // schedules don't snap to an already-elapsed time.
+                const now = new Date()
+                const existing = values.editScheduledAt?.toDate()
+                const currentDate = existing && existing > now ? existing : now
+                const interval = CronExpressionParser.parse(cron, { currentDate })
                 const nextDate = interval.next().toDate()
                 actions.setEditScheduledAt(dayjs(nextDate))
             } catch {
@@ -256,7 +262,8 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                 patch.recurrence_interval = values.editRecurrenceInterval
             }
 
-            const newEndDate = values.editEndDate?.toISOString() ?? null
+            const timezone = teamLogic.findMounted()?.values.currentTeam?.timezone || 'UTC'
+            const newEndDate = values.editEndDate ? values.editEndDate.tz(timezone).endOf('day').toISOString() : null
             const origEndDate = editingSchedule.end_date ? dayjs(editingSchedule.end_date).toISOString() : null
             if (newEndDate !== origEndDate) {
                 patch.end_date = newEndDate

@@ -1654,6 +1654,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createPairedSchedule: async () => {
+            const resetScheduleForm = (): void => {
+                actions.setSchedulePreset(null)
+                actions.setScheduleDateMarker(null)
+                actions.setIsRecurring(false)
+                actions.setRecurrenceInterval(null)
+                actions.setCronExpression(null)
+                actions.setEndDate(null)
+                actions.loadScheduledChanges()
+            }
+
             const { customPairEnableCron, customPairDisableCron, currentProjectId } = values
             const schedulePreset = values.schedulePreset as PairedPresetKey | null
             if (!currentProjectId || !schedulePreset) {
@@ -1730,26 +1740,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     'The enable schedule was created, but the disable schedule failed. ' +
                         'You may want to create it manually or delete the enable schedule.'
                 )
-                // Reset form so retrying doesn't create a duplicate enable schedule
-                actions.setSchedulePreset(null)
-                actions.setScheduleDateMarker(null)
-                actions.setIsRecurring(false)
-                actions.setRecurrenceInterval(null)
-                actions.setCronExpression(null)
-                actions.setEndDate(null)
-                actions.loadScheduledChanges()
+                resetScheduleForm()
                 return
             }
 
             // Both succeeded
             lemonToast.success('Paired schedules created')
-            actions.setSchedulePreset(null)
-            actions.setScheduleDateMarker(null)
-            actions.setIsRecurring(false)
-            actions.setRecurrenceInterval(null)
-            actions.setCronExpression(null)
-            actions.setEndDate(null)
-            actions.loadScheduledChanges()
+            resetScheduleForm()
             eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
         },
         showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
