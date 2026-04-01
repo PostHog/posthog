@@ -1,8 +1,10 @@
+import pytest
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
 
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.read_taxonomy.core import ReadEvents, execute_taxonomy_query
 from ee.hogai.tools.read_taxonomy.tool import ReadTaxonomyTool
 from ee.hogai.utils.types import AssistantState
@@ -58,6 +60,24 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         self.assertIn("project", entity_properties_schema["enum"])
         self.assertIn("person", entity_properties_schema["enum"])
         self.assertIn("session", entity_properties_schema["enum"])
+
+    @patch("ee.hogai.tools.read_taxonomy.tool.AssistantContextManager")
+    async def test_run_impl_wraps_validation_error_in_retryable_error(self, mock_context_manager_class):
+        mock_context_manager = MagicMock()
+        mock_context_manager.get_group_names = AsyncMock(return_value=[])
+        mock_context_manager_class.return_value = mock_context_manager
+
+        config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
+        tool = await ReadTaxonomyTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+            config=config,
+            node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
+        )
+
+        with pytest.raises(MaxToolRetryableError, match="event_name"):
+            tool._run_impl(query={"kind": "event_properties", "event": "$pageview"})
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     @patch("ee.hogai.tools.read_taxonomy.core.format_events_yaml")
