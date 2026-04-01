@@ -1798,7 +1798,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             ],
             funnelsFilter=FunnelsFilter(
                 funnelVizType="trends",
-                funnelWindowInterval=14,
+                funnelWindowInterval=7,
                 funnelWindowIntervalUnit="day",
             ),
         )
