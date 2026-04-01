@@ -24,6 +24,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -75,7 +76,14 @@ function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetN
     }
 
     const parts = properties.slice(0, 2).map((property) => {
-        const key = property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key || 'property'
+        let key: string
+        if (property.type === PropertyFilterType.Cohort) {
+            key = 'Cohort'
+        } else if (property.type === PropertyFilterType.Flag) {
+            key = property.label || property.key || 'flag'
+        } else {
+            key = property.key || 'property'
+        }
         const operator = isPropertyFilterWithOperator(property) ? allOperatorsToHumanName(property.operator) : 'is'
         const groupKeyNames: Record<string, string> =
             property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property
@@ -363,6 +371,7 @@ const ConditionContent = ({
     isDragDropEnabled: boolean
 }): JSX.Element => {
     const [originalWidth, setOriginalWidth] = useState<number | undefined>(undefined)
+    const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
 
     // Combined ref callback
     const combinedRef = (element: HTMLDivElement | null): void => {
@@ -489,6 +498,8 @@ const ConditionContent = ({
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
+                                            exactMatchFeatureFlagCohortOperators={true}
+                                            hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
 

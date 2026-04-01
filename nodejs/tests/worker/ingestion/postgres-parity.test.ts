@@ -67,7 +67,7 @@ describe('postgres parity', () => {
         })
         await server.start()
         postgres = server['postgres']!
-        kafkaProducer = server['kafkaProducer']!
+        kafkaProducer = await KafkaProducerWrapper.create(undefined)
         await createUserTeamAndOrganization(
             postgres,
             teamId,
@@ -84,6 +84,7 @@ describe('postgres parity', () => {
     })
 
     afterEach(async () => {
+        await kafkaProducer.disconnect()
         await server.stop()
     })
 

@@ -13,7 +13,13 @@ from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQue
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+from posthog.hogql.property import (
+    action_to_expr,
+    has_aggregation,
+    map_virtual_properties,
+    property_to_expr,
+    steps_to_expr,
+)
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
@@ -22,6 +28,7 @@ from posthog.hogql_queries.insights.insight_actors_query_runner import InsightAc
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
 from posthog.models import Action, Person
+from posthog.models.action.action import ActionStepJSON
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids
@@ -201,6 +208,24 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         if not action.steps:
                             raise Exception("Action does not have any match groups")
                         where_exprs.append(action_to_expr(action))
+                elif self.query.actionSteps:
+                    with self.timings.measure("action_steps"):
+                        steps = [
+                            ActionStepJSON(
+                                event=s.event,
+                                tag_name=s.tag_name,
+                                text=s.text,
+                                text_matching=s.text_matching.value if s.text_matching else None,
+                                href=s.href,
+                                href_matching=s.href_matching.value if s.href_matching else None,
+                                selector=s.selector,
+                                url=s.url,
+                                url_matching=s.url_matching.value if s.url_matching else None,
+                                properties=[p.model_dump() for p in s.properties] if s.properties else None,
+                            )
+                            for s in self.query.actionSteps
+                        ]
+                        where_exprs.append(steps_to_expr(steps, self.team))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
                         person: Person | None = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
