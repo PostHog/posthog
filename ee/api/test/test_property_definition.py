@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventProperty, Tag
@@ -139,6 +140,32 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 2)
+
+    @parameterized.expand(
+        [
+            ("verified_only", "true", ["verified_prop"]),
+            ("unverified_only", "false", ["unverified_prop"]),
+            ("all_when_not_specified", None, ["unverified_prop", "verified_prop"]),
+        ]
+    )
+    def test_filter_property_definitions_by_verified(
+        self, _name: str, verified_param: Optional[str], expected_names: list[str]
+    ):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="verified_prop", verified=True)
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="unverified_prop", verified=False)
+
+        url = "/api/projects/@current/property_definitions/"
+        if verified_param is not None:
+            url += f"?verified={verified_param}"
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted([r["name"] for r in response.json()["results"]]) == expected_names
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

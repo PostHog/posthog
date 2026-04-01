@@ -971,6 +971,9 @@ export enum PropertyFilterType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    Span = 'span',
+    SpanAttribute = 'span_attribute',
+    SpanResourceAttribute = 'span_resource_attribute',
     WorkflowVariable = 'workflow_variable',
     Empty = 'empty',
 }
@@ -1061,6 +1064,16 @@ export interface LogPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type SpanPropertyFilterType =
+    | PropertyFilterType.Span
+    | PropertyFilterType.SpanAttribute
+    | PropertyFilterType.SpanResourceAttribute
+
+export interface SpanPropertyFilter extends BasePropertyFilter {
+    type: SpanPropertyFilterType
+    operator: PropertyOperator
+}
+
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
@@ -1106,6 +1119,7 @@ export type AnyPropertyFilter =
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
+    | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
@@ -3012,6 +3026,8 @@ export type InsightEditorFilterGroup = {
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
     show?: boolean
+    /** Summary shown next to the title when the section is collapsed (e.g. "3 filters", "$browser, $os") */
+    collapsedSummary?: string | null
 }
 
 export interface SystemStatusSubrows {
@@ -4297,6 +4313,9 @@ export enum PropertyDefinitionType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    Span = 'span',
+    SpanAttribute = 'span_attribute',
+    SpanResourceAttribute = 'span_resource_attribute',
     FlagValue = 'flag_value',
     WorkflowVariable = 'workflow_variable',
 }
@@ -4570,6 +4589,7 @@ export interface AppContext {
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
+    oauth_application?: OAuthApplicationPublicMetadata
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -6305,6 +6325,7 @@ export interface HogFunctionMappingType {
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: CyclotronJobFiltersType | null
+    use_all_events_by_default?: boolean
 }
 export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
     name: string
@@ -6714,6 +6735,7 @@ export type OAuthApplicationPublicMetadata = {
     name: string
     client_id: string
     is_verified: boolean
+    logo_uri: string | null
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'

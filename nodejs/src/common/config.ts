@@ -86,7 +86,8 @@ export type CommonConfig = BaseServerConfig & {
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
     PERSONHOG_ADDR: string
-    PERSONHOG_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
@@ -236,7 +237,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
-        PERSONHOG_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_TLS: false,
         PERSONHOG_TIMEOUT_MS: 5000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,

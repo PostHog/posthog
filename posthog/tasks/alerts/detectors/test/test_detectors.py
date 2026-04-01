@@ -604,7 +604,7 @@ class TestRealisticScoreBehavior:
 
     @parameterized.expand(
         [
-            ("zscore", ZScoreDetector({"threshold": 0.95, "window": 168})),
+            ("zscore", ZScoreDetector({"threshold": 0.95, "window": 168, "preprocessing": {"diffs_n": 1}})),
             ("iqr", IQRDetector({"threshold": 0.95, "multiplier": 1.5, "window": 168})),
         ]
     )
@@ -616,7 +616,7 @@ class TestRealisticScoreBehavior:
 
     @parameterized.expand(
         [
-            ("zscore", ZScoreDetector({"threshold": 0.95, "window": 168})),
+            ("zscore", ZScoreDetector({"threshold": 0.95, "window": 168, "preprocessing": {"diffs_n": 1}})),
             ("iqr", IQRDetector({"threshold": 0.95, "multiplier": 1.5, "window": 168})),
         ]
     )
@@ -633,7 +633,7 @@ class TestRealisticScoreBehavior:
     def test_zscore_and_iforest_both_low_on_stable_data(self) -> None:
         """zscore and IsolationForest should both score low on stable data
         so that ensemble OR/AND logic behaves predictably."""
-        zr = ZScoreDetector({"threshold": 0.95, "window": 168}).detect(STABLE_HOURLY)
+        zr = ZScoreDetector({"threshold": 0.95, "window": 168, "preprocessing": {"diffs_n": 1}}).detect(STABLE_HOURLY)
         ir = IsolationForestDetector({"threshold": 0.95}).detect(STABLE_HOURLY)
 
         assert zr.score is not None and ir.score is not None

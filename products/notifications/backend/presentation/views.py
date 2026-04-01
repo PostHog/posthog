@@ -14,6 +14,7 @@ from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
 from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
 from products.notifications.backend.models import NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
@@ -100,9 +101,14 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def unread_count(self, request: Request, **kwargs) -> Response:
-        queryset = self._get_base_queryset()
-        queryset = self._filter_by_access_control(queryset)
-        count = queryset.filter(read=False).count()
+        user = self._get_user()
+        org_id = self.team.organization_id
+        count = get_unread_count(user.id, org_id)
+        if count is None:
+            queryset = self._get_base_queryset()
+            queryset = self._filter_by_access_control(queryset)
+            count = queryset.filter(read=False).count()
+            set_unread_count(user.id, org_id, count)
         return Response({"count": count})
 
     @extend_schema(request=None)
@@ -114,6 +120,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if event_ids:
             read_states = [NotificationReadState(notification_event_id=eid, user=user) for eid in event_ids]
             NotificationReadState.objects.bulk_create(read_states, ignore_conflicts=True)
+        set_unread_count(user.id, self.team.organization_id, 0)
         return Response({"updated": len(event_ids)})
 
     @extend_schema(request=None)
@@ -123,6 +130,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         event = self.get_object()
         # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
         NotificationReadState.objects.get_or_create(notification_event=event, user=user)
+        invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
 
     @extend_schema(request=None)
@@ -132,4 +140,5 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         event = self.get_object()
         # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
         NotificationReadState.objects.filter(notification_event=event, user=user).delete()
+        invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})

@@ -86,6 +86,16 @@ impl std::fmt::Display for ParseTeamIdsError {
 
 impl std::error::Error for ParseTeamIdsError {}
 
+impl TeamIdCollection {
+    pub fn includes_team(&self, team_id: i32) -> bool {
+        match self {
+            TeamIdCollection::All => true,
+            TeamIdCollection::None => false,
+            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
+        }
+    }
+}
+
 impl FromStr for TeamIdCollection {
     type Err = ParseTeamIdsError;
 
@@ -937,22 +947,6 @@ impl Config {
             force_stateless_mode: self.cookieless_force_stateless,
             identifies_ttl_seconds: self.cookieless_identifies_ttl_seconds,
             salt_ttl_seconds: self.cookieless_salt_ttl_seconds,
-        }
-    }
-
-    pub fn is_team_excluded(&self, team_id: i32, teams_to_exclude: &TeamIdCollection) -> bool {
-        match teams_to_exclude {
-            TeamIdCollection::All => true,
-            TeamIdCollection::None => false,
-            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
-        }
-    }
-
-    pub fn is_team_included(&self, team_id: i32, teams_to_include: &TeamIdCollection) -> bool {
-        match teams_to_include {
-            TeamIdCollection::All => true,
-            TeamIdCollection::None => false,
-            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
         }
     }
 

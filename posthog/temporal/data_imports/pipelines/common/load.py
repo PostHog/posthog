@@ -10,6 +10,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -128,6 +129,7 @@ async def run_post_load_operations(
         4. Notify revenue analytics (if applicable)
         5. Finalize incremental field values
         6. Validate schema and update table
+        7. Sync revenue analytics views (if applicable)
     """
     from posthog.temporal.data_imports.pipelines.common.extract import finalize_desc_sort_incremental_value
     from posthog.temporal.data_imports.pipelines.pipeline_sync import (
@@ -188,3 +190,6 @@ async def run_post_load_operations(
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
     logger.debug("Finished validating schema and updating table")
+
+    logger.debug("Syncing revenue analytics views if needed")
+    await database_sync_to_async_pool(sync_revenue_analytics_views)(schema, source)

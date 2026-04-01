@@ -15,7 +15,10 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 
+from posthog.schema import ProductKey
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
@@ -636,6 +639,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             SETTINGS optimize_aggregation_in_order = 1
             """
 
+            tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
             result = sync_execute(query, {"team_id": team_id, "emails": emails})
             return [str(row[0]) for row in result]
 
