@@ -493,6 +493,68 @@ class TestEmailInboundRegionRouting(BaseTest):
         mock_proxy.assert_not_called()
 
 
+class TestBuildProxyKwargs(BaseTest):
+    """Unit tests for _build_proxy_kwargs multipart fallback."""
+
+    def test_raw_body_available(self):
+        from django.test import RequestFactory
+
+        from products.conversations.backend.services.region_routing import _build_proxy_kwargs
+
+        factory = RequestFactory()
+        request = factory.post(
+            "/api/conversations/v1/email/inbound",
+            data=b"key=val",
+            content_type="application/x-www-form-urlencoded",
+        )
+        result = _build_proxy_kwargs(request, {"Content-Type": "application/x-www-form-urlencoded"})
+        assert "data" in result
+        assert "files" not in result
+        assert result["data"] == b"key=val"
+
+    def test_multipart_fallback_after_stream_consumed(self):
+        from django.http.request import RawPostDataException
+        from django.test import RequestFactory
+
+        from products.conversations.backend.services.region_routing import _build_proxy_kwargs
+
+        factory = RequestFactory()
+        png_bytes = _make_png_bytes()
+        png = SimpleUploadedFile("photo.png", png_bytes, content_type="image/png")
+        request = factory.post(
+            "/api/conversations/v1/email/inbound",
+            data={"recipient": "team-abc@mg.posthog.com", "attachment-1": png},
+        )
+
+        # Force parsing so FILES is populated
+        _ = request.POST
+        _ = request.FILES
+
+        # Simulate ASGI: make body raise as if the stream was consumed
+        original_body = type(request).body
+
+        def raise_raw_post(*_args):
+            raise RawPostDataException()
+
+        type(request).body = property(raise_raw_post)
+        try:
+            headers = {"Content-Type": "multipart/form-data; boundary=xxx"}
+            result = _build_proxy_kwargs(request, headers)
+
+            assert "files" in result
+            assert len(result["files"]) == 1
+            key, (name, content_bytes, ct) = result["files"][0]
+            assert key == "attachment-1"
+            assert name == "photo.png"
+            assert ct == "image/png"
+            assert len(content_bytes) > 0
+
+            assert any(k == "recipient" and v == "team-abc@mg.posthog.com" for k, v in result["data"])
+            assert "content-type" not in {k.lower() for k in result["headers"]}
+        finally:
+            type(request).body = original_body
+
+
 class TestEmailInboundMultiConfig(BaseTest):
     def setUp(self):
         super().setUp()
