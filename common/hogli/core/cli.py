@@ -49,10 +49,7 @@ class CategorizedGroup(click.Group):
             _fire_telemetry(ctx, exit_code)
             telemetry.flush()
             if exit_code == 0:
-                try:
-                    hints.maybe_show_hint(ctx.invoked_subcommand)
-                except Exception:
-                    pass
+                hints.maybe_show_hint(ctx.invoked_subcommand)
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format commands grouped by category, git-style with extends tree."""

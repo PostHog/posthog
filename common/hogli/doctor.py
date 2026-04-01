@@ -530,7 +530,7 @@ def _estimate_git(repo_root: Path) -> CleanupEstimate:
         )
 
     # Get current size
-    git_size = _get_dir_size(git_dir)
+    git_size, _ = _get_dir_size(git_dir)
 
     # Count packs and get object stats
     pack_count = (
@@ -709,7 +709,7 @@ def _collect_python_cache_dirs(repo_root: Path) -> Iterable[CleanupItem]:
                 continue
             if resolved in seen or not cache_dir.is_dir():
                 continue
-            size = _get_dir_size(cache_dir)
+            size, _ = _get_dir_size(cache_dir)
             if size <= 0:
                 continue
             seen.add(resolved)
@@ -748,7 +748,7 @@ def _collect_paths_from_patterns(repo_root: Path, patterns: Sequence[str]) -> li
             seen.add(resolved)
 
             if path.is_dir():
-                size = _get_dir_size(path)
+                size, _ = _get_dir_size(path)
                 if size <= 0:
                     continue
                 items.append(CleanupItem(path, size, is_dir=True))
@@ -788,7 +788,7 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
             continue
         if resolved in seen or not target_dir.is_dir():
             continue
-        size = _get_dir_size(target_dir)
+        size, _ = _get_dir_size(target_dir)
         if size <= 0:
             continue
         seen.add(resolved)
@@ -879,34 +879,7 @@ def _delete_items(items: Iterable[CleanupItem]) -> float:
     return freed
 
 
-def _get_dir_size(path: Path) -> float:
-    """Compute directory size without following symlinked directories."""
-
-    if not path.exists():
-        return 0.0
-
-    total = 0.0
-    stack = [path]
-
-    while stack:
-        current = stack.pop()
-        try:
-            with os.scandir(current) as entries:
-                for entry in entries:
-                    try:
-                        if entry.is_dir(follow_symlinks=False):
-                            stack.append(Path(entry.path))
-                        else:
-                            total += entry.stat(follow_symlinks=False).st_size
-                    except (FileNotFoundError, PermissionError, OSError):
-                        continue
-        except (FileNotFoundError, PermissionError, NotADirectoryError, OSError):
-            continue
-
-    return total
-
-
-def _get_dir_size_capped(path: Path, cap: float) -> tuple[float, bool]:
+def _get_dir_size(path: Path, cap: float = float("inf")) -> tuple[float, bool]:
     """Compute directory size, stopping early once *cap* bytes is exceeded.
 
     Returns ``(accumulated_size, exceeded)``.
@@ -1562,7 +1535,7 @@ def _check_disk(repo_root: Path) -> CheckResult:
                 if resolved in seen or not cache_dir.is_dir():
                     continue
                 seen.add(resolved)
-                size, exceeded = _get_dir_size_capped(cache_dir, budget - total)
+                size, exceeded = _get_dir_size(cache_dir, cap=budget - total)
                 total += size
                 if exceeded:
                     return CheckResult(
@@ -1584,7 +1557,7 @@ def _check_disk(repo_root: Path) -> CheckResult:
                 continue
             node_seen.add(resolved)
             if path.is_dir():
-                size, exceeded = _get_dir_size_capped(path, budget - total)
+                size, exceeded = _get_dir_size(path, cap=budget - total)
                 total += size
             else:
                 try:

@@ -61,44 +61,25 @@ class TestPickHint:
         }
         assert hints._pick_hint(state, now) is None
 
-    def test_returns_disk_hint_when_stale(self):
+    @pytest.mark.parametrize(
+        "stale_command, expected_fragment",
+        [
+            ("doctor:disk", "doctor:disk"),
+            ("doctor:zombies", "doctor:zombies"),
+            ("doctor", "hogli doctor"),
+        ],
+    )
+    def test_returns_hint_when_stale(self, stale_command: str, expected_fragment: str):
         now = datetime.now(UTC)
+        all_commands = {"doctor:disk", "doctor:zombies", "doctor"}
         state: hints.HintsState = {
             "last_runs": {
-                "doctor:disk": (now - timedelta(days=8)).isoformat(),
-                "doctor:zombies": now.isoformat(),
-                "doctor": now.isoformat(),
+                cmd: (now - timedelta(days=8 if cmd == stale_command else 0)).isoformat() for cmd in all_commands
             }
         }
         result = hints._pick_hint(state, now)
         assert result is not None
-        assert "doctor:disk" in result
-
-    def test_returns_zombies_hint_when_stale(self):
-        now = datetime.now(UTC)
-        state: hints.HintsState = {
-            "last_runs": {
-                "doctor:disk": now.isoformat(),
-                "doctor:zombies": (now - timedelta(days=8)).isoformat(),
-                "doctor": now.isoformat(),
-            }
-        }
-        result = hints._pick_hint(state, now)
-        assert result is not None
-        assert "doctor:zombies" in result
-
-    def test_returns_doctor_hint_when_stale(self):
-        now = datetime.now(UTC)
-        state: hints.HintsState = {
-            "last_runs": {
-                "doctor:disk": now.isoformat(),
-                "doctor:zombies": now.isoformat(),
-                "doctor": (now - timedelta(days=15)).isoformat(),
-            }
-        }
-        result = hints._pick_hint(state, now)
-        assert result is not None
-        assert "hogli doctor" in result
+        assert expected_fragment in result
 
     def test_priority_order_disk_first(self):
         now = datetime.now(UTC)
@@ -125,12 +106,9 @@ class TestMaybeShowHint:
             hints.maybe_show_hint("start")
         assert not _isolated_state.exists()
 
-    def test_suppressed_for_doctor_commands(self, _isolated_state):
-        hints.maybe_show_hint("doctor")
-        assert not _isolated_state.exists()
-
-    def test_suppressed_for_doctor_disk(self, _isolated_state):
-        hints.maybe_show_hint("doctor:disk")
+    @pytest.mark.parametrize("command", sorted(hints._SKIP_COMMANDS))
+    def test_suppressed_for_skip_commands(self, _isolated_state, command: str):
+        hints.maybe_show_hint(command)
         assert not _isolated_state.exists()
 
     def test_rate_limited_within_24h(self, _isolated_state):
