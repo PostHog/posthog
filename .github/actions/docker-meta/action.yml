@@ -29,6 +29,10 @@ inputs:
         required: false
         default: 'false'
         description: 'Whether to also push to DockerHub as posthog/<image-name>. Only needed for the main posthog-cloud image.'
+    push-to-ghcr:
+        required: false
+        default: 'true'
+        description: 'Whether to push to ghcr.io. Set to false to skip GHCR publishing.'
 
 outputs:
     tags:
@@ -55,6 +59,7 @@ runs:
           uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
         - name: Login to ghcr.io
+          if: inputs.push-to-ghcr == 'true'
           uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
           with:
               registry: ghcr.io
@@ -75,7 +80,9 @@ runs:
           run: |
               {
                 echo "list<<EOF"
-                echo "ghcr.io/posthog/$IMAGE_NAME"
+                if [ "$PUSH_TO_GHCR" = "true" ]; then
+                  echo "ghcr.io/posthog/$IMAGE_NAME"
+                fi
                 if [ "$PUSH_TO_DOCKERHUB" = "true" ]; then
                   echo "posthog/$IMAGE_NAME"
                 fi
@@ -91,6 +98,7 @@ runs:
               LEGACY_IMAGES: ${{ inputs.legacy-images }}
               ECR_IMAGE_NAME: ${{ inputs.ecr-image-name }}
               PUSH_TO_DOCKERHUB: ${{ inputs.push-to-dockerhub }}
+              PUSH_TO_GHCR: ${{ inputs.push-to-ghcr }}
 
         - name: Docker meta
           id: meta

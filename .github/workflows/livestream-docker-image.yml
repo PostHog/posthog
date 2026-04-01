@@ -49,6 +49,8 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # We don't push to ghcr.io/posthog/livestream due to that being a legacy repo that we can't delete :/
+                  push-to-ghcr: 'false'
                   # Legacy path — remove once Helm charts are updated to ghcr.io/posthog/<image>
                   legacy-images: ghcr.io/posthog/posthog/livestream
 
