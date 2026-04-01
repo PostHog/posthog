@@ -1,8 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { track } from 'mcpcat'
 
-const POSTHOG_API_KEY = 'sTMFPsFhdP1Ssg'
-const POSTHOG_HOST = 'https://us.i.posthog.com'
+import { DEV_POSTHOG_API_KEY, DEV_POSTHOG_HOST, POSTHOG_API_KEY, POSTHOG_HOST } from './analytics'
+import { CUSTOM_API_BASE_URL } from './constants'
 
 /** Provider interface for resolving user/session identity. */
 export type McpCatIdentityProvider = {
@@ -27,12 +27,15 @@ export function initMcpCatObservability(server: McpServer, identity: McpCatIdent
             identify: async () => {
                 try {
                     const distinctId = await identity.getDistinctId()
+                    const region = identity.getRegion()
+                    const organizationId = identity.getOrganizationId()
+                    const projectId = identity.getProjectId()
                     return {
                         userId: distinctId,
                         userData: {
-                            ...(identity.getRegion() ? { region: identity.getRegion() } : {}),
-                            ...(identity.getOrganizationId() ? { organization_id: identity.getOrganizationId() } : {}),
-                            ...(identity.getProjectId() ? { project_id: identity.getProjectId() } : {}),
+                            ...(region ? { region } : {}),
+                            ...(organizationId ? { organization_id: organizationId } : {}),
+                            ...(projectId ? { project_id: projectId } : {}),
                         },
                     }
                 } catch {
@@ -88,8 +91,8 @@ export function initMcpCatObservability(server: McpServer, identity: McpCatIdent
             exporters: {
                 posthog: {
                     type: 'posthog',
-                    apiKey: POSTHOG_API_KEY,
-                    host: POSTHOG_HOST,
+                    apiKey: CUSTOM_API_BASE_URL ? DEV_POSTHOG_API_KEY : POSTHOG_API_KEY,
+                    host: CUSTOM_API_BASE_URL ? DEV_POSTHOG_HOST : POSTHOG_HOST,
                     enableAITracing: true,
                 },
             },
