@@ -6,7 +6,7 @@ use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
 use rdkafka::types::RDKafkaErrorCode;
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
+use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 
 use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
@@ -24,6 +24,11 @@ pub struct IssueFingerprintOverride {
     pub issue_id: Uuid,
     pub fingerprint: String,
     pub version: i64,
+}
+
+#[derive(FromRow)]
+struct FingerprintFirstSeenRow {
+    first_seen: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +89,28 @@ impl Issue {
         .await?;
 
         Ok(res)
+    }
+
+    pub async fn load_fingerprint_first_seen<'c, E>(
+        executor: E,
+        team_id: i32,
+        fingerprint: &str,
+    ) -> Result<Option<DateTime<Utc>>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let row = sqlx::query_as::<_, FingerprintFirstSeenRow>(
+            r#"
+            SELECT first_seen FROM posthog_errortrackingissuefingerprintv2
+            WHERE team_id = $1 AND fingerprint = $2
+            "#,
+        )
+        .bind(team_id)
+        .bind(fingerprint)
+        .fetch_optional(executor)
+        .await?;
+
+        Ok(row.and_then(|r| r.first_seen))
     }
 
     pub async fn load<'c, E>(

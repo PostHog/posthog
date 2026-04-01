@@ -107,6 +107,9 @@ async fn resolve_issue(
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
     if let Some(mut issue) = existing_issue {
         if issue.maybe_reopen(&mut *conn).await? {
+            let first_seen_for_state = Issue::load_fingerprint_first_seen(&mut *conn, team_id, &fingerprint)
+                .await?
+                .unwrap_or(issue.created_at);
             let assignment =
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
@@ -115,7 +118,7 @@ async fn resolve_issue(
                 &issue,
                 &fingerprint,
                 assignment.as_ref(),
-                event_timestamp,
+                first_seen_for_state,
             )
             .await?;
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
@@ -160,13 +163,14 @@ async fn resolve_issue(
     let mut issue = issue;
     if !was_created {
         txn.rollback().await?;
-        // Replace the attempt issue with the existing one
         issue = Issue::load(&mut *conn, team_id, issue_override.issue_id)
             .await?
             .unwrap_or(issue);
 
-        // Since we just loaded an issue, check if it needs to be reopened
         if issue.maybe_reopen(&mut *conn).await? {
+            let first_seen_for_state = Issue::load_fingerprint_first_seen(&mut *conn, team_id, &fingerprint)
+                .await?
+                .unwrap_or(issue.created_at);
             let assignment =
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
@@ -175,7 +179,7 @@ async fn resolve_issue(
                 &issue,
                 &fingerprint,
                 assignment.as_ref(),
-                event_timestamp,
+                first_seen_for_state,
             )
             .await?;
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
@@ -185,6 +189,7 @@ async fn resolve_issue(
             send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
                 .await?;
         }
+        return Ok(issue);
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
         let assignment =
