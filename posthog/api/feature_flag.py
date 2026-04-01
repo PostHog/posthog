@@ -1277,7 +1277,7 @@ class FeatureFlagSerializer(
 
         # Set default filters for remote config flags to 100% rollout
         if validated_data.get("is_remote_configuration", False):
-            filters = validated_data.get("filters", {})
+            filters = validated_data.get("filters", {}) or {}
             groups = filters.get("groups", [])
 
             # If no groups exist, create one with 100% rollout
