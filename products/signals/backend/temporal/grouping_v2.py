@@ -110,13 +110,10 @@ class TeamSignalGroupingV2Workflow:
             if self._is_paused():
                 if (workflow.now() - start_time) > PAUSE_MAX_RUN_DURATION:
                     self._continue_as_new(input)
-                try:
-                    await workflow.wait_condition(
-                        lambda: not self._is_paused(),
-                        timeout=timedelta(seconds=PAUSE_SLEEP_SECONDS),
-                    )
-                except TimeoutError:
-                    pass
+                await workflow.wait_condition(
+                    lambda: not self._is_paused(),
+                    timeout=timedelta(seconds=PAUSE_SLEEP_SECONDS),
+                )
                 continue
 
             # Wait for at least one batch key
