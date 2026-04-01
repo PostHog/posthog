@@ -13,7 +13,7 @@ import {
 import type { replayTriggersV2LogicType } from './replayTriggersV2LogicType'
 
 export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
-    path(['scenes', 'settings', 'environment', 'replayTriggers', 'replayTriggersV2Logic']),
+    path(['lib', 'components', 'IngestionControls', 'triggers', 'triggerGroups', 'replayTriggersV2Logic']),
     connect({
         values: [teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeam']],

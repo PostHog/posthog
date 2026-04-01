@@ -8,11 +8,11 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { EventTriggerSelect } from 'lib/components/IngestionControls/triggers/EventTrigger'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { TRIGGER_GROUPS_MIN_SDK_VERSION } from 'scenes/settings/environment/ReplayTriggers'
+import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import { SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
 
-import { TRIGGER_GROUPS_MIN_SDK_VERSION } from '../ReplayTriggers'
-import { Since } from '../SessionRecordingSettings'
 import { replayTriggersV2Logic } from './replayTriggersV2Logic'
 import { TriggerGroupCard } from './TriggerGroupCard'
 import { triggerGroupFormLogic } from './triggerGroupFormLogic'

@@ -26,7 +26,7 @@ export interface TriggerGroupFormLogicProps {
 }
 
 export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
-    path(['scenes', 'settings', 'environment', 'replayTriggers', 'triggerGroupFormLogic']),
+    path(['lib', 'components', 'IngestionControls', 'triggers', 'triggerGroups', 'triggerGroupFormLogic']),
     props({} as TriggerGroupFormLogicProps),
     key((props) => props.group?.id || 'new'),
     actions({
