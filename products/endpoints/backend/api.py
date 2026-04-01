@@ -676,7 +676,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(
                 e,
                 {
-                    "product_key": Product.ENDPOINTS,
+                    "product": Product.ENDPOINTS,
                     "team_id": self.team_id,
                     "endpoint_name": data.name,
                 },
@@ -724,6 +724,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
+
+        # Soft-delete via PATCH {deleted: true} — reuses destroy() logic, returns 200 with body for MCP
+        if data.deleted is True:
+            self.destroy(request, name=name)
+            return Response({"success": True}, status=status.HTTP_200_OK)
 
         self.validate_update_request(data, endpoint=endpoint, strict=False)
 
@@ -940,7 +945,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(
                 e,
                 {
-                    "product_key": Product.ENDPOINTS,
+                    "product": Product.ENDPOINTS,
                     "team_id": self.team_id,
                     "endpoint_id": endpoint.id,
                     "saved_query_id": current_version.saved_query.id if current_version.saved_query else None,
