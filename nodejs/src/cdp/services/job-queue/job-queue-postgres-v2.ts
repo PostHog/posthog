@@ -154,8 +154,10 @@ export class CyclotronJobQueuePostgresV2 {
                     await job.ack()
                 } else {
                     const stateBuffer = serializeState(result.invocation)
-                    const delayMs = computeDelayMs(result.invocation.queueScheduledAt)
-                    await job.retry({ state: stateBuffer, delayMs })
+                    await job.retry({
+                        state: stateBuffer,
+                        scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                    })
                 }
             })
         )
@@ -196,13 +198,6 @@ export class CyclotronJobQueuePostgresV2 {
             })
         )
     }
-}
-
-function computeDelayMs(scheduledAt: CyclotronJobInvocation['queueScheduledAt']): number {
-    if (!scheduledAt) {
-        return 0
-    }
-    return Math.max(0, scheduledAt.toMillis() - Date.now())
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {

@@ -277,15 +277,16 @@ describe('Cyclotron V2', () => {
             expect(row.transition_count).toBe(2) // dequeue + retry
         })
 
-        it('retry({ delayMs }) schedules into the future', async () => {
+        it('retry({ scheduledAt }) schedules into the future', async () => {
             const { id, job } = await seedAndDequeue()
 
-            const beforeRetry = Date.now()
-            await job.retry({ delayMs: 60_000 })
+            const futureDate = new Date(Date.now() + 60_000)
+            await job.retry({ scheduledAt: futureDate })
 
             const row = await queryJob(id)
             expect(row.status).toBe('available')
-            expect(new Date(row.scheduled).getTime()).toBeGreaterThan(beforeRetry + 50_000)
+            expect(new Date(row.scheduled).getTime()).toBeGreaterThanOrEqual(futureDate.getTime() - 1000)
+            expect(new Date(row.scheduled).getTime()).toBeLessThanOrEqual(futureDate.getTime() + 1000)
         })
 
         it('retry({ state }) updates state blob', async () => {
