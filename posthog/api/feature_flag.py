@@ -5,6 +5,7 @@ import json
 import math
 import time
 import logging
+import functools
 from datetime import datetime
 from typing import Any, Optional, cast
 
@@ -808,6 +809,15 @@ class FeatureFlagSerializer(
             is_create=self.instance is None,
         )
 
+    @functools.cached_property
+    def _allow_realtime_backfilled(self) -> bool:
+        """Lazily check whether realtime cohort flag targeting is enabled.
+
+        This avoids a potentially expensive feature_enabled() call for flags that don't
+        reference any cohort properties.
+        """
+        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
+
     def validate_filters(self, filters):
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
         # If we see this, just return the current filters
@@ -949,8 +959,6 @@ class FeatureFlagSerializer(
                     "Invalid variant definitions: Variant rollout percentages must sum to 100.",
                     code="invalid_input",
                 )
-
-        self._allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
 
         for condition in filters["groups"]:
             if condition.get("variant") and condition["variant"] not in variants:
@@ -1247,7 +1255,7 @@ class FeatureFlagSerializer(
                 temporary_flag,
                 team_id,
                 project_id,
-                allow_realtime_backfilled=getattr(self, "_allow_realtime_backfilled", False),
+                allow_realtime_backfilled=self._allow_realtime_backfilled,
             )
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")

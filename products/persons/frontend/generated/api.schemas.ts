@@ -87,13 +87,16 @@ export const NullEnumApi = {} as const
  * `log` - log
  * `log_attribute` - log_attribute
  * `log_resource_attribute` - log_resource_attribute
+ * `span` - span
+ * `span_attribute` - span_attribute
+ * `span_resource_attribute` - span_resource_attribute
  * `revenue_analytics` - revenue_analytics
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type Type19aEnumApi = (typeof Type19aEnumApi)[keyof typeof Type19aEnumApi]
+export type Type3f6EnumApi = (typeof Type3f6EnumApi)[keyof typeof Type3f6EnumApi]
 
-export const Type19aEnumApi = {
+export const Type3f6EnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -115,6 +118,9 @@ export const Type19aEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
@@ -126,7 +132,7 @@ export interface PropertyItemApi {
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string | number | boolean | (string | number)[]
     operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: Type19aEnumApi | BlankEnumApi
+    type?: Type3f6EnumApi | BlankEnumApi
 }
 
 export interface PropertyApi {
