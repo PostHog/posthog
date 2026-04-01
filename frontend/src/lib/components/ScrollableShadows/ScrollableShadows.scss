@@ -1,6 +1,13 @@
 .ScrollableShadows {
     --scrollable-shadows-offset-top: 0px;
 
+    // Reset shadow custom properties so nested ScrollableShadows don't inherit
+    // the parent's shadow values via CSS custom property inheritance.
+    --shadow-x-start: 0 0 0 0 transparent;
+    --shadow-x-end: 0 0 0 0 transparent;
+    --shadow-y-start: 0 0 0 0 transparent;
+    --shadow-y-end: 0 0 0 0 transparent;
+
     position: relative;
     display: flex;
     width: 100%;
