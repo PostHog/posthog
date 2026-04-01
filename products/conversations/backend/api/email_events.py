@@ -86,7 +86,7 @@ def _extract_attachments(request: HttpRequest, team: Team) -> list[dict[str, Any
     attachments: list[dict[str, Any]] = []
     for _key in list(request.FILES.keys())[:MAX_ATTACHMENTS]:
         uploaded_file = cast(UploadedFile, request.FILES[_key])
-        if uploaded_file.size and uploaded_file.size > MAX_ATTACHMENT_SIZE:
+        if uploaded_file.size is not None and uploaded_file.size > MAX_ATTACHMENT_SIZE:
             logger.warning(
                 "email_inbound_attachment_too_large",
                 team_id=team.id,
@@ -221,13 +221,14 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")
 
-    # 7b. Extract and persist attachments (before transaction — storage writes aren't transactional)
-    attachments = _extract_attachments(request, team)
-    content, rich_content = _build_content_with_attachments(content, attachments)
-
-    # 8-10. Create ticket/comment/mapping in a transaction
+    # 8. Create ticket/comment/mapping in a transaction
+    # Attachments are extracted inside the transaction so UploadedMedia rows roll back
+    # on duplicate-race IntegrityError. Orphaned S3 blobs are acceptable.
     try:
         with transaction.atomic():
+            attachments = _extract_attachments(request, team)
+            content, rich_content = _build_content_with_attachments(content, attachments)
+
             ticket: Ticket | None = None
             if existing_ticket:
                 ticket = Ticket.objects.select_for_update().filter(id=existing_ticket.id, team=team).first()
