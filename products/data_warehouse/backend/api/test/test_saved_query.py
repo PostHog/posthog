@@ -386,6 +386,32 @@ class TestSavedQuery(APIBaseTest):
         self.assertTrue(first_view.deleted)
         self.assertTrue(second_view.deleted)
 
+    def test_rename_folder(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/",
+            {"name": "Revenue"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        folder.refresh_from_db()
+        self.assertEqual(folder.name, "Revenue")
+
+    def test_rename_folder_rejects_duplicate_name(self):
+        DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Revenue", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/",
+            {"name": "Finance"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("A folder with this name already exists.", str(response.json()))
+
     def test_listing_deleted_queries(self):
         DataWarehouseSavedQuery.objects.create(
             team=self.team,

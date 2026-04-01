@@ -58,8 +58,12 @@ export const QueryDatabase = (): JSX.Element => {
         openUnsavedQuery,
         deleteUnsavedQuery,
     } = useActions(queryDatabaseLogic)
-    const { createDataWarehouseSavedQueryFolder, deleteDataWarehouseSavedQueryFolder, updateDataWarehouseSavedQuery } =
-        useActions(dataWarehouseViewsLogic)
+    const {
+        createDataWarehouseSavedQueryFolder,
+        deleteDataWarehouseSavedQueryFolder,
+        updateDataWarehouseSavedQuery,
+        updateDataWarehouseSavedQueryFolder,
+    } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
     const { deleteDraft } = useActions(draftsLogic)
     const { setActiveTab, setQueryInput, setSourceQuery } = useActions(sqlEditorLogic)
@@ -562,6 +566,32 @@ export const QueryDatabase = (): JSX.Element => {
                 if (item.record?.type === 'folder' && item.record?.folderType === 'view-folder') {
                     return (
                         <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    LemonDialog.openForm({
+                                        title: 'Rename folder',
+                                        initialValues: { folderName: item.name },
+                                        content: (
+                                            <LemonField name="folderName">
+                                                <LemonInput placeholder="Enter a folder name" autoFocus />
+                                            </LemonField>
+                                        ),
+                                        errors: {
+                                            folderName: (name) =>
+                                                !name?.trim() ? 'You must enter a folder name' : undefined,
+                                        },
+                                        onSubmit: ({ folderName }) =>
+                                            updateDataWarehouseSavedQueryFolder({
+                                                id: item.record.folder.id,
+                                                name: folderName.trim(),
+                                            }),
+                                    })
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Rename folder</ButtonPrimitive>
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {

@@ -4769,6 +4769,12 @@ const api = {
         async create(data: Pick<DataWarehouseSavedQueryFolder, 'name'>): Promise<DataWarehouseSavedQueryFolder> {
             return await new ApiRequest().dataWarehouseSavedQueryFolders().create({ data })
         },
+        async update(
+            folderId: DataWarehouseSavedQueryFolder['id'],
+            data: Pick<DataWarehouseSavedQueryFolder, 'name'>
+        ): Promise<DataWarehouseSavedQueryFolder> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).update({ data })
+        },
         async delete(folderId: DataWarehouseSavedQueryFolder['id']): Promise<void> {
             await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).delete()
         },

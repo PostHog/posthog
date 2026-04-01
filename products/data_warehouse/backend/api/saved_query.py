@@ -586,7 +586,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, viewsets.Mode
     queryset = DataWarehouseSavedQueryFolder.objects.all()
     serializer_class = DataWarehouseSavedQueryFolderSerializer
     pagination_class = None
-    http_method_names = ["get", "post", "delete"]
+    http_method_names = ["get", "post", "patch", "delete"]
     ordering = "name"
 
     def safely_get_queryset(self, queryset):

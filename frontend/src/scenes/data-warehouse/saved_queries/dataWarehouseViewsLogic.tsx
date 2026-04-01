@@ -103,6 +103,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         a.name.localeCompare(b.name)
                     )
                 },
+                updateDataWarehouseSavedQueryFolder: async ({ id, name }: { id: string; name: string }) => {
+                    const updatedFolder = await api.dataWarehouseSavedQueryFolders.update(id, { name })
+                    return values.dataWarehouseSavedQueryFolders
+                        .map((folder) => (folder.id === id ? updatedFolder : folder))
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                },
                 deleteDataWarehouseSavedQueryFolder: async (folderId: string) => {
                     await api.dataWarehouseSavedQueryFolders.delete(folderId)
                     return values.dataWarehouseSavedQueryFolders.filter((folder) => folder.id !== folderId)
@@ -116,6 +122,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         createDataWarehouseSavedQueryFolderSuccess: () => {
             actions.loadDataWarehouseSavedQueries()
+        },
+        updateDataWarehouseSavedQueryFolderSuccess: () => {
+            lemonToast.success('Folder renamed')
+        },
+        updateDataWarehouseSavedQueryFolderFailure: () => {
+            lemonToast.error('Failed to rename folder')
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // in the case where we are scheduling a materialized view, send an event
