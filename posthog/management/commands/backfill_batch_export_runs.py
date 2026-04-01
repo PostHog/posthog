@@ -48,6 +48,8 @@ def get_backfill_bounds(interval: str, first_end: datetime, last_end: datetime) 
 def get_batch_exports(
     batch_export_id: str | None = None,
     destination_type: str | None = None,
+    team_id: int | None = None,
+    model: str | None = None,
 ) -> list[BatchExport]:
     """Fetch batch exports to check, filtering out deleted/paused ones."""
     if batch_export_id:
@@ -67,6 +69,10 @@ def get_batch_exports(
     filters: dict = {"deleted": False, "paused": False}
     if destination_type:
         filters["destination__type"] = destination_type
+    if team_id:
+        filters["team_id"] = team_id
+    if model:
+        filters["model"] = model
     return list(BatchExport.objects.filter(**filters).select_related("destination", "team"))
 
 
@@ -245,6 +251,19 @@ class Command(BaseCommand):
             help="Filter by destination type (e.g. Databricks, S3)",
         )
         parser.add_argument(
+            "--team-id",
+            type=int,
+            default=None,
+            help="Only check batch exports for a specific team",
+        )
+        parser.add_argument(
+            "--model",
+            type=str,
+            choices=["events", "persons", "sessions"],
+            default=None,
+            help="Filter by export model (e.g. events, persons, sessions)",
+        )
+        parser.add_argument(
             "--overlap-policy",
             type=str,
             choices=["buffer_all", "allow_all"],
@@ -293,6 +312,8 @@ class Command(BaseCommand):
         exports = get_batch_exports(
             batch_export_id=options["batch_export_id"],
             destination_type=options["destination_type"],
+            team_id=options["team_id"],
+            model=options["model"],
         )
 
         if not exports:
