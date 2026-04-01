@@ -1002,6 +1002,7 @@ export function LineGraph_({
                 },
                 onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
                     if (!pinTooltip) {
+                        onChartClick(event, chart, processedDatasets, onClick)
                         return
                     }
 
