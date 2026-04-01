@@ -23,6 +23,9 @@ export function MathSelector(props: MathSelectorProps): JSX.Element {
             dropdownMatchSelectWidth={false}
             dropdownPlacement="bottom-start"
             size={size}
+            fullWidth
+            truncate
+            truncateText={{ maxWidthClass: 'max-w-full' }}
         />
     )
 }

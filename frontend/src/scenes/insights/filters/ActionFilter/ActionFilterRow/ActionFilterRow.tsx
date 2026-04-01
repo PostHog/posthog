@@ -353,11 +353,7 @@ export function ActionFilterRow({
                     })
                 }
             }}
-            renderValue={() => (
-                <span className="text-overflow max-w-full">
-                    <EntityFilterInfo filter={filter} showIcon />
-                </span>
-            )}
+            renderValue={() => <EntityFilterInfo filter={filter} showIcon />}
             groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
             placeholderClass=""
@@ -525,7 +521,7 @@ export function ActionFilterRow({
                                     '@max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1 @max-[400px]/editor-panel:min-w-0 @max-[400px]/editor-panel:[&>*]:basis-full'
                             )}
                         >
-                            <div className="flex-1 min-w-36 @max-[400px]/editor-panel:min-w-0 overflow-hidden">
+                            <div className="flex-1 min-w-0 @min-[0px]/editor-panel:min-w-36 overflow-hidden">
                                 {filterElement}
                             </div>
                             {customRowSuffix !== undefined && <>{suffix}</>}
@@ -533,18 +529,20 @@ export function ActionFilterRow({
                                 mathAvailability !== MathAvailability.FunnelsOnly && (
                                     <>
                                         {mathAvailability !== MathAvailability.BoxPlotOnly && (
-                                            <MathSelector
-                                                math={math}
-                                                mathGroupTypeIndex={mathGroupTypeIndex}
-                                                index={index}
-                                                onMathSelect={onMathSelect}
-                                                disabled={readOnly}
-                                                style={{ maxWidth: '100%', width: 'initial' }}
-                                                mathAvailability={mathAvailability}
-                                                trendsDisplayCategory={trendsDisplayCategory}
-                                                allowedMathTypes={allowedMathTypes}
-                                                query={query || {}}
-                                            />
+                                            <div className="@min-[0px]/editor-panel:shrink @min-[0px]/editor-panel:min-w-28 @min-[0px]/editor-panel:overflow-hidden">
+                                                <MathSelector
+                                                    math={math}
+                                                    mathGroupTypeIndex={mathGroupTypeIndex}
+                                                    index={index}
+                                                    onMathSelect={onMathSelect}
+                                                    disabled={readOnly}
+                                                    style={{ maxWidth: '100%', width: 'initial' }}
+                                                    mathAvailability={mathAvailability}
+                                                    trendsDisplayCategory={trendsDisplayCategory}
+                                                    allowedMathTypes={allowedMathTypes}
+                                                    query={query || {}}
+                                                />
+                                            </div>
                                         )}
                                         {mathAvailability === MathAvailability.BoxPlotOnly && (
                                             <BoxPlotPropertySelector
