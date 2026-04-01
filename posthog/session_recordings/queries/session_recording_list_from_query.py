@@ -301,9 +301,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_queries = ReplayFiltersEventsSubQuery(
+        events_sub_query_builder = ReplayFiltersEventsSubQuery(
             self._team, self._query, self._allow_event_property_expansion
-        ).get_queries_for_session_id_matching()
+        )
+        events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
             optional_exprs.append(
                 ast.CompareOperation(
@@ -313,6 +314,19 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     op=ast.CompareOperationOp.GlobalIn,
                     left=ast.Field(chain=["s", "session_id"]),
                     right=events_sub_query,
+                )
+            )
+
+        # Negative property filters (NOT_ICONTAINS, IS_NOT, etc.) are handled via a blocklist:
+        # find the small set of sessions that MATCH the positive form, then exclude them.
+        # This avoids scanning all event-sessions which can exceed the LIMIT on high-traffic teams.
+        negative_blocklist = events_sub_query_builder.get_negative_blocklist_query()
+        if negative_blocklist:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GlobalNotIn,
+                    left=ast.Field(chain=["s", "session_id"]),
+                    right=negative_blocklist,
                 )
             )
 
