@@ -1203,7 +1203,7 @@ class HogQLPrinter(Visitor[str]):
                 if isinstance(type.table_type, ast.ColumnAliasedTableType) and self.dialect == "postgres":
                     field_sql = self._print_identifier(type.name)
                 else:
-                    # this errors because resolved_field is of type ast.Alias and not a field - what's the best way to solve?
+                    # resolved_field may be an ast.Alias; in both cases .name is the physical column name to emit
                     field_sql = self._print_identifier(resolved_field.name)
                 if self.context.within_non_hogql_query and type_with_name_in_scope == type:
                     # Do not prepend table name in non-hogql context. We don't know what it actually is.

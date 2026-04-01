@@ -375,7 +375,13 @@ class LazyTableResolver(TraversingVisitor):
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
             # Usually there's just one or two.
-            table_types: list[ast.LazyJoinType | ast.LazyTableType | ast.TableAliasType | ast.VirtualTableType] = []
+            table_types: list[
+                ast.LazyJoinType
+                | ast.LazyTableType
+                | ast.TableAliasType
+                | ast.ColumnAliasedTableType
+                | ast.VirtualTableType
+            ] = []
             while (
                 isinstance(table_type, ast.TableAliasType)
                 or isinstance(table_type, ast.ColumnAliasedTableType)

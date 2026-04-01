@@ -1064,6 +1064,11 @@ class Resolver(CloningVisitor):
                         f"Table has {len(asterisk_fields)} column(s) available for aliasing "
                         f"but {len(node.column_aliases)} alias(es) were provided"
                     )
+                seen_aliases: set[str] = set()
+                for alias_name in node.column_aliases:
+                    if alias_name in seen_aliases:
+                        raise QueryError(f"Duplicate column alias '{alias_name}' in table alias '{table_alias}'")
+                    seen_aliases.add(alias_name)
                 alias_to_original: dict[str, str] = {}
                 aliased_originals = set()
                 for alias_name, orig_name in zip(node.column_aliases, asterisk_fields):
@@ -1090,7 +1095,7 @@ class Resolver(CloningVisitor):
             scope.tables[table_alias] = node_type
             scope_table_names = self._get_scope_table_names(scope)
             scope_table_names[table_alias] = ".".join(table_name_chain)
-            if node.column_aliases:
+            if node.column_aliases and not isinstance(node_type, ast.ColumnAliasedTableType):
                 scope_table_column_aliases = self._get_scope_table_column_aliases(scope)
                 scope_table_column_aliases[table_alias] = node.column_aliases
 

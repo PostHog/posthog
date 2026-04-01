@@ -273,6 +273,12 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
         assert "alias(es) were provided" in str(ctx.exception)
 
+    def test_column_aliases_duplicate_alias_error(self):
+        expr = self._select("SELECT e.a FROM events AS e (a, a, c)")
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert "Duplicate column alias 'a'" in str(ctx.exception)
+
     def test_resolve_replace_columns(self):
         expr = self._select("SELECT (* REPLACE (1 AS event)) FROM events")
 
