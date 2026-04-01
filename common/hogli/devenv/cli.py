@@ -181,12 +181,20 @@ def dev_intents() -> None:
 
 @cli.command(name="dev:apply", help="Apply intent config non-interactively (used by phrocs)")
 @click.argument("intents", nargs=-1, required=True)
-def dev_apply(intents: tuple[str, ...]) -> None:
-    """Apply a set of intents non-interactively, regenerating the mprocs config.
-
-    Preserves existing overrides (exclude_units, enable_autostart, etc.) from
-    the saved config, only replacing the intent list.
-    """
+@click.option(
+    "--include",
+    "include_units",
+    multiple=True,
+    help="Units to include (saved to config, persists across runs)",
+)
+@click.option(
+    "--exclude",
+    "exclude_units",
+    multiple=True,
+    help="Units to exclude (saved to config, persists across runs)",
+)
+def dev_apply(intents: tuple[str, ...], include_units: tuple[str, ...], exclude_units: tuple[str, ...]) -> None:
+    """Apply a set of intents non-interactively, regenerating the mprocs config."""
     try:
         intent_map = load_intent_map()
         registry = create_mprocs_registry()
@@ -204,6 +212,14 @@ def dev_apply(intents: tuple[str, ...]) -> None:
 
     # Replace intents with the provided args
     saved_config.intents = list(intents)
+
+    # Replace include_units when explicitly provided
+    if include_units:
+        saved_config.include_units = list(include_units)
+
+    # Replace exclude_units when explicitly provided
+    if exclude_units:
+        saved_config.exclude_units = list(exclude_units)
 
     try:
         resolved = resolver.resolve(

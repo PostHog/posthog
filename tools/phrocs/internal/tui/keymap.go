@@ -142,11 +142,11 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.KeyDown, k.KeyUp, k.Sort},
-		{k.ScrollUp, k.ScrollDown},
-		{k.GotoTop, k.GotoBottom},
-		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
-		{k.Restart, k.Stop, k.Info},
+		{k.ScrollUp, k.ScrollDown, k.Setup},
+		{k.GotoTop, k.GotoBottom, k.Info},
+		{k.NextPane, k.PrevPane, k.LazyDocker},
+		{k.Restart, k.Stop, k.ProcViewer},
 		{k.Search, k.SearchNext, k.SearchPrev},
-		{k.CopyMode, k.Setup, k.Quit, k.Help},
+		{k.CopyMode, k.Quit, k.Help},
 	}
 }

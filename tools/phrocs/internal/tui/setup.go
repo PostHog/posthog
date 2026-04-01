@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -45,17 +44,14 @@ func (m Model) enterSetupMode() Model {
 		return m
 	}
 
-	// Build sorted entry list
-	var entries []setupEntry
-	for name, intent := range intentMap.Intents {
-		entries = append(entries, setupEntry{
-			Name:        name,
+	// Build entry list (preserves YAML definition order)
+	entries := make([]setupEntry, len(intentMap.Intents))
+	for i, intent := range intentMap.Intents {
+		entries[i] = setupEntry{
+			Name:        intent.Name,
 			Description: intent.Description,
-		})
+		}
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name < entries[j].Name
-	})
 
 	// Pre-check intents from the current config's _posthog section
 	checked := make(map[string]bool)
@@ -68,25 +64,38 @@ func (m Model) enterSetupMode() Model {
 	}
 
 	m.setupMode = true
+	m.setupStep = 0
 	m.setupEntries = entries
 	m.setupCursor = 0
 	m.setupOffset = 0
 	m.setupChecked = checked
 	m.setupError = ""
+
 	return m
 }
 
 func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
 	case msg.Code == tea.KeyEscape, key.Matches(msg, m.keys.Quit):
-		m.setupMode = false
-		m.setupError = ""
-		m = m.applySize()
-		m.dbg("setup mode: cancel")
+		if m.setupStep == 1 {
+			// Go back to intent selection
+			m = m.enterSetupMode()
+			m.dbg("setup mode: back to step 0")
+		} else {
+			m.setupMode = false
+			m.setupError = ""
+			m = m.applySize()
+			m.dbg("setup mode: cancel")
+		}
 
 	case msg.Code == tea.KeyEnter:
-		m.dbg("setup mode: apply")
-		m.applySetupChanges()
+		if m.setupStep == 0 {
+			m.dbg("setup mode: advance to step 1")
+			m.advanceToUnitSelection()
+		} else {
+			m.dbg("setup mode: apply")
+			m.applySetupChanges()
+		}
 
 	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
 		if m.setupCursor < len(m.setupEntries)-1 {
@@ -123,7 +132,10 @@ func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea
 	return m, cmds, true
 }
 
-func (m *Model) applySetupChanges() {
+// advanceToUnitSelection runs hogli dev:apply with the selected intents
+// (no excludes) to get the full process list, then transitions to step 1
+// where the user can exclude individual processes.
+func (m *Model) advanceToUnitSelection() {
 	var selected []string
 	for _, entry := range m.setupEntries {
 		if m.setupChecked[entry.Name] {
@@ -135,22 +147,14 @@ func (m *Model) applySetupChanges() {
 		return
 	}
 
-	// Find hogli binary
 	hogliPath, err := exec.LookPath("hogli")
 	if err != nil {
 		m.setupError = "hogli not found in PATH"
 		return
 	}
 
-	// Snapshot current process names before applying changes
-	oldNames := make(map[string]bool)
-	for _, p := range m.mgr.Procs() {
-		oldNames[p.Name] = true
-	}
-
-	// Run hogli dev:apply synchronously to regenerate the config
-	args := append([]string{"hogli", "dev:apply"}, selected...)
-	cmd := exec.Command(hogliPath, args[1:]...)
+	args := append([]string{"dev:apply"}, selected...)
+	cmd := exec.Command(hogliPath, args...)
 	cmd.Stderr = os.Stderr
 	output, err := cmd.Output()
 	if err != nil {
@@ -161,11 +165,86 @@ func (m *Model) applySetupChanges() {
 	newConfigPath := strings.TrimSpace(string(output))
 	m.dbg("setup: hogli dev:apply output: %s", newConfigPath)
 
-	// Load the new config
 	newCfg, err := config.Load(newConfigPath)
 	if err != nil {
 		m.setupError = fmt.Sprintf("load new config: %v", err)
 		return
+	}
+
+	// Build entries from the generated processes
+	names := newCfg.OrderedNames()
+	var entries []setupEntry
+	checked := make(map[string]bool)
+	for _, name := range names {
+		pc := newCfg.Procs[name]
+		desc := ""
+		if !pc.ShouldAutostart() {
+			desc = "manual start"
+		}
+		entries = append(entries, setupEntry{Name: name, Description: desc})
+		checked[name] = pc.ShouldAutostart()
+	}
+
+	m.configPath = newConfigPath
+	m.setupStep = 1
+	m.setupEntries = entries
+	m.setupCursor = 0
+	m.setupOffset = 0
+	m.setupChecked = checked
+	m.setupError = ""
+}
+
+func (m *Model) applySetupChanges() {
+	// Read the intents that step 0 wrote to the config
+	phCfg, err := config.LoadPosthogConfig(m.configPath)
+	if err != nil || phCfg == nil {
+		m.setupError = "failed to read intents from config"
+		return
+	}
+
+	// Collect unchecked processes as exclusions
+	var excludeUnits []string
+	for _, entry := range m.setupEntries {
+		if !m.setupChecked[entry.Name] {
+			m.dbg("setup: excluding process %s", entry.Name)
+			excludeUnits = append(excludeUnits, entry.Name)
+		}
+	}
+
+	// Run hogli dev:apply with --exclude flags.
+	hogliPath, err := exec.LookPath("hogli")
+	if err != nil {
+		m.setupError = "hogli not found in PATH"
+		return
+	}
+
+	args := []string{"dev:apply"}
+	for _, u := range excludeUnits {
+		args = append(args, "--exclude", u)
+	}
+	args = append(args, phCfg.Intents...)
+
+	cmd := exec.Command(hogliPath, args...)
+	cmd.Stderr = os.Stderr
+	output, err := cmd.Output()
+	if err != nil {
+		m.setupError = fmt.Sprintf("hogli dev:apply failed: %v", err)
+		return
+	}
+
+	newConfigPath := strings.TrimSpace(string(output))
+	m.dbg("setup: hogli dev:apply output: %s", newConfigPath)
+
+	newCfg, err := config.Load(newConfigPath)
+	if err != nil {
+		m.setupError = fmt.Sprintf("load new config: %v", err)
+		return
+	}
+
+	// Snapshot current process names before applying changes
+	oldNames := make(map[string]bool)
+	for _, p := range m.mgr.Procs() {
+		oldNames[p.Name] = true
 	}
 
 	newNames := make(map[string]bool)
@@ -181,15 +260,15 @@ func (m *Model) applySetupChanges() {
 		}
 	}
 
-	// Add and start processes that are new in the config
+	// Add new processes and start them asynchronously.
+	// p.Start calls send() synchronously, which writes to bubbletea's
+	// unbuffered msgs channel — doing this from inside Update deadlocks.
 	send := m.mgr.Send()
 	for name := range newNames {
 		if !oldNames[name] {
 			m.dbg("setup: adding process %s", name)
 			p := m.mgr.Add(name, newCfg.Procs[name], newCfg.Scrollback)
-			if p.Cfg.ShouldAutostart() {
-				_ = p.Start(send)
-			}
+			go p.Start(send)
 		}
 	}
 
@@ -198,7 +277,9 @@ func (m *Model) applySetupChanges() {
 	m.services = m.mgr.Procs()
 	m.sortServices()
 	m.setupMode = false
+	m.setupStep = 0
 	m.setupError = ""
+
 	updated := m.applySize()
 	*m = updated
 }
@@ -228,12 +309,17 @@ func (m Model) renderSetupView() string {
 	h := m.height - headerHeight - m.footerHeight()
 	w := m.width - horizontalBorderCount
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorYellow)
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorBrightYellow)
 	dimStyle := lipgloss.NewStyle().Foreground(colorBrightBlack)
 
 	var rows []string
 	rows = append(rows, "")
-	rows = append(rows, titleStyle.Render("  Select products to run"))
+
+	if m.setupStep == 0 {
+		rows = append(rows, titleStyle.Render("  Configure which services to start based on the products you're working on"))
+	} else {
+		rows = append(rows, titleStyle.Render("  Uncheck processes you want to exclude"))
+	}
 	rows = append(rows, "")
 
 	visH := m.setupVisibleHeight()

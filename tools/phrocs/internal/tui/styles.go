@@ -20,18 +20,19 @@ const (
 )
 
 var (
-	colorYellow      = sharedpalette.ColorYellow
-	colorBlue        = sharedpalette.ColorBlue
-	colorBrightWhite = sharedpalette.ColorBrightWhite
-	colorBrightBlack = sharedpalette.ColorBrightBlack
-	colorGreen       = sharedpalette.ColorGreen
-	colorRed         = sharedpalette.ColorRed
-	colorBlack       = sharedpalette.ColorBlack
-	colorWhite       = sharedpalette.ColorWhite
-	brandYellow      = sharedpalette.BrandYellow
-	brandBlue        = sharedpalette.BrandBlue
-	brandRed         = sharedpalette.BrandRed
-	brandBlack       = sharedpalette.BrandBlack
+	colorYellow       = sharedpalette.ColorYellow
+	colorBlue         = sharedpalette.ColorBlue
+	colorGreen        = sharedpalette.ColorGreen
+	colorRed          = sharedpalette.ColorRed
+	colorBlack        = sharedpalette.ColorBlack
+	colorWhite        = sharedpalette.ColorWhite
+	colorBrightWhite  = sharedpalette.ColorBrightWhite
+	colorBrightBlack  = sharedpalette.ColorBrightBlack
+	colorBrightYellow = sharedpalette.ColorBrightYellow
+	brandYellow       = sharedpalette.BrandYellow
+	brandBlue         = sharedpalette.BrandBlue
+	brandRed          = sharedpalette.BrandRed
+	brandBlack        = sharedpalette.BrandBlack
 )
 
 // Outer width of the process list column (including border)

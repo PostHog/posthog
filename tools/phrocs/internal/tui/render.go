@@ -233,9 +233,17 @@ func (m Model) renderFooter() string {
 			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
 		)
 	} else if m.setupMode {
-		hint := "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & restart  esc: cancel"
+		var hint string
 		if m.setupError != "" {
-			hint = "-- SETUP --  error: " + m.setupError + "  esc: cancel"
+			escAction := "cancel"
+			if m.setupStep == 1 {
+				escAction = "back"
+			}
+			hint = "-- SETUP --  error: " + m.setupError + "  esc: " + escAction
+		} else if m.setupStep == 0 {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: next  esc: cancel"
+		} else {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & restart  esc: back"
 		}
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),

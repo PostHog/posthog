@@ -88,11 +88,13 @@ type Model struct {
 
 	// Setup mode: full-screen intent selection for dev environment config
 	setupMode    bool
+	setupStep    int // 0 = intent selection, 1 = unit exclusion
 	setupEntries []setupEntry
 	setupCursor  int
 	setupOffset  int
 	setupChecked map[string]bool
 	setupError   string // error message from applying changes
+
 
 	configPath string // path to the running config file
 
