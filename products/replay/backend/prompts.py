@@ -303,12 +303,10 @@ FILTER_EXAMPLES_PROMPT = """
 {"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"console_error_count","type":"recording","operator":"gt","value":[0]}]}]},"order":"console_error_count","order_direction":"DESC"}
 ```
 **Recordings where users interacted with an element containing specific text**:
-`element` is NOT a top-level filter type. Use it only inside an `events` filter for an autocaptured interaction such as `$autocapture` or `$rageclick`. This matches elements users interacted with, not arbitrary text that was merely visible on screen:
 ```json
 {"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"id":"$autocapture","type":"events","properties":[{"key":"text","type":"element","value":"Sign Up","operator":"icontains"}]}]}]}}
 ```
 Valid element property keys: `tag_name` (HTML tag), `text` (visible text on the interacted element), `href` (link URL), `selector` (CSS selector).
-If the user asks for text that was only visible on screen and not tied to an autocaptured interaction, do not invent an `element` filter. Explain the limitation and only fall back to another verified event/property if one exists.
 
 **Clear all filters**:
 ```json
