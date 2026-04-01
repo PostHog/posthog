@@ -1993,6 +1993,13 @@ class FlagPropertyFilter(BaseModel):
     value: bool | str = Field(..., description="The value can be true, false, or a variant name")
 
 
+class FormDismissPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["dismiss_form"] = "dismiss_form"
+
+
 class FunnelConversionWindowTimeUnit(StrEnum):
     SECOND = "second"
     MINUTE = "minute"
@@ -6141,13 +6148,6 @@ class FormResumePayload(BaseModel):
     )
     action: Literal["form"] = "form"
     form_answers: dict[str, str | list[str]]
-
-
-class FormDismissPayload(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    action: Literal["dismiss_form"] = "dismiss_form"
 
 
 class FunnelCorrelationResult(BaseModel):
