@@ -1,0 +1,58 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "contentDetail": {
+            "default": "preview",
+            "description": "Controls how much content is returned for large properties like $ai_input and $ai_output_choices. \"none\" returns metadata only with char counts. \"preview\" (default) returns first/last 300 chars of large properties. \"full\" returns everything — use with caution as traces can be very large.",
+            "enum": ["none", "preview", "full"],
+            "type": "string"
+        },
+        "dateRange": {
+            "description": "Date range for the query. Required — traces outside this range will not be found.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "explicitDate": {
+                    "default": false,
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "properties": {
+            "description": "Property filters to narrow results within the trace",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "traceId": {
+            "description": "The trace ID to retrieve ($ai_trace_id value shared by all events in a trace)",
+            "type": "string"
+        }
+    },
+    "required": ["traceId"],
+    "type": "object"
+}

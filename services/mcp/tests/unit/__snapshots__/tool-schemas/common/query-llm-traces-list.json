@@ -1,0 +1,85 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dateRange": {
+            "description": "Date range for the query",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "explicitDate": {
+                    "default": false,
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "filterSupportTraces": {
+            "description": "Exclude support impersonation traces",
+            "type": "boolean"
+        },
+        "filterTestAccounts": {
+            "description": "Exclude internal and test users",
+            "type": "boolean"
+        },
+        "groupKey": {
+            "description": "Filter traces by group key (requires groupTypeIndex)",
+            "type": "string"
+        },
+        "groupTypeIndex": {
+            "description": "Group type index when filtering by group",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+        },
+        "limit": {
+            "description": "Maximum number of traces to return (default 100)",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+        },
+        "offset": {
+            "description": "Number of traces to skip for pagination",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+        },
+        "personId": {
+            "description": "Filter traces by a specific person UUID",
+            "type": "string"
+        },
+        "properties": {
+            "description": "Property filters to narrow results. Use event properties like $ai_model, $ai_provider, $ai_trace_id, etc.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "randomOrder": {
+            "description": "Use random ordering instead of newest-first (useful for representative sampling)",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}
