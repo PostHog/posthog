@@ -386,9 +386,13 @@ describe('clipboardUtils', () => {
             },
             {
                 name: 'escapes pipe characters in header and cell values',
-                columns: ['expr|rpxe'],
-                rows: [{ result: ['a|b'] }],
-                expected: ['| expr\\|rpxe |', '| ---------- |', '| a\\|b       |'].join('\n'),
+                columns: ['\\nexpr|rpxe\n\r\n\r'],
+                rows: [{ result: ['a|b|'] }],
+                expected: [
+                    String.raw`| \nexpr\|rpxe\n\r\n\r |`,
+                    String.raw`| -------------------- |`,
+                    String.raw`| a\|b\|               |`,
+                ].join('\n'),
             },
             {
                 name: 'handles null and undefined cell values',
