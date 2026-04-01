@@ -531,7 +531,7 @@ def sync_issue_to_clickhouse(*, issue_id, team_id: int) -> None:
             assigned_role_id = str(assignment.role_id)
 
     producer = ClickhouseProducer()
-    # ReplacingMergeTree ver — match rust/cymbal IssueFingerprintIssueState::new (Utc::now().timestamp_millis())
+    # ReplacingMergeTree version — match rust/cymbal IssueFingerprintIssueState::new (Utc::now().timestamp_millis())
     version = int(time.time() * 1000)
     for fp in fingerprints:
         first_seen_raw = fp.first_seen or issue.created_at
