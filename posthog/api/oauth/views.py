@@ -127,9 +127,9 @@ class OAuthValidator(OAuth2Validator):
 
         Non-DCR OAuth clients still get rotation per the default setting.
         """
-        if hasattr(request, "client") and request.client:
-            if getattr(request.client, "is_dcr_client", False):
-                return False
+        is_dcr = hasattr(request, "client") and request.client and getattr(request.client, "is_dcr_client", False)
+        if is_dcr:
+            return False
         return oauth2_settings.ROTATE_REFRESH_TOKEN
 
     def _get_token_expires_in(self, request) -> int:
@@ -148,7 +148,16 @@ class OAuthValidator(OAuth2Validator):
         Sets token["expires_in"] before calling parent, which uses this value
         when calculating the actual expiry datetime stored in the database.
         """
-        token["expires_in"] = self._get_token_expires_in(request)
+        expires_in = self._get_token_expires_in(request)
+        token["expires_in"] = expires_in
+        client_id = getattr(request.client, "client_id", None) if hasattr(request, "client") else None
+        logger.info(
+            "oauth_save_bearer_token",
+            client_id_prefix=str(client_id)[:8] if client_id else "unknown",
+            is_dcr_client=expires_in != oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS,
+            expires_in=expires_in,
+            grant_type=getattr(request, "grant_type", "unknown"),
+        )
         return super().save_bearer_token(token, request, *args, **kwargs)
 
     def get_additional_claims(self, request):
@@ -465,7 +474,23 @@ class OAuthTokenView(TokenView):
                     status=400,
                 )
 
+        grant_type = request.POST.get("grant_type", "unknown")
+        client_id = request.POST.get("client_id", "")
+        client_id_prefix = client_id[:8] if client_id else "unknown"
+        logger.info(
+            "oauth_token_request",
+            grant_type=grant_type,
+            client_id_prefix=client_id_prefix,
+        )
+
         response = super().post(request, *args, **kwargs)
+
+        logger.info(
+            "oauth_token_response",
+            grant_type=grant_type,
+            client_id_prefix=client_id_prefix,
+            status=response.status_code,
+        )
 
         if response.status_code == 200:
             try:

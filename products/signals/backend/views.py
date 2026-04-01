@@ -6,7 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Value, When
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -254,9 +254,10 @@ class SignalReportViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReport.objects.all()
-    _DEFAULT_SIGNAL_REPORT_ORDERING = "status,-updated_at"
+    _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
+        "is_suggested_reviewer": "is_suggested_reviewer",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
         "created_at": "created_at",
@@ -300,6 +301,28 @@ class SignalReportViewSet(
                 to_attr="prefetched_priority_artefacts",
             )
         )
+
+        # Annotate is_suggested_reviewer by resolving the current user's GitHub login
+        # and checking jsonb containment on the artefact content list. This stays fresh
+        # even when a user connects their GitHub account after the report was generated.
+        github_login = self._get_github_login(self.request.user)
+        if github_login:
+            # github_login comes from our own UserSocialAuth DB, not user input.
+            qs = qs.annotate(
+                is_suggested_reviewer=Exists(
+                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+                    SignalReportArtefact.objects.filter(
+                        report_id=OuterRef("id"),
+                        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                    ).extra(
+                        where=["content::jsonb @> %s::jsonb"],
+                        params=[json.dumps([{"github_login": github_login}])],
+                    )
+                )
+            )
+        else:
+            qs = qs.annotate(is_suggested_reviewer=Value(False))
+
         return qs
 
     def filter_queryset(self, queryset):
@@ -336,6 +359,18 @@ class SignalReportViewSet(
         if not has_id:
             clauses = [*clauses, "id"]
         return queryset.order_by(*clauses)
+
+    @staticmethod
+    def _get_github_login(user) -> str | None:
+        """Resolve the GitHub login for a PostHog user via social auth."""
+        from social_django.models import UserSocialAuth
+
+        sa = UserSocialAuth.objects.filter(provider="github", user=user).only("extra_data").first()
+        if sa and isinstance(sa.extra_data, dict):
+            login = sa.extra_data.get("login")
+            if login:
+                return login.lower()
+        return None
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
@@ -375,9 +410,7 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
-        artefacts = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT).order_by(
-            "-created_at"
-        )
+        artefacts = report.artefacts.all().order_by("-created_at")
         serializer = SignalReportArtefactSerializer(artefacts, many=True)
         return Response(
             {

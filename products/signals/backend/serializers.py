@@ -10,6 +10,7 @@ from posthog.temporal.ai.video_segment_clustering.constants import clustering_wo
 from posthog.temporal.common.client import sync_connect
 
 from .models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
     priority = serializers.SerializerMethodField(
         help_text="P0–P4 from the latest actionability judgment artefact (when present).",
     )
+    is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
 
     class Meta:
         model = SignalReport
@@ -129,6 +131,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "priority",
+            "is_suggested_reviewer",
         ]
         read_only_fields = fields
 
@@ -162,8 +165,14 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
         fields = ["id", "type", "content", "created_at"]
         read_only_fields = fields
 
-    def get_content(self, obj: SignalReportArtefact) -> dict:
+    def get_content(self, obj: SignalReportArtefact) -> dict | list:
         try:
-            return json.loads(obj.content)
+            parsed = json.loads(obj.content)
         except (json.JSONDecodeError, ValueError):
             return {}
+
+        # Enrich suggested_reviewers with fresh PostHog user info at read time
+        if obj.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS and isinstance(parsed, list):
+            return enrich_reviewer_dicts_with_org_members(obj.team_id, parsed)
+
+        return parsed

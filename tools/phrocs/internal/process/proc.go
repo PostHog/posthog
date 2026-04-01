@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
-const metricsSampleInterval = 5 * time.Second
+const metricsSampleInterval = 1 * time.Second
 const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
 
@@ -60,6 +61,9 @@ type OutputMsg struct {
 	Added   []string
 	Evicted int
 }
+
+// Sent after metrics are sampled so the TUI can refresh the info panel.
+type MetricsMsg struct{}
 
 // Metrics holds the most recent sampled resource usage for a process tree.
 type Metrics struct {
@@ -112,10 +116,11 @@ type Process struct {
 	hasPrompt bool          // true when the last output was a partial line without a trailing \n
 	waitDone  chan struct{} // closed by the goroutine that calls cmd.Wait()
 
-	startedAt time.Time
-	readyAt   time.Time
-	exitCode  *int
-	metrics   *Metrics
+	startedAt      time.Time
+	readyAt        time.Time
+	exitCode       *int
+	metrics        *Metrics
+	metricsEnabled atomic.Bool
 }
 
 func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
@@ -137,6 +142,10 @@ func (p *Process) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.status
+}
+
+func (p *Process) SetMetricsEnabled(on bool) {
+	p.metricsEnabled.Store(on)
 }
 
 // CPUPercent returns the most recently sampled CPU usage, or 0 if not yet sampled.
@@ -188,8 +197,11 @@ func (p *Process) AppendLine(line string) {
 
 func ptr[T any](v T) *T { return &v }
 
-// Returns a consistent point-in-time view of the process
+// Returns a consistent point-in-time view of the process.
+// If the process is running, metrics are sampled on the spot.
 func (p *Process) Snapshot() Snapshot {
+	p.sampleMetrics()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -218,6 +230,67 @@ func (p *Process) Snapshot() Snapshot {
 		snap.LastSampledAt = ptr(m.SampledAt)
 	}
 	return snap
+}
+
+// sampleMetrics collects resource usage for the process tree and stores it.
+func (p *Process) sampleMetrics() {
+	p.mu.Lock()
+	pid := 0
+	if p.cmd != nil && p.cmd.Process != nil {
+		pid = p.cmd.Process.Pid
+	}
+	st := p.status
+	p.mu.Unlock()
+
+	if pid == 0 || (st != StatusRunning && st != StatusPending) {
+		return
+	}
+
+	ps, err := gops.NewProcess(int32(pid))
+	if err != nil {
+		return
+	}
+
+	all := collectProcessTree(ps)
+
+	var rssBytes uint64
+	var cpuPct, cpuTime float64
+	var threads, fds int32
+	for _, proc := range all {
+		if mem, err := proc.MemoryInfo(); err == nil {
+			rssBytes += mem.RSS
+		}
+		if c, err := proc.CPUPercent(); err == nil {
+			cpuPct += c
+		}
+		if ct, err := proc.Times(); err == nil {
+			cpuTime += ct.User + ct.System
+		}
+		if t, err := proc.NumThreads(); err == nil {
+			threads += t
+		}
+		if f, err := proc.NumFDs(); err == nil {
+			fds += f
+		}
+	}
+
+	rssMB := float64(rssBytes) / 1024 / 1024
+
+	p.mu.Lock()
+	if p.metrics == nil {
+		p.metrics = &Metrics{}
+	}
+	p.metrics.MemRSSMB = rssMB
+	if rssMB > p.metrics.PeakMemMB {
+		p.metrics.PeakMemMB = rssMB
+	}
+	p.metrics.CPUPercent = cpuPct
+	p.metrics.CPUTimeS = cpuTime
+	p.metrics.Threads = threads
+	p.metrics.Children = len(all) - 1
+	p.metrics.FDs = fds
+	p.metrics.SampledAt = time.Now()
+	p.mu.Unlock()
 }
 
 // buildEnv constructs the environment for the child process.
@@ -293,7 +366,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	// Send initial status message
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
-	go p.startMetricsSampler(cmd.Process.Pid)
+	go p.startMetricsSampler(cmd.Process.Pid, send)
 
 	outChannel := make(chan tea.Msg, 256)
 
@@ -388,7 +461,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
-	go p.startMetricsSampler(cmd.Process.Pid)
+	go p.startMetricsSampler(cmd.Process.Pid, send)
 
 	outChannel := make(chan tea.Msg, 256)
 
@@ -605,13 +678,8 @@ func (p *Process) bufferLine(line string) (evicted bool, becameReady bool) {
 	return evicted, becameReady
 }
 
-// Sampling CPU/mem/threads every metricsSampleInterval for the process tree
-func (p *Process) startMetricsSampler(pid int) {
-	ps, err := gops.NewProcess(int32(pid))
-	if err != nil {
-		return
-	}
-	_, _ = ps.CPUPercent() // baseline measurement
+// Sampling CPU/mem/threads every metricsSampleInterval when metrics are enabled.
+func (p *Process) startMetricsSampler(pid int, send func(tea.Msg)) {
 	origPID := pid
 
 	ticker := time.NewTicker(metricsSampleInterval)
@@ -627,64 +695,48 @@ func (p *Process) startMetricsSampler(pid int) {
 		p.mu.Unlock()
 
 		if (st != StatusRunning && st != StatusPending) || (currentPID != 0 && currentPID != origPID) {
-			// Process has been restarted with a new PID
 			return
 		}
 
-		all := collectProcessTree(ps)
-
-		var rssBytes uint64
-		var cpuPct, cpuTime float64
-		var threads, fds int32
-		for _, proc := range all {
-			if mem, err := proc.MemoryInfo(); err == nil {
-				rssBytes += mem.RSS
-			}
-			if c, err := proc.CPUPercent(); err == nil {
-				cpuPct += c
-			}
-			if ct, err := proc.Times(); err == nil {
-				cpuTime += ct.User + ct.System
-			}
-			if t, err := proc.NumThreads(); err == nil {
-				threads += t
-			}
-			if f, err := proc.NumFDs(); err == nil {
-				fds += f
-			}
+		if !p.metricsEnabled.Load() {
+			continue
 		}
 
-		rssMB := float64(rssBytes) / 1024 / 1024
-
-		p.mu.Lock()
-		if p.metrics == nil {
-			p.metrics = &Metrics{}
-		}
-		p.metrics.MemRSSMB = rssMB
-		if rssMB > p.metrics.PeakMemMB {
-			p.metrics.PeakMemMB = rssMB
-		}
-		p.metrics.CPUPercent = cpuPct
-		p.metrics.CPUTimeS = cpuTime
-		p.metrics.Threads = threads
-		p.metrics.Children = len(all) - 1
-		p.metrics.FDs = fds
-		p.metrics.SampledAt = time.Now()
-		p.mu.Unlock()
+		p.sampleMetrics()
+		send(MetricsMsg{})
 	}
 }
 
-// collectProcessTree returns ps and all its descendants via a depth-first walk.
-func collectProcessTree(ps *gops.Process) []*gops.Process {
-	all := []*gops.Process{ps}
-	children, err := ps.Children()
+// collectProcessTree returns ps and all its descendants.
+func collectProcessTree(root *gops.Process) []*gops.Process {
+	allProcs, err := gops.Processes()
 	if err != nil {
-		return all
+		return []*gops.Process{root}
 	}
-	for _, child := range children {
-		all = append(all, collectProcessTree(child)...)
+
+	// Build parent → children index
+	byPID := make(map[int32]*gops.Process, len(allProcs))
+	childrenOf := make(map[int32][]*gops.Process)
+	for _, p := range allProcs {
+		byPID[p.Pid] = p
+		ppid, err := p.Ppid()
+		if err == nil && ppid > 0 {
+			childrenOf[ppid] = append(childrenOf[ppid], p)
+		}
 	}
-	return all
+
+	// BFS from root
+	result := []*gops.Process{root}
+	queue := []*gops.Process{root}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, child := range childrenOf[cur.Pid] {
+			result = append(result, child)
+			queue = append(queue, child)
+		}
+	}
+	return result
 }
 
 // stopSignal returns the syscall signal to use when stopping the process,
