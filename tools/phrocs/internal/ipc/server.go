@@ -62,7 +62,7 @@ type request struct {
 // It removes any stale socket owned by the current user before binding.
 // The caller is responsible for closing the listener and removing the socket file.
 func Listen(path string) (net.Listener, error) {
-	// Only remove an existing socket file if it is a Unix socket owned by the
+	// Only touch an existing socket file if it is a Unix socket owned by the
 	// current user. This avoids clobbering arbitrary files in /tmp.
 	if fi, err := os.Lstat(path); err == nil {
 		if fi.Mode()&os.ModeSocket == 0 {
