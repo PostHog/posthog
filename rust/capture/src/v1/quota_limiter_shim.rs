@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use common_types::HasEventName;
 use limiters::redis::QuotaResource;
 use metrics::counter;
+use uuid::Uuid;
 
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event, EventInfo};
@@ -27,7 +28,7 @@ const SCOPED_CHECKS: &[ScopedCheck] = &[
 pub async fn apply_quota_limits(
     limiter: &CaptureQuotaLimiter,
     token: &str,
-    events: &mut HashMap<String, WrappedEvent>,
+    events: &mut HashMap<Uuid, WrappedEvent>,
 ) -> Result<(), Error> {
     // --- Global check — short-circuit ---
     if limiter
@@ -274,14 +275,14 @@ mod tests {
         }
     }
 
-    fn events_map(events: Vec<WrappedEvent>) -> HashMap<String, WrappedEvent> {
+    fn events_map(events: Vec<WrappedEvent>) -> HashMap<Uuid, WrappedEvent> {
         events
             .into_iter()
-            .map(|e| (e.event.uuid.clone(), e))
+            .map(|e| (Uuid::parse_str(&e.event.uuid).unwrap(), e))
             .collect()
     }
 
-    fn ok_event_names(events: &HashMap<String, WrappedEvent>) -> Vec<&str> {
+    fn ok_event_names(events: &HashMap<Uuid, WrappedEvent>) -> Vec<&str> {
         let mut names: Vec<&str> = events
             .values()
             .filter(|e| e.result == EventResult::Ok)
@@ -291,7 +292,7 @@ mod tests {
         names
     }
 
-    fn limited_event_names(events: &HashMap<String, WrappedEvent>) -> Vec<&str> {
+    fn limited_event_names(events: &HashMap<Uuid, WrappedEvent>) -> Vec<&str> {
         let mut names: Vec<&str> = events
             .values()
             .filter(|e| e.result == EventResult::Limited)
@@ -301,7 +302,7 @@ mod tests {
         names
     }
 
-    fn find_by_name<'a>(events: &'a HashMap<String, WrappedEvent>, name: &str) -> &'a WrappedEvent {
+    fn find_by_name<'a>(events: &'a HashMap<Uuid, WrappedEvent>, name: &str) -> &'a WrappedEvent {
         events.values().find(|e| e.event.event == name).unwrap()
     }
 
@@ -351,7 +352,7 @@ mod tests {
     async fn global_limit_preserves_all_event_states() {
         let limiter = build_limiter("tok", true, &[]).await;
         let bad = make_event("bad_event", None);
-        let bad_uuid = bad.event.uuid.clone();
+        let bad_uuid = Uuid::parse_str(&bad.event.uuid).unwrap();
         let mut events = events_map(vec![make_event("$pageview", None), bad]);
         // Pre-mark one event as Drop (e.g. from validation)
         let bad_ev = events.get_mut(&bad_uuid).unwrap();
@@ -459,7 +460,7 @@ mod tests {
     async fn survey_limit_excludes_product_tour_events() {
         let limiter = build_limiter("tok", false, &[QuotaResource::Surveys]).await;
         let tour_ev = make_event("survey sent", Some("tour-123"));
-        let tour_uuid = tour_ev.event.uuid.clone();
+        let tour_uuid = Uuid::parse_str(&tour_ev.event.uuid).unwrap();
         let mut events = events_map(vec![make_event("survey sent", None), tour_ev]);
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -609,7 +610,7 @@ mod tests {
         // No global limit, but exceptions limited
         let limiter = build_limiter("tok", false, &[QuotaResource::Exceptions]).await;
         let pv = make_event("$pageview", None);
-        let pv_uuid = pv.event.uuid.clone();
+        let pv_uuid = Uuid::parse_str(&pv.event.uuid).unwrap();
         let mut events = events_map(vec![make_event("$exception", None), pv]);
         // Pre-mark pageview as Drop from a prior validation step
         let pv_ev = events.get_mut(&pv_uuid).unwrap();
@@ -625,7 +626,7 @@ mod tests {
     async fn mixed_pre_existing_and_scoped_still_ok_if_some_remain() {
         let limiter = build_limiter("tok", false, &[QuotaResource::Exceptions]).await;
         let pv = make_event("$pageview", None);
-        let pv_uuid = pv.event.uuid.clone();
+        let pv_uuid = Uuid::parse_str(&pv.event.uuid).unwrap();
         let mut events = events_map(vec![
             make_event("$exception", None),
             pv,
@@ -646,7 +647,7 @@ mod tests {
     #[tokio::test]
     async fn empty_batch_returns_error_when_global_limited() {
         let limiter = build_limiter("tok", true, &[]).await;
-        let mut events: HashMap<String, WrappedEvent> = HashMap::new();
+        let mut events: HashMap<Uuid, WrappedEvent> = HashMap::new();
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         // Global limit hit, 0 marked, still returns BillingLimitExceeded
@@ -656,7 +657,7 @@ mod tests {
     #[tokio::test]
     async fn empty_batch_returns_error_when_not_limited() {
         let limiter = build_limiter("tok", false, &[]).await;
-        let mut events: HashMap<String, WrappedEvent> = HashMap::new();
+        let mut events: HashMap<Uuid, WrappedEvent> = HashMap::new();
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         // No events → all_non_ok starts true → BillingLimitExceeded

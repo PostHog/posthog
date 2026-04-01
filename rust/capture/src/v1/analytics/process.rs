@@ -72,13 +72,15 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_events(
-    context: &Context,
-    batch: Batch,
-) -> Result<HashMap<String, WrappedEvent>, Error> {
-    let mut events: HashMap<String, WrappedEvent> = HashMap::with_capacity(batch.batch.len());
+fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, WrappedEvent>, Error> {
+    let mut events: HashMap<Uuid, WrappedEvent> = HashMap::with_capacity(batch.batch.len());
 
     for event in batch.batch.into_iter() {
+        let uuid = Uuid::parse_str(&event.uuid).map_err(|_| Error::MissingEventUuid)?;
+        if events.contains_key(&uuid) {
+            return Err(Error::DuplicateEventUuid(event.uuid));
+        }
+
         let validation = validate_event(&event).and_then(|raw_ts| {
             // global batch fail, so handle it here instead of per-event match below
             if event.properties.get().as_bytes().first() != Some(&b'{') {
@@ -89,14 +91,10 @@ fn validate_events(
 
         match validation {
             Ok(raw_ts) => {
-                let uuid_key = event.uuid.clone();
-                if events.contains_key(&uuid_key) {
-                    return Err(Error::DuplicateEventUuid(uuid_key));
-                }
                 metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
                 let adjusted = normalize_timestamp(context, &event, raw_ts);
                 events.insert(
-                    uuid_key,
+                    uuid,
                     WrappedEvent {
                         event,
                         adjusted_timestamp: Some(adjusted),
@@ -108,12 +106,8 @@ fn validate_events(
                 );
             }
             Err(err) => {
-                if matches!(err, Error::MissingEventUuid) {
-                    return Err(err);
-                }
-                let uuid_key = event.uuid.clone();
                 events.insert(
-                    uuid_key,
+                    uuid,
                     WrappedEvent {
                         event,
                         adjusted_timestamp: None,
@@ -134,7 +128,7 @@ fn validate_events(
     Ok(events)
 }
 
-fn observe_malformed_events(context: &Context, events: &HashMap<String, WrappedEvent>) {
+fn observe_malformed_events(context: &Context, events: &HashMap<Uuid, WrappedEvent>) {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
     let mut illegal_distinct_ids: HashSet<&str> = HashSet::new();
 
@@ -182,7 +176,10 @@ fn observe_malformed_events(context: &Context, events: &HashMap<String, WrappedE
 }
 
 fn is_distinct_id_illegal(distinct_id: &str) -> bool {
-    ILLEGAL_DISTINCT_IDS.contains(&distinct_id.trim().to_lowercase().as_str())
+    let trimmed = distinct_id.trim();
+    ILLEGAL_DISTINCT_IDS
+        .iter()
+        .any(|id| trimmed.eq_ignore_ascii_case(id))
 }
 
 fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
@@ -204,8 +201,6 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
     if is_distinct_id_illegal(&event.distinct_id) {
         return Err(Error::InvalidDistinctId(event.distinct_id.clone()));
     }
-
-    Uuid::parse_str(&event.uuid).map_err(|_| Error::MissingEventUuid)?;
 
     let ts = DateTime::parse_from_rfc3339(&event.timestamp)
         .map(|dt| dt.with_timezone(&Utc))
@@ -233,7 +228,7 @@ fn normalize_timestamp(
 fn apply_historical_rerouting(
     cfg: &router::HistoricalConfig,
     context: &Context,
-    events: &mut HashMap<String, WrappedEvent>,
+    events: &mut HashMap<Uuid, WrappedEvent>,
 ) {
     for event in events.values_mut() {
         if event.result != EventResult::Ok || event.destination != Destination::AnalyticsMain {
@@ -266,7 +261,7 @@ async fn apply_restrictions(
     service: &EventRestrictionService,
     token: &str,
     now_ts: i64,
-    events: &mut HashMap<String, WrappedEvent>,
+    events: &mut HashMap<Uuid, WrappedEvent>,
 ) {
     for event in events.values_mut() {
         if event.result != EventResult::Ok {
@@ -311,9 +306,9 @@ async fn apply_restrictions(
 async fn apply_token_distinct_id_limits(
     limiter: &GlobalRateLimiter,
     context: &Context,
-    events: &mut HashMap<String, WrappedEvent>,
+    events: &mut HashMap<Uuid, WrappedEvent>,
 ) {
-    let mut limited_distinct_ids: Vec<&str> = Vec::new();
+    let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
     let mut allowed_count: u64 = 0;
 
     for event in events.values_mut() {
@@ -327,10 +322,7 @@ async fn apply_token_distinct_id_limits(
             event.result = EventResult::Limited;
             event.destination = Destination::Drop;
             event.details = Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID);
-            let did = event.event.distinct_id.as_str();
-            if !limited_distinct_ids.contains(&did) {
-                limited_distinct_ids.push(did);
-            }
+            limited_distinct_ids.insert(event.event.distinct_id.as_str());
         } else {
             allowed_count += 1;
         }
@@ -347,11 +339,11 @@ async fn apply_token_distinct_id_limits(
 
     if !limited_distinct_ids.is_empty() {
         let limited_count = limited_distinct_ids.len();
-        let preview: String = if limited_distinct_ids.len() > 10 {
-            let first_ten: Vec<&str> = limited_distinct_ids[..10].to_vec();
-            format!("{}...", first_ten.join(", "))
+        let ids: Vec<&str> = limited_distinct_ids.iter().copied().collect();
+        let preview: String = if ids.len() > 10 {
+            format!("{}...", ids[..10].join(", "))
         } else {
-            limited_distinct_ids.join(", ")
+            ids.join(", ")
         };
 
         metrics::counter!(
@@ -442,26 +434,6 @@ mod tests {
         };
         let err = validate_batch(&batch).unwrap_err();
         assert!(matches!(err, Error::InvalidBatch(_)));
-    }
-
-    #[test]
-    fn event_bad_uuid() {
-        let mut event = valid_event();
-        event.uuid = "not-a-uuid".to_string();
-        assert!(matches!(
-            validate_event(&event),
-            Err(Error::MissingEventUuid)
-        ));
-    }
-
-    #[test]
-    fn event_empty_uuid() {
-        let mut event = valid_event();
-        event.uuid = String::new();
-        assert!(matches!(
-            validate_event(&event),
-            Err(Error::MissingEventUuid)
-        ));
     }
 
     // --- validate_event ---
@@ -621,9 +593,9 @@ mod tests {
             event: "$performance_event".to_string(),
             ..valid_event()
         };
-        let perf_uuid = perf.uuid.clone();
+        let perf_uuid = Uuid::parse_str(&perf.uuid).unwrap();
         let normal = valid_event();
-        let normal_uuid = normal.uuid.clone();
+        let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
         let batch = valid_batch(vec![perf, normal]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
@@ -739,7 +711,7 @@ mod tests {
             properties: raw_obj("[1,2,3]"),
             ..valid_event()
         };
-        let uuid = bad_event.uuid.clone();
+        let uuid = Uuid::parse_str(&bad_event.uuid).unwrap();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
             historical_migration: false,
@@ -910,15 +882,15 @@ mod tests {
         }
     }
 
-    fn events_map(events: Vec<WrappedEvent>) -> HashMap<String, WrappedEvent> {
+    fn events_map(events: Vec<WrappedEvent>) -> HashMap<Uuid, WrappedEvent> {
         events
             .into_iter()
-            .map(|e| (e.event.uuid.clone(), e))
+            .map(|e| (Uuid::parse_str(&e.event.uuid).unwrap(), e))
             .collect()
     }
 
     fn find_by_did<'a>(
-        events: &'a HashMap<String, WrappedEvent>,
+        events: &'a HashMap<Uuid, WrappedEvent>,
         distinct_id: &str,
     ) -> &'a WrappedEvent {
         events
@@ -1310,7 +1282,7 @@ mod tests {
         let limiter = mock_limiter(vec!["phc_tok:user-2"]);
         let ctx = td_context();
         let pre_drop = wrapped_event("$pageview", "user-1");
-        let pre_drop_uuid = pre_drop.event.uuid.clone();
+        let pre_drop_uuid = Uuid::parse_str(&pre_drop.event.uuid).unwrap();
         let mut events = events_map(vec![pre_drop, wrapped_event("$identify", "user-2")]);
         // Simulate event already dropped by restrictions
         events.get_mut(&pre_drop_uuid).unwrap().result = EventResult::Drop;
@@ -1438,7 +1410,7 @@ mod tests {
         let cfg = router::HistoricalConfig::new(true, 30);
         let ctx = test_context(true);
         let ev = wrapped_event("$pageview", "user-1");
-        let uuid = ev.event.uuid.clone();
+        let uuid = Uuid::parse_str(&ev.event.uuid).unwrap();
         let mut events = events_map(vec![ev]);
         events.get_mut(&uuid).unwrap().destination = Destination::Overflow;
 
@@ -1455,7 +1427,7 @@ mod tests {
         let cfg = router::HistoricalConfig::new(true, 30);
         let ctx = test_context(true);
         let ev = wrapped_event("$pageview", "user-1");
-        let uuid = ev.event.uuid.clone();
+        let uuid = Uuid::parse_str(&ev.event.uuid).unwrap();
         let mut events = events_map(vec![ev]);
         let e = events.get_mut(&uuid).unwrap();
         e.result = EventResult::Drop;
@@ -1483,7 +1455,7 @@ mod tests {
         let cfg = router::HistoricalConfig::new(false, 1);
         let ctx = test_context(true);
         let dlq_ev = wrapped_event("$identify", "user-2");
-        let dlq_uuid = dlq_ev.event.uuid.clone();
+        let dlq_uuid = Uuid::parse_str(&dlq_ev.event.uuid).unwrap();
         let mut events = events_map(vec![wrapped_event("$pageview", "user-1"), dlq_ev]);
         events.get_mut(&dlq_uuid).unwrap().destination = Destination::Dlq;
 

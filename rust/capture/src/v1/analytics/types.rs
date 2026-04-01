@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use common_types::HasEventName;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use uuid::Uuid;
 
 use crate::v1::sinks::Destination;
 
@@ -134,7 +135,7 @@ pub struct IngestionEvent {
     pub skip_person_processing: bool,
     /// Maps back to the originating WrappedEvent via HashMap key for result tracking.
     #[serde(skip)]
-    pub uuid_key: String,
+    pub uuid_key: Uuid,
 }
 
 #[cfg(test)]
