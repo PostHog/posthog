@@ -18,6 +18,7 @@ import {
 
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisFormat'
 
 import { ChartDisplayType } from '~/types'
 
@@ -148,6 +149,56 @@ const FORMATTING_STYLE_LABELS: Record<string, string> = {
     percent: 'Percentage',
 }
 
+const FORMATTING_STYLE_SHORT_LABELS: Record<string, string> = {
+    none: '',
+    number: '',
+    short: INSIGHT_UNIT_OPTIONS_SHORT.short,
+    percent: INSIGHT_UNIT_OPTIONS_SHORT.percentage,
+}
+
+const SeriesFormattingTag = ({ style }: { style?: string }): JSX.Element | null => {
+    const shortLabel = style ? FORMATTING_STYLE_SHORT_LABELS[style] : ''
+
+    if (!shortLabel) {
+        return null
+    }
+
+    return (
+        <LemonTag className="ml-2 shrink-0" type="default">
+            {shortLabel}
+        </LemonTag>
+    )
+}
+
+const SeriesSelectLabel = ({
+    name,
+    color,
+    showSeriesColor,
+    formattingStyle,
+    typeName,
+    showType,
+}: {
+    name: string
+    color: string
+    showSeriesColor: boolean
+    formattingStyle?: string
+    typeName?: string
+    showType?: boolean
+}): JSX.Element => {
+    return (
+        <div className="flex items-center min-w-0 w-full">
+            {showSeriesColor && <LemonColorGlyph className="mr-2 shrink-0" color={color} />}
+            <span className="min-w-0 grow truncate">{name}</span>
+            <SeriesFormattingTag style={formattingStyle} />
+            {showType && typeName ? (
+                <LemonTag className="ml-2 shrink-0" type="default">
+                    {typeName}
+                </LemonTag>
+            ) : null}
+        </div>
+    )
+}
+
 const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: number }): JSX.Element => {
     const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
         useValues(dataVisualizationLogic)
@@ -167,25 +218,38 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     const options = columnsInOptions.map(({ name, type }) => ({
         value: name,
         label: (
-            <div className="items-center flex flex-1">
-                {showSeriesColor && <LemonColorGlyph className="mr-2" color={seriesColor} />}
-                {series.settings?.display?.label && series.column.name === name ? series.settings.display.label : name}
-                <LemonTag className="ml-2" type="default">
-                    {type.name}
-                </LemonTag>
-                {series.settings?.formatting?.style && series.settings.formatting.style !== 'none' && (
-                    <LemonTag className="ml-1" type="default">
-                        {FORMATTING_STYLE_LABELS[series.settings.formatting.style] || series.settings.formatting.style}
-                    </LemonTag>
-                )}
-            </div>
+            <SeriesSelectLabel
+                name={
+                    series.settings?.display?.label && series.column.name === name
+                        ? series.settings.display.label
+                        : name
+                }
+                color={seriesColor}
+                showSeriesColor={showSeriesColor}
+                formattingStyle={series.settings?.formatting?.style}
+            />
+        ),
+        labelInMenu: (
+            <SeriesSelectLabel
+                name={
+                    series.settings?.display?.label && series.column.name === name
+                        ? series.settings.display.label
+                        : name
+                }
+                color={seriesColor}
+                showSeriesColor={showSeriesColor}
+                formattingStyle={series.settings?.formatting?.style}
+                typeName={type.name}
+                showType
+            />
         ),
     }))
 
     return (
         <div className="flex gap-1 mb-1">
             <LemonSelect
-                className="grow flex-1 break-all"
+                className="grow flex-1 min-w-0"
+                truncateText={{ maxWidthClass: 'max-w-full' }}
                 value={series !== null ? series.column.name : 'None'}
                 options={options}
                 disabledReason={responseLoading ? 'Query loading...' : undefined}

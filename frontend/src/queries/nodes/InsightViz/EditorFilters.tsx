@@ -4,10 +4,13 @@ import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { FunnelStepConfiguration } from 'scenes/insights/EditorFilters/FunnelStepConfiguration'
 import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
 import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
@@ -33,7 +36,7 @@ import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { EditorFiltersShell } from './EditorFiltersShell'
-import { visibleFilters } from './editorFilterUtils'
+import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilters } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
@@ -48,6 +51,7 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -62,6 +66,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         pathsFilter,
         querySource,
         hasFormula,
+        series,
+        breakdownFilter,
+        properties,
     } = useValues(insightVizDataLogic(insightProps))
 
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
@@ -100,9 +107,30 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 display || ChartDisplayType.ActionsLineGraph
             ))
 
+    // Compute summaries for collapsible sections (used when editorPanelsEnabled)
+    const seriesSummary = editorPanelsEnabled ? getSeriesSummary(series) : null
+    const filtersSummary = editorPanelsEnabled ? getFiltersSummary(properties) : null
+    const breakdownSummary = editorPanelsEnabled ? getBreakdownSummary(breakdownFilter) : null
+    const exclusionCount = editorPanelsEnabled && isPaths ? (pathsFilter?.excludeEvents?.length ?? 0) : 0
+    const exclusionsSummary = exclusionCount > 0 ? pluralize(exclusionCount, 'exclusion') : null
+
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
+            title: 'Retention condition',
+            defaultExpanded: true,
+            show: editorPanelsEnabled && isRetention,
+            editorFilters: [{ key: 'retention-condition', component: RetentionCondition }],
+        },
+        {
+            title: 'Calculation options',
+            defaultExpanded: false,
+            show: editorPanelsEnabled && isRetention,
+            editorFilters: [{ key: 'retention-options', component: RetentionOptions }],
+        },
+        {
             title: 'General',
+            show: !(editorPanelsEnabled && isRetention),
+            defaultExpanded: editorPanelsEnabled ? true : undefined,
             editorFilters: visibleFilters([
                 {
                     key: 'retention-condition',
@@ -140,16 +168,26 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     ),
                 },
                 { key: 'start-target', label: 'Starts at', component: PathsTargetStart, show: isPaths },
-                { key: 'ends-target', label: 'Ends at', component: PathsTargetEnd, show: isPaths && hasPathsAdvanced },
+                {
+                    key: 'ends-target',
+                    label: 'Ends at',
+                    component: PathsTargetEnd,
+                    show: isPaths && hasPathsAdvanced,
+                },
             ]),
         },
         {
             title: 'Series',
+            defaultExpanded: editorPanelsEnabled ? true : undefined,
+            collapsedSummary: editorPanelsEnabled ? seriesSummary : undefined,
             editorFilters: visibleFilters([
                 {
                     key: 'series',
                     label:
-                        isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
+                        !editorPanelsEnabled &&
+                        isTrends &&
+                        display !== ChartDisplayType.CalendarHeatmap &&
+                        display !== ChartDisplayType.BoxPlot
                             ? TrendsSeriesLabel
                             : undefined,
                     component: TrendsSeries,
@@ -159,14 +197,25 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'formula',
                     label: 'Formula',
                     component: TrendsFormula,
-                    show: isTrends && hasFormula && display !== ChartDisplayType.BoxPlot,
+                    show: !editorPanelsEnabled && isTrends && hasFormula && display !== ChartDisplayType.BoxPlot,
                 },
             ]),
         },
         {
-            title: 'Advanced options',
+            title:
+                editorPanelsEnabled && isFunnels
+                    ? 'Funnel settings'
+                    : editorPanelsEnabled && isPaths
+                      ? 'Path settings'
+                      : 'Advanced options',
+            defaultExpanded: editorPanelsEnabled ? false : undefined,
             editorFilters: visibleFilters([
                 { key: 'paths-advanced', component: PathsAdvanced, show: isPaths },
+                {
+                    key: 'funnel-step-configuration',
+                    component: FunnelStepConfiguration,
+                    show: isFunnels && editorPanelsEnabled,
+                },
                 { key: 'funnels-advanced', component: FunnelsAdvanced, show: isFunnels },
             ]),
         },
@@ -175,6 +224,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const rightEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
             title: 'Filters',
+            defaultExpanded: editorPanelsEnabled ? false : undefined,
+            collapsedSummary: editorPanelsEnabled ? filtersSummary : undefined,
             editorFilters: visibleFilters([
                 {
                     key: 'toggles',
@@ -231,13 +282,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
                 {
                     key: 'properties',
-                    label: 'Filters',
+                    label: editorPanelsEnabled ? undefined : 'Filters',
                     component: GlobalAndOrFilters as (props: EditorFilterProps) => JSX.Element | null,
                 },
             ]),
         },
         {
             title: 'Breakdown',
+            defaultExpanded: editorPanelsEnabled ? false : undefined,
+            collapsedSummary: editorPanelsEnabled ? breakdownSummary : undefined,
             editorFilters: visibleFilters([
                 { key: 'breakdown', component: Breakdown, show: hasBreakdown },
                 {
@@ -297,6 +350,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Exclusions',
+            defaultExpanded: editorPanelsEnabled ? false : undefined,
+            collapsedSummary: editorPanelsEnabled ? exclusionsSummary : undefined,
             editorFilters: visibleFilters([
                 {
                     key: 'paths-exclusions',
@@ -333,23 +388,56 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
     ]
 
-    const leftFilterGroups = leftEditorFilterGroups.filter((g) => g.show !== false && g.editorFilters.length > 0)
-    const rightFilterGroups = rightEditorFilterGroups.filter((g) => g.show !== false && g.editorFilters.length > 0)
+    const visibleGroups = (groups: InsightEditorFilterGroup[]): InsightEditorFilterGroup[] =>
+        groups.filter((g) => g.show !== false && g.editorFilters.length > 0)
+
+    const filterGroupsGroups = editorPanelsEnabled
+        ? [
+              {
+                  title: 'single',
+                  editorFilterGroups: [
+                      ...visibleGroups(leftEditorFilterGroups),
+                      ...visibleGroups(rightEditorFilterGroups),
+                  ],
+              },
+          ]
+        : [
+              { title: 'left', editorFilterGroups: visibleGroups(leftEditorFilterGroups) },
+              { title: 'right', editorFilterGroups: visibleGroups(rightEditorFilterGroups) },
+          ]
+
+    if (!editorPanelsEnabled) {
+        return (
+            <EditorFiltersShell query={query} showing={showing} embedded={embedded}>
+                {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                    <div key={title} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
+                        {editorFilterGroups.map((editorFilterGroup) => (
+                            <EditorFilterGroup
+                                key={editorFilterGroup.title}
+                                editorFilterGroup={editorFilterGroup}
+                                insightProps={insightProps}
+                                query={query}
+                            />
+                        ))}
+                    </div>
+                ))}
+            </EditorFiltersShell>
+        )
+    }
 
     return (
-        <EditorFiltersShell query={query} showing={showing} embedded={embedded}>
-            {[leftFilterGroups, rightFilterGroups].map((editorFilterGroups, i) => (
-                <div key={i} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
-                    {editorFilterGroups.map((editorFilterGroup) => (
-                        <EditorFilterGroup
-                            key={editorFilterGroup.title}
-                            editorFilterGroup={editorFilterGroup}
-                            insightProps={insightProps}
-                            query={query}
-                        />
-                    ))}
-                </div>
-            ))}
+        <EditorFiltersShell query={query} showing={showing} embedded={embedded} asPanels>
+            <div className="flex flex-col gap-3">
+                {filterGroupsGroups[0].editorFilterGroups.map((editorFilterGroup) => (
+                    <EditorFilterGroup
+                        key={editorFilterGroup.title}
+                        editorFilterGroup={editorFilterGroup}
+                        insightProps={insightProps}
+                        query={query}
+                        asTile
+                    />
+                ))}
+            </div>
         </EditorFiltersShell>
     )
 }
