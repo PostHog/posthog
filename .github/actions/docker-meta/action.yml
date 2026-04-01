@@ -59,7 +59,6 @@ runs:
           uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
         - name: Login to ghcr.io
-          if: inputs.push-to-ghcr == 'true'
           uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
           with:
               registry: ghcr.io
