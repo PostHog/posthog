@@ -243,6 +243,7 @@
         "react-window": "^2.2.5",
         "remark-gfm": "^4.0.0",
         "resize-observer-polyfill": "^1.5.1",
+        "rrule": "^2.8.1",
         "sass": "^1.26.2",
         "simple-statistics": "^7.8.8",
         "snappy-wasm": "^0.3.0",
