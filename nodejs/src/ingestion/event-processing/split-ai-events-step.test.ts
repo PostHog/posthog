@@ -213,27 +213,23 @@ describe('split-ai-events-step', () => {
             expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
         })
 
-        it.each([
-            '$ai_feedback',
-            '$ai_evaluation',
-            '$ai_generation',
-            '$ai_span',
-            '$ai_trace',
-            '$ai_embedding',
-        ])('should send %s without large properties to both outputs', async (eventName) => {
-            const event = createProcessedEvent({ $ai_model: 'gpt-4' }, { event: eventName })
+        it.each(['$ai_feedback', '$ai_evaluation', '$ai_generation', '$ai_span', '$ai_trace', '$ai_embedding'])(
+            'should send %s without large properties to both outputs',
+            async (eventName) => {
+                const event = createProcessedEvent({ $ai_model: 'gpt-4' }, { event: eventName })
 
-            const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }], teamId: 1 })
-            expect(isOkResult(result)).toBe(true)
-            if (!isOkResult(result)) {
-                return
+                const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }], teamId: 1 })
+                expect(isOkResult(result)).toBe(true)
+                if (!isOkResult(result)) {
+                    return
+                }
+
+                const { eventsToEmit } = result.value
+                expect(eventsToEmit).toHaveLength(2)
+                expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
+                expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
             }
-
-            const { eventsToEmit } = result.value
-            expect(eventsToEmit).toHaveLength(2)
-            expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
-            expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
-        })
+        )
 
         it.each([
             { props: { $browser: 'Chrome' }, desc: 'without large AI properties' },
