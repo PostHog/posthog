@@ -12,6 +12,7 @@ import { VariableCalendar } from './VariableCalendar'
 
 describe('VariableCalendar', () => {
     beforeEach(() => {
+        window.HTMLElement.prototype.scrollIntoView = jest.fn()
         initKeaTests()
     })
 
