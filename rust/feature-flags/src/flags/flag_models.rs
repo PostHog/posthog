@@ -458,8 +458,10 @@ mod mock_impls {
 
     impl MockFrom<Vec<FeatureFlag>> for FeatureFlagList {
         fn mock_from(flags: Vec<FeatureFlag>) -> Self {
+            let evaluation_metadata = EvaluationMetadata::single_stage(&flags);
             FeatureFlagList {
                 flags,
+                evaluation_metadata,
                 ..Default::default()
             }
         }

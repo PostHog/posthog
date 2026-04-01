@@ -5,11 +5,9 @@ use crate::{
         flag_group_type_mapping::{
             GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
         },
-        flag_models::{
-            EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagFilters,
-            FlagPropertyGroup,
-        },
+        flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow},
     },
+    properties::property_models::PropertyType,
     team::team_models::Team,
 };
 use anyhow::Error;
