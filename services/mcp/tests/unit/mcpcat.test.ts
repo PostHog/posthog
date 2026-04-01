@@ -107,19 +107,6 @@ describe('initMcpCatObservability', () => {
         })
     })
 
-    it('identify callback returns null when provider throws', async () => {
-        const server = new McpServer({ name: 'test', version: '1.0.0' })
-        const identity = createMockIdentity({
-            getDistinctId: vi.fn().mockRejectedValue(new Error('auth failed')),
-        })
-
-        initMcpCatObservability(server, identity)
-
-        const result = await getIdentifyCallback()()
-
-        expect(result).toBeNull()
-    })
-
     it('eventTags callback returns all string metadata as tags', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()

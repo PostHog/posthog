@@ -30,21 +30,17 @@ export function initMcpCatObservability(server: McpServer, identity: McpCatIdent
             enableToolCallContext: false,
             enableTracing: true,
             identify: async () => {
-                try {
-                    const distinctId = await identity.getDistinctId()
-                    const region = identity.getRegion()
-                    const organizationId = identity.getOrganizationId()
-                    const projectId = identity.getProjectId()
-                    return {
-                        userId: distinctId,
-                        userData: {
-                            ...(region ? { region } : {}),
-                            ...(organizationId ? { organization_id: organizationId } : {}),
-                            ...(projectId ? { project_id: projectId } : {}),
-                        },
-                    }
-                } catch {
-                    return null
+                const distinctId = await identity.getDistinctId()
+                const region = identity.getRegion()
+                const organizationId = identity.getOrganizationId()
+                const projectId = identity.getProjectId()
+                return {
+                    userId: distinctId,
+                    userData: {
+                        ...(region ? { region } : {}),
+                        ...(organizationId ? { organization_id: organizationId } : {}),
+                        ...(projectId ? { project_id: projectId } : {}),
+                    },
                 }
             },
             eventTags: async () => {
