@@ -29,8 +29,6 @@ from products.data_warehouse.backend.models.datawarehouse_saved_query import Dat
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
-pytest_plugins = ["posthog.temporal.tests.data_imports.conftest"]
-
 BUCKET_NAME = "test-pipeline"
 
 
