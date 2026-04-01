@@ -36,8 +36,9 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES: int = max(
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES", 5, type_cast=int),
 )
 # MAX_LOOKBACK_HOURS caps how far back a stale/missing checkpoint can reach.
-# With the default of 6h, LOOKBACK_DAYS (default 1 = 24h) is effectively
-# capped to 6h. LOOKBACK_DAYS only matters if set below MAX_LOOKBACK_HOURS.
+# With the defaults (LOOKBACK_DAYS=1 → 24h, MAX_LOOKBACK_HOURS=6), the
+# effective lookback is 6h. LOOKBACK_DAYS only has effect when
+# LOOKBACK_DAYS × 24 ≤ MAX_LOOKBACK_HOURS; otherwise it is capped.
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
     1,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS", 6, type_cast=int),
