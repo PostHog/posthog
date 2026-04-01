@@ -320,6 +320,11 @@ setup_worktree_environment() {
         fi
     fi
 
+    # Fix rdkafka dylib paths for worktree portability (macOS only)
+    if [[ "$(uname -s)" == "Darwin" && -d "${worktree_path}/node_modules" ]]; then
+        (cd "${worktree_path}" && bin/fix-rdkafka-paths)
+    fi
+
     # Initialize Flox in the new worktree
     cd "${worktree_path}"
     print_color blue "Initializing Flox environment (this will share packages from cache)…"

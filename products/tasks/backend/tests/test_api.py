@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
@@ -51,20 +52,25 @@ vbMnD1ZQKgL8LHgb02cbTsc=
 
 
 class BaseTaskAPITest(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
     feature_flag_patcher: MagicMock
     mock_feature_flag: MagicMock
     client: APIClient
-    user: User
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create_user(email="test@example.com", first_name="Test", password="password")
+        cls.organization.members.add(cls.user)
+        OrganizationMembership.objects.filter(user=cls.user, organization=cls.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
 
     def setUp(self):
         self.client = APIClient()
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_user(email="test@example.com", first_name="Test", password="password")
-        self.organization.members.add(self.user)
-        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
-            level=OrganizationMembership.Level.ADMIN
-        )
         self.client.force_authenticate(self.user)
 
         # Enable tasks feature flag by default

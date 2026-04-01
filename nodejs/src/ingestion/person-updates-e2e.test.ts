@@ -228,7 +228,6 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         const outputs = createTestIngestionOutputs(hub.kafkaProducer)
         ingester = new IngestionConsumer(hub, {
             ...hub,
-            kafkaMetricsProducer: hub.kafkaProducer,
             hogTransformer: createHogTransformerService(hub, {
                 ...hub,
                 monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),

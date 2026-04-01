@@ -397,7 +397,7 @@ jobs:
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
-                      ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update' || '' }}
+                      ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
@@ -1201,7 +1201,11 @@ jobs:
               # persons-on-events: always update (we ignore snapshot divergence there)
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
-              run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV
+              # --snapshot-warn-unused: pytest-split shards individual tests across
+              # runners, so each shard only exercises a subset of snapshots per file.
+              # Without this flag, --snapshot-update deletes "unused" snapshots that
+              # belong to other shards, causing cross-shard data loss.
+              run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
             - name: Add snapshot flags for compat subset runs
               # Compat runs a subset and doesn't own snapshots (main Django rows do).

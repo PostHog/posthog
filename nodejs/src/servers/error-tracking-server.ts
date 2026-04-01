@@ -23,8 +23,7 @@ import { ERROR_TRACKING_OUTPUT_DEFINITIONS } from '../ingestion/error-tracking/c
 import { PRODUCER_CONFIG_MAP, ProducerName } from '../ingestion/error-tracking/config/producers'
 import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
-import { buildGroupRepository } from '../ingestion/personhog'
-import { KafkaProducerWrapper } from '../kafka/producer'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -73,7 +72,6 @@ export class ErrorTrackingServer implements NodeServer {
 
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<ProducerName>
-    private kafkaMetricsProducer?: KafkaProducerWrapper
     private redisPool?: RedisPool
     private pubsub?: PubSub
 
@@ -107,7 +105,6 @@ export class ErrorTrackingServer implements NodeServer {
 
         logger.info('🤔', 'Connecting to Kafka...')
         this.producerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK, PRODUCER_CONFIG_MAP)
-        this.kafkaMetricsProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
         const outputs = await resolveIngestionOutputs(this.producerRegistry, ERROR_TRACKING_OUTPUT_DEFINITIONS)
         logger.info('👍', 'Kafka ready')
 
@@ -128,12 +125,22 @@ export class ErrorTrackingServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres)
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres)
+        const personRepository = buildPersonRepository(
+            personhogClient,
+            postgresPersonRepository,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            clientLabel
+        )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
         const groupRepository = buildGroupRepository(
-            this.config,
+            personhogClient,
             postgresGroupRepository,
-            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            clientLabel
         )
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
@@ -175,7 +182,6 @@ export class ErrorTrackingServer implements NodeServer {
                 },
                 {
                     outputs,
-                    kafkaMetricsProducer: this.kafkaMetricsProducer!,
                     teamManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
                     groupTypeManager: new GroupTypeManager(groupRepository, teamManager),
@@ -199,7 +205,7 @@ export class ErrorTrackingServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [],
             redisPools: [this.redisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
