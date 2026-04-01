@@ -7,10 +7,12 @@ use super::constants::*;
 use super::query::Query;
 use super::response::Response;
 use super::types::Batch;
+use tracing::Level;
+
 use crate::global_rate_limiter::GlobalRateLimitKey;
 use crate::v1::constants::*;
 use crate::v1::context::Context;
-use crate::{log_stat_error, router, v1};
+use crate::{ctx_log, log_stat_error, router, v1};
 
 pub async fn handle_request(
     state: State<router::State>,
@@ -25,7 +27,7 @@ pub async fn handle_request(
         .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &method, &path))?;
 
     // TODO: purposely chatty, for now
-    tracing::info!(ctx = ?context, "handle_request called");
+    ctx_log!(Level::INFO, context, "handle_request called");
 
     let raw_bytes = v1::util::extract_body_with_timeout(
         body,
@@ -36,7 +38,7 @@ pub async fn handle_request(
     )
     .await
     .map_err(|err| {
-        log_stat_error!(err, ctx = &context);
+        log_stat_error!(err, &context);
         err
     })?;
 
@@ -48,13 +50,13 @@ pub async fn handle_request(
     )
     .await
     .map_err(|err| {
-        log_stat_error!(err, ctx = &context);
+        log_stat_error!(err, &context);
         err
     })?;
 
     let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {
         let err = v1::Error::RequestParsingError(e.to_string());
-        log_stat_error!(err, ctx = &context);
+        log_stat_error!(err, &context);
         err
     })?;
 
@@ -65,12 +67,15 @@ pub async fn handle_request(
     match super::process::process_batch(&state, &mut context, batch).await {
         Ok(resp) => Ok(resp),
         Err(err) => {
-            log_stat_error!(err, ctx = &context);
+            log_stat_error!(err, &context);
             Err(err)
         }
     }
 }
 
+/// Logs a header-validation error before a Context could be constructed.
+/// Manually extracts raw header values for structured logging, then bumps
+/// the error metric with no Context path (falls back to "unknown").
 fn log_and_return_header_error(
     err: v1::Error,
     headers: &HeaderMap,
@@ -88,20 +93,40 @@ fn log_and_return_header_error(
     let content_type = raw_header_str(headers, "content-type");
     let content_encoding = raw_header_str(headers, "content-encoding");
 
-    log_stat_error!(err,
-        token = %token,
-        request_id = %request_id,
-        sdk_info = %sdk_info,
-        attempt = %attempt,
-        client_timestamp = %client_ts,
-        user_agent = %user_agent,
-        content_type = %content_type,
-        content_encoding = %content_encoding,
-        client_ip = %ip.0,
-        method = %method,
-        query = ?query.0,
-        path = %path.as_str(),
-    );
+    let msg = format!("{}: {err:#}", err.tag());
+    match err.log_level() {
+        Level::WARN => tracing::warn!(
+            token = %token,
+            request_id = %request_id,
+            sdk_info = %sdk_info,
+            attempt = %attempt,
+            client_timestamp = %client_ts,
+            user_agent = %user_agent,
+            content_type = %content_type,
+            content_encoding = %content_encoding,
+            client_ip = %ip.0,
+            method = %method,
+            query = ?query.0,
+            path = %path.as_str(),
+            "{}", msg
+        ),
+        _ => tracing::error!(
+            token = %token,
+            request_id = %request_id,
+            sdk_info = %sdk_info,
+            attempt = %attempt,
+            client_timestamp = %client_ts,
+            user_agent = %user_agent,
+            content_type = %content_type,
+            content_encoding = %content_encoding,
+            client_ip = %ip.0,
+            method = %method,
+            query = ?query.0,
+            path = %path.as_str(),
+            "{}", msg
+        ),
+    }
+    err.stat_error(None::<&Context>);
     err
 }
 
@@ -118,10 +143,7 @@ async fn check_token_rate_limit(
             "outcome" => "limited",
         )
         .increment(1);
-        tracing::warn!(
-            token = %context.api_token,
-            request_id = %context.request_id,
-            sdk_info = %context.sdk_info,
+        ctx_log!(Level::WARN, context,
             count = limited.current_count as u64,
             threshold = limited.threshold,
             interval = ?limited.window_interval,

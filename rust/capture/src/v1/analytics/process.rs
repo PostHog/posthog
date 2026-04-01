@@ -13,6 +13,8 @@ use super::response::Response;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
+use tracing::Level;
+
 use crate::router;
 use crate::v1::context::Context;
 use crate::v1::sinks::Destination;
@@ -23,7 +25,7 @@ pub async fn process_batch(
     context: &mut Context,
     batch: Batch,
 ) -> Result<Response, Error> {
-    tracing::info!(ctx = ?context, "process_batch called");
+    crate::ctx_log!(Level::INFO, context, "process_batch called");
 
     validate_batch(&batch)?;
     context.set_batch_metadata(&batch);
@@ -149,19 +151,7 @@ fn observe_malformed_events(context: &Context, events: &HashMap<Uuid, WrappedEve
         .collect::<Vec<_>>()
         .join(", ");
 
-    tracing::warn!(
-        token = %context.api_token,
-        request_id = %context.request_id,
-        sdk_info = %context.sdk_info,
-        attempt = context.attempt,
-        client_timestamp = %context.client_timestamp,
-        server_received_at = %context.server_received_at,
-        user_agent = %context.user_agent,
-        content_type = %context.content_type,
-        content_encoding = ?context.content_encoding,
-        client_ip = %context.client_ip,
-        method = %context.method,
-        path = %context.path,
+    crate::ctx_log!(Level::WARN, context,
         illegal_distinct_ids = %illegal_ids_csv,
         "malformed events: {summary}"
     );
@@ -350,10 +340,7 @@ async fn apply_token_distinct_id_limits(
         )
         .increment(limited_count as u64);
 
-        tracing::warn!(
-            token = %context.api_token,
-            request_id = %context.request_id,
-            sdk_info = %context.sdk_info,
+        crate::ctx_log!(Level::WARN, context,
             limited_count = limited_count,
             distinct_ids = %preview,
             "events rate limited by distinct_id"
