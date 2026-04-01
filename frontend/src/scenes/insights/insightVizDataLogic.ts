@@ -623,10 +623,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // query source properties
         updateDateRange: async ({ dateRange, ignoreDebounce }, breakpoint) => {
-            eventUsageLogic.actions.reportInsightDateRangeChanged(values.querySource?.kind)
             if (!ignoreDebounce) {
                 await breakpoint(300)
             }
+            eventUsageLogic.actions.reportInsightDateRangeChanged(values.querySource?.kind)
             const updates = {
                 dateRange: {
                     ...values.dateRange,
@@ -655,14 +655,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
-            eventUsageLogic.actions.reportInsightBreakdownChanged(values.querySource?.kind)
             await breakpoint(500) // extra debounce time because of number input
+            eventUsageLogic.actions.reportInsightBreakdownChanged(values.querySource?.kind)
             const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
             actions.updateQuerySource(update)
         },
         updateCompareFilter: async ({ compareFilter }, breakpoint) => {
-            eventUsageLogic.actions.reportInsightCompareChanged(values.querySource?.kind)
             await breakpoint(500) // extra debounce time because of number input
+            eventUsageLogic.actions.reportInsightCompareChanged(values.querySource?.kind)
             const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
             actions.updateQuerySource(update)
         },
