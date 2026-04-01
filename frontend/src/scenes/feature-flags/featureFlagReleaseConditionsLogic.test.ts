@@ -385,11 +385,19 @@ describe('the feature flag release conditions logic', () => {
         it('sends condition-level aggregation_group_type_index to blast radius API', async () => {
             logic?.unmount()
 
-            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({
-                users_affected: 50,
-                total_users: 500,
-                groups_affected: 10,
-                total_groups: 100,
+            const createSpy = jest.spyOn(api, 'create').mockImplementation((_url, data: any) => {
+                if (data?.group_type_index != null) {
+                    return Promise.resolve({
+                        users_affected: 0,
+                        total_users: 0,
+                        groups_affected: 10,
+                        total_groups: 100,
+                    })
+                }
+                return Promise.resolve({
+                    users_affected: 50,
+                    total_users: 500,
+                })
             })
 
             try {
@@ -402,8 +410,9 @@ describe('the feature flag release conditions logic', () => {
                                     {
                                         key: 'plan',
                                         value: 'pro',
-                                        type: PropertyFilterType.Person,
+                                        type: PropertyFilterType.Group,
                                         operator: PropertyOperator.Exact,
+                                        group_type_index: 1,
                                     },
                                 ],
                                 rollout_percentage: 100,
@@ -416,8 +425,9 @@ describe('the feature flag release conditions logic', () => {
                                     {
                                         key: 'email',
                                         value: 'test',
-                                        type: PropertyFilterType.Person,
+                                        type: PropertyFilterType.Group,
                                         operator: PropertyOperator.Exact,
+                                        group_type_index: 0,
                                     },
                                 ],
                                 rollout_percentage: 50,
