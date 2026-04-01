@@ -1,6 +1,8 @@
+import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightModals } from 'scenes/insights/InsightModals'
@@ -55,6 +57,8 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
     useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
+
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
     const setQuery = (q: Node | ((q: Node) => Node), isSourceUpdate?: boolean): void => {
@@ -72,11 +76,19 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
         return null
     }
 
+    const fullHeightEdit = editorPanelsEnabled && insightMode === ItemMode.Edit
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightModals insightLogicProps={insightProps} />
-            <SceneContent className="Insight">
-                <InsightSceneHeader insightLogicProps={insightProps} />
+            <SceneContent className={clsx('Insight', fullHeightEdit && '!gap-0')}>
+                {fullHeightEdit ? (
+                    <div className="flex flex-col gap-y-4 shrink-0">
+                        <InsightSceneHeader insightLogicProps={insightProps} />
+                    </div>
+                ) : (
+                    <InsightSceneHeader insightLogicProps={insightProps} />
+                )}
 
                 <Query
                     attachTo={attachTo}
