@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import functools
 import json
 import os
@@ -145,27 +146,30 @@ def get_bedrock_runtime_client(region_name: str, timeout_seconds: float):
     )
 
 
-def count_tokens_with_bedrock(
+async def count_tokens_with_bedrock(
     request_data: dict[str, Any],
     model: str,
     aws_region_name: str,
     timeout_seconds: float,
 ) -> int:
-    bedrock_runtime_client = get_bedrock_runtime_client(aws_region_name, timeout_seconds)
+    def _sync() -> int:
+        bedrock_runtime_client = get_bedrock_runtime_client(aws_region_name, timeout_seconds)
 
-    # CountTokens API does not support regional model prefixes ("us.anthropic.", "eu.anthropic.")
-    count_tokens_model = model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
+        # CountTokens API does not support regional model prefixes ("us.anthropic.", "eu.anthropic.")
+        count_tokens_model = model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
 
-    # Build the minimal invoke body Bedrock CountTokens accepts. Unlike invoke_model,
-    # CountTokens rejects extra fields such as thinking and tools.
-    body = {
-        "anthropic_version": BEDROCK_ANTHROPIC_VERSION,
-        "max_tokens": request_data.get("max_tokens", DEFAULT_BEDROCK_MAX_TOKENS),
-        "messages": request_data.get("messages"),
-    }
+        # Build the minimal invoke body Bedrock CountTokens accepts. Unlike invoke_model,
+        # CountTokens rejects extra fields such as thinking and tools.
+        body = {
+            "anthropic_version": BEDROCK_ANTHROPIC_VERSION,
+            "max_tokens": request_data.get("max_tokens", DEFAULT_BEDROCK_MAX_TOKENS),
+            "messages": request_data.get("messages"),
+        }
 
-    response = bedrock_runtime_client.count_tokens(
-        modelId=count_tokens_model,
-        input={"invokeModel": {"body": json.dumps(body).encode("utf-8")}},
-    )
-    return int(response["inputTokens"])
+        response = bedrock_runtime_client.count_tokens(
+            modelId=count_tokens_model,
+            input={"invokeModel": {"body": json.dumps(body).encode("utf-8")}},
+        )
+        return int(response["inputTokens"])
+
+    return await asyncio.to_thread(_sync)

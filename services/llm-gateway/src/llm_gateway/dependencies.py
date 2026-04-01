@@ -12,7 +12,11 @@ from llm_gateway.products.config import ALLOWED_PRODUCTS, check_product_access, 
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
-from llm_gateway.request_context import get_request_id, set_throttle_context
+from llm_gateway.request_context import (
+    extract_posthog_provider_from_headers,
+    get_request_id,
+    set_throttle_context,
+)
 
 
 async def get_db_pool(request: Request) -> "asyncpg.Pool[asyncpg.Record]":  # noqa: UP037
@@ -76,11 +80,13 @@ async def get_model_from_request(request: Request) -> str | None:
 
 
 async def get_provider_from_request(request: Request) -> str | None:
-    data = await get_request_json(request)
-    if data is None:
-        return None
-    provider = data.get("provider")
-    return provider if isinstance(provider, str) else None
+    try:
+        return extract_posthog_provider_from_headers(request)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": {"message": str(exc), "type": "invalid_request_error"}},
+        ) from exc
 
 
 async def enforce_product_access(

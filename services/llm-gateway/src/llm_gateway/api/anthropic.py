@@ -1,4 +1,3 @@
-import asyncio
 import time
 from typing import Any
 
@@ -21,7 +20,11 @@ from llm_gateway.metrics.prometheus import (
 )
 from llm_gateway.models.anthropic import GATEWAY_ONLY_FIELDS, AnthropicCountTokensRequest, AnthropicMessagesRequest
 from llm_gateway.products.config import validate_product
-from llm_gateway.request_context import apply_posthog_context_from_headers
+from llm_gateway.request_context import (
+    apply_posthog_context_from_headers,
+    extract_posthog_provider_from_headers,
+    extract_posthog_use_bedrock_fallback_from_headers,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +34,24 @@ ANTHROPIC_COUNT_TOKENS_URL = "https://api.anthropic.com/v1/messages/count_tokens
 ANTHROPIC_API_VERSION = "2023-06-01"
 COUNT_TOKENS_ENDPOINT_NAME = "anthropic_count_tokens"
 BEDROCK_COUNT_TOKENS_ENDPOINT_NAME = "bedrock_count_tokens"
+
+
+def _invalid_header_exception(message: str) -> HTTPException:
+    return HTTPException(status_code=400, detail={"error": {"message": message, "type": "invalid_request_error"}})
+
+
+def _get_provider_from_headers(request: Request) -> str:
+    try:
+        return extract_posthog_provider_from_headers(request) or "anthropic"
+    except ValueError as exc:
+        raise _invalid_header_exception(str(exc)) from exc
+
+
+def _get_use_bedrock_fallback_from_headers(request: Request) -> bool:
+    try:
+        return extract_posthog_use_bedrock_fallback_from_headers(request) or False
+    except ValueError as exc:
+        raise _invalid_header_exception(str(exc)) from exc
 
 
 async def _send_bedrock_messages(
@@ -68,7 +89,8 @@ async def _handle_anthropic_messages(
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
-    provider = body.provider or "anthropic"
+    provider = _get_provider_from_headers(request)
+    use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
     if provider == "bedrock":
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
@@ -85,7 +107,7 @@ async def _handle_anthropic_messages(
             product=product,
         )
     except HTTPException as exc:
-        if not body.use_bedrock_fallback or exc.status_code < 500:
+        if not use_bedrock_fallback or exc.status_code < 500:
             raise
 
         error_type = exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown"
@@ -111,10 +133,12 @@ async def _handle_anthropic_messages(
 async def _handle_count_tokens(
     body: AnthropicCountTokensRequest,
     user: RateLimitedUser,
+    request: Request,
     product: str = "llm_gateway",
 ) -> dict[str, Any]:
     data = _sanitize_request_data(body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS))
-    provider = body.provider or "anthropic"
+    provider = _get_provider_from_headers(request)
+    use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
     if provider == "bedrock":
         return await _bedrock_count_tokens_impl(data, body.model, user, product)
@@ -123,7 +147,7 @@ async def _handle_count_tokens(
     try:
         return await _anthropic_count_tokens_impl(data, body.model, user, product)
     except HTTPException as exc:
-        if not body.use_bedrock_fallback or exc.status_code < 500:
+        if not use_bedrock_fallback or exc.status_code < 500:
             raise
 
         error_type = exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown"
@@ -227,8 +251,7 @@ async def _bedrock_count_tokens_impl(
     status_code = "200"
 
     try:
-        input_tokens = await asyncio.to_thread(
-            count_tokens_with_bedrock,
+        input_tokens = await count_tokens_with_bedrock(
             data,
             bedrock_model,
             bedrock_region_name,
@@ -268,8 +291,9 @@ async def _bedrock_count_tokens_impl(
 async def anthropic_count_tokens(
     body: AnthropicCountTokensRequest,
     user: RateLimitedUser,
+    request: Request,
 ) -> dict[str, Any]:
-    return await _handle_count_tokens(body, user)
+    return await _handle_count_tokens(body, user, request)
 
 
 @anthropic_router.post("/{product}/v1/messages/count_tokens", response_model=None)
@@ -277,9 +301,10 @@ async def anthropic_count_tokens_with_product(
     body: AnthropicCountTokensRequest,
     user: RateLimitedUser,
     product: str,
+    request: Request,
 ) -> dict[str, Any]:
     validate_product(product)
-    return await _handle_count_tokens(body, user, product=product)
+    return await _handle_count_tokens(body, user, request, product=product)
 
 
 @anthropic_router.post("/v1/messages", response_model=None)

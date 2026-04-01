@@ -44,10 +44,10 @@ class TestBedrockSpecific:
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
             },
             headers={
                 "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Provider": "bedrock",
                 "anthropic-beta": "interleaved-thinking-2025-05-14, extended-thinking-2025-05-14",
             },
         )
@@ -77,9 +77,8 @@ class TestBedrockSpecific:
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
             },
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
 
         assert response.status_code == 200
@@ -105,9 +104,8 @@ class TestBedrockSpecific:
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
             },
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
 
         assert response.status_code == 200
@@ -152,9 +150,11 @@ class TestBedrockFallback:
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "use_bedrock_fallback": True,
             },
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
         )
 
         assert response.status_code == 200
@@ -182,9 +182,11 @@ class TestBedrockFallback:
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "use_bedrock_fallback": True,
             },
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
         )
 
         assert response.status_code == 400
@@ -206,9 +208,11 @@ class TestBedrockFallback:
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "use_bedrock_fallback": False,
             },
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "false",
+            },
         )
 
         assert response.status_code == 500
@@ -237,9 +241,11 @@ class TestBedrockFallback:
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "use_bedrock_fallback": True,
             },
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
         )
 
         # Should return the original Anthropic error
@@ -268,9 +274,11 @@ class TestBedrockFallback:
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "use_bedrock_fallback": True,
             },
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
         )
 
         assert response.status_code == 200
@@ -283,7 +291,13 @@ class TestBedrockCountTokensViaProvider:
         return {
             "model": "us.anthropic.claude-sonnet-4-6",
             "messages": [{"role": "user", "content": "Hello"}],
-            "provider": "bedrock",
+        }
+
+    @pytest.fixture
+    def valid_request_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": "Bearer phx_test_key",
+            "X-PostHog-Provider": "bedrock",
         }
 
     @patch("llm_gateway.api.anthropic.get_settings")
@@ -294,6 +308,7 @@ class TestBedrockCountTokensViaProvider:
         mock_get_settings: MagicMock,
         authenticated_client: TestClient,
         valid_request_body: dict,
+        valid_request_headers: dict[str, str],
     ) -> None:
         mock_settings = MagicMock()
         mock_settings.bedrock_region_name = "us-east-1"
@@ -305,7 +320,7 @@ class TestBedrockCountTokensViaProvider:
         response = authenticated_client.post(
             "/v1/messages/count_tokens",
             json=valid_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=valid_request_headers,
         )
 
         assert response.status_code == 200
@@ -337,8 +352,8 @@ class TestBedrockCountTokensViaProvider:
 
         authenticated_client.post(
             "/v1/messages/count_tokens",
-            json={"model": model, "messages": [{"role": "user", "content": "Hello"}], "provider": "bedrock"},
-            headers={"Authorization": "Bearer phx_test_key"},
+            json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
 
         call_args = mock_count_tokens.call_args
@@ -350,6 +365,7 @@ class TestBedrockCountTokensViaProvider:
         mock_get_settings: MagicMock,
         authenticated_client: TestClient,
         valid_request_body: dict,
+        valid_request_headers: dict[str, str],
     ) -> None:
         mock_settings = MagicMock()
         mock_settings.bedrock_region_name = None
@@ -358,7 +374,7 @@ class TestBedrockCountTokensViaProvider:
         response = authenticated_client.post(
             "/v1/messages/count_tokens",
             json=valid_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=valid_request_headers,
         )
 
         assert response.status_code == 503
@@ -372,6 +388,7 @@ class TestBedrockCountTokensViaProvider:
         mock_get_settings: MagicMock,
         authenticated_client: TestClient,
         valid_request_body: dict,
+        valid_request_headers: dict[str, str],
     ) -> None:
         mock_settings = MagicMock()
         mock_settings.bedrock_region_name = "us-east-1"
@@ -383,7 +400,7 @@ class TestBedrockCountTokensViaProvider:
         response = authenticated_client.post(
             "/v1/messages/count_tokens",
             json=valid_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=valid_request_headers,
         )
 
         assert response.status_code == 502
@@ -397,6 +414,7 @@ class TestBedrockCountTokensViaProvider:
         mock_get_settings: MagicMock,
         authenticated_client: TestClient,
         valid_request_body: dict,
+        valid_request_headers: dict[str, str],
     ) -> None:
         mock_settings = MagicMock()
         mock_settings.bedrock_region_name = "us-east-1"
@@ -408,7 +426,7 @@ class TestBedrockCountTokensViaProvider:
         response = authenticated_client.post(
             "/wizard/v1/messages/count_tokens",
             json=valid_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=valid_request_headers,
         )
 
         assert response.status_code == 200
@@ -431,7 +449,6 @@ class TestBedrockCountTokensViaProvider:
         body = {
             "model": "claude-sonnet-4-6",
             "messages": [{"role": "user", "content": "Hello"}],
-            "provider": "bedrock",
             "max_tokens": 2048,
             "system": "Be brief.",
             "tools": [
@@ -447,7 +464,7 @@ class TestBedrockCountTokensViaProvider:
         response = authenticated_client.post(
             "/v1/messages/count_tokens",
             json=body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
 
         assert response.status_code == 200
@@ -459,17 +476,16 @@ class TestBedrockCountTokensViaProvider:
         assert request_data["tool_choice"] == body["tool_choice"]
         assert request_data["max_tokens"] == 2048
 
+    @patch("llm_gateway.bedrock.asyncio.to_thread", new_callable=AsyncMock)
     @patch("llm_gateway.api.anthropic.get_settings")
-    @patch("llm_gateway.api.anthropic.asyncio.to_thread", new_callable=AsyncMock)
     def test_count_tokens_runs_in_worker_thread(
         self,
-        mock_to_thread: AsyncMock,
         mock_get_settings: MagicMock,
+        mock_to_thread: AsyncMock,
         authenticated_client: TestClient,
         valid_request_body: dict,
+        valid_request_headers: dict[str, str],
     ) -> None:
-        from llm_gateway.api.anthropic import count_tokens_with_bedrock
-
         mock_settings = MagicMock()
         mock_settings.bedrock_region_name = "us-east-1"
         mock_settings.request_timeout = 123.0
@@ -479,16 +495,12 @@ class TestBedrockCountTokensViaProvider:
         response = authenticated_client.post(
             "/v1/messages/count_tokens",
             json=valid_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=valid_request_headers,
         )
 
         assert response.status_code == 200
-        call_args = mock_to_thread.call_args.args
-        assert call_args[0] is count_tokens_with_bedrock
-        assert call_args[1]["model"] == valid_request_body["model"]
-        assert call_args[2] == "us.anthropic.claude-sonnet-4-6"
-        assert call_args[3] == "us-east-1"
-        assert call_args[4] == 123.0
+        assert mock_to_thread.called
+        assert callable(mock_to_thread.call_args.args[0])
 
 
 class TestModelMapping:

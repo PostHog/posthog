@@ -5,10 +5,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from starlette.datastructures import Headers
 
 from llm_gateway.request_context import (
     extract_posthog_flags_from_headers,
     extract_posthog_properties_from_headers,
+    extract_posthog_provider_from_headers,
+    extract_posthog_use_bedrock_fallback_from_headers,
 )
 
 DANGEROUS_PARAMS: list[tuple[str, str]] = [
@@ -87,6 +90,48 @@ class TestExtractPosthogPropertiesFromHeaders:
         assert result == {}
 
 
+class TestExtractPosthogProviderFromHeaders:
+    def test_extracts_provider_header(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Provider": "bedrock"})
+
+        assert extract_posthog_provider_from_headers(request) == "bedrock"
+
+    def test_extracts_provider_header_case_insensitive(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"x-posthog-provider": "ANTHROPIC"})
+
+        assert extract_posthog_provider_from_headers(request) == "anthropic"
+
+    def test_invalid_provider_header_raises(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Provider": "vertex"})
+
+        with pytest.raises(ValueError, match="Expected one of: anthropic, bedrock"):
+            extract_posthog_provider_from_headers(request)
+
+
+class TestExtractPosthogUseBedrockFallbackFromHeaders:
+    def test_extracts_true_fallback_header(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Use-Bedrock-Fallback": "true"})
+
+        assert extract_posthog_use_bedrock_fallback_from_headers(request) is True
+
+    def test_extracts_false_fallback_header(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Use-Bedrock-Fallback": "FALSE"})
+
+        assert extract_posthog_use_bedrock_fallback_from_headers(request) is False
+
+    def test_invalid_fallback_header_raises(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Use-Bedrock-Fallback": "1"})
+
+        with pytest.raises(ValueError, match="Expected: true or false"):
+            extract_posthog_use_bedrock_fallback_from_headers(request)
+
+
 class TestAnthropicMessagesEndpoint:
     @pytest.fixture
     def valid_request_body(self) -> dict[str, Any]:
@@ -112,14 +157,18 @@ class TestAnthropicMessagesEndpoint:
             yield request.param
 
     @pytest.fixture
-    def provider_request_body(self, provider) -> dict[str, Any]:
-        body: dict[str, Any] = {
+    def provider_request_body(self) -> dict[str, Any]:
+        return {
             "model": "claude-sonnet-4-6",
             "messages": [{"role": "user", "content": "Hello"}],
         }
+
+    @pytest.fixture
+    def provider_request_headers(self, provider) -> dict[str, str]:
+        headers = {"Authorization": "Bearer phx_test_key"}
         if provider == "bedrock":
-            body["provider"] = "bedrock"
-        return body
+            headers["X-PostHog-Provider"] = "bedrock"
+        return headers
 
     @pytest.fixture
     def provider_mock_response(self) -> dict[str, Any]:
@@ -164,8 +213,8 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         provider_request_body: dict,
+        provider_request_headers: dict[str, str],
         provider_mock_response: dict,
-        provider: str,
     ) -> None:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
@@ -174,7 +223,7 @@ class TestAnthropicMessagesEndpoint:
         response = authenticated_client.post(
             "/v1/messages",
             json=provider_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -197,10 +246,10 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         provider_request_body: dict,
+        provider_request_headers: dict[str, str],
         error_status: int,
         error_message: str,
         error_type: str,
-        provider: str,
     ) -> None:
         error = Exception(error_message)
         error.status_code = error_status  # type: ignore[attr-defined]
@@ -211,7 +260,7 @@ class TestAnthropicMessagesEndpoint:
         response = authenticated_client.post(
             "/v1/messages",
             json=provider_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == error_status
@@ -229,10 +278,10 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         provider_request_body: dict,
+        provider_request_headers: dict[str, str],
         provider_mock_response: dict,
         param_name: str,
         param_value: str,
-        provider: str,
     ) -> None:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
@@ -242,7 +291,7 @@ class TestAnthropicMessagesEndpoint:
         response = authenticated_client.post(
             "/v1/messages",
             json=body_with_injection,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -257,8 +306,8 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         provider_request_body: dict,
+        provider_request_headers: dict[str, str],
         provider_mock_response: dict,
-        provider: str,
     ) -> None:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
@@ -280,7 +329,7 @@ class TestAnthropicMessagesEndpoint:
         response = authenticated_client.post(
             "/v1/messages",
             json=body_with_model_list,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -293,8 +342,8 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         provider_request_body: dict,
+        provider_request_headers: dict[str, str],
         provider_mock_response: dict,
-        provider: str,
     ) -> None:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
@@ -314,7 +363,7 @@ class TestAnthropicMessagesEndpoint:
         response = authenticated_client.post(
             "/v1/messages",
             json=body_with_nested_injection,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -331,8 +380,8 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         provider_request_body: dict,
+        provider_request_headers: dict[str, str],
         provider_mock_response: dict,
-        provider: str,
     ) -> None:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
@@ -341,7 +390,7 @@ class TestAnthropicMessagesEndpoint:
         response = authenticated_client.post(
             "/wizard/v1/messages",
             json=provider_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -361,9 +410,9 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         provider_request_body: dict,
+        provider_request_headers: dict[str, str],
         provider_mock_response: dict,
         product: str,
-        provider: str,
     ) -> None:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
@@ -372,7 +421,7 @@ class TestAnthropicMessagesEndpoint:
         response = authenticated_client.post(
             f"/{product}/v1/messages",
             json=provider_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -406,7 +455,6 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         provider_mock_response: dict,
-        provider: str,
     ) -> None:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
@@ -417,7 +465,7 @@ class TestAnthropicMessagesEndpoint:
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "provider": provider,
+                "provider": "bedrock",
                 "use_bedrock_fallback": True,
             },
             headers={"Authorization": "Bearer phx_test_key"},
@@ -425,8 +473,39 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 200
         call_kwargs = mock_anthropic.call_args.kwargs
+        assert call_kwargs["model"] == "claude-sonnet-4-6"
         assert "provider" not in call_kwargs
         assert "use_bedrock_fallback" not in call_kwargs
+
+    def test_invalid_provider_header_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "vertex"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+
+    def test_invalid_fallback_header_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Use-Bedrock-Fallback": "1"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "Expected: true or false" in response.json()["error"]["message"]
 
 
 class TestAnthropicCountTokensEndpoint:
@@ -742,7 +821,7 @@ class TestAnthropicCountTokensEndpoint:
             json={
                 "model": "claude-3-5-sonnet-20241022",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "anthropic",
+                "provider": "bedrock",
                 "use_bedrock_fallback": True,
             },
             headers={"Authorization": "Bearer phx_test_key"},
@@ -753,3 +832,33 @@ class TestAnthropicCountTokensEndpoint:
         sent_json = call_kwargs[1]["json"]
         assert "provider" not in sent_json
         assert "use_bedrock_fallback" not in sent_json
+
+    def test_invalid_provider_header_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "vertex"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+
+    def test_invalid_fallback_header_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Use-Bedrock-Fallback": "1"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "Expected: true or false" in response.json()["error"]["message"]

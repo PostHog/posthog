@@ -17,6 +17,8 @@ logger = structlog.get_logger(__name__)
 
 POSTHOG_PROPERTY_PREFIX = "x-posthog-property-"
 POSTHOG_FLAG_PREFIX = "x-posthog-flag-"
+POSTHOG_PROVIDER_HEADER = "x-posthog-provider"
+POSTHOG_USE_BEDROCK_FALLBACK_HEADER = "x-posthog-use-bedrock-fallback"
 
 
 @dataclass
@@ -102,6 +104,36 @@ def extract_posthog_properties_from_headers(request: Request) -> dict[str, str]:
 
 def extract_posthog_flags_from_headers(request: Request) -> dict[str, str]:
     return _extract_headers_with_prefix(request, POSTHOG_FLAG_PREFIX)
+
+
+def extract_posthog_provider_from_headers(request: Request) -> str | None:
+    provider = request.headers.get(POSTHOG_PROVIDER_HEADER)
+    if provider is None:
+        return None
+
+    normalized_provider = provider.strip().lower()
+    if not normalized_provider:
+        raise ValueError(f"Invalid {POSTHOG_PROVIDER_HEADER} header value. Expected one of: anthropic, bedrock.")
+    if normalized_provider not in {"anthropic", "bedrock"}:
+        raise ValueError(
+            f"Invalid {POSTHOG_PROVIDER_HEADER} header value '{provider}'. Expected one of: anthropic, bedrock."
+        )
+    return normalized_provider
+
+
+def extract_posthog_use_bedrock_fallback_from_headers(request: Request) -> bool | None:
+    use_bedrock_fallback = request.headers.get(POSTHOG_USE_BEDROCK_FALLBACK_HEADER)
+    if use_bedrock_fallback is None:
+        return None
+
+    normalized_value = use_bedrock_fallback.strip().lower()
+    if normalized_value == "true":
+        return True
+    if normalized_value == "false":
+        return False
+    raise ValueError(
+        f"Invalid {POSTHOG_USE_BEDROCK_FALLBACK_HEADER} header value '{use_bedrock_fallback}'. Expected: true or false."
+    )
 
 
 def apply_posthog_context_from_headers(request: Request) -> None:

@@ -135,8 +135,8 @@ The gateway supports capturing additional event properties to PostHog via the `X
 
 ### Anthropic-compatible
 
-- `POST /v1/messages` - Anthropic Messages API (supports Bedrock via `provider` field)
-- `POST /v1/messages/count_tokens` - Anthropic token counting API (supports Bedrock via `provider` field)
+- `POST /v1/messages` - Anthropic Messages API (supports Bedrock via `X-PostHog-Provider`)
+- `POST /v1/messages/count_tokens` - Anthropic token counting API (supports Bedrock via `X-PostHog-Provider`)
 
 ### Product-scoped endpoints
 
@@ -156,14 +156,10 @@ The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's mod
 ## Bedrock provider
 
 AWS Bedrock is available as an alternative provider for the Anthropic endpoints.
-Instead of dedicated routes, set the `provider` field in the request body:
+Instead of dedicated routes, set the `X-PostHog-Provider: bedrock` header:
 
-```json
-{
-  "model": "claude-sonnet-4-6",
-  "messages": [{ "role": "user", "content": "Hello" }],
-  "provider": "bedrock"
-}
+```http
+X-PostHog-Provider: bedrock
 ```
 
 Anthropic model names (e.g. `claude-sonnet-4-6`) are automatically mapped to Bedrock model IDs.
@@ -172,14 +168,10 @@ You can also pass a Bedrock model ID directly (e.g. `us.anthropic.claude-sonnet-
 
 ### Bedrock fallback
 
-Set `use_bedrock_fallback: true` to automatically retry via Bedrock when the Anthropic provider returns a 5xx error:
+Set `X-PostHog-Use-Bedrock-Fallback: true` to automatically retry via Bedrock when the Anthropic provider returns a 5xx error:
 
-```json
-{
-  "model": "claude-sonnet-4-6",
-  "messages": [{ "role": "user", "content": "Hello" }],
-  "use_bedrock_fallback": true
-}
+```http
+X-PostHog-Use-Bedrock-Fallback: true
 ```
 
 The fallback only triggers on server errors (5xx), not client errors (4xx).
@@ -187,7 +179,7 @@ If both Anthropic and Bedrock fail, the original Anthropic error is returned.
 
 ### Configuration
 
-To use Bedrock (either as `provider` or as fallback), configure one of:
+To use Bedrock (either via `X-PostHog-Provider` or `X-PostHog-Use-Bedrock-Fallback`), configure one of:
 
 - `LLM_GATEWAY_BEDROCK_REGION_NAME`
 - `AWS_REGION`
