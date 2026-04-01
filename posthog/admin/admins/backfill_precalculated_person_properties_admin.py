@@ -25,8 +25,8 @@ class BackfillPrecalculatedPersonPropertiesForm(forms.Form):
     concurrent_workflows = forms.IntegerField(
         initial=5,
         min_value=1,
-        max_value=10,
-        help_text="Number of concurrent child workflows to run (1-10, default: 5)",
+        max_value=100,
+        help_text="Number of concurrent child workflows to run (1-100, default: 5)",
         label="Concurrent workflows",
     )
 
