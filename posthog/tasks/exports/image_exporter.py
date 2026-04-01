@@ -105,12 +105,20 @@ def get_driver() -> webdriver.Chrome:
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
-        return webdriver.Chrome(service=service, options=options)
+        driver = webdriver.Chrome(service=service, options=options)
+    else:
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
+            options=options,
+        )
 
-    return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
-        options=options,
-    )
+    # Selenium's Service.send_remote_shutdown_command() uses urllib.request.urlopen()
+    # which routes through HTTP_PROXY. The egress proxy blocks this localhost request,
+    # but it doesn't matter — Service.stop() always calls _terminate_process() (SIGTERM)
+    # right after, so the HTTP shutdown is redundant.
+    driver.service.send_remote_shutdown_command = lambda: None
+
+    return driver
 
 
 def _export_to_png(
