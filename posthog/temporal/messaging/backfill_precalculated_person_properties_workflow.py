@@ -372,10 +372,10 @@ async def backfill_precalculated_person_properties_activity(
 
                     # Evaluate each filter for this person
                     person_filter_start = time.monotonic()
+                    hog_globals = {"person": {"properties": parsed_properties}}
                     for filter_obj in filters:
                         # Execute the filter bytecode to get the result
                         try:
-                            hog_globals = {"person": {"properties": parsed_properties}}
                             bytecode_result = execute_bytecode(filter_obj.bytecode, hog_globals)
                             result = bytecode_result.result
 
