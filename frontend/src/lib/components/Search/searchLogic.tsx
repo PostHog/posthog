@@ -500,7 +500,12 @@ export const searchLogic = kea<searchLogicType>([
                     .filter((person) => person.uuid) // Skip persons without uuid to avoid invalid URLs
                     .map((person) => {
                         const personId = person.distinct_ids?.[0] || person.uuid
-                        const displayName = person.properties?.email || person.properties?.name || personId
+                        // Person properties may contain non-string values (e.g. Clerk auth
+                        // objects) so we must coerce safely to avoid rendering [object Object].
+                        const safeStr = (val: unknown): string | undefined =>
+                            typeof val === 'string' ? val : undefined
+                        const displayName =
+                            safeStr(person.properties?.email) || safeStr(person.properties?.name) || String(personId)
 
                         return {
                             id: `person-${person.uuid}`,
