@@ -93,9 +93,13 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
                 }
 
                 const { points } = payload
-                const rowIndex = points.clickedPointNotLine
-                    ? points.pointsIntersectingClick[0].dataset.index
-                    : points.pointsIntersectingLine[0].dataset.index
+                const referencePoint = points.clickedPointNotLine
+                    ? points.pointsIntersectingClick[0]
+                    : points.pointsIntersectingLine[0]
+
+                // In the interval view, each data point represents a different cohort at the same interval,
+                // so use the point index (cohort) rather than the dataset index (breakdown series)
+                const rowIndex = selectedInterval !== null ? referencePoint.index : referencePoint.dataset.index
 
                 // we should always have a rowIndex, but adding a guard nonetheless
                 if (rowIndex !== undefined) {
