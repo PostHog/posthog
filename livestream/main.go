@@ -83,13 +83,7 @@ func main() {
 	usePubSub := config.Redis.UsePubSub
 
 	if config.Consumers.Event.Enabled {
-		var err error
-		consumer, err = events.NewPostHogKafkaConsumer(
-			config.Consumers.Event,
-			geolocator, phEventChan, statsChan, config.Parallelism)
-		if err != nil {
-			log.Fatalf("Failed to create Kafka consumer: %v", err)
-		}
+		consumer = createEventConsumer(config.Consumers.Event, geolocator, phEventChan, statsChan, config.Parallelism)
 		defer consumer.Close()
 
 		if usePubSub {
@@ -113,27 +107,13 @@ func main() {
 	}
 
 	if config.Consumers.SessionRecording.Enabled {
-		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
-			config.Consumers.SessionRecording, sessionStatsChan)
-		if err != nil {
-			log.Printf("Failed to create session recording Kafka consumer: %v", err)
-		} else {
-			defer sessionConsumer.Close()
-			go sessionConsumer.Consume(ctx)
-			log.Printf("Session recording consumer started for topic: %s (security_protocol: %s)",
-				config.Consumers.SessionRecording.Topic, config.Consumers.SessionRecording.SecurityProtocol)
-		}
+		sessionConsumer := createSessionRecordingConsumer(config.Consumers.SessionRecording, sessionStatsChan, ctx)
+		defer sessionConsumer.Close()
 	}
 
 	if config.Consumers.Notification.Enabled && statsRedis != nil {
-		notifConsumer, err := events.NewNotificationKafkaConsumer(config.Consumers.Notification, statsRedis.Client())
-		if err != nil {
-			log.Printf("Failed to create notification Kafka consumer: %v", err)
-		} else {
-			defer notifConsumer.Close()
-			go notifConsumer.Consume(ctx)
-			log.Printf("Notification Kafka consumer enabled (topic: %s)", config.Consumers.Notification.Topic)
-		}
+		notifConsumer := createNotificationConsumer(config.Consumers.Notification, statsRedis, ctx)
+		defer notifConsumer.Close()
 	}
 
 	go func() {
@@ -301,6 +281,49 @@ func main() {
 		log.Printf("HTTP server shutdown error: %v", err)
 	}
 	log.Println("HTTP server stopped")
+}
+
+func createNotificationConsumer(
+	consumerConfig configs.ConsumerConfig,
+	statsRedis *events.StatsInRedis,
+	ctx context.Context,
+) *events.NotificationKafkaConsumer {
+	consumer, err := events.NewNotificationKafkaConsumer(consumerConfig, statsRedis.Client())
+	if err != nil {
+		log.Fatalf("Failed to create notification Kafka consumer: %v", err)
+	}
+	go consumer.Consume(ctx)
+	log.Printf("Notification Kafka consumer enabled (topic: %s)", consumerConfig.Topic)
+	return consumer
+}
+
+func createSessionRecordingConsumer(
+	consumerConfig configs.ConsumerConfig,
+	sessionStatsChan chan events.SessionRecordingEvent,
+	ctx context.Context,
+) *events.SessionRecordingKafkaConsumer {
+	consumer, err := events.NewSessionRecordingKafkaConsumer(consumerConfig, sessionStatsChan)
+	if err != nil {
+		log.Fatalf("Failed to create session recording Kafka consumer: %v", err)
+	}
+	go consumer.Consume(ctx)
+	log.Printf("Session recording consumer started for topic: %s (security_protocol: %s)",
+		consumerConfig.Topic, consumerConfig.SecurityProtocol)
+	return consumer
+}
+
+func createEventConsumer(
+	consumerConfig configs.ConsumerConfig,
+	geolocator *geo.MaxMindLocator,
+	phEventChan chan events.PostHogEvent,
+	statsChan chan events.CountEvent,
+	parallelism int,
+) *events.PostHogKafkaConsumer {
+	consumer, err := events.NewPostHogKafkaConsumer(consumerConfig, geolocator, phEventChan, statsChan, parallelism)
+	if err != nil {
+		log.Fatalf("Failed to create Kafka consumer: %v", err)
+	}
+	return consumer
 }
 
 func setupRedisPubSub(
