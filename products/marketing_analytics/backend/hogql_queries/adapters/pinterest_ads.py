@@ -67,6 +67,9 @@ class PinterestAdsAdapter(MarketingSourceAdapter[PinterestAdsConfig]):
         return ast.Call(name="toString", args=[field_expr])
 
     def _get_impressions_field(self) -> ast.Expr:
+        if not self._has_stats_column("total_impression"):
+            return ast.Call(name="toFloat", args=[ast.Constant(value=0)])
+
         stats_table_name = self.config.stats_table.name
         field_as_float = ast.Call(
             name="ifNull",
@@ -79,6 +82,9 @@ class PinterestAdsAdapter(MarketingSourceAdapter[PinterestAdsConfig]):
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_clicks_field(self) -> ast.Expr:
+        if not self._has_stats_column("total_clickthrough"):
+            return ast.Call(name="toFloat", args=[ast.Constant(value=0)])
+
         stats_table_name = self.config.stats_table.name
         field_as_float = ast.Call(
             name="ifNull",
@@ -91,6 +97,9 @@ class PinterestAdsAdapter(MarketingSourceAdapter[PinterestAdsConfig]):
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
+        if not self._has_stats_column("spend_in_dollar"):
+            return ast.Call(name="toFloat", args=[ast.Constant(value=0)])
+
         stats_table_name = self.config.stats_table.name
 
         # Pinterest spend_in_dollar is already in standard dollar units (no micro conversion needed)
