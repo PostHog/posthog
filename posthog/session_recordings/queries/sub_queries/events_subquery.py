@@ -648,7 +648,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # Build inverted (positive) expressions for each negative property
         inverted_exprs: list[ast.Expr] = []
         for prop in negative_props:
-            operator = cast(PropertyOperator, prop.operator)
+            operator = cast(PropertyOperator, prop.operator)  # type: ignore[union-attr]
             inverted = prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[operator]})
             inverted_exprs.append(property_to_expr(inverted, team=self._team, scope="event"))
 
