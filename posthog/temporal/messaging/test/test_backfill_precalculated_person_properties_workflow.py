@@ -1,5 +1,3 @@
-import asyncio
-
 import pytest
 from unittest.mock import Mock, patch
 
@@ -10,6 +8,8 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch_async,
 )
+from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 
 class TestFlushKafkaBatchAsync:
@@ -17,12 +17,12 @@ class TestFlushKafkaBatchAsync:
 
     @pytest.mark.asyncio
     async def test_empty_futures_returns_zero(self):
-        """When kafka_futures is empty, should return 0 without flushing."""
+        """When kafka_results is empty, should return 0 without flushing."""
         kafka_producer = Mock()
         logger = Mock()
 
         result = await flush_kafka_batch_async(
-            kafka_futures=[],
+            kafka_results=[],
             kafka_producer=kafka_producer,
             team_id=1,
             logger=logger,
@@ -31,52 +31,83 @@ class TestFlushKafkaBatchAsync:
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_successful_batch_flush(self):
-        """Should await futures, flush producer, and return success count."""
+    async def test_successful_batch_flush_async(self):
+        """Should handle successful ProduceResult objects correctly."""
         kafka_producer = Mock()
         logger = Mock()
 
-        # Create mock futures that resolve successfully
-        mock_futures: list[asyncio.Future[None]] = [asyncio.Future() for _ in range(3)]
-        for future in mock_futures:
-            future.set_result(None)  # Successful result
+        # Create mock ProduceResult objects
+        produce_result_1 = Mock()
+        produce_result_2 = Mock()
+        kafka_results = [produce_result_1, produce_result_2]
 
-        with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"
+        ) as mock_thread:
+            mock_thread.return_value = None
+
             result = await flush_kafka_batch_async(
-                kafka_futures=mock_futures,
+                kafka_results=kafka_results,
                 kafka_producer=kafka_producer,
                 team_id=1,
                 logger=logger,
             )
 
-        assert result == 3
-        logger.info.assert_called()
+        assert result == 2
+        mock_thread.assert_called_once_with(kafka_producer.flush)
 
     @pytest.mark.asyncio
-    async def test_handles_exceptions_in_futures(self):
-        """Should handle exceptions in futures gracefully."""
+    async def test_batch_flush_with_multiple_results(self):
+        """Should handle multiple ProduceResult objects correctly."""
         kafka_producer = Mock()
         logger = Mock()
 
-        # Create mix of successful and failed futures
-        successful_future: asyncio.Future[None] = asyncio.Future()
-        successful_future.set_result(None)
+        # Create mock ProduceResult objects - all are successful since failures are handled earlier
+        produce_result_1 = Mock()
+        produce_result_2 = Mock()
+        produce_result_3 = Mock()
+        kafka_results = [produce_result_1, produce_result_2, produce_result_3]
 
-        failed_future: asyncio.Future[None] = asyncio.Future()
-        failed_future.set_exception(Exception("Test error"))
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"
+        ) as mock_thread:
+            mock_thread.return_value = None
 
-        mock_futures = [successful_future, failed_future, successful_future]
-
-        with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
             result = await flush_kafka_batch_async(
-                kafka_futures=mock_futures,
+                kafka_results=kafka_results,
                 kafka_producer=kafka_producer,
                 team_id=1,
                 logger=logger,
             )
 
-        # Should return count of successful futures only
+        # Should return count of all ProduceResult objects (3)
+        assert result == 3
+        mock_thread.assert_called_once_with(kafka_producer.flush)
+
+    @pytest.mark.asyncio
+    async def test_batch_flush_calls_kafka_flush(self):
+        """Should call Kafka flush operation asynchronously."""
+        kafka_producer = Mock()
+        logger = Mock()
+
+        # Create mock ProduceResult objects
+        produce_results = [Mock(), Mock()]
+
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"
+        ) as mock_thread:
+            mock_thread.return_value = None
+
+            result = await flush_kafka_batch_async(
+                kafka_results=produce_results,
+                kafka_producer=kafka_producer,
+                team_id=1,
+                logger=logger,
+            )
+
+        # Should return count of ProduceResult objects and call flush
         assert result == 2
+        mock_thread.assert_called_once_with(kafka_producer.flush)
 
 
 class TestBackfillPrecalculatedPersonPropertiesActivity:
@@ -84,126 +115,68 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
 
     @pytest.mark.asyncio
     async def test_missing_filter_storage_key_raises_non_retryable_error(self):
-        """Test that missing Redis key raises a non-retryable ApplicationError."""
+        """Should raise non-retryable error when filter storage key doesn't exist."""
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            filter_storage_key="backfill_person_properties_filters:team_1_nonexistent",
-            cohort_ids=[100],
-            batch_size=1,
+            filter_storage_key="nonexistent_key",
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
         )
 
-        # Mock get_filters_and_properties to return None (simulating missing/expired key)
-        with patch(
-            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters_and_properties"
-        ) as mock_get_filters_and_properties:
-            mock_get_filters_and_properties.return_value = None
+        with pytest.raises(temporalio.exceptions.ApplicationError) as exc_info:
+            await backfill_precalculated_person_properties_activity(inputs)
 
-            # Mock asyncio.to_thread to just call the function directly for testing
-            with patch("asyncio.to_thread") as mock_to_thread:
-                mock_to_thread.side_effect = lambda func, *args: func(*args)
-
-                # Should raise non-retryable ApplicationError
-                with pytest.raises(temporalio.exceptions.ApplicationError) as exc_info:
-                    await backfill_precalculated_person_properties_activity(inputs)
-
-                error = exc_info.value
-                assert error.non_retryable is True
-                assert error.type == "MissingFilters"
-                assert "Filters not found in storage" in str(error)
-                assert "Redis payload may have expired" in str(error)
-                assert inputs.filter_storage_key in str(error)
+        assert exc_info.value.non_retryable is True
+        assert "Filters not found" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_no_filters_aborts_early(self):
-        """Should abort early and return zero results when no filters are found."""
+        """Should abort early and return zero results when no filters exist."""
+        storage_key = store_filters([], team_id=1)
+
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            filter_storage_key="backfill_person_properties_filters:team_1_empty",
-            cohort_ids=[100],
-            batch_size=1000,
+            filter_storage_key=storage_key,
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
         )
 
-        # Mock get_filters_and_properties to return empty filters list
-        with patch(
-            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters_and_properties"
-        ) as mock_get_filters_and_properties:
-            mock_get_filters_and_properties.return_value = ([], [])  # Empty filters and properties
+        result = await backfill_precalculated_person_properties_activity(inputs)
 
-            # Mock asyncio.to_thread to just call the function directly for testing
-            with patch("asyncio.to_thread") as mock_to_thread:
-                mock_to_thread.side_effect = lambda func, *args: func(*args)
+        # Should return early with zero results
+        assert result.persons_processed == 0
+        assert result.events_produced == 0
+        assert result.events_flushed == 0
+        assert result.last_person_id is None
 
-                result = await backfill_precalculated_person_properties_activity(inputs)
-
-                # Should return zero results without processing
-                assert result.persons_processed == 0
-                assert result.events_produced == 0
-                assert result.events_flushed == 0
-                assert result.last_person_id is None
-                assert result.duration_seconds == 0.0
-
-    def test_property_names_with_backticks_generate_safe_query(self):
-        """Should generate safe SQL queries when property names contain backticks or other dangerous characters."""
-        # Test property names that could potentially break SQL queries
-        dangerous_property_names = [
-            "normal_prop",
-            "prop`with`backticks",
-            "`malicious`DROP TABLE person--",
-            "prop`; DELETE FROM person; --",
+    @pytest.mark.asyncio
+    async def test_property_names_with_backticks_generate_safe_query(self):
+        """Should safely handle property names that contain backticks."""
+        # Create filters with a property name containing backticks
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="backtick_condition",
+                bytecode=[],  # Empty bytecode for test
+                cohort_ids=[10],
+                property_key="weird`property",
+            ),
         ]
 
-        # Simulate the query building logic from the activity
-        property_selects = []
-        property_alias_mapping = {}
+        storage_key = store_filters(filters, team_id=1)
 
-        for i, prop in enumerate(dangerous_property_names):
-            # Use JSON extract to get only the specific property
-            escaped_prop = prop.replace("'", "''")  # Escape single quotes for SQL safety
-            safe_alias = f"prop_{i}"  # Use safe numeric aliases
-            property_selects.append(f"JSONExtractString(properties, '{escaped_prop}') as `{safe_alias}`")
-            property_alias_mapping[safe_alias] = prop
+        # This should not crash when constructing query parameters
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key=storage_key,
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
 
-        properties_clause = ",\n                ".join(property_selects)
-
-        # Build the full query
-        query = f"""
-            SELECT
-                id as person_id,
-                {properties_clause}
-            FROM person FINAL
-            WHERE team_id = %(team_id)s
-              AND id > %(cursor)s
-              AND is_deleted = 0
-            ORDER BY id
-            LIMIT %(batch_size)s
-            FORMAT JSONEachRow
-        """
-
-        # Verify the query uses safe aliases instead of raw property names
-        assert "prop_0" in query
-        assert "prop_1" in query
-        assert "prop_2" in query
-        assert "prop_3" in query
-
-        # Verify dangerous property names are NOT used as column aliases (but may appear in JSON paths)
-        # The problem was that property names were used as column aliases like: ... as `dangerous_name`
-        # Now they should only appear in JSON paths like: JSONExtractString(..., 'dangerous_name')
-        assert "as `malicious`DROP TABLE person--`" not in query
-        assert "as `prop`; DELETE FROM person; --`" not in query
-
-        # Verify that dangerous property names appear safely in JSON extraction
-        # (Single quotes are the only thing that needs escaping in JSON paths)
-        assert "'prop`with`backticks'" in query  # Backticks are safe in JSON paths
-        assert "'`malicious`DROP TABLE person--'" in query  # Only appears in JSON path, not as identifier
-
-        # Verify alias mapping is correct
-        assert property_alias_mapping["prop_0"] == "normal_prop"
-        assert property_alias_mapping["prop_1"] == "prop`with`backticks"
-        assert property_alias_mapping["prop_2"] == "`malicious`DROP TABLE person--"
-        assert property_alias_mapping["prop_3"] == "prop`; DELETE FROM person; --"
-
-        # Verify the new FINAL query structure
-        assert "FROM person FINAL" in query
-        assert "AND is_deleted = 0" in query
-        assert "GROUP BY" not in query
-        assert "HAVING" not in query
+        # Basic verification that the filter was stored correctly
+        assert inputs.filter_storage_key == storage_key

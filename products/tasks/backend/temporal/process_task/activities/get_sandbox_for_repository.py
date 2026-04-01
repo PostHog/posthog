@@ -205,7 +205,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
             fetch_and_checkout = (
                 f"cd {shlex.quote(repo_path)} && "
-                f"git fetch --depth 1 origin -- {shlex.quote(ctx.branch)} && "
+                f"git fetch origin -- {shlex.quote(ctx.branch)} && "
                 f"git checkout -B {shlex.quote(ctx.branch)} FETCH_HEAD"
             )
             try:
