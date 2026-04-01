@@ -547,7 +547,7 @@ func TestCopySelectedText_dockerUsesContainerLogs(t *testing.T) {
 
 func TestOutputMsg_activeProc(t *testing.T) {
 	m := readyModel(t, "backend")
-	// AppendLine puts the line into p.lines; OutputMsg triggers buildContent.
+	// AppendLine puts the line into p.lines; OutputMsg triggers applyOutputDelta.
 	p, _ := m.mgr.Get("backend")
 	p.AppendLine("hello world")
 	before := m.viewport.TotalLineCount()

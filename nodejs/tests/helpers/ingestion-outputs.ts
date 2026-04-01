@@ -2,6 +2,7 @@ import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+    KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
@@ -27,6 +28,7 @@ import {
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
+    TOPHOG_OUTPUT,
 } from '../../src/ingestion/common/outputs'
 import { IngestionOutputs } from '../../src/ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
@@ -52,5 +54,6 @@ export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) 
         [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: kafkaProducer },
         [APP_METRICS_OUTPUT]: { topic: KAFKA_APP_METRICS_2, producer: kafkaProducer },
         [LOG_ENTRIES_OUTPUT]: { topic: KAFKA_LOG_ENTRIES, producer: kafkaProducer },
+        [TOPHOG_OUTPUT]: { topic: KAFKA_CLICKHOUSE_TOPHOG, producer: kafkaProducer },
     })
 }

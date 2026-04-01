@@ -2,6 +2,7 @@ import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+    KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
@@ -19,6 +20,7 @@ import {
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
+    TOPHOG_OUTPUT,
 } from '../../common/outputs'
 import { IngestionOutputDefinition } from '../../outputs/resolver'
 import {
@@ -104,5 +106,11 @@ export const INGESTION_OUTPUT_DEFINITIONS: Record<string, IngestionOutputDefinit
         defaultProducerName: DEFAULT_PRODUCER,
         producerOverrideEnvVar: 'INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER',
         topicOverrideEnvVar: 'INGESTION_OUTPUT_LOG_ENTRIES_TOPIC',
+    },
+    [TOPHOG_OUTPUT]: {
+        defaultTopic: KAFKA_CLICKHOUSE_TOPHOG,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'INGESTION_OUTPUT_TOPHOG_PRODUCER',
+        topicOverrideEnvVar: 'INGESTION_OUTPUT_TOPHOG_TOPIC',
     },
 }

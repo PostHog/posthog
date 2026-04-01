@@ -7,6 +7,13 @@ resolution-markers = [
     "sys_platform == 'emscripten'",
 ]
 
+[options]
+exclude-newer = "2026-03-25T10:46:17.625983536Z"
+exclude-newer-span = "P7D"
+
+[options.exclude-newer-package]
+hogql-parser = false
+
 [[package]]
 name = "aioboto3"
 version = "15.4.0"

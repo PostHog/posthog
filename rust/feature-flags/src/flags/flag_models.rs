@@ -118,7 +118,7 @@ pub struct HypercacheFlagsWrapper {
 /// Replaces the legacy `holdout_groups` array which reused `FlagPropertyGroup` with
 /// confusing semantics (rollout_percentage meant exclusion, variant was just "holdout-{id}").
 /// See holdout-migration-plan.md for the full migration plan.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Holdout {
     pub id: i64,
     pub exclusion_percentage: f64,
@@ -140,7 +140,7 @@ pub struct FlagPropertyGroup {
     pub aggregation_group_type_index: Option<Option<i32>>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MultivariateFlagVariant {
     pub key: String,
     pub name: Option<String>,
@@ -216,7 +216,7 @@ pub enum BucketingIdentifier {
 ///
 /// Note: Python also emits `has_encrypted_payloads`, which Rust intentionally
 /// ignores (serde drops unknown fields).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct FeatureFlag {
     pub id: FeatureFlagId,
     pub team_id: i32,
@@ -254,7 +254,7 @@ impl FeatureFlag {
 
 /// Row struct for PostgreSQL queries via sqlx. The `evaluation_tags` column is
 /// always named `evaluation_tags` in the SQL query, so no alias is needed.
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Default, Serialize, sqlx::FromRow)]
 pub struct FeatureFlagRow {
     pub id: i32,
     pub team_id: i32,
@@ -289,4 +289,181 @@ pub struct FeatureFlagList {
     /// When present, the matcher uses these instead of querying CohortCacheManager.
     #[serde(skip)]
     pub cohorts: Option<Vec<Cohort>>,
+}
+
+#[cfg(test)]
+#[allow(clippy::needless_update)]
+mod mock_impls {
+    use super::*;
+    use crate::utils::mock::{Mock, MockFrom};
+
+    impl Mock for FeatureFlag {
+        fn mock() -> Self {
+            FeatureFlag {
+                id: 1,
+                team_id: 1,
+                name: Some("Test Flag".to_string()),
+                key: "test_flag".to_string(),
+                filters: Mock::mock(),
+                active: true,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for FeatureFlagRow {
+        fn mock() -> Self {
+            FeatureFlagRow {
+                team_id: 1,
+                name: Some("Test Flag".to_string()),
+                key: "test_flag".to_string(),
+                filters: serde_json::json!({
+                    "groups": [{
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }]
+                }),
+                active: true,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for FlagFilters {
+        fn mock() -> Self {
+            FlagFilters {
+                groups: vec![Mock::mock()],
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for FlagPropertyGroup {
+        fn mock() -> Self {
+            FlagPropertyGroup {
+                properties: Some(vec![]),
+                rollout_percentage: Some(100.0),
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for Holdout {
+        fn mock() -> Self {
+            Holdout {
+                id: 1,
+                exclusion_percentage: 10.0,
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for MultivariateFlagVariant {
+        fn mock() -> Self {
+            MultivariateFlagVariant {
+                key: "control".to_string(),
+                name: Some("Control".to_string()),
+                rollout_percentage: 100.0,
+                ..Default::default()
+            }
+        }
+    }
+
+    impl MockFrom<FeatureFlag> for FeatureFlagRow {
+        fn mock_from(flag: FeatureFlag) -> Self {
+            let filters = serde_json::to_value(&flag.filters)
+                .expect("Mock: failed to serialize FeatureFlag.filters to JSON");
+            FeatureFlagRow {
+                id: flag.id,
+                team_id: flag.team_id,
+                name: flag.name,
+                key: flag.key,
+                filters,
+                deleted: flag.deleted,
+                active: flag.active,
+                ensure_experience_continuity: flag.ensure_experience_continuity,
+                version: flag.version,
+                evaluation_runtime: flag.evaluation_runtime,
+                evaluation_tags: flag.evaluation_tags,
+                bucketing_identifier: flag.bucketing_identifier,
+                ..Default::default()
+            }
+        }
+    }
+
+    impl MockFrom<PropertyFilter> for FlagFilters {
+        fn mock_from(property: PropertyFilter) -> Self {
+            MockFrom::mock_from(vec![property])
+        }
+    }
+
+    impl MockFrom<Vec<PropertyFilter>> for FlagFilters {
+        fn mock_from(properties: Vec<PropertyFilter>) -> Self {
+            FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(properties),
+                    rollout_percentage: Some(100.0),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for FeatureFlagList {
+        fn mock() -> Self {
+            FeatureFlagList {
+                flags: vec![Mock::mock()],
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for MultivariateFlagOptions {
+        fn mock() -> Self {
+            MultivariateFlagOptions {
+                variants: vec![
+                    MultivariateFlagVariant {
+                        key: "control".to_string(),
+                        name: Some("Control".to_string()),
+                        rollout_percentage: 50.0,
+                        ..Default::default()
+                    },
+                    MultivariateFlagVariant {
+                        key: "test".to_string(),
+                        name: Some("Test".to_string()),
+                        rollout_percentage: 50.0,
+                        ..Default::default()
+                    },
+                ],
+            }
+        }
+    }
+
+    impl Mock for EvaluationMetadata {
+        fn mock() -> Self {
+            EvaluationMetadata {
+                dependency_stages: vec![],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::new(),
+            }
+        }
+    }
+
+    impl MockFrom<Vec<FeatureFlag>> for FeatureFlagList {
+        fn mock_from(flags: Vec<FeatureFlag>) -> Self {
+            let evaluation_metadata = EvaluationMetadata::single_stage(&flags);
+            FeatureFlagList {
+                flags,
+                evaluation_metadata,
+                ..Default::default()
+            }
+        }
+    }
 }
