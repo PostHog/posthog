@@ -64,15 +64,14 @@ function useBoldNumberTooltip({
     isTooltipShown: boolean
     seriesIndex?: number
     groupTypeLabel?: string
-}): React.RefObject<HTMLElement | null> {
+}): React.RefObject<HTMLElement> {
     const { insightProps } = useValues(insightLogic)
     const { series, insightData, trendsFilter, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
 
-    const elementRef = useRef<HTMLElement | null>(null)
+    const elementRef = useRef<HTMLElement>(null)
 
-    const elementRect = elementRef.current?.getBoundingClientRect()
     const { getTooltip } = useInsightTooltip()
     const [tooltipRoot, tooltipEl] = getTooltip()
 
@@ -105,6 +104,10 @@ function useBoldNumberTooltip({
     }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
+        if (!isTooltipShown) {
+            return
+        }
+        const elementRect = elementRef.current?.getBoundingClientRect()
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (elementRect) {
             tooltipEl.style.top = `${
@@ -112,7 +115,7 @@ function useBoldNumberTooltip({
             }px`
             tooltipEl.style.left = `${elementRect.left + elementRect.width / 2 - tooltipRect.width / 2}px`
         }
-    })
+    }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return elementRef
 }
@@ -234,6 +237,8 @@ function BoldNumberComparison({
                         ref={comparisonRef}
                         onMouseEnter={() => setIsTooltipShown(true)}
                         onMouseLeave={() => setIsTooltipShown(false)}
+                        onFocus={() => setIsTooltipShown(true)}
+                        onBlur={() => setIsTooltipShown(false)}
                         onClick={() => {
                             if (context?.onDataPointClick) {
                                 context.onDataPointClick({ compare: 'previous' }, currentPeriodSeries)
