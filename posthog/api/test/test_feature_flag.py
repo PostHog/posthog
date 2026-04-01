@@ -5194,7 +5194,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    def test_mixed_aggregation_types_across_condition_sets_allowed(self):
+    @parameterized.expand(
+        [
+            (
+                "flag_enabled",
+                True,
+                status.HTTP_201_CREATED,
+            ),
+            (
+                "flag_disabled",
+                False,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_mixed_aggregation_types_across_condition_sets(
+        self, _name, mixed_targeting_enabled, expected_status, mock_feature_enabled
+    ):
+        mock_feature_enabled.return_value = mixed_targeting_enabled
+
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -5221,13 +5240,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        # Flag-level aggregation is None when condition sets have mixed aggregation types
-        self.assertIsNone(response.json()["filters"]["aggregation_group_type_index"])
-        # Each condition set retains its own aggregation type
-        groups = response.json()["filters"]["groups"]
-        self.assertIsNone(groups[0]["aggregation_group_type_index"])
-        self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
+        self.assertEqual(response.status_code, expected_status)
+
+        if expected_status == status.HTTP_201_CREATED:
+            # Flag-level aggregation is None when condition sets have mixed aggregation types
+            self.assertIsNone(response.json()["filters"]["aggregation_group_type_index"])
+            # Each condition set retains its own aggregation type
+            groups = response.json()["filters"]["groups"]
+            self.assertIsNone(groups[0]["aggregation_group_type_index"])
+            self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
+        else:
+            self.assertIn("Mixed aggregation types", response.json()["detail"])
 
     def test_per_condition_aggregation_normalization(self):
         """Test that flag-level aggregation is distributed to condition sets without one"""

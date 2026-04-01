@@ -298,6 +298,7 @@ interface ConditionProps {
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
+    isMixedTargetingEnabled: boolean
     onMoveUp: () => void
     onMoveDown: () => void
     onDuplicate: () => void
@@ -368,6 +369,7 @@ const ConditionContent = ({
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
+    isMixedTargetingEnabled,
     onMoveUp,
     onMoveDown,
     onDuplicate,
@@ -522,7 +524,7 @@ const ConditionContent = ({
                                         />
                                     </div>
 
-                                    {groupTypes.size > 0 && (
+                                    {isMixedTargetingEnabled && groupTypes.size > 0 && (
                                         <div>
                                             <LemonLabel className="mb-1">Targeting</LemonLabel>
                                             <LemonSelect
@@ -851,6 +853,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
+    const isMixedTargetingEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
     const {
         updateConditionSet,
@@ -1160,6 +1163,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
+                                        isMixedTargetingEnabled={isMixedTargetingEnabled}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
                                         onDuplicate={() => duplicateConditionSet(index)}

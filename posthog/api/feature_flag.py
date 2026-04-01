@@ -96,6 +96,7 @@ from products.surveys.backend.models import Survey
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
+MIXED_TARGETING_FLAG = "feature-flag-mixed-targeting"
 
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
@@ -899,6 +900,12 @@ class FeatureFlagSerializer(
             if all(a == condition_aggregations[0] for a in condition_aggregations):
                 filters["aggregation_group_type_index"] = condition_aggregations[0]
             else:
+                if not self._is_mixed_targeting_enabled():
+                    raise serializers.ValidationError(
+                        "Mixed aggregation types across condition sets are not yet supported. "
+                        "All condition sets must use the same aggregation type.",
+                        code="invalid_input",
+                    )
                 filters["aggregation_group_type_index"] = None
 
         # Check Early Access Feature constraint: no condition set can use group
@@ -1198,6 +1205,25 @@ class FeatureFlagSerializer(
                 flag_key = self._validate_flag_reference(flag_reference)
                 dependencies.add(flag_key)
         return dependencies
+
+    def _is_mixed_targeting_enabled(self) -> bool:
+        try:
+            request = self.context.get("request")
+            if not request:
+                return False
+            user = getattr(request, "user", None)
+            if user is None or user.is_anonymous:
+                return False
+            return posthoganalytics.feature_enabled(
+                MIXED_TARGETING_FLAG,
+                user.distinct_id,
+                groups={"organization": str(user.organization.id)},
+                group_properties={"organization": {"id": str(user.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            return False
 
     def _check_flag_circular_dependencies(self, filters):
         """Check for circular dependencies in feature flag conditions."""
