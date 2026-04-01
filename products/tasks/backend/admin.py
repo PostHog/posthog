@@ -8,6 +8,7 @@ class TaskAdmin(admin.ModelAdmin):
     list_filter = ("origin_product", "deleted", "created_at")
     search_fields = ("title", "description", "repository")
     readonly_fields = ("id", "slug", "task_number", "created_at", "updated_at", "deleted_at")
+    autocomplete_fields = ("team", "created_by", "github_integration")
 
     fieldsets = (
         (None, {"fields": ("id", "slug", "task_number", "title", "description", "origin_product")}),
@@ -24,6 +25,7 @@ class TaskRunAdmin(admin.ModelAdmin):
     list_filter = ("status", "environment", "created_at")
     search_fields = ("task__title", "branch", "stage")
     readonly_fields = ("id", "created_at", "updated_at", "completed_at")
+    autocomplete_fields = ("task",)
 
     fieldsets = (
         (None, {"fields": ("id", "task", "status", "environment", "stage", "branch")}),
@@ -51,7 +53,8 @@ class CodeInviteRedemptionInline(admin.TabularInline):
     model = CodeInviteRedemption
     extra = 0
     can_delete = False
-    readonly_fields = ("id", "user", "organization", "redeemed_at")
+    readonly_fields = ("id", "redeemed_at")
+    autocomplete_fields = ("user", "organization")
 
 
 class CodeInviteAdmin(admin.ModelAdmin):
@@ -67,6 +70,7 @@ class CodeInviteAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "created_at")
     search_fields = ("code", "description")
     readonly_fields = ("id", "redemption_count", "created_at")
+    autocomplete_fields = ("created_by",)
     inlines = []
 
     def get_readonly_fields(self, request, obj=None):
@@ -97,4 +101,5 @@ class CodeInviteRedemptionAdmin(admin.ModelAdmin):
     list_display = ("invite_code", "user", "organization", "redeemed_at")
     list_filter = ("redeemed_at",)
     search_fields = ("user__email", "invite_code__code")
-    readonly_fields = ("id", "invite_code", "user", "organization", "redeemed_at")
+    readonly_fields = ("id", "redeemed_at")
+    autocomplete_fields = ("invite_code", "user", "organization")
