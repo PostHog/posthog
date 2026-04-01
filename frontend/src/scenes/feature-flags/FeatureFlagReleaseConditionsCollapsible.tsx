@@ -498,6 +498,7 @@ const ConditionContent = ({
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
+                                            exactMatchFeatureFlagCohortOperators={true}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
