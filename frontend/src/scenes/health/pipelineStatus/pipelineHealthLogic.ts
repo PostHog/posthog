@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { sidePanelHealthLogicType } from './sidePanelHealthLogicType'
+import type { pipelineHealthLogicType } from './pipelineHealthLogicType'
 
 export type HealthStatus = 'danger' | 'warning' | 'success'
 
@@ -28,8 +28,8 @@ export interface DataHealthIssuesResponse {
 
 export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
-export const sidePanelHealthLogic = kea<sidePanelHealthLogicType>([
-    path(['scenes', 'navigation', 'sidepanel', 'sidePanelHealthLogic']),
+export const pipelineHealthLogic = kea<pipelineHealthLogicType>([
+    path(['scenes', 'health', 'pipelineStatus', 'pipelineHealthLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamIdStrict']],
     }),

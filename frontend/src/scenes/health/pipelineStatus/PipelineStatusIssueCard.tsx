@@ -1,92 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { IconDatabase, IconPlug, IconRevert, IconServer, IconX } from '@posthog/icons'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { IconDatabase, IconPlug, IconRefresh, IconRevert, IconServer, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-
-import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import { DataHealthIssue, sidePanelHealthLogic } from './sidePanelHealthLogic'
-
-export const SidePanelHealthIcon = (props: { className?: string }): JSX.Element => {
-    const { issueCount, healthStatus } = useValues(sidePanelHealthLogic)
-
-    const title =
-        issueCount > 0 ? `${issueCount} pipeline issue${issueCount === 1 ? '' : 's'}` : 'All pipelines healthy'
-
-    return (
-        <Tooltip title={title} placement="left">
-            <span {...props}>
-                <IconWithBadge content={issueCount > 0 ? '!' : undefined} status={healthStatus}>
-                    <IconDatabase />
-                </IconWithBadge>
-            </span>
-        </Tooltip>
-    )
-}
-
-export function SidePanelHealth(): JSX.Element {
-    const { issues, healthIssuesLoading, hasErrors, issueCount } = useValues(sidePanelHealthLogic)
-    const { loadHealthIssues } = useActions(sidePanelHealthLogic)
-
-    // PLEASE NOTE IVE REBUILLT THIS COMPONENT INTO pipelineStatusScene.tsx, any developement here should be done there also/instead. @ux-platform
-
-    return (
-        <div className="flex flex-col h-full">
-            <SidePanelPaneHeader title="Pipeline status">
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
-                    onClick={() => loadHealthIssues()}
-                >
-                    {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
-                </LemonButton>
-            </SidePanelPaneHeader>
-
-            <div className="flex-1 overflow-y-auto p-3">
-                {healthIssuesLoading && issues.length === 0 ? (
-                    <div className="space-y-3">
-                        <LemonSkeleton className="h-20" />
-                        <LemonSkeleton className="h-20" />
-                    </div>
-                ) : hasErrors ? (
-                    <div className="text-center text-muted p-4">
-                        Error loading health information. Please try again later.
-                    </div>
-                ) : issueCount === 0 ? (
-                    <LemonBanner type="success" hideIcon={false}>
-                        <p className="font-semibold">All data pipelines healthy</p>
-                        <p className="text-sm mt-1">
-                            Your sources, syncs, destinations, and transformations are running without issues.
-                        </p>
-                    </LemonBanner>
-                ) : (
-                    <>
-                        <LemonBanner type="warning" hideIcon={false} className="mb-4">
-                            <p className="font-semibold">
-                                {issueCount} issue{issueCount === 1 ? '' : 's'} need{issueCount === 1 ? 's' : ''}{' '}
-                                attention
-                            </p>
-                            <p className="text-sm mt-1">
-                                These data pipelines have failed or been disabled and may affect your data.
-                            </p>
-                        </LemonBanner>
-
-                        <div className="space-y-3">
-                            {issues.map((issue: DataHealthIssue) => (
-                                <HealthIssueCard key={issue.id} issue={issue} />
-                            ))}
-                        </div>
-                    </>
-                )}
-            </div>
-        </div>
-    )
-}
+import type { DataHealthIssue } from './pipelineHealthLogic'
 
 function getTypeLabel(issue: DataHealthIssue): string {
     switch (issue.type) {
@@ -171,7 +89,7 @@ function getErrorLabelForMaterializedView(error: string | null): JSX.Element | n
     )
 }
 
-export function HealthIssueCard({
+export function PipelineStatusIssueCard({
     issue,
     isDismissed,
     onDismiss,

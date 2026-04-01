@@ -4,6 +4,7 @@ import React from 'react'
 import { IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
+import { incidentStatusLogic } from 'lib/components/HealthMenu/incidentStatusLogic'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,14 +18,12 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePanelTab } from '~/types'
+import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType } from '~/types'
 
 import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
 
-import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import { SidePanelContentContainer } from '../SidePanelContentContainer'
-import { sidePanelLogic } from '../sidePanelLogic'
-import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
+import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
@@ -38,8 +37,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const StatusPageAlert = (): JSX.Element | null => {
-    const { openSidePanel } = useActions(sidePanelLogic)
-    const { status, statusDescription } = useValues(sidePanelStatusIncidentIoLogic)
+    const { status, statusDescription } = useValues(incidentStatusLogic)
 
     if (status === 'operational') {
         return null
@@ -57,23 +55,17 @@ const StatusPageAlert = (): JSX.Element | null => {
                 <IconWarning className="text-warning w-5 h-5 shrink-0 mt-0.5" />
                 <div className="flex-1">
                     <p className="font-semibold mb-1">
-                        <span
-                            className="cursor-pointer text-link hover:underline"
-                            onClick={() => openSidePanel(SidePanelTab.Status)}
-                        >
+                        <Link to="https://posthogstatus.com" target="_blank">
                             {description}
-                        </span>
+                        </Link>
                     </p>
                     <div className="text-sm">
                         <p className="mb-1">We're aware of an issue that may be affecting your PostHog experience.</p>
                         <p className="mb-0">
                             You may wish to check our{' '}
-                            <span
-                                className="cursor-pointer text-link hover:underline"
-                                onClick={() => openSidePanel(SidePanelTab.Status)}
-                            >
+                            <Link to="https://posthogstatus.com" target="_blank">
                                 current status
-                            </span>{' '}
+                            </Link>{' '}
                             before contacting support.
                         </p>
                     </div>

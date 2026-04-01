@@ -13,20 +13,20 @@ import { urls } from 'scenes/urls'
 
 import { SidePanelTab } from '~/types'
 
-import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import { sidePanelStateLogic } from '../sidePanelStateLogic'
+import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
 
 export const SidePanelSettings = (): JSX.Element => {
-    const { settings, previousTab } = useValues(sidePanelSettingsLogic)
+    const { effectiveSettings, previousTab } = useValues(sidePanelSettingsLogic)
     const { setSettings, setPreviousTab } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelStateLogic)
     const { openAi } = useOpenAi()
     const scrollContainerRef = useRef<HTMLDivElement | null>(null)
 
     const settingsLogicProps: SettingsLogicProps = {
-        ...settings,
-        logicKey: `sidepanel:${settings.sectionId}`,
+        ...effectiveSettings,
+        logicKey: `sidepanel:${effectiveSettings.sectionId}`,
     }
     const { selectedSectionId, selectedLevel } = useValues(settingsLogic(settingsLogicProps))
 
@@ -38,7 +38,7 @@ export const SidePanelSettings = (): JSX.Element => {
     }, [selectedSectionId, selectedLevel, setSettings])
 
     useEffect(() => {
-        if (settings.settingId) {
+        if (effectiveSettings.settingId) {
             const timeout = setTimeout(() => {
                 const container = scrollContainerRef.current
                 if (!container) {
@@ -46,12 +46,12 @@ export const SidePanelSettings = (): JSX.Element => {
                 }
 
                 container
-                    .querySelector<HTMLElement>(`[id="${settings.settingId}"]`)
+                    .querySelector<HTMLElement>(`[id="${effectiveSettings.settingId}"]`)
                     ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
             }, 1000 / 60)
             return () => clearTimeout(timeout)
         }
-    }, [settings.settingId])
+    }, [effectiveSettings.settingId])
 
     const cameFromMax =
         previousTab === SidePanelTab.Max &&
@@ -80,7 +80,10 @@ export const SidePanelSettings = (): JSX.Element => {
             >
                 <LemonButton
                     size="small"
-                    to={urls.settings(settings.sectionId ?? settings.settingLevelId, settings.settingId)}
+                    to={urls.settings(
+                        effectiveSettings.sectionId ?? effectiveSettings.settingLevelId,
+                        effectiveSettings.settingId
+                    )}
                     onClick={() => closeSidePanel()}
                     sideIcon={<IconExternal />}
                 >
