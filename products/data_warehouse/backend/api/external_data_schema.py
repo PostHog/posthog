@@ -396,6 +396,21 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.save()
         return Response(status=status.HTTP_200_OK)
 
+    @action(methods=["POST"], detail=True)
+    def cancel(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSchema = self.get_object()
+
+        latest_running_job = (
+            ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
+            .order_by("-created_at")
+            .first()
+        )
+
+        if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+            cancel_external_data_workflow(latest_running_job.workflow_id)
+
+        return Response(status=status.HTTP_200_OK)
+
     @action(methods=["DELETE"], detail=True)
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
