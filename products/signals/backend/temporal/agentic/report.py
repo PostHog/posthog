@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 
 from django.db import transaction
@@ -19,6 +20,7 @@ from products.signals.backend.report_generation.research import (
     SignalFinding,
     run_multi_turn_research,
 )
+from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
 from products.signals.backend.temporal.agentic import resolve_user_id_for_team
@@ -150,7 +152,56 @@ _AGENTIC_ARTEFACT_TYPES = [
     SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
     SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
     SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+    SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
 ]
+
+
+def _resolve_and_build_reviewers_artefact(
+    team_id: int,
+    report_id: str,
+    repository: str,
+    findings: list[SignalFinding],
+) -> SignalReportArtefact | None:
+    """Resolve commit authors to suggested reviewers and build the artefact.
+
+    Content is a plain list of GitHub-only reviewer dicts:
+      [{"github_login": "...", "github_name": "...", "relevant_commits": [...]}, ...]
+
+    PostHog user enrichment happens at read time (serializer) so it stays
+    fresh when users connect/disconnect their GitHub account.
+
+    The list view resolves is_suggested_reviewer by looking up the current
+    user's GitHub login and checking for jsonb containment on github_login
+    in this artefact's content — no cached user IDs needed.
+    """
+    commit_hashes_with_reasons: dict[str, str] = {}
+    for finding in findings:
+        for sha, reason in finding.relevant_commit_hashes.items():
+            if sha and sha not in commit_hashes_with_reasons:
+                commit_hashes_with_reasons[sha] = str(reason) if reason else ""
+
+    if not commit_hashes_with_reasons or not repository:
+        return None
+
+    resolved = resolve_suggested_reviewers(team_id, repository, commit_hashes_with_reasons)
+    if not resolved:
+        return None
+
+    content = [
+        {
+            "github_login": r.login.lower(),
+            "github_name": r.name,
+            "relevant_commits": [c.model_dump() for c in r.commits],
+        }
+        for r in resolved
+    ]
+
+    return SignalReportArtefact(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps(content),
+    )
 
 
 def _persist_agentic_report_artefacts(
@@ -190,6 +241,17 @@ def _persist_agentic_report_artefacts(
                 content=result.priority.model_dump_json(),
             )
         )
+
+    # Resolve suggested reviewers from commit hashes
+    reviewers_artefact = _resolve_and_build_reviewers_artefact(
+        team_id=team_id,
+        report_id=report_id,
+        repository=repo_selection.repository or "",
+        findings=result.findings,
+    )
+    if reviewers_artefact:
+        artefacts.append(reviewers_artefact)
+
     with transaction.atomic():
         # Delete artefacts from previous agentic runs (re-promotion) before writing new ones.
         # Only deletes types owned by this path — safety_judgment is created by the safety judge

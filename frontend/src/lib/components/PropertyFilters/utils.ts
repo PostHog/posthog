@@ -43,6 +43,7 @@ import {
     RecordingPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
+    SpanPropertyFilter,
 } from '~/types'
 
 export function isPropertyGroup(
@@ -126,6 +127,9 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+        [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
+        [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
+        [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
         [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
         [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
         [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
@@ -155,15 +159,25 @@ export function formatPropertyLabel(
 
     const isSingleEmptyString = Array.isArray(value) && value.length === 1 && value[0] === ''
 
-    return resolvedType === PropertyFilterType.Cohort
-        ? `${capitalizeFirstLetter(cohortOperatorMap[resolvedOperator] || 'user in')} ` +
-              (cohortName || (typeof value === 'number' ? cohortsById[value]?.name : undefined) || `ID ${value}`)
-        : (getCoreFilterDefinition(key, taxonomicFilterGroupType)?.label || label || key) +
-              (isOperatorFlag(resolvedOperator)
-                  ? ` ${allOperatorsMapping[resolvedOperator]}`
-                  : ` ${(allOperatorsMapping[resolvedOperator] || '?').split(' ')[0]} ${
-                        isSingleEmptyString ? '(empty string)' : valueFormatter(value) || ''
-                    } `)
+    if (resolvedType === PropertyFilterType.Cohort) {
+        return (
+            `${capitalizeFirstLetter(cohortOperatorMap[resolvedOperator] || 'user in')} ` +
+            (cohortName || (typeof value === 'number' ? cohortsById[value]?.name : undefined) || `ID ${value}`)
+        )
+    }
+
+    if (resolvedType === PropertyFilterType.Flag) {
+        return `${label || key} ${allOperatorsMapping[resolvedOperator] || '?'} ${valueFormatter(value) || ''}`
+    }
+
+    return (
+        (getCoreFilterDefinition(key, taxonomicFilterGroupType)?.label || label || key) +
+        (isOperatorFlag(resolvedOperator)
+            ? ` ${allOperatorsMapping[resolvedOperator]}`
+            : ` ${(allOperatorsMapping[resolvedOperator] || '?').split(' ')[0]} ${
+                  isSingleEmptyString ? '(empty string)' : valueFormatter(value) || ''
+              } `)
+    )
 }
 
 /** Make sure unverified user property filter input has at least a "type" */
@@ -267,6 +281,13 @@ export function isLogPropertyFilter(filter?: AnyFilterLike | null): filter is Lo
         filter?.type === PropertyFilterType.LogResourceAttribute
     )
 }
+export function isSpanPropertyFilter(filter?: AnyFilterLike | null): filter is SpanPropertyFilter {
+    return (
+        filter?.type === PropertyFilterType.Span ||
+        filter?.type === PropertyFilterType.SpanAttribute ||
+        filter?.type === PropertyFilterType.SpanResourceAttribute
+    )
+}
 export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.ErrorTrackingIssue
 }
@@ -302,7 +323,8 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isFeaturePropertyFilter(filter) ||
         isFlagPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
-        isLogPropertyFilter(filter)
+        isLogPropertyFilter(filter) ||
+        isSpanPropertyFilter(filter)
     )
 }
 
@@ -322,7 +344,8 @@ export function isPropertyFilterWithOperator(
     | GroupPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
-    | LogPropertyFilter {
+    | LogPropertyFilter
+    | SpanPropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
@@ -340,7 +363,8 @@ export function isPropertyFilterWithOperator(
             isDataWarehousePropertyFilter(filter) ||
             isDataWarehousePersonPropertyFilter(filter) ||
             isErrorTrackingIssuePropertyFilter(filter) ||
-            isLogPropertyFilter(filter))
+            isLogPropertyFilter(filter) ||
+            isSpanPropertyFilter(filter))
     )
 }
 
@@ -370,6 +394,9 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
     [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
     [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+    [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
+    [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
+    [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
     [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
@@ -421,6 +448,9 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
         [PropertyFilterType.LogAttribute]: PropertyDefinitionType.LogAttribute,
         [PropertyFilterType.LogResourceAttribute]: PropertyDefinitionType.LogResourceAttribute,
+        [PropertyFilterType.Span]: PropertyDefinitionType.Span,
+        [PropertyFilterType.SpanAttribute]: PropertyDefinitionType.SpanAttribute,
+        [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
         [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
         [PropertyFilterType.WorkflowVariable]: PropertyDefinitionType.WorkflowVariable,
@@ -477,6 +507,18 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.LogResourceAttributes) {
         return PropertyFilterType.LogResourceAttribute
+    }
+
+    if (filterType == TaxonomicFilterGroupType.Spans) {
+        return PropertyFilterType.Span
+    }
+
+    if (filterType == TaxonomicFilterGroupType.SpanAttributes) {
+        return PropertyFilterType.SpanAttribute
+    }
+
+    if (filterType == TaxonomicFilterGroupType.SpanResourceAttributes) {
+        return PropertyFilterType.SpanResourceAttribute
     }
 
     if (filterType == TaxonomicFilterGroupType.RevenueAnalyticsProperties) {

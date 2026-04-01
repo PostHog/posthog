@@ -15,10 +15,39 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.utils import ilike_matches, like_matches
-from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
+from posthog.hogql.visitor import GetFieldsTraverser, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.utils import UUIDT
+
+# Compare operators that require enable_analyzer=1 for JOIN ON conditions
+_NON_EQUALITY_JOIN_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+        ast.CompareOperationOp.NotEq,
+    }
+)
+
+
+class _HasNonEqualityComparison(TraversingVisitor):
+    """Traverses an expression tree to detect non-equality comparisons (>, >=, <, <=, !=)."""
+
+    found: bool = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op in _NON_EQUALITY_JOIN_OPS:
+            self.found = True
+            return  # no need to keep traversing
+        super().visit_compare_operation(node)
+
+
+def _join_constraint_has_non_equality(expr: ast.Expr) -> bool:
+    checker = _HasNonEqualityComparison()
+    checker.visit(expr)
+    return checker.found
 
 
 def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLContext) -> ast.Expr:
@@ -85,6 +114,19 @@ class ClickHousePrinter(HogQLPrinter):
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
             raise InternalHogQLError("Printing queries with a FROM clause is not permitted before type resolution")
+
+        # ClickHouse requires enable_analyzer=1 for non-equality JOIN ON conditions (e.g. >=, <=, >, <, !=).
+        # Without it, queries with such conditions fail with INVALID_JOIN_ON_EXPRESSION.
+        if (
+            node.constraint is not None
+            and node.constraint.constraint_type == "ON"
+            and _join_constraint_has_non_equality(node.constraint.expr)
+        ):
+            if self.settings is None:
+                self.settings = HogQLGlobalSettings(enable_analyzer=True)
+            elif self.settings.enable_analyzer is None:
+                self.settings = self.settings.model_copy(update={"enable_analyzer": True})
+
         return super().visit_join_expr(node)
 
     def visit_values_query(self, node: ast.ValuesQuery):

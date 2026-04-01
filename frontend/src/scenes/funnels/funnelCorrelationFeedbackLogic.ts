@@ -19,9 +19,9 @@ export const funnelCorrelationFeedbackLogic = kea<funnelCorrelationFeedbackLogic
     connect((props: InsightLogicProps) => ({
         actions: [
             funnelCorrelationLogic(props),
-            ['loadEventCorrelations'],
+            ['loadEventCorrelationsSuccess'],
             funnelPropertyCorrelationLogic(props),
-            ['loadPropertyCorrelations'],
+            ['loadPropertyCorrelationsSuccess'],
         ],
     })),
 
@@ -36,9 +36,9 @@ export const funnelCorrelationFeedbackLogic = kea<funnelCorrelationFeedbackLogic
         correlationFeedbackHidden: [
             true,
             {
-                // don't load the feedback form until after some results were loaded
-                loadEventCorrelations: () => false,
-                loadPropertyCorrelations: () => false,
+                // don't show the feedback form until after results have loaded
+                loadEventCorrelationsSuccess: () => false,
+                loadPropertyCorrelationsSuccess: () => false,
                 sendCorrelationAnalysisFeedback: () => true,
                 hideCorrelationAnalysisFeedback: () => true,
             },

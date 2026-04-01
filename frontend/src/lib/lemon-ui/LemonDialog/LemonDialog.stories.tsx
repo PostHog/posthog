@@ -130,5 +130,5 @@ export const Form: StoryObj<LemonFormDialogProps> = {
             </LemonField>
         ),
     },
-    storyName: 'Category - Elements',
+    name: 'Category - Elements',
 }
