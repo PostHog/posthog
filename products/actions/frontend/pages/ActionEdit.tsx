@@ -28,7 +28,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -253,68 +252,77 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     }
                 />
 
-                <SceneSection
-                    title="Match groups"
-                    className="@container"
-                    description={
-                        <>
-                            Your action will be triggered whenever <b>any of your match groups</b> are received.
-                        </>
-                    }
-                >
-                    {actionLoading ? (
-                        <div className="flex gap-2">
-                            <LemonSkeleton className="w-1/2 h-[261px]" />
-                            <LemonSkeleton className="w-1/2 h-[261px]" />
-                        </div>
-                    ) : (
-                        <LemonField name="steps">
-                            {({ value: stepsValue, onChange }) => (
-                                <div className="grid @4xl:grid-cols-2 gap-3">
-                                    {stepsValue.map((step: ActionStepType, index: number) => {
-                                        const identifier = String(JSON.stringify(step))
-                                        return (
-                                            <ActionStep
-                                                key={index}
-                                                identifier={identifier}
-                                                index={index}
-                                                step={step}
-                                                actionId={action.id || 0}
-                                                isOnlyStep={!!stepsValue && stepsValue.length === 1}
-                                                disabledReason={cannotEditReason ?? undefined}
-                                                onDelete={() => {
-                                                    const newSteps = [...stepsValue]
-                                                    newSteps.splice(index, 1)
-                                                    onChange(newSteps)
-                                                }}
-                                                onChange={(newStep) => {
-                                                    const newSteps = [...stepsValue]
-                                                    newSteps.splice(index, 1, newStep)
-                                                    onChange(newSteps)
-                                                }}
-                                            />
-                                        )
-                                    })}
-
-                                    <div>
-                                        <LemonButton
-                                            icon={<IconPlus />}
-                                            type="secondary"
-                                            onClick={() => {
-                                                onChange([...(action.steps || []), DEFAULT_ACTION_STEP])
-                                            }}
-                                            center
-                                            className="w-full h-full"
-                                            disabledReason={cannotEditReason ?? undefined}
-                                        >
-                                            Add match group
-                                        </LemonButton>
+                <LemonCollapse
+                    defaultActiveKey="match-groups"
+                    panels={[
+                        {
+                            key: 'match-groups',
+                            header: {
+                                children: (
+                                    <div className="py-1">
+                                        <div className="font-semibold">Match groups</div>
+                                        <div className="text-secondary text-sm font-normal">
+                                            Your action will be triggered whenever <b>any of your match groups</b> are
+                                            received.
+                                        </div>
                                     </div>
+                                ),
+                            },
+                            content: actionLoading ? (
+                                <div className="flex gap-2">
+                                    <LemonSkeleton className="w-1/2 h-[261px]" />
+                                    <LemonSkeleton className="w-1/2 h-[261px]" />
                                 </div>
-                            )}
-                        </LemonField>
-                    )}
-                </SceneSection>
+                            ) : (
+                                <LemonField name="steps">
+                                    {({ value: stepsValue, onChange }) => (
+                                        <div className="@container grid @4xl:grid-cols-2 gap-3">
+                                            {stepsValue.map((step: ActionStepType, index: number) => {
+                                                const identifier = String(JSON.stringify(step))
+                                                return (
+                                                    <ActionStep
+                                                        key={index}
+                                                        identifier={identifier}
+                                                        index={index}
+                                                        step={step}
+                                                        actionId={action.id || 0}
+                                                        isOnlyStep={!!stepsValue && stepsValue.length === 1}
+                                                        disabledReason={cannotEditReason ?? undefined}
+                                                        onDelete={() => {
+                                                            const newSteps = [...stepsValue]
+                                                            newSteps.splice(index, 1)
+                                                            onChange(newSteps)
+                                                        }}
+                                                        onChange={(newStep) => {
+                                                            const newSteps = [...stepsValue]
+                                                            newSteps.splice(index, 1, newStep)
+                                                            onChange(newSteps)
+                                                        }}
+                                                    />
+                                                )
+                                            })}
+
+                                            <div>
+                                                <LemonButton
+                                                    icon={<IconPlus />}
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        onChange([...(action.steps || []), DEFAULT_ACTION_STEP])
+                                                    }}
+                                                    center
+                                                    className="w-full h-full"
+                                                    disabledReason={cannotEditReason ?? undefined}
+                                                >
+                                                    Add match group
+                                                </LemonButton>
+                                            </div>
+                                        </div>
+                                    )}
+                                </LemonField>
+                            ),
+                        },
+                    ]}
+                />
             </Form>
             <ActionHogFunctions />
             {id && analyticsReferences.length > 0 && (
