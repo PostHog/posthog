@@ -441,7 +441,7 @@ export function InsightVizDisplay({
                             ) : supportsDisplay && showLegend ? (
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                                    <div className="InsightVizDisplay__content__right">
+                                    <div className="InsightVizDisplay__content__right empty:hidden">
                                         {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>
