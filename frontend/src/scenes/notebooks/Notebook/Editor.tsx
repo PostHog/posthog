@@ -59,6 +59,7 @@ import { textContent } from '../utils'
 import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
+import { NotebookDefaultBlockOnEnter } from './NotebookDefaultBlockOnEnter'
 import { notebookLogic } from './notebookLogic'
 import { NotebookTrailingParagraph } from './NotebookTrailingParagraph'
 import { SlashCommandsExtension } from './SlashCommands'
@@ -163,6 +164,7 @@ export function Editor(): JSX.Element {
         NotebookNodeRelatedGroups,
         NotebookNodeCustomerJourney,
         NotebookTrailingParagraph,
+        NotebookDefaultBlockOnEnter,
     ]
 
     if (hasCollapsibleSections) {
