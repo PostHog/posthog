@@ -406,8 +406,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .first()
         )
 
-        if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+        if not latest_running_job or latest_running_job.status != "Running" or not latest_running_job.workflow_id:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No running sync to cancel."},
+            )
+
+        try:
             cancel_external_data_workflow(latest_running_job.workflow_id)
+        except temporalio.service.RPCError as e:
+            logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
 
         return Response(status=status.HTTP_200_OK)
 
