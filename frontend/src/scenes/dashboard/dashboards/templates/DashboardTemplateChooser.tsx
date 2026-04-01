@@ -122,6 +122,8 @@ function NewLayoutVariant(
     /** No non-featured rows — but if Popular still has cards, don’t show the “no templates” dashed panel */
     const showDashedEmptyState =
         !allTemplatesLoading && nonFeaturedTemplates.length === 0 && featuredTemplates.length === 0
+    /** All matching templates are in Popular; bottom grid stays empty of templates */
+    const allMatchesInFeaturedSection = nonFeaturedTemplates.length === 0 && featuredTemplates.length > 0
 
     return (
         <div className={cn('flex flex-col gap-8', className)}>
@@ -157,7 +159,7 @@ function NewLayoutVariant(
                             Start from scratch or pick any template below.
                         </p>
                     </div>
-                    {showBlankTile && !showDashedEmptyState ? (
+                    {showBlankTile && !showDashedEmptyState && !allMatchesInFeaturedSection ? (
                         <LemonButton
                             type="secondary"
                             size="small"
@@ -211,7 +213,19 @@ function NewLayoutVariant(
                                 ) : null}
                             </div>
                         </div>
-                    ) : nonFeaturedTemplates.length === 0 && featuredTemplates.length > 0 ? (
+                    ) : allMatchesInFeaturedSection && showBlankTile ? (
+                        <TemplateItem
+                            template={{
+                                template_name: 'Blank dashboard',
+                                dashboard_description: 'Create a blank dashboard',
+                                image_url: BlankDashboardHog,
+                                tags: [],
+                            }}
+                            onClick={() => blankTileClicked('main_grid')}
+                            index={0}
+                            data-attr="create-dashboard-blank"
+                        />
+                    ) : allMatchesInFeaturedSection ? (
                         <p className="col-span-full m-0 text-center text-secondary text-sm py-2">
                             Every template that matches is in Popular above.
                         </p>
@@ -235,7 +249,7 @@ function NewLayoutVariant(
 export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const v = featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT]
-    const variant: DashboardTemplateChooserExperimentVariant = v === 'simple' || v === 'new' ? v : 'control'
+    const variant: DashboardTemplateChooserExperimentVariant = v === 'simple' || v === 'new' ? v : 'new'
 
     switch (variant) {
         case 'simple':
