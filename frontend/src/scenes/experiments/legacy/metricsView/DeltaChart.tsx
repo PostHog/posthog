@@ -13,7 +13,6 @@ import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_R
 import { experimentLogic } from '../../experimentLogic'
 import { isLaunched } from '../../experimentsLogic'
 import { VariantTag } from '../../ExperimentView/components'
-import { ChartEmptyState } from '../../MetricsView/shared/ChartEmptyState'
 import { ChartLoadingState } from '../../MetricsView/shared/ChartLoadingState'
 import { useChartColors } from '../../MetricsView/shared/colors'
 import { GridLines } from '../../MetricsView/shared/GridLines'
@@ -26,6 +25,7 @@ import {
     exposureCountDataForVariant,
 } from '../calculations/legacyExperimentCalculations'
 import { ChartModal } from './ChartModal'
+import { LegacyChartEmptyState } from './LegacyChartEmptyState'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
 import { VariantTooltip } from './VariantTooltip'
@@ -462,7 +462,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
 
     return (
         <div className="relative w-full max-w-screen">
-            <ChartEmptyState
+            <LegacyChartEmptyState
                 height={chartHeight}
                 experimentStarted={isLaunched(experiment)}
                 metric={metric}

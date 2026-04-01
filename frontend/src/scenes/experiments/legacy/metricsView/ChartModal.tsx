@@ -14,9 +14,10 @@ import {
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
 import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
-import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
-import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
 import type { Experiment } from '~/types'
+
+import { LegacySummaryTable } from '../components/LegacySummaryTable'
+import { SignificanceText, WinningVariantText } from './Overview'
 
 interface ChartModalProps {
     isOpen: boolean
@@ -63,7 +64,7 @@ export function ChartModal({
                             <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                         </div>
                     </LemonBanner>
-                    <SummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
+                    <LegacySummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
                     <LegacyResultsQuery result={result} showTable={true} />
                 </>
             ) : (
@@ -92,7 +93,7 @@ export function ChartModal({
                                     <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                                 </div>
                             </LemonBanner>
-                            <SummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
+                            <LegacySummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
                             {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                             {query && breakdownResults && (
                                 <>
