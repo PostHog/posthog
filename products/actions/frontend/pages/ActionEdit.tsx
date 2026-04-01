@@ -18,9 +18,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -45,9 +44,9 @@ import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLo
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
+import type { ActionReferenceApi } from '../generated/api.schemas'
 import {
     ActionEditLogicProps,
-    ActionReference,
     DEFAULT_ACTION_STEP,
     REFERENCE_TYPE_LABELS,
     actionEditLogic,
@@ -67,7 +66,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     }
     const { isComplete } = useValues(actionLogic({ id }))
     const logic = actionEditLogic(logicProps)
-    const { action, actionChanged, references } = useValues(logic)
+    const { action, actionChanged, analyticsReferences } = useValues(logic)
     const { submitAction, deleteAction, setActionValue, setAction } = useActions(logic)
 
     // Sync the loaded action prop with the logic's internal state
@@ -318,19 +317,19 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 </SceneSection>
             </Form>
             <ActionHogFunctions />
-            {id && references.length > 0 && (
+            {id && analyticsReferences.length > 0 && (
                 <>
                     <LemonCollapse
-                        defaultActiveKey="used-by"
+                        defaultActiveKey="used-in-analytics"
                         panels={[
                             {
-                                key: 'used-by',
+                                key: 'used-in-analytics',
                                 header: {
                                     children: (
                                         <div className="py-1">
-                                            <div className="font-semibold">Used by</div>
+                                            <div className="font-semibold">Used in analytics</div>
                                             <div className="text-secondary text-sm font-normal">
-                                                Resources that reference this action.
+                                                Insights, experiments, and cohorts that reference this action.
                                             </div>
                                         </div>
                                     ),
@@ -417,7 +416,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     )
 }
 
-const REFERENCES_COLUMNS: LemonTableColumns<ActionReference> = [
+const REFERENCES_COLUMNS: LemonTableColumns<ActionReferenceApi> = [
     {
         title: 'Name',
         dataIndex: 'name',
@@ -432,22 +431,8 @@ const REFERENCES_COLUMNS: LemonTableColumns<ActionReference> = [
             return REFERENCE_TYPE_LABELS[ref.type] ?? ref.type
         },
     },
-    {
-        title: 'Created by',
-        dataIndex: 'created_by',
-        render: function RenderCreatedBy(_, ref) {
-            if (!ref.created_by) {
-                return <span className="text-muted">Unknown</span>
-            }
-            return (
-                <div className="flex items-center gap-2">
-                    <ProfilePicture user={ref.created_by} size="sm" />
-                    <span>{ref.created_by.first_name || ref.created_by.email}</span>
-                </div>
-            )
-        },
-    },
-    createdAtColumn() as LemonTableColumns<ActionReference>[number],
+    createdByColumn() as LemonTableColumns<ActionReferenceApi>[number],
+    createdAtColumn() as LemonTableColumns<ActionReferenceApi>[number],
 ]
 
 function ReferencesList({ logicProps }: { logicProps: ActionEditLogicProps }): JSX.Element {

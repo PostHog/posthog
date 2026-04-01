@@ -16,19 +16,11 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, ActionType, UserBasicType } from '~/types'
+import { ActionStepType, ActionType } from '~/types'
 
+import type { ActionReferenceApi } from '../generated/api.schemas'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
-
-export interface ActionReference {
-    type: string
-    id: string
-    name: string
-    url: string
-    created_at: string | null
-    created_by: UserBasicType | null
-}
 
 export const REFERENCE_TYPE_LABELS: Record<string, string> = {
     insight: 'Insight',
@@ -197,7 +189,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             },
         ],
         references: [
-            [] as ActionReference[],
+            [] as ActionReferenceApi[],
             {
                 loadReferences: async () => {
                     if (!props.id) {
@@ -211,9 +203,14 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     selectors({
+        analyticsReferences: [
+            (s) => [s.references],
+            (references: ActionReferenceApi[]): ActionReferenceApi[] =>
+                references.filter((ref) => ref.type !== 'hog_function'),
+        ],
         filteredReferences: [
-            (s) => [s.references, s.referencesSearch],
-            (references: ActionReference[], search: string): ActionReference[] => {
+            (s) => [s.analyticsReferences, s.referencesSearch],
+            (references: ActionReferenceApi[], search: string): ActionReferenceApi[] => {
                 if (!search) {
                     return references
                 }
