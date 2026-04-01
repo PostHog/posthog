@@ -169,9 +169,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Fire-and-forget backfill of recent error tracking issues as signals."""
         try:
             client = sync_connect()
-            async_to_sync(client.start_workflow)(
-                BackfillErrorTrackingWorkflow.run,
-                BackfillErrorTrackingInput(team_id=self.team_id),
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "backfill-error-tracking",  # type: ignore
+                BackfillErrorTrackingInput(team_id=self.team_id),  # type: ignore
                 id=BackfillErrorTrackingWorkflow.workflow_id_for(self.team_id),
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
