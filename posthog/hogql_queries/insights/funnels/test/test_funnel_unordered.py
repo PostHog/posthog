@@ -98,6 +98,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
         # overriden from factory
+
         query = unordered_funnels_query(
             series=[
                 EventsNode(event="sign up", name="sign up"),
@@ -107,7 +108,9 @@ class TestFunnelUnorderedStepsBreakdown(
             date_to="2020-01-08",
             breakdown="$browser",
             breakdown_attribution_type=BreakdownAttributionType.ALL_EVENTS,
+            funnel_window_interval=7,
         )
+
 
         # event
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
