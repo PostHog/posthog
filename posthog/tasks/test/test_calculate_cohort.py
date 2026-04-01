@@ -569,6 +569,37 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertEqual(stuck_static_cohort.errors_calculating, 1)
             mock_insert_cohort_from_filters.delay.assert_called_with(stuck_static_cohort.pk, self.team.pk)
 
+        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_static_cohorts_without_retriggerable_source(
+            self,
+            mock_logger: MagicMock,
+            mock_insert_cohort_from_filters: MagicMock,
+            mock_insert_cohort_from_query: MagicMock,
+        ) -> None:
+            now = timezone.now()
+
+            stuck_static_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_static_without_source",
+                last_calculation=None,
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=True,
+                filters={"properties": {}},
+            )
+            Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
+
+            reset_stuck_cohorts()
+
+            stuck_static_cohort.refresh_from_db()
+            self.assertFalse(stuck_static_cohort.is_calculating)
+            self.assertEqual(stuck_static_cohort.errors_calculating, 1)
+            mock_insert_cohort_from_filters.delay.assert_not_called()
+            mock_insert_cohort_from_query.delay.assert_not_called()
+
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         @patch("posthog.tasks.calculate_cohort.logger")
         def test_enqueue_cohorts_logs_correctly(self, mock_logger: MagicMock, mock_increment: MagicMock) -> None:

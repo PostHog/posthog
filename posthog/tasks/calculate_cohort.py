@@ -100,6 +100,7 @@ logger = structlog.get_logger(__name__)
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
 MAX_STUCK_COHORTS_TO_RESET = 3
+MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
 
 
 def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
@@ -177,14 +178,23 @@ def reset_stuck_cohorts() -> None:
     # Static cohorts are excluded from the normal reset because they don't get periodic
     # recalculation — they need the one-time insert_cohort_from_query task re-dispatched.
     reset_static_cohort_ids = []
-    for cohort in get_stuck_static_cohort_candidates_queryset().order_by(F("created_at").asc()).iterator():
-        if not static_cohort_has_supported_population_source(cohort):
-            continue
+    retriggered_static_cohort_ids = []
+    for cohort in get_stuck_static_cohort_candidates_queryset().order_by(F("created_at").asc())[
+        0:MAX_STUCK_STATIC_COHORTS_TO_SCAN
+    ]:
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.last_error_at = timezone.now()
         cohort.save(update_fields=["is_calculating", "errors_calculating", "last_error_at"])
         reset_static_cohort_ids.append(cohort.pk)
+
+        if not static_cohort_has_supported_population_source(cohort):
+            logger.warning(
+                "reset_unsupported_stuck_static_cohort",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+            )
+            continue
 
         # Re-trigger the population task for static cohorts whose membership
         # can be reconstructed from persisted data.
@@ -201,8 +211,9 @@ def reset_stuck_cohorts() -> None:
                 insert_cohort_from_query.delay(cohort.pk, cohort.team_id)
             else:
                 insert_cohort_from_filters.delay(cohort.pk, cohort.team_id)
+            retriggered_static_cohort_ids.append(cohort.pk)
 
-        if len(reset_static_cohort_ids) >= MAX_STUCK_COHORTS_TO_RESET:
+        if len(retriggered_static_cohort_ids) >= MAX_STUCK_COHORTS_TO_RESET:
             break
 
     if reset_static_cohort_ids:

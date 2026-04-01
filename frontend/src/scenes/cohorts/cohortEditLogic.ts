@@ -277,7 +277,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         staticCohortMode: [
-            'criteria' as StaticCohortMode,
+            'people' as StaticCohortMode,
             {
                 setCohort: (_, { cohort }) => inferStaticCohortMode(cohort),
                 setStaticCohortMode: (_, { mode }) => mode,
