@@ -47,9 +47,7 @@ const OAuthIntegration = ({ kind, connectText }: { kind: IntegrationKind; connec
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
     const authorizationUrl = api.integrations.authorizeUrl({
-        next: urls.errorTrackingConfiguration({
-            tab: 'error-tracking-integrations',
-        }),
+        next: urls.settings('environment-error-tracking', 'error-tracking-integrations'),
         kind,
     })
 
