@@ -44,6 +44,8 @@ export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+    const showVerifiedFilter =
+        eventDefinitions.results.length > 0 && 'verified' in eventDefinitions.results[0]
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -184,19 +186,23 @@ export function EventDefinitionsTable(): JSX.Element {
                         }}
                         size="small"
                     />
-                    <span>Verified:</span>
-                    <LemonSelect
-                        value={verifiedFilterValue(filters.verified)}
-                        options={verifiedOptions}
-                        data-attr="event-verified-filter"
-                        dropdownMatchSelectWidth={false}
-                        onChange={(value) => {
-                            setFilters({
-                                verified: verifiedFilterFromOption(value),
-                            })
-                        }}
-                        size="small"
-                    />
+                    {showVerifiedFilter && (
+                        <>
+                            <span>Status:</span>
+                            <LemonSelect
+                                value={verifiedFilterValue(filters.verified)}
+                                options={verifiedOptions}
+                                data-attr="event-verified-filter"
+                                dropdownMatchSelectWidth={false}
+                                onChange={(value) => {
+                                    setFilters({
+                                        verified: verifiedFilterFromOption(value),
+                                    })
+                                }}
+                                size="small"
+                            />
+                        </>
+                    )}
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}

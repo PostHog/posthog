@@ -25,6 +25,8 @@ export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
+    const showVerifiedFilter =
+        propertyDefinitions.results.length > 0 && 'verified' in propertyDefinitions.results[0]
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -107,19 +109,23 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     value={`${filters.type}::${filters.group_type_index ?? ''}`}
                     onSelect={setPropertyType}
                 />
-                <span>Verified:</span>
-                <LemonSelect
-                    value={verifiedFilterValue(filters.verified)}
-                    options={verifiedOptions}
-                    data-attr="property-verified-filter"
-                    dropdownMatchSelectWidth={false}
-                    onChange={(value) => {
-                        setFilters({
-                            verified: verifiedFilterFromOption(value),
-                        })
-                    }}
-                    size="small"
-                />
+                {showVerifiedFilter && (
+                    <>
+                        <span>Status:</span>
+                        <LemonSelect
+                            value={verifiedFilterValue(filters.verified)}
+                            options={verifiedOptions}
+                            data-attr="property-verified-filter"
+                            dropdownMatchSelectWidth={false}
+                            onChange={(value) => {
+                                setFilters({
+                                    verified: verifiedFilterFromOption(value),
+                                })
+                            }}
+                            size="small"
+                        />
+                    </>
+                )}
             </div>
             <LemonTable
                 columns={columns}
