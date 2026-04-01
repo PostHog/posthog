@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
@@ -29,6 +29,16 @@ export function CollapsibleExceptionHeader({
     const type = useMemo(() => formatType(exception), [exception])
     const { value } = exception
 
+    const [expanded, setExpanded] = useState(false)
+    const [isClamped, setIsClamped] = useState(false)
+    // line-clamp-3 constrains clientHeight to the visible area;
+    // if scrollHeight exceeds it, the content is truncated and we show a toggle
+    const valueRef = useCallback((node: HTMLDivElement | null) => {
+        if (node) {
+            setIsClamped(node.scrollHeight > node.clientHeight)
+        }
+    }, [])
+
     return (
         <div className="pb-1">
             <div className="flex gap-2 items-center min-w-0">
@@ -45,12 +55,25 @@ export function CollapsibleExceptionHeader({
                 )}
             </div>
             {(loading || value) && (
-                <div
-                    className={cn('text-[var(--gray-8)] leading-6 whitespace-pre-wrap', {
-                        'line-clamp-1': truncate,
-                    })}
-                >
-                    {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value}
+                <div>
+                    <div
+                        ref={valueRef}
+                        className={cn('text-[var(--gray-8)] leading-6 whitespace-pre-wrap', {
+                            'line-clamp-1': truncate,
+                            'line-clamp-3': !truncate && !expanded,
+                        })}
+                    >
+                        {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value}
+                    </div>
+                    {!truncate && isClamped && (
+                        <button
+                            type="button"
+                            onClick={() => setExpanded(!expanded)}
+                            className="text-xs text-muted hover:text-default mt-0.5 cursor-pointer"
+                        >
+                            {expanded ? 'Show less' : 'Show more…'}
+                        </button>
+                    )}
                 </div>
             )}
         </div>
