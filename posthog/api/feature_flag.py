@@ -93,6 +93,8 @@ from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
+logger = logging.getLogger(__name__)
+
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
@@ -1223,6 +1225,7 @@ class FeatureFlagSerializer(
                 send_feature_flag_events=False,
             )
         except Exception:
+            logger.exception("Failed to check mixed targeting flag")
             return False
 
     def _check_flag_circular_dependencies(self, filters):

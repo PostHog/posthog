@@ -161,6 +161,9 @@ function ConditionHeader({
             ? Math.floor((affectedGroupCount * clamp(rollout, 0, 100)) / 100)
             : null
 
+    // Group count takes precedence because the backend returns groups_affected only for
+    // group-aggregated conditions (with users_affected=0), so the presence of group data
+    // is the reliable signal for which count to display.
     const countSummary = (() => {
         if (actualGroupCount !== null && groupTargetName) {
             return `${humanFriendlyNumber(actualGroupCount)} ${groupTargetName}`
@@ -687,8 +690,8 @@ const ConditionContent = ({
                                                                 <>
                                                                     Will match ~
                                                                     <b>{humanFriendlyNumber(groupsReceivingFlag)}</b> of{' '}
-                                                                    {humanFriendlyNumber(totalGroupCount!)} {groupName}{' '}
-                                                                    ({rolloutPct}% of{' '}
+                                                                    {humanFriendlyNumber(totalGroupCount ?? 0)}{' '}
+                                                                    {groupName} ({rolloutPct}% of{' '}
                                                                     {humanFriendlyNumber(affectedGroupCount)} matching
                                                                     the filters)
                                                                 </>

@@ -5252,6 +5252,78 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         else:
             self.assertIn("Mixed aggregation types", response.json()["detail"])
 
+    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_mixed_aggregation_round_trip(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = True
+
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Round-trip flag",
+                "key": "round-trip-mixed",
+                "filters": {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None},
+                        {"properties": [], "rollout_percentage": 75, "aggregation_group_type_index": 0},
+                    ]
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        get_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{create_response.json()['id']}/")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        filters = get_response.json()["filters"]
+        self.assertIsNone(filters["aggregation_group_type_index"])
+        self.assertIsNone(filters["groups"][0]["aggregation_group_type_index"])
+        self.assertEqual(filters["groups"][1]["aggregation_group_type_index"], 0)
+
+    @parameterized.expand(
+        [
+            ("flag_enabled", True, status.HTTP_200_OK),
+            ("flag_disabled", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_patch_uniform_flag_to_mixed(self, _name, mixed_targeting_enabled, expected_status, mock_feature_enabled):
+        mock_feature_enabled.return_value = mixed_targeting_enabled
+
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        # Create a uniform person-aggregated flag (no feature flag check needed for uniform)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="uniform-to-mixed",
+            name="Uniform flag",
+            filters={
+                "groups": [
+                    {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                ]
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "filters": {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None},
+                        {"properties": [], "rollout_percentage": 75, "aggregation_group_type_index": 0},
+                    ]
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status)
+
     def test_per_condition_aggregation_normalization(self):
         """Test that flag-level aggregation is distributed to condition sets without one"""
         GroupTypeMapping.objects.create(
