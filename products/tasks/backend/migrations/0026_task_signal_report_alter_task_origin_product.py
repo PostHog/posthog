@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("signals", "0011_add_error_tracking_signal_types"),
-        ("tasks", "0024_task_title_manually_set"),
+        ("tasks", "0025_task_internal"),
     ]
 
     operations = [

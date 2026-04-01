@@ -36,6 +36,7 @@ class AlertEvaluationResult:
     triggered_points: list[int] | None = None
     triggered_dates: list[str] | None = None
     interval: str | None = None
+    triggered_metadata: dict | None = None
 
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]

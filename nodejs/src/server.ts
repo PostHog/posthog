@@ -17,11 +17,12 @@ import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/cons
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
+import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
-import { buildGroupRepository } from './ingestion/personhog'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
@@ -37,6 +38,7 @@ import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
+import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
 
 /**
@@ -49,7 +51,6 @@ export class PluginServer implements NodeServer {
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
-    private kafkaMetricsProducer?: KafkaProducerWrapper
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -226,6 +227,14 @@ export class PluginServer implements NodeServer {
             })
         }
 
+        if (capabilities.cdpHogflowScheduler) {
+            serviceLoaders.push(async () => {
+                const scheduler = new HogFlowScheduleService(this.config)
+                await scheduler.start()
+                return scheduler.service
+            })
+        }
+
         // ServerCommands is always created
         serviceLoaders.push(() => {
             const serverCommands = new ServerCommands(this.pubsub!)
@@ -285,7 +294,7 @@ export class PluginServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
@@ -304,7 +313,6 @@ export class PluginServer implements NodeServer {
 
         logger.info('🤔', 'Connecting to Kafka...')
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        this.kafkaMetricsProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
@@ -325,7 +333,7 @@ export class PluginServer implements NodeServer {
 
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
-        personRepository: PostgresPersonRepository
+        personRepository: PersonRepository
         groupRepository: GroupRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
@@ -334,14 +342,24 @@ export class PluginServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres!, {
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres!, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
+        const personRepository = buildPersonRepository(
+            personhogClient,
+            postgresPersonRepository,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            clientLabel
+        )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
         const groupRepository = buildGroupRepository(
-            this.config,
+            personhogClient,
             postgresGroupRepository,
-            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            clientLabel
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)

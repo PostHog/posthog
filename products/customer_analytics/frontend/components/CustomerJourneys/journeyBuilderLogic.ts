@@ -3,9 +3,7 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
@@ -161,12 +159,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 'reportCustomerJourneyBuilderStepRemoved',
             ],
         ],
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            customerAnalyticsConfigLogic,
-            ['signupEvent', 'signupPageviewEvent', 'paymentEvent'],
-        ],
+        values: [customerAnalyticsConfigLogic, ['signupEvent', 'signupPageviewEvent', 'paymentEvent']],
     })),
 
     actions({
@@ -298,17 +291,16 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
         stepCount: [(s) => [s.query], (query): number => query.source.series.length],
         series: [(s) => [s.query], (query): AnyEntityNode[] => query.source.series as AnyEntityNode[]],
         taxonomicGroupTypes: [
-            (s) => [s.featureFlags],
-            (featureFlags): TaxonomicFilterGroupType[] => {
+            () => [],
+            (): TaxonomicFilterGroupType[] => {
                 const { hasPageview, hasScreen } = getProjectEventExistence()
-                const supportsDwhFunnels = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_SUPPORT]
                 return [
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
                     ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                     ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                     TaxonomicFilterGroupType.AutocaptureEvents,
-                    ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
+                    TaxonomicFilterGroupType.DataWarehouse,
                 ]
             },
         ],

@@ -222,8 +222,6 @@ services:
         restart: on-failure
         profiles: ['batch-exports']
         command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data
-        ports:
-            - '10000:10000'
 
     maildev:
         image: maildev/maildev:2.0.5
@@ -523,12 +521,8 @@ services:
             - ES_SEEDS=elasticsearch
             - ES_VERSION=v7
         image: temporalio/auto-setup:1.26.2
-        ports:
-            - 7233:7233
         labels:
             kompose.volume.type: configMap
-        volumes:
-            - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
         depends_on:
             db:
                 condition: service_healthy
@@ -549,8 +543,6 @@ services:
             - TEMPORAL_CSRF_COOKIE_INSECURE=true
             - TEMPORAL_CODEC_ENDPOINT=http://localhost:8000
         image: temporalio/ui:2.47.2
-        ports:
-            - 8081:8080
     temporal-django-worker:
         <<: *worker
         command: ./bin/temporal-django-worker
@@ -577,19 +569,12 @@ services:
                 condition: service_started
     otel-collector:
         image: otel/opentelemetry-collector-contrib:0.142.0
-        container_name: otel-collector-local
         command: [--config=/etc/otel-collector-config.yaml]
         user: '0:0' # have to run as root to read the docker logs
         volumes:
-            - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
             # mount docker containers dir so we can ship the docker logs to local posthog
             - /var/lib/docker/containers:/var/lib/docker/containers:ro
             - /var/run/docker.sock:/var/run/docker.sock:ro
-        ports:
-            - '4317:4317' # OTLP gRPC receiver (mapped to host)
-            - '4318:4318' # OTLP HTTP receiver (mapped to host)
-            - '13133:13133' # health_check extension
-            - '55679:55679' # zpages extension
         depends_on:
             - jaeger
         networks:
@@ -597,31 +582,18 @@ services:
 
     jaeger:
         image: jaegertracing/all-in-one:1.76.0
-        container_name: jaeger-local
-        ports:
-            - '16686:16686' # Jaeger UI
-            - '14268:14268' # Accepts jaeger.thrift directly from clients (optional for this flow)
-            - '14250:14250' # Accepts model.proto (optional for this flow)
         networks:
             - otel_network
 
     localstack:
-        container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
         image: localstack/localstack:4.12.0
-        ports:
-            - '127.0.0.1:4566:4566' # LocalStack Gateway
-            - '127.0.0.1:4510-4559:4510-4559' # external services port range
         environment:
             - DEBUG=${DEBUG:-0}
         volumes:
             - '/var/run/docker.sock:/var/run/docker.sock'
 
     seaweedfs:
-        container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
         image: chrislusf/seaweedfs:4.03
-        ports:
-            - '127.0.0.1:8333:8333' # S3 API
-            - '127.0.0.1:9333:9333' # Master server (for admin UI)
         entrypoint:
             - /bin/sh
             - -c

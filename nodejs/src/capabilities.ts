@@ -25,6 +25,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpBatchHogFlow: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronV2Janitor: isDevEnv(),
+    cdpHogflowScheduler: isDevEnv(),
 }
 
 /** Realtime Cohorts - precalculated filters and cohort membership */
@@ -186,7 +187,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
-
+        case PluginServerMode.cdp_hogflow_scheduler:
+            return {
+                cdpHogflowScheduler: true,
+            }
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
         case PluginServerMode.recording_api:

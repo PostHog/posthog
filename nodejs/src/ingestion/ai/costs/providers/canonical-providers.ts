@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-25 20:08:23 UTC
+// Generated at: 2026-03-31 20:09:55 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -13,10 +13,8 @@ export type CanonicalProvider =
     | 'ambient-fp8'
     | 'anthropic'
     | 'arcee-ai-bf16'
-    | 'arcee-ai-modal'
     | 'arcee-ai-prime'
     | 'atlas-cloud-fast'
-    | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
@@ -61,6 +59,7 @@ export type CanonicalProvider =
     | 'inflection'
     | 'io-net-bf16'
     | 'io-net-fp16'
+    | 'io-net-fp8'
     | 'io-net-int4'
     | 'ionstream-fp8'
     | 'liquid'
@@ -71,10 +70,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'modelrun-fp4'
-    | 'moonshotai'
-    | 'moonshotai-fp8'
     | 'moonshotai-int4'
-    | 'moonshotai-turbo'
     | 'morph'
     | 'nebius'
     | 'nebius-base'
@@ -105,6 +101,7 @@ export type CanonicalProvider =
     | 'perplexity'
     | 'phala'
     | 'reka-bf16'
+    | 'reka-fp8'
     | 'relace-bf16'
     | 'relace-fp8'
     | 'sambanova'
@@ -116,7 +113,7 @@ export type CanonicalProvider =
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
     | 'stepfun-fp8'
-    | 'streamlake-fp16'
+    | 'streamlake'
     | 'switchpoint'
     | 'together'
     | 'together-fp8'

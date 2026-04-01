@@ -44,29 +44,17 @@ jobs:
             - name: Set up Depot CLI
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
 
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
               with:
-                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
-                  aws-region: us-east-1
-
-            - name: Login to Amazon ECR
-              id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
-
-            - name: Login to DockerHub
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-              with:
-                  username: ${{ secrets.DOCKERHUB_USER }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            - name: Login to ghcr.io
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-                  logout: false
+                  image-name: posthog
+                  ecr-image-name: posthog-cloud
+                  push-to-dockerhub: 'true'
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Build and push container image
               id: build
@@ -74,7 +62,8 @@ jobs:
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
-                  tags: ghcr.io/posthog/posthog:latest,ghcr.io/posthog/posthog:${{ github.sha }},posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
