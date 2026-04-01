@@ -1,90 +1,30 @@
-import './LiveEventsTable.scss'
-
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconPauseFilled, IconPlayFilled, IconRefresh, IconTerminal } from '@posthog/icons'
-import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityTab, LiveEvent } from '~/types'
+import { ActivityTab } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
 
+import { LiveEventsFeed } from './LiveEventsFeed'
 import { liveEventsLogic } from './liveEventsLogic'
 import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
 
 const LIVE_EVENTS_POLL_INTERVAL_MS = 1500
-
-const columns: LemonTableColumns<LiveEvent> = [
-    {
-        title: 'Event',
-        key: 'event',
-        className: 'max-w-80',
-        render: function Render(_, event: LiveEvent) {
-            return <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
-        },
-    },
-    {
-        title: 'Person distinct ID',
-        tooltip:
-            'Some events may be missing a person profile – this is expected, because live events are streamed before person processing completes',
-        key: 'person',
-        className: 'max-w-80',
-        render: function Render(_, event: LiveEvent) {
-            return <PersonDisplay person={{ distinct_id: event.distinct_id }} />
-        },
-    },
-    {
-        title: 'URL / Screen',
-        key: '$current_url',
-        className: 'max-w-80',
-        render: function Render(_, event: LiveEvent) {
-            return <span>{event.properties['$current_url'] || event.properties['$screen_name']}</span>
-        },
-    },
-    {
-        title: 'Time',
-        key: 'timestamp',
-        className: 'max-w-80',
-        render: function Render(_, event: LiveEvent) {
-            return <TZLabel time={event.timestamp} />
-        },
-    },
-    {
-        dataIndex: '__more' as any,
-        render: function Render(_, event: LiveEvent) {
-            return (
-                <More
-                    overlay={
-                        <Tooltip title="It may take up to a few minutes for the event to show up in the Explore view">
-                            <EventCopyLinkButton event={event} />
-                        </Tooltip>
-                    }
-                />
-            )
-        },
-        width: 0,
-    },
-]
 
 export const scene: SceneExport = {
     component: LiveEventsTable,
@@ -160,27 +100,7 @@ export function LiveEventsTable(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <LemonTable
-                className="LiveEventsTable__table"
-                columns={columns}
-                data-attr="live-events-table"
-                rowKey="uuid"
-                dataSource={events}
-                useURLForSorting={false}
-                emptyState={
-                    <div className="flex flex-col justify-center items-center gap-4 p-6">
-                        {!streamPaused ? (
-                            <Spinner className="text-4xl" textColored />
-                        ) : (
-                            <IconPauseFilled className="text-4xl" />
-                        )}
-                        <span className="text-lg font-title font-semibold leading-tight">
-                            {!streamPaused ? 'Waiting for events…' : 'Stream paused'}
-                        </span>
-                    </div>
-                }
-                nouns={['event', 'events']}
-            />
+            <LiveEventsFeed events={events} streamPaused={streamPaused} />
         </SceneContent>
     )
 }

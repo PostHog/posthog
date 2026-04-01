@@ -110,7 +110,7 @@ const getYAxisSettings = (
 
 export type LineGraphProps = {
     xData: AxisSeries<string> | null
-    yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number>[]
+    yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
     visualizationType: ChartDisplayType
     chartSettings: ChartSettings
     presetChartHeight?: boolean

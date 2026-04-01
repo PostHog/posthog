@@ -13,6 +13,7 @@ from posthog.temporal.subscriptions.types import (
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     FetchDueSubscriptionsActivityInputs,
+    SubscriptionInfo,
 )
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TYPES, _capture_delivery_failed_event
@@ -26,23 +27,30 @@ LOGGER = get_logger(__name__)
 
 
 @temporalio.activity.defn
-async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[int]:
+async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[SubscriptionInfo]:
     now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
     await LOGGER.ainfo("Fetching due subscriptions", deadline=now_with_buffer)
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_subscription_ids() -> list[int]:
-        return list(
-            Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
+    def get_subscriptions() -> list[SubscriptionInfo]:
+        return [
+            SubscriptionInfo(
+                subscription_id=sub["id"],
+                team_id=sub["team_id"],
+                distinct_id=str(sub["created_by__distinct_id"])
+                if sub["created_by__distinct_id"]
+                else str(sub["team_id"]),
+            )
+            for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
             .exclude(dashboard__deleted=True)
             .exclude(insight__deleted=True)
-            .values_list("id", flat=True)
-        )
+            .values("id", "team_id", "created_by__distinct_id")
+        ]
 
-    subscription_ids = await get_subscription_ids()
-    await LOGGER.ainfo("Fetched due subscriptions", count=len(subscription_ids))
+    subscriptions = await get_subscriptions()
+    await LOGGER.ainfo("Fetched due subscriptions", count=len(subscriptions))
 
-    return subscription_ids
+    return subscriptions
 
 
 @temporalio.activity.defn
@@ -96,9 +104,11 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         insights = [tile.insight for tile in tiles if tile.insight]
 
         selected_ids = await database_sync_to_async(
-            lambda: set(subscription.dashboard_export_insights.values_list("id", flat=True))
-            if subscription.dashboard_export_insights.exists()
-            else None,
+            lambda: (
+                set(subscription.dashboard_export_insights.values_list("id", flat=True))
+                if subscription.dashboard_export_insights.exists()
+                else None
+            ),
             thread_sensitive=False,
         )()
         if selected_ids:

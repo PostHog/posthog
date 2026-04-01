@@ -1,13 +1,14 @@
 package process
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -18,8 +19,9 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
-const metricsSampleInterval = 5 * time.Second
+const metricsSampleInterval = 1 * time.Second
 const flushInterval = 16 * time.Millisecond
+const stopGracePeriod = 3 * time.Second
 
 type Status int
 
@@ -48,19 +50,20 @@ func (s Status) String() string {
 	}
 }
 
-// Process state change
 type StatusMsg struct {
 	Name   string
 	Status Status
 }
 
-// Notification that a process has new output available.
-// Lines are batched (flushed every ~16ms) to avoid backpressure on the PTY
-// when a process produces output faster than the TUI can render it.
-// The TUI reads actual lines from p.Lines().
+// Batched output notification for incremental viewport updates.
 type OutputMsg struct {
-	Name string
+	Name    string
+	Added   []string
+	Evicted int
 }
+
+// Sent after metrics are sampled so the TUI can refresh the info panel.
+type MetricsMsg struct{}
 
 // Metrics holds the most recent sampled resource usage for a process tree.
 type Metrics struct {
@@ -82,11 +85,11 @@ type Snapshot struct {
 	Ready    bool   `json:"ready"`
 	ExitCode *int   `json:"exit_code"`
 
+	// Nil until the first metrics sample arrives (~5s after start).
 	StartedAt        time.Time  `json:"started_at"`
 	ReadyAt          *time.Time `json:"ready_at,omitempty"`
 	StartupDurationS *float64   `json:"startup_duration_s,omitempty"`
 
-	// Nil until the first metrics sample arrives (~5s after start).
 	MemRSSMB          *float64   `json:"mem_rss_mb"`
 	PeakMemRSSMB      *float64   `json:"peak_mem_rss_mb"`
 	CPUPercent        *float64   `json:"cpu_percent"`
@@ -99,23 +102,25 @@ type Snapshot struct {
 
 // Represents a single managed subprocess
 type Process struct {
-	Name string
-	Cfg  config.ProcConfig
+	Name         string
+	Cfg          config.ProcConfig
+	readyPattern *regexp.Regexp
+	maxLines     int
+	status       Status
+	cmd          *exec.Cmd
 
-	mu            sync.Mutex
-	maxLines      int
-	status        Status
-	lines         []string
-	cmd           *exec.Cmd
-	ptmx          *os.File // pty master; nil when using pipes
-	readyPattern  *regexp.Regexp
-	ready         bool // whether we've seen the ready pattern (or no pattern is set)
-	stopRequested bool // set by Stop() to catch races with in-flight Start()
+	mu        sync.Mutex
+	lines     []string      // scrollback buffer of recent output lines
+	ptmx      *os.File      // pty master; nil when using pipes
+	stdinPipe *os.File      // write end of stdin pipe; nil when using PTY
+	hasPrompt bool          // true when the last output was a partial line without a trailing \n
+	waitDone  chan struct{} // closed by the goroutine that calls cmd.Wait()
 
-	startedAt time.Time
-	readyAt   time.Time
-	exitCode  *int
-	metrics   *Metrics
+	startedAt      time.Time
+	readyAt        time.Time
+	exitCode       *int
+	metrics        *Metrics
+	metricsEnabled atomic.Bool
 }
 
 func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
@@ -124,9 +129,7 @@ func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
 		Cfg:      cfg,
 		maxLines: scrollback,
 		status:   StatusStopped,
-		ready:    cfg.ReadyPattern == "", // ready if no pattern, otherwise wait for pattern
 	}
-	// Compile ready pattern if one exists
 	if cfg.ReadyPattern != "" {
 		if re, err := regexp.Compile(cfg.ReadyPattern); err == nil {
 			p.readyPattern = re
@@ -139,6 +142,10 @@ func (p *Process) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.status
+}
+
+func (p *Process) SetMetricsEnabled(on bool) {
+	p.metricsEnabled.Store(on)
 }
 
 // CPUPercent returns the most recently sampled CPU usage, or 0 if not yet sampled.
@@ -161,7 +168,14 @@ func (p *Process) MemRSSMB() float64 {
 	return p.metrics.MemRSSMB
 }
 
-// Returns a copy of the output lines
+// HasPrompt returns true when the last output was a partial line (no trailing \n),
+// indicating the process is likely waiting for input.
+func (p *Process) HasPrompt() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.hasPrompt
+}
+
 func (p *Process) Lines() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -170,58 +184,113 @@ func (p *Process) Lines() []string {
 	return cp
 }
 
-// Directly appends a line to the output buffer, honoring the
-// scrollback limit. Mirrors the append step in readLoop; intended for tests
-// that inject output without running a real subprocess.
+// AppendLine injects a line into the buffer without a real subprocess (for tests).
 func (p *Process) AppendLine(line string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if len(p.lines) >= p.maxLines {
+		p.lines[0] = "" // allow GC of evicted string data
 		p.lines = p.lines[1:]
 	}
 	p.lines = append(p.lines, line)
 }
 
-// Returns a consistent point-in-time view of the process
+func ptr[T any](v T) *T { return &v }
+
+// Returns a consistent point-in-time view of the process.
+// If the process is running, metrics are sampled on the spot.
 func (p *Process) Snapshot() Snapshot {
+	p.sampleMetrics()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	snap := Snapshot{
-		Name:      p.Name,
-		Status:    p.status.String(),
-		Ready:     p.ready,
-		ExitCode:  p.exitCode,
-		StartedAt: p.startedAt,
+		Name:   p.Name,
+		Status: p.status.String(),
+		Ready:  p.status == StatusRunning,
 	}
 	if p.cmd != nil && p.cmd.Process != nil {
+		snap.ExitCode = p.exitCode
+		snap.StartedAt = p.startedAt
 		snap.PID = p.cmd.Process.Pid
 	}
 	if !p.readyAt.IsZero() {
-		t := p.readyAt
-		snap.ReadyAt = &t
-		d := p.readyAt.Sub(p.startedAt).Seconds()
-		snap.StartupDurationS = &d
+		snap.ReadyAt = ptr(p.readyAt)
+		snap.StartupDurationS = ptr(p.readyAt.Sub(p.startedAt).Seconds())
 	}
 	if m := p.metrics; m != nil {
-		mem := m.MemRSSMB
-		peak := m.PeakMemMB
-		cpu := m.CPUPercent
-		cpuT := m.CPUTimeS
-		thr := m.Threads
-		ch := m.Children
-		fds := m.FDs
-		sa := m.SampledAt
-		snap.MemRSSMB = &mem
-		snap.PeakMemRSSMB = &peak
-		snap.CPUPercent = &cpu
-		snap.CPUTimeS = &cpuT
-		snap.ThreadCount = &thr
-		snap.ChildProcessCount = &ch
-		snap.FDCount = &fds
-		snap.LastSampledAt = &sa
+		snap.MemRSSMB = ptr(m.MemRSSMB)
+		snap.PeakMemRSSMB = ptr(m.PeakMemMB)
+		snap.CPUPercent = ptr(m.CPUPercent)
+		snap.CPUTimeS = ptr(m.CPUTimeS)
+		snap.ThreadCount = ptr(m.Threads)
+		snap.ChildProcessCount = ptr(m.Children)
+		snap.FDCount = ptr(m.FDs)
+		snap.LastSampledAt = ptr(m.SampledAt)
 	}
 	return snap
+}
+
+// sampleMetrics collects resource usage for the process tree and stores it.
+func (p *Process) sampleMetrics() {
+	p.mu.Lock()
+	pid := 0
+	if p.cmd != nil && p.cmd.Process != nil {
+		pid = p.cmd.Process.Pid
+	}
+	st := p.status
+	p.mu.Unlock()
+
+	if pid == 0 || (st != StatusRunning && st != StatusPending) {
+		return
+	}
+
+	ps, err := gops.NewProcess(int32(pid))
+	if err != nil {
+		return
+	}
+
+	all := collectProcessTree(ps)
+
+	var rssBytes uint64
+	var cpuPct, cpuTime float64
+	var threads, fds int32
+	for _, proc := range all {
+		if mem, err := proc.MemoryInfo(); err == nil {
+			rssBytes += mem.RSS
+		}
+		if c, err := proc.CPUPercent(); err == nil {
+			cpuPct += c
+		}
+		if ct, err := proc.Times(); err == nil {
+			cpuTime += ct.User + ct.System
+		}
+		if t, err := proc.NumThreads(); err == nil {
+			threads += t
+		}
+		if f, err := proc.NumFDs(); err == nil {
+			fds += f
+		}
+	}
+
+	rssMB := float64(rssBytes) / 1024 / 1024
+
+	p.mu.Lock()
+	if p.metrics == nil {
+		p.metrics = &Metrics{}
+	}
+	p.metrics.MemRSSMB = rssMB
+	if rssMB > p.metrics.PeakMemMB {
+		p.metrics.PeakMemMB = rssMB
+	}
+	p.metrics.CPUPercent = cpuPct
+	p.metrics.CPUTimeS = cpuTime
+	p.metrics.Threads = threads
+	p.metrics.Children = len(all) - 1
+	p.metrics.FDs = fds
+	p.metrics.SampledAt = time.Now()
+	p.mu.Unlock()
 }
 
 // buildEnv constructs the environment for the child process.
@@ -238,7 +307,7 @@ func (p *Process) buildCmd() *exec.Cmd {
 	if len(p.Cfg.Cmd) > 0 {
 		return exec.Command(p.Cfg.Cmd[0], p.Cfg.Cmd[1:]...)
 	}
-	return exec.Command("bash", "-c", p.Cfg.Shell)
+	return exec.Command("/bin/bash", "-c", p.Cfg.Shell)
 }
 
 // It's safe to call Start concurrently as running process is a no-op
@@ -254,17 +323,14 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.exitCode = nil
 	p.startedAt = time.Now()
 	p.readyAt = time.Time{}
-	p.stopRequested = false
-	// Reset ready flag when restarting
-	p.ready = p.readyPattern == nil
+	if p.stdinPipe != nil {
+		_ = p.stdinPipe.Close()
+		p.stdinPipe = nil
+	}
 	p.mu.Unlock()
 
-	env := p.buildEnv()
 	cmd := p.buildCmd()
-	cmd.Env = env
-	// Give child its own process group so Stop() can kill the entire tree,
-	// preventing zombie tsx/node/vite processes when phrocs exits.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Env = p.buildEnv()
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -272,18 +338,20 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		return p.startWithPipe(cmd, send)
 	}
 
+	waitDone := make(chan struct{})
+
 	p.mu.Lock()
 	p.cmd = cmd
 	p.ptmx = ptmx
+	p.waitDone = waitDone
 
-	// Stop() was called while pty.Start was in progress — kill immediately
-	if p.stopRequested {
+	// Stop() was called while pty.Start was in progress
+	if p.status == StatusStopped {
 		p.killProcessGroup()
 		if p.ptmx != nil {
 			_ = p.ptmx.Close()
 			p.ptmx = nil
 		}
-		p.status = StatusStopped
 		p.mu.Unlock()
 		send(StatusMsg{Name: p.Name, Status: StatusStopped})
 		return nil
@@ -298,18 +366,27 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	// Send initial status message
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
-	go p.startMetricsSampler(cmd.Process.Pid)
+	go p.startMetricsSampler(cmd.Process.Pid, send)
+
+	outChannel := make(chan tea.Msg, 256)
+
+	go func() {
+		for msg := range outChannel {
+			send(msg)
+		}
+	}()
 
 	readDone := make(chan struct{})
 	go func() {
-		p.readLoop(ptmx, send)
+		p.readLoop(ptmx, outChannel)
 		close(readDone)
 	}()
 
 	go func() {
 		exitErr := cmd.Wait()
+		close(waitDone)
 
-		// Close the pty master to unblock readLoop if still reading
+		// Close the pty master to unblock readLoop
 		p.mu.Lock()
 		if p.ptmx != nil {
 			_ = p.ptmx.Close()
@@ -319,207 +396,290 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 		// Wait for readLoop to drain all buffered output before updating status
 		<-readDone
-
-		st := StatusDone
-		if exitErr != nil {
-			st = StatusCrashed
-		}
-		p.mu.Lock()
-		// Don't update status if this cmd is no longer the active one
-		// (process was restarted) or if an explicit Stop() was called
-		if p.cmd == cmd && p.status != StatusStopped {
-			p.status = st
-			p.metrics = nil
-			code := cmd.ProcessState.ExitCode()
-			p.exitCode = &code
-		}
-		finalStatus := p.status
-		shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed
-		p.mu.Unlock()
-
-		send(StatusMsg{Name: p.Name, Status: finalStatus})
-
-		if shouldRestart {
-			_ = p.Start(send)
-		}
+		close(outChannel)
+		p.handleExit(cmd, exitErr, send)
 	}()
 
 	return nil
 }
 
-// Falls back to stdout/stderr pipes when PTY allocation fails
+// startWithPipe is the fallback when PTY allocation fails. It uses a combined
+// stdout/stderr pipe instead.
 func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
-	// pty.Start may have contaminated SysProcAttr with Setsid/Setctty
-	// before failing. For the pipe path we only need Setpgid so Stop() can
-	// kill the full process tree via Kill(-pid, SIGTERM).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// pty.Start also sets Stdin/Stdout/Stderr to the (now-closed) tty slave.
-	// Reset them so the child gets /dev/null for stdin and our pipe for output.
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
 
-	pr, pw, err := os.Pipe()
+	stdinR, stdinW, err := os.Pipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("stdin pipe: %w", err)
 	}
-	cmd.Stdout = pw
-	cmd.Stderr = pw
+	cmd.Stdin = stdinR
+
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		_ = stdinR.Close()
+		_ = stdinW.Close()
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stdoutW
 
 	if err := cmd.Start(); err != nil {
-		_ = pr.Close()
-		_ = pw.Close()
-		p.mu.Lock()
-		p.status = StatusCrashed
-		p.mu.Unlock()
-		send(StatusMsg{Name: p.Name, Status: StatusCrashed})
-		return err
+		_ = stdinR.Close()
+		_ = stdinW.Close()
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
+		return fmt.Errorf("start: %w", err)
 	}
+
+	// Close write ends in the parent so reads get EOF when the child exits.
+	_ = stdinR.Close()
+	_ = stdoutW.Close()
+
+	waitDone := make(chan struct{})
 
 	p.mu.Lock()
 	p.cmd = cmd
+	p.ptmx = nil
+	p.stdinPipe = stdinW
+	p.waitDone = waitDone
 
-	// Stop() was called while cmd.Start was in progress — kill immediately
-	if p.stopRequested {
+	if p.status == StatusStopped {
 		p.killProcessGroup()
-		p.status = StatusStopped
+		_ = stdinW.Close()
+		p.stdinPipe = nil
 		p.mu.Unlock()
-		_ = pr.Close()
-		_ = pw.Close()
+		_ = stdoutR.Close()
 		send(StatusMsg{Name: p.Name, Status: StatusStopped})
 		return nil
 	}
 
-	// Only set to running if no ready pattern
 	if p.readyPattern == nil {
 		p.status = StatusRunning
 	}
 	currentStatus := p.status
 	p.mu.Unlock()
-	// Send initial status message
+
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
-	go p.startMetricsSampler(cmd.Process.Pid)
+	go p.startMetricsSampler(cmd.Process.Pid, send)
+
+	outChannel := make(chan tea.Msg, 256)
+
+	go func() {
+		for msg := range outChannel {
+			send(msg)
+		}
+	}()
 
 	readDone := make(chan struct{})
 	go func() {
-		p.readLoop(pr, send)
+		p.readLoop(stdoutR, outChannel)
 		close(readDone)
 	}()
 
 	go func() {
 		exitErr := cmd.Wait()
-		// Close the write end so readLoop sees EOF
-		_ = pw.Close()
+		close(waitDone)
+
+		_ = stdoutR.Close()
 
 		<-readDone
-		_ = pr.Close()
-
-		st := StatusDone
-		if exitErr != nil {
-			st = StatusCrashed
-		}
-		p.mu.Lock()
-		// Don't update status if this cmd is no longer the active one
-		// (process was restarted) or if an explicit Stop() was called
-		if p.cmd == cmd && p.status != StatusStopped {
-			p.status = st
-			p.metrics = nil
-			code := cmd.ProcessState.ExitCode()
-			p.exitCode = &code
-		}
-		finalStatus := p.status
-		shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed
-		p.mu.Unlock()
-
-		send(StatusMsg{Name: p.Name, Status: finalStatus})
-
-		if shouldRestart {
-			_ = p.Start(send)
-		}
+		close(outChannel)
+		p.handleExit(cmd, exitErr, send)
 	}()
 
 	return nil
 }
 
-// Reads lines from the process output, buffering them internally and sending
-// batched OutputMsg notifications to the TUI. Lines are flushed every
-// ~flushInterval so burst output is coalesced into a single UI update,
-// preventing backpressure on the PTY that would throttle the child process.
-func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
-	// Scanner goroutine reads lines as fast as possible into a buffered
-	// channel, decoupling I/O from the (potentially slower) TUI send path.
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 256*1024), 256*1024)
+// handleExit updates process status after cmd.Wait returns and triggers
+// autorestart if configured. Shared by PTY and pipe paths.
+func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
+	st := StatusDone
+	if exitErr != nil {
+		st = StatusCrashed
+	}
+	p.mu.Lock()
+	if p.cmd == cmd && p.status != StatusStopped {
+		p.status = st
+		p.metrics = nil
+		code := cmd.ProcessState.ExitCode()
+		p.exitCode = &code
+	}
+	finalStatus := p.status
+	shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed && finalStatus != StatusStopped
+	p.mu.Unlock()
 
-	lineCh := make(chan string, 4096)
-	go func() {
-		for scanner.Scan() {
-			lineCh <- scanner.Text()
-		}
-		close(lineCh)
-	}()
+	send(StatusMsg{Name: p.Name, Status: finalStatus})
 
-	for {
-		// Block until at least one line arrives
-		line, ok := <-lineCh
-		if !ok {
-			return
-		}
-		p.bufferLine(line, send)
-
-		// Drain any additional lines that arrive within the flush interval
-		deadline := time.After(flushInterval)
-	drain:
-		for {
-			select {
-			case line, ok := <-lineCh:
-				if !ok {
-					// EOF — send final notification and return
-					send(OutputMsg{Name: p.Name})
-					return
-				}
-				p.bufferLine(line, send)
-			case <-deadline:
-				break drain
-			}
-		}
-
-		send(OutputMsg{Name: p.Name})
+	if shouldRestart {
+		_ = p.Start(send)
 	}
 }
 
-// bufferLine appends a single line to the scrollback buffer and checks the
-// ready pattern. Only sends a StatusMsg if the process just became ready.
-func (p *Process) bufferLine(line string, send func(tea.Msg)) {
+// readLoop reads process output, batches lines, and sends OutputMsg to outChannel.
+//
+// Pipeline: PTY → [reader goroutine] → chunkChannel → [select loop] → outChannel → [drainer] → TUI
+//
+// The select loop handles three concerns:
+//   - data:          split raw bytes into lines, accumulate into batch
+//   - flushTicker:   deliver the batch to outChannel every 16ms (non-blocking to avoid backpressure)
+//   - partialTimer:  lines without a trailing \n (e.g. "Enter name: ") are flushed after 48ms
+//     of silence so interactive prompts appear without waiting for \n
+func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
+	// Reader goroutine: drains the PTY independently so the kernel buffer
+	// never fills up and blocks the child's writes.
+	chunkChannel := make(chan []byte, 64)
+	go func() {
+		buf := make([]byte, 256*1024)
+		for {
+			n, err := r.Read(buf)
+			if n > 0 {
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				chunkChannel <- data
+			}
+			if err != nil {
+				close(chunkChannel)
+				return
+			}
+		}
+	}()
+
+	var partial []byte // leftover bytes after the last \n (incomplete line)
+	var batch []string // lines accumulated since last successful send
+	var evicted int    // lines evicted from scrollback during this batch
+
+	partialTimer := time.NewTimer(0)
+	if !partialTimer.Stop() {
+		<-partialTimer.C
+	}
+
+	flushTicker := time.NewTicker(flushInterval)
+	defer flushTicker.Stop()
+
+	becameReady := false
+
+	// addLine buffers a line in scrollback and adds it to the current batch.
+	addLine := func(s string) {
+		ev, ready := p.bufferLine(s)
+		if ev {
+			evicted++
+		}
+		if ready {
+			becameReady = true
+		}
+		batch = append(batch, s)
+	}
+
+	// trySend delivers the batch to outChannel without blocking. If the TUI event
+	// loop is busy (channel full), the batch keeps growing until next tick.
+	// A pending "became ready" status is sent first (also non-blocking).
+	trySend := func() {
+		if becameReady {
+			select {
+			case outChannel <- StatusMsg{Name: p.Name, Status: StatusRunning}:
+				becameReady = false
+			default:
+			}
+		}
+		if len(batch) == 0 {
+			return
+		}
+		select {
+		case outChannel <- OutputMsg{Name: p.Name, Added: batch, Evicted: evicted}:
+			batch = nil
+			evicted = 0
+		default:
+		}
+	}
+
+	for {
+		select {
+		// New data from the PTY (or EOF when the child exits)
+		case data, ok := <-chunkChannel:
+			if !ok {
+				// EOF — flush remaining partial + batch (non-blocking to avoid deadlock)
+				if len(partial) > 0 {
+					addLine(string(partial))
+				}
+				trySend()
+				return
+			}
+
+			// Prepend any leftover bytes from the previous chunk
+			data = append(partial, data...)
+			partial = nil
+
+			// Split into complete lines at \n boundaries
+			for {
+				idx := bytes.IndexByte(data, '\n')
+				if idx == -1 {
+					break
+				}
+				line := data[:idx]
+				// PTY line discipline adds \r\n (ONLCR); strip the \r
+				if len(line) > 0 && line[len(line)-1] == '\r' {
+					line = line[:len(line)-1]
+				}
+				addLine(string(line))
+				data = data[idx+1:]
+			}
+
+			// Leftover bytes without \n — likely an interactive prompt
+			p.mu.Lock()
+			p.hasPrompt = len(data) > 0
+			p.mu.Unlock()
+
+			if len(data) > 0 {
+				partial = data
+				// Start/reset the partial timer so the prompt appears
+				// after 48ms of silence rather than waiting for \n
+				if !partialTimer.Stop() {
+					select {
+					case <-partialTimer.C:
+					default:
+					}
+				}
+				partialTimer.Reset(flushInterval * 3)
+			}
+
+		// Periodic flush — deliver accumulated lines to the TUI
+		case <-flushTicker.C:
+			trySend()
+
+		// Partial line timeout — treat the incomplete line as complete
+		case <-partialTimer.C:
+			if len(partial) > 0 {
+				addLine(string(partial))
+				partial = nil
+				trySend()
+			}
+		}
+	}
+}
+
+// bufferLine adds a line to the scrollback buffer, evicting old lines if needed.
+func (p *Process) bufferLine(line string) (evicted bool, becameReady bool) {
 	p.mu.Lock()
 	if len(p.lines) >= p.maxLines {
+		p.lines[0] = "" // allow GC of evicted string data
 		p.lines = p.lines[1:]
+		evicted = true
 	}
 	p.lines = append(p.lines, line)
 
-	shouldNotify := false
-	if !p.ready && p.readyPattern != nil && p.readyPattern.MatchString(line) {
-		p.ready = true
+	if p.status != StatusRunning && p.readyPattern != nil && p.readyPattern.MatchString(line) {
 		p.readyAt = time.Now()
 		p.status = StatusRunning
-		shouldNotify = true
+		becameReady = true
 	}
 	p.mu.Unlock()
 
-	if shouldNotify {
-		send(StatusMsg{Name: p.Name, Status: StatusRunning})
-	}
+	return evicted, becameReady
 }
 
-// Sampling CPU/mem/threads every metricsSampleInterval for the process tree
-func (p *Process) startMetricsSampler(pid int) {
-	ps, err := gops.NewProcess(int32(pid))
-	if err != nil {
-		return
-	}
-	// First CPUPercent call initialises the measurement baseline; always 0
-	_, _ = ps.CPUPercent()
+// Sampling CPU/mem/threads every metricsSampleInterval when metrics are enabled.
+func (p *Process) startMetricsSampler(pid int, send func(tea.Msg)) {
 	origPID := pid
 
 	ticker := time.NewTicker(metricsSampleInterval)
@@ -532,71 +692,51 @@ func (p *Process) startMetricsSampler(pid int) {
 		if p.cmd != nil && p.cmd.Process != nil {
 			currentPID = p.cmd.Process.Pid
 		}
-
 		p.mu.Unlock()
-		if st != StatusRunning && st != StatusPending {
-			return
-		}
-		if currentPID != 0 && currentPID != origPID {
-			// Process has been restarted with a new PID
+
+		if (st != StatusRunning && st != StatusPending) || (currentPID != 0 && currentPID != origPID) {
 			return
 		}
 
-		all := collectProcessTree(ps)
-
-		var rssBytes uint64
-		var cpuPct, cpuTime float64
-		var threads int32
-		var fds int32
-		for _, proc := range all {
-			if mem, err := proc.MemoryInfo(); err == nil {
-				rssBytes += mem.RSS
-			}
-			if c, err := proc.CPUPercent(); err == nil {
-				cpuPct += c
-			}
-			if ct, err := proc.Times(); err == nil {
-				cpuTime += ct.User + ct.System
-			}
-			if t, err := proc.NumThreads(); err == nil {
-				threads += t
-			}
-			if f, err := proc.NumFDs(); err == nil {
-				fds += f
-			}
+		if !p.metricsEnabled.Load() {
+			continue
 		}
 
-		rssMB := float64(rssBytes) / 1024 / 1024
-
-		p.mu.Lock()
-		if p.metrics == nil {
-			p.metrics = &Metrics{}
-		}
-		p.metrics.MemRSSMB = rssMB
-		if rssMB > p.metrics.PeakMemMB {
-			p.metrics.PeakMemMB = rssMB
-		}
-		p.metrics.CPUPercent = cpuPct
-		p.metrics.CPUTimeS = cpuTime
-		p.metrics.Threads = threads
-		p.metrics.Children = len(all) - 1
-		p.metrics.FDs = fds
-		p.metrics.SampledAt = time.Now()
-		p.mu.Unlock()
+		p.sampleMetrics()
+		send(MetricsMsg{})
 	}
 }
 
-// collectProcessTree returns ps and all its descendants via a depth-first walk.
-func collectProcessTree(ps *gops.Process) []*gops.Process {
-	all := []*gops.Process{ps}
-	children, err := ps.Children()
+// collectProcessTree returns ps and all its descendants.
+func collectProcessTree(root *gops.Process) []*gops.Process {
+	allProcs, err := gops.Processes()
 	if err != nil {
-		return all
+		return []*gops.Process{root}
 	}
-	for _, child := range children {
-		all = append(all, collectProcessTree(child)...)
+
+	// Build parent → children index
+	byPID := make(map[int32]*gops.Process, len(allProcs))
+	childrenOf := make(map[int32][]*gops.Process)
+	for _, p := range allProcs {
+		byPID[p.Pid] = p
+		ppid, err := p.Ppid()
+		if err == nil && ppid > 0 {
+			childrenOf[ppid] = append(childrenOf[ppid], p)
+		}
 	}
-	return all
+
+	// BFS from root
+	result := []*gops.Process{root}
+	queue := []*gops.Process{root}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, child := range childrenOf[cur.Pid] {
+			result = append(result, child)
+			queue = append(queue, child)
+		}
+	}
+	return result
 }
 
 // stopSignal returns the syscall signal to use when stopping the process,
@@ -612,19 +752,19 @@ func (p *Process) stopSignal() syscall.Signal {
 	}
 }
 
-// killProcessGroup sends the configured stop signal to the process group.
-// Must be called with p.mu held. Falls back to signaling the direct child
-// if the group kill fails. Also walks the process tree to terminate
-// descendants that escaped the group (e.g. pnpm/node processes spawned
-// with a detached process group).
+// killProcessGroup sends the configured stop signal to the process group
+// and walks the tree to catch escaped descendants. Must hold p.mu.
 func (p *Process) killProcessGroup() {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return
 	}
-	// If the tracked command has already exited, avoid signaling based on a
-	// potentially reused PID.
-	if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
-		return
+	// If the tracked command has already exited, avoid signaling based on a potentially reused PID.
+	if p.waitDone != nil {
+		select {
+		case <-p.waitDone:
+			return
+		default:
+		}
 	}
 
 	sig := p.stopSignal()
@@ -641,25 +781,52 @@ func (p *Process) killProcessGroup() {
 	}
 }
 
-// Sends the configured stop signal (default SIGTERM) to the process group
-// and marks it as stopped. Killing the process group (negative PID) ensures
-// all descendants (bash → tsx watch → node, etc.) are terminated.
+// Stop sends SIGTERM, waits for exit, and escalates to SIGKILL.
 func (p *Process) Stop() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.stopRequested = true
 	p.killProcessGroup()
 	if p.ptmx != nil {
 		_ = p.ptmx.Close()
 		p.ptmx = nil
 	}
+	if p.stdinPipe != nil {
+		_ = p.stdinPipe.Close()
+		p.stdinPipe = nil
+	}
 	p.status = StatusStopped
+	cmd := p.cmd
+	waitDone := p.waitDone
+	p.mu.Unlock()
+
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+
+	// Wait for graceful exit, then escalate to SIGKILL
+	if waitDone != nil {
+		select {
+		case <-waitDone:
+			return
+		case <-time.After(stopGracePeriod):
+		}
+
+		pid := cmd.Process.Pid
+		if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+			_ = cmd.Process.Kill()
+		}
+
+		// Give the kernel a moment to reap after SIGKILL
+		select {
+		case <-waitDone:
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // Stops the process, clears its output buffer, and starts it again
 func (p *Process) Restart(send func(tea.Msg)) {
 	p.Stop()
-	send(StatusMsg{Name: p.Name, Status: StatusStopped})
+	send(StatusMsg{Name: p.Name, Status: StatusPending})
 	_ = p.Start(send)
 }
 
@@ -671,6 +838,25 @@ func (p *Process) PID() int {
 		return p.cmd.Process.Pid
 	}
 	return 0
+}
+
+// WriteInput writes data to the process's stdin via the PTY.
+func (p *Process) WriteInput(data []byte) error {
+	p.mu.Lock()
+	ptmx := p.ptmx
+	stdinPipe := p.stdinPipe
+	p.mu.Unlock()
+	if ptmx != nil {
+		_, err := ptmx.Write(data)
+		return err
+	}
+	if stdinPipe != nil {
+		// No terminal line discipline in pipe mode: translate \r to \n
+		translated := bytes.ReplaceAll(data, []byte("\r"), []byte("\n"))
+		_, err := stdinPipe.Write(translated)
+		return err
+	}
+	return fmt.Errorf("process %s has no PTY or stdin pipe", p.Name)
 }
 
 // Updates the pty window size to keep output correctly reflowed

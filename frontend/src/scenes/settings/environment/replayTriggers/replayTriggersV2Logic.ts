@@ -1,5 +1,7 @@
-import { actions, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -14,32 +16,83 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
     path(['scenes', 'settings', 'environment', 'replayTriggers', 'replayTriggersV2Logic']),
     connect({
         values: [teamLogic, ['currentTeam']],
+        actions: [teamLogic, ['updateCurrentTeam']],
     }),
     actions({
-        // TODO: Implement actions for CRUD operations
+        setTriggerGroupsConfig: (config: SessionRecordingTriggerGroupsConfig | null) => ({ config }),
         addTriggerGroup: (group: SessionRecordingTriggerGroup) => ({ group }),
-        updateTriggerGroup: (id: string, updates: Partial<SessionRecordingTriggerGroup>) => ({ id, updates }),
         deleteTriggerGroup: (id: string) => ({ id }),
-        saveTriggerGroups: true,
+        updateTriggerGroup: (id: string, updates: Partial<SessionRecordingTriggerGroup>) => ({ id, updates }),
+        setIsAddingGroup: (isAdding: boolean) => ({ isAdding }),
+        setEditingGroupId: (id: string | null) => ({ id }),
     }),
     loaders(({ values }) => ({
-        triggerGroupsConfig: [
-            null as SessionRecordingTriggerGroupsConfig | null,
+        _loadingState: [
+            false,
             {
-                // TODO: Implement actual loading from API
-                loadTriggerGroupsConfig: async () => {
-                    // For now, return from currentTeam
-                    return values.currentTeam?.session_recording_trigger_groups || null
-                },
-                // TODO: Implement save functionality
-                saveTriggerGroups: async () => {
-                    // Will call teamLogic.actions.updateCurrentTeam() with updated config
-                    return values.triggerGroupsConfig
+                saveConfig: async () => {
+                    // Save to backend via teamLogic
+                    await teamLogic.asyncActions.updateCurrentTeam({
+                        session_recording_trigger_groups: values.triggerGroupsConfig,
+                    })
+                    return true
                 },
             },
         ],
     })),
-    // TODO: Add reducers for CRUD operations in next PR
+    reducers({
+        triggerGroupsConfig: [
+            null as SessionRecordingTriggerGroupsConfig | null,
+            {
+                setTriggerGroupsConfig: (_, { config }) => config,
+                addTriggerGroup: (state, { group }) => {
+                    if (!state) {
+                        // Initialize with new group
+                        return {
+                            version: 2 as const,
+                            groups: [group],
+                        }
+                    }
+                    return {
+                        ...state,
+                        groups: [...state.groups, group],
+                    }
+                },
+                deleteTriggerGroup: (state, { id }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        groups: state.groups.filter((g) => g.id !== id),
+                    }
+                },
+                updateTriggerGroup: (state, { id, updates }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        groups: state.groups.map((g) => (g.id === id ? { ...g, ...updates } : g)),
+                    }
+                },
+            },
+        ],
+        isAddingGroup: [
+            false,
+            {
+                setIsAddingGroup: (_, { isAdding }) => isAdding,
+                addTriggerGroup: () => false, // Close form after adding
+            },
+        ],
+        editingGroupId: [
+            null as string | null,
+            {
+                setEditingGroupId: (_, { id }) => id,
+                updateTriggerGroup: () => null, // Close form after updating
+            },
+        ],
+    }),
     selectors({
         triggerGroups: [
             (s) => [s.triggerGroupsConfig],
@@ -53,5 +106,32 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                 return config !== null && config.version === 2
             },
         ],
+    }),
+    listeners(({ asyncActions }) => ({
+        addTriggerGroup: async () => {
+            // Auto-save after adding
+            await asyncActions.saveConfig()
+        },
+        deleteTriggerGroup: async () => {
+            // Auto-save after deleting
+            await asyncActions.saveConfig()
+        },
+        updateTriggerGroup: async () => {
+            // Auto-save after updating
+            await asyncActions.saveConfig()
+        },
+        saveConfigSuccess: () => {
+            lemonToast.success('Trigger group saved')
+        },
+        saveConfigFailure: ({ error }) => {
+            lemonToast.error('Failed to save trigger group. Please try again.')
+            console.error('Error saving trigger group:', error)
+        },
+    })),
+    // Load config from currentTeam on mount
+    afterMount(({ actions, values }) => {
+        if (values.currentTeam?.session_recording_trigger_groups) {
+            actions.setTriggerGroupsConfig(values.currentTeam.session_recording_trigger_groups)
+        }
     }),
 ])

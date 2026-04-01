@@ -27,14 +27,18 @@ class TestArtifact:
         return Repo.objects.create(team_id=team.id, repo_external_id=222, repo_full_name="org/test")
 
     def test_str_shows_truncated_hash(self, repo):
-        artifact = Artifact.objects.create(repo=repo, content_hash="abcdef123456789", storage_path="visual_review/abc")
+        artifact = Artifact.objects.create(
+            repo=repo, team_id=repo.team_id, content_hash="abcdef123456789", storage_path="visual_review/abc"
+        )
         assert str(artifact) == "abcdef123456..."
 
     def test_unique_hash_per_project(self, repo):
-        Artifact.objects.create(repo=repo, content_hash="hash123", storage_path="p/hash123")
+        Artifact.objects.create(repo=repo, team_id=repo.team_id, content_hash="hash123", storage_path="p/hash123")
 
         with pytest.raises(Exception):  # IntegrityError
-            Artifact.objects.create(repo=repo, content_hash="hash123", storage_path="p/hash123-dup")
+            Artifact.objects.create(
+                repo=repo, team_id=repo.team_id, content_hash="hash123", storage_path="p/hash123-dup"
+            )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -44,16 +48,20 @@ class TestRun:
         return Repo.objects.create(team_id=team.id, repo_external_id=222, repo_full_name="org/test")
 
     def test_str_shows_id_and_status(self, repo):
-        run = Run.objects.create(repo=repo, commit_sha="abc123", branch="main")
+        run = Run.objects.create(repo=repo, team_id=repo.team_id, commit_sha="abc123", branch="main")
         assert "pending" in str(run).lower()
 
     def test_default_status_is_pending(self, repo):
-        run = Run.objects.create(repo=repo, commit_sha="abc123", branch="main")
+        run = Run.objects.create(repo=repo, team_id=repo.team_id, commit_sha="abc123", branch="main")
         assert run.status == RunStatus.PENDING
 
     def test_ordering_by_created_at_desc(self, repo):
-        run1 = Run.objects.create(repo=repo, commit_sha="first", branch="main", run_type="storybook")
-        run2 = Run.objects.create(repo=repo, commit_sha="second", branch="main", run_type="playwright")
+        run1 = Run.objects.create(
+            repo=repo, team_id=repo.team_id, commit_sha="first", branch="main", run_type="storybook"
+        )
+        run2 = Run.objects.create(
+            repo=repo, team_id=repo.team_id, commit_sha="second", branch="main", run_type="playwright"
+        )
 
         runs = list(Run.objects.filter(repo=repo))
         assert runs[0].id == run2.id  # Most recent first
@@ -68,19 +76,19 @@ class TestRunSnapshot:
 
     @pytest.fixture
     def run(self, repo):
-        return Run.objects.create(repo=repo, commit_sha="abc123", branch="main")
+        return Run.objects.create(repo=repo, team_id=repo.team_id, commit_sha="abc123", branch="main")
 
     def test_str_shows_identifier_and_result(self, run):
-        snapshot = RunSnapshot.objects.create(run=run, identifier="Button-primary")
+        snapshot = RunSnapshot.objects.create(run=run, team_id=run.team_id, identifier="Button-primary")
         assert "Button-primary" in str(snapshot)
         assert "unchanged" in str(snapshot).lower()
 
     def test_default_result_is_unchanged(self, run):
-        snapshot = RunSnapshot.objects.create(run=run, identifier="Test")
+        snapshot = RunSnapshot.objects.create(run=run, team_id=run.team_id, identifier="Test")
         assert snapshot.result == SnapshotResult.UNCHANGED
 
     def test_unique_identifier_per_run(self, run):
-        RunSnapshot.objects.create(run=run, identifier="Button")
+        RunSnapshot.objects.create(run=run, team_id=run.team_id, identifier="Button")
 
         with pytest.raises(Exception):  # IntegrityError
-            RunSnapshot.objects.create(run=run, identifier="Button")
+            RunSnapshot.objects.create(run=run, team_id=run.team_id, identifier="Button")

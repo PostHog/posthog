@@ -46,6 +46,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
+from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
@@ -239,6 +240,10 @@ urlpatterns = [
         "api/public_hog_flow_templates",
         hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
+    opt_slash_path(
+        "api/public_source_configs",
+        PublicSourceConfigViewSet.as_view({"get": "list"}),
+    ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
@@ -247,6 +252,10 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
+    ),
+    path(
+        "api/internal/hog_flows/process_due_schedules",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_process_due_schedules"})),
     ),
     path(
         "api/projects/<str:team_id>/internal/signals/emit",

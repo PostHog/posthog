@@ -8,22 +8,18 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { HeatmapSettings } from '~/queries/schema/schema-general'
 
-import { dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
+import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import {
     buildFallbackGradientStops,
+    formatHeatmapLabel,
+    formatHeatmapValue,
+    getHeatmapNullLabel,
+    getHeatmapNullValue,
     getHeatmapTextClassName,
     interpolateHeatmapColor,
     resolveGradientStops,
     stretchGradientStopsToValues,
 } from './heatmapUtils'
-
-const formatCategoryValue = (value: unknown): string => {
-    if (value === null || value === undefined || value === '') {
-        return '[No value]'
-    }
-
-    return String(value)
-}
 
 const parseNumericValue = (value: unknown): number | null => {
     if (value === null || value === undefined || value === '') {
@@ -74,10 +70,11 @@ const buildHeatmapData = (
     const xIndexMap = new Map<string, number>()
     const yIndexMap = new Map<string, number>()
     const seenCells = new Set<string>()
+    const nullLabel = getHeatmapNullLabel(heatmapSettings)
 
     rows.forEach((row) => {
-        const xLabel = formatCategoryValue(row[xIndex])
-        const yLabel = formatCategoryValue(row[yIndex])
+        const xLabel = formatHeatmapLabel(row[xIndex], nullLabel)
+        const yLabel = formatHeatmapLabel(row[yIndex], nullLabel)
         const numericValue = parseNumericValue(row[valueIndex])
 
         if (!xIndexMap.has(xLabel)) {
@@ -170,6 +167,7 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
             : gradientStops
     const xAxisLabel = heatmapSettings.xAxisLabel || heatmapSettings.xAxisColumn || 'X-axis'
     const yAxisLabel = heatmapSettings.yAxisLabel || heatmapSettings.yAxisColumn || 'Y-axis'
+    const nullValue = getHeatmapNullValue(heatmapSettings)
 
     if (!hasSelection || !hasValidColumns) {
         return (
@@ -226,7 +224,6 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
                                         cellValue === null
                                             ? 'transparent'
                                             : interpolateHeatmapColor(cellValue, scaledGradientStops)
-                                    const formattedValue = formatDataWithSettings(cellValue, undefined)
 
                                     return (
                                         <td
@@ -237,9 +234,7 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
                                             )}
                                             style={{ backgroundColor: cellColor }}
                                         >
-                                            {typeof formattedValue === 'object'
-                                                ? JSON.stringify(formattedValue)
-                                                : (formattedValue ?? '')}
+                                            {formatHeatmapValue(cellValue, nullValue)}
                                         </td>
                                     )
                                 })}
