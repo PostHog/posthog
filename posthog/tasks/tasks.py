@@ -1352,12 +1352,13 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             checkpoint_lag_gauge.set(0.0)
             return
 
-        # Fetch flags for all teams that appear in updates. The in-memory
-        # flag_updates.get() check below filters out any false positives,
-        # so over-fetching by team_id is harmless and avoids an unbounded
-        # OR chain that could spike PG query planning time on catchup runs.
+        # Fetch flags matching any (team_id, key) combination from updates.
+        # This may over-fetch cross-product matches (e.g. team A's flag
+        # that shares a key with team B), but the in-memory flag_updates.get()
+        # check below filters those out.
         team_ids = {team_id for team_id, _ in flag_updates}
-        flags = FeatureFlag.objects.filter(team_id__in=team_ids)
+        flag_keys = {flag_key for _, flag_key in flag_updates}
+        flags = FeatureFlag.objects.filter(team_id__in=team_ids, key__in=flag_keys)
 
         flags_to_update = []
         for flag in flags:
