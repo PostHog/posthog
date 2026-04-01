@@ -575,6 +575,8 @@ async def materialize_model(
 
     except ObjectDoesNotExist:
         raise
+    except DataModelingCancelledException:
+        raise
     except Exception as e:
         error_message = str(e)
         await logger.aerror(f"Error materializing model {model_label}: {error_message}")
