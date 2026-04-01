@@ -14948,6 +14948,13 @@
                     "$ref": "#/definitions/integer",
                     "description": "Show events matching a given action"
                 },
+                "actionSteps": {
+                    "description": "Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.",
+                    "items": {
+                        "$ref": "#/definitions/EventsQueryActionStep"
+                    },
+                    "type": "array"
+                },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
                     "type": "string"
@@ -15049,6 +15056,49 @@
                 }
             },
             "required": ["kind", "select"],
+            "type": "object"
+        },
+        "EventsQueryActionStep": {
+            "additionalProperties": false,
+            "description": "An action step definition for matching events without a saved action",
+            "properties": {
+                "event": {
+                    "type": ["string", "null"]
+                },
+                "href": {
+                    "type": ["string", "null"]
+                },
+                "href_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "selector": {
+                    "type": ["string", "null"]
+                },
+                "tag_name": {
+                    "type": ["string", "null"]
+                },
+                "text": {
+                    "type": ["string", "null"]
+                },
+                "text_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                },
+                "url": {
+                    "type": ["string", "null"]
+                },
+                "url_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                }
+            },
             "type": "object"
         },
         "EventsQueryPersonColumn": {
@@ -32413,6 +32463,13 @@
                 "actionId": {
                     "$ref": "#/definitions/integer",
                     "description": "Show events matching a given action"
+                },
+                "actionSteps": {
+                    "description": "Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.",
+                    "items": {
+                        "$ref": "#/definitions/EventsQueryActionStep"
+                    },
+                    "type": "array"
                 },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
