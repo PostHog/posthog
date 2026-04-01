@@ -6,7 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Value, When
+from django.db.models import Case, CharField, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Subquery, Value, When
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -260,6 +260,7 @@ class SignalReportViewSet(
         "is_suggested_reviewer": "is_suggested_reviewer",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
+        "priority": "priority_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
@@ -277,6 +278,34 @@ class SignalReportViewSet(
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+        source_product_filter = self.request.query_params.get("source_product")
+        if source_product_filter:
+            source_products = [s.strip() for s in source_product_filter.split(",") if s.strip()]
+            if source_products:
+                # Find report IDs that have at least one signal from the requested source products.
+                # We start from signals (narrowed by source_product) and get their report IDs,
+                # then intersect with the PG queryset that already has status/search filters.
+                ch_query = """
+                    SELECT DISTINCT
+                        JSONExtractString(metadata, 'report_id') as report_id
+                    FROM document_embeddings
+                    WHERE model_name = {model_name}
+                      AND product = 'signals'
+                      AND JSONExtractString(metadata, 'source_product') IN ({source_products})
+                      AND NOT JSONExtractBool(metadata, 'deleted')
+                """
+                tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
+                result = execute_hogql_query(
+                    query_type="SignalsFilterBySourceProduct",
+                    query=ch_query,
+                    team=self.team,
+                    placeholders={
+                        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+                        "source_products": ast.Tuple(exprs=[ast.Constant(value=sp) for sp in source_products]),
+                    },
+                )
+                report_ids_with_source = {row[0] for row in (result.results or []) if row[0]}
+                qs = qs.filter(id__in=report_ids_with_source)
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
         qs = qs.annotate(
             pipeline_status_rank=Case(
@@ -291,6 +320,29 @@ class SignalReportViewSet(
                 default=Value(50),
                 output_field=IntegerField(),
             )
+        )
+        # `ordering=priority` uses a numeric rank derived from the latest
+        # priority_judgment artefact (P0=0 … P4=4, null=99).
+        latest_priority_content = Subquery(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            )
+            .order_by("-created_at")
+            .values("content")[:1],
+            output_field=CharField(),
+        )
+        qs = qs.annotate(
+            _priority_str=latest_priority_content,
+            priority_rank=Case(
+                When(_priority_str__contains='"P0"', then=Value(0)),
+                When(_priority_str__contains='"P1"', then=Value(1)),
+                When(_priority_str__contains='"P2"', then=Value(2)),
+                When(_priority_str__contains='"P3"', then=Value(3)),
+                When(_priority_str__contains='"P4"', then=Value(4)),
+                default=Value(99),
+                output_field=IntegerField(),
+            ),
         )
         qs = qs.prefetch_related(
             Prefetch(

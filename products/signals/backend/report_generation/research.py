@@ -101,9 +101,9 @@ class ReportPresentationOutput(BaseModel):
     )
     summary: str = Field(
         description=(
-            "A very short factual summary of the report in 1-3 sentences. "
-            "Focus on what the signals collectively indicate and what product area is affected. "
-            "Do not restate actionability or priority."
+            "An Axios Smart Brevity-style summary with bolded section labels: "
+            "'**Why it matters:** …', '**What's happening:** …', '**The bottom line:** …'. "
+            "Each section is one sentence. Focus on user/business impact, concrete facts, and a specific next step."
         ),
     )
 
@@ -117,7 +117,9 @@ class ReportPresentationOutput(BaseModel):
 
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
-    summary: str = Field(description="Generated short factual report summary.")
+    summary: str = Field(
+        description="Generated Axios-style report summary (Why it matters / What's happening / The bottom line)."
+    )
     findings: list[SignalFinding] = Field(
         description="One finding per signal in the report, in the same order as the input signals.",
     )
@@ -432,9 +434,15 @@ def build_report_presentation_prompt(
   - Bad: "Various funnel improvements and bug fixes"
   - Bad: "Multiple analytics issues"
 
-- **Summary**: 1-3 short factual sentences explaining what the signals collectively indicate and what area of the product or codebase is involved.
-- Do **not** restate actionability, priority, urgency, or next steps unless they are part of the factual issue itself.
-- Keep the summary compact and information-dense.
+- **Summary**: Write in the Axios Smart Brevity style with these three sections, each on its own line:
+  - **Why it matters:** One sentence on the business or user impact. This is the most important part — lead with it.
+  - **What's happening:** 1-2 sentences on the concrete facts. Reference specific signals, error types, metrics, or patterns from your research.
+  - **The bottom line:** One sentence with the specific, actionable next step — a code change, investigation, or decision.
+
+  Style rules:
+  - Be direct and specific. Every sentence must carry information.
+  - No filler phrases ("various issues detected", "it's worth noting").
+  - Bold the section labels exactly as shown above.
 
 {previous_presentation_context}
 
@@ -468,6 +476,7 @@ async def run_multi_turn_research(
     branch: str = "master",
     verbose: bool = False,
     output_fn: OutputFn = None,
+    signal_report_id: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -505,6 +514,8 @@ async def run_multi_turn_research(
         step_name="report_research",
         verbose=verbose,
         output_fn=output_fn,
+        origin_product="signal_report",
+        signal_report_id=signal_report_id,
     )
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]
