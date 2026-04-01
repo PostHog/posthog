@@ -1132,12 +1132,21 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_build_missing_dependency() {
-        // flag_a depends on flag_b (id=2), but flag_b doesn't exist
-        let flags = vec![
-            create_flag(1, "flag_a", HashSet::from([2]), true),
-            create_flag(3, "flag_c", HashSet::new(), true),
-        ];
-        let feature_flags = flag_list_with_metadata(flags);
+        // flag_a depends on flag_b (id=2), but flag_b doesn't exist.
+        // Django excludes missing-dep flags from dependency_stages, so we hand-craft
+        // the metadata to match production behavior rather than computing it.
+        let feature_flags = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", HashSet::from([2]), true),
+                create_flag(3, "flag_c", HashSet::new(), true),
+            ],
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![3]],
+                flags_with_missing_deps: vec![1],
+                transitive_deps: HashMap::from([(1, HashSet::from([2])), (3, HashSet::new())]),
+            },
+            ..Default::default()
+        };
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, None);
 
@@ -1648,6 +1657,34 @@ mod precomputed_dependency_graph_tests {
             !all_keys.contains("flag_d"),
             "Unrelated flag should be excluded"
         );
+    }
+
+    #[test]
+    fn test_build_with_flag_keys_filters_independent_flags_on_pg_fallback() {
+        // Simulates PG fallback: single_stage metadata has per-flag empty transitive_deps.
+        // flag_keys filtering should work for independent flags since each flag maps to
+        // an empty dep set, allowing unrelated flags to be skipped.
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::new(), true),
+            create_flag(2, "flag_b", HashSet::new(), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags: flags.clone(),
+            evaluation_metadata: EvaluationMetadata::single_stage(&flags),
+            ..Default::default()
+        };
+
+        let precomputed =
+            PrecomputedDependencyGraph::build(&feature_flags, Some(&["flag_a".to_string()]));
+
+        let all_keys: HashSet<String> = precomputed
+            .evaluation_stages
+            .iter()
+            .flat_map(|s| s.iter().map(|f| f.key.clone()))
+            .collect();
+
+        assert_eq!(all_keys, HashSet::from(["flag_a".to_string()]));
     }
 
     #[test]
