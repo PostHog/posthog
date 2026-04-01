@@ -229,6 +229,14 @@ fn setup_mock_hypercache_reader(
         async fn get_string(&self, _bucket: &str, key: &str) -> Result<String, S3Error> {
             Err(S3Error::NotFound(key.to_string()))
         }
+
+        async fn put_string(&self, _bucket: &str, _key: &str, _value: &str) -> Result<(), S3Error> {
+            Ok(())
+        }
+
+        async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), S3Error> {
+            Ok(())
+        }
     }
 
     let mut config = HyperCacheConfig::new(
