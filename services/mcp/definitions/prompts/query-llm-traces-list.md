@@ -106,7 +106,25 @@ Each event in `events` has an `event` field indicating its type. The key propert
 - **`$ai_metric`** — a named evaluation metric. Properties include `$ai_metric_name`, `$ai_metric_value`.
 - **`$ai_feedback`** — user-provided feedback. Properties include `$ai_feedback_text`.
 
-All event types share `$ai_trace_id`, `$ai_span_id`, and `$ai_parent_id` for tree structure.
+All event types share `$ai_trace_id`, `$ai_span_id`, and `$ai_parent_id` for tree structure (see below).
+
+## Tree structure (IDs and parent-child relationships)
+
+Events in a trace form a tree. Each event carries three IDs that define its position:
+
+- `$ai_trace_id` — present on every event, identifies which trace it belongs to (same as the trace's `id`)
+- `$ai_span_id` (or `$ai_generation_id` for generations) — the event's own unique identifier
+- `$ai_parent_id` — points to the parent event's `$ai_span_id`
+
+To reconstruct the tree:
+
+1. Events where `$ai_parent_id` equals `$ai_trace_id` are **root-level children** of the trace
+2. Other events are children of the event whose `$ai_span_id` matches their `$ai_parent_id`
+3. Group events by `$ai_parent_id` and walk from root children downward
+
+Generations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf nodes. Spans (`$ai_span`) can have children.
+
+**Important:** This list tool only returns **direct children** of the trace (events where `$ai_parent_id` = trace ID) plus all `$ai_metric` and `$ai_feedback` events — NOT deeply nested events. For the full event tree with all nested children, use `query-llm-trace-detail` with the trace's `id`.
 
 ## Pagination
 
@@ -175,3 +193,4 @@ Use `limit` and `offset` for pagination. The default limit is 100. The response 
 - This tool returns raw trace data — it does not aggregate or visualize. For aggregated LLM metrics over time (e.g. total token usage per day), use `query-trends` with AI events like `$ai_generation` instead.
 - Use `filterTestAccounts: true` by default to exclude internal users unless the user asks otherwise.
 - The default time range is last 7 days. LLM trace data tends to be recent, so shorter ranges are usually appropriate.
+- For deep inspection of a single trace (full event tree with all nested children and complete properties), use `query-llm-trace-detail` with the trace's `id`.
