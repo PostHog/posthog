@@ -13,7 +13,8 @@ from temporalio.exceptions import ApplicationError
 from posthog.models import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.state import (
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     generate_state_id_from_session_ids,
     get_data_class_from_redis,
@@ -21,11 +22,10 @@ from posthog.temporal.ai.session_summary.state import (
     get_redis_state_client,
     store_data_in_redis,
 )
-from posthog.temporal.ai.session_summary.types.group import (
+from posthog.temporal.session_replay.session_summary.types.group import (
     SessionGroupSummaryOfSummariesInputs,
     SessionGroupSummaryPatternsExtractionChunksInputs,
 )
-from posthog.temporal.common.client import async_connect
 
 from ee.hogai.session_summaries.constants import (
     FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO,

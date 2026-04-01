@@ -996,65 +996,36 @@ mod evaluation_metadata_serde_tests {
 }
 
 #[cfg(test)]
-fn create_flag_with_deps(
-    id: i32,
-    key: &str,
-    dependencies: std::collections::HashSet<i32>,
-    active: bool,
-    deleted: bool,
-) -> crate::flags::flag_models::FeatureFlag {
-    use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
-
-    let mut filters = FlagFilters {
-        groups: vec![FlagPropertyGroup {
-            properties: Some(vec![]),
-            rollout_percentage: Some(100.0),
-            variant: None,
-            ..Default::default()
-        }],
-        multivariate: None,
-        aggregation_group_type_index: None,
-        payloads: None,
-        super_groups: None,
-        feature_enrollment: None,
-
-        holdout: None,
-    };
-
-    for dep_id in dependencies {
-        filters.groups[0].properties.as_mut().unwrap().push(
-            crate::properties::property_models::PropertyFilter {
-                key: dep_id.to_string(),
-                value: Some(serde_json::json!(true)),
-                operator: Some(crate::properties::property_models::OperatorType::Exact),
-                prop_type: crate::properties::property_models::PropertyType::Flag,
-                group_type_index: None,
-                negation: None,
-                compiled_regex: None,
-            },
-        );
-    }
-
-    crate::utils::test_utils::create_test_flag(
-        Some(id),
-        Some(1),
-        None,
-        Some(key.to_string()),
-        Some(filters),
-        Some(deleted),
-        Some(active),
-        None,
-    )
-}
-
-#[cfg(test)]
 mod precomputed_dependency_graph_tests {
     use crate::flags::flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList};
+    use crate::mock;
+    use crate::properties::property_models::PropertyType;
     use crate::utils::graph_utils::PrecomputedDependencyGraph;
+    use crate::utils::mock::MockInto;
+    use crate::utils::test_utils::flag_list_with_metadata;
+    use serde_json::json;
     use std::collections::{HashMap, HashSet};
 
-    fn create_flag(id: i32, key: &str, dependencies: HashSet<i32>, active: bool) -> FeatureFlag {
-        super::create_flag_with_deps(id, key, dependencies, active, false)
+    /// Creates a test flag with the given dependencies and active state.
+    ///
+    /// For deleted flags, set `.deleted = true` on the returned value.
+    fn flag(id: i32, key: &str, deps: HashSet<i32>, active: bool) -> FeatureFlag {
+        let dep_filters: Vec<crate::properties::property_models::PropertyFilter> = deps
+            .into_iter()
+            .map(|dep_id| {
+                mock!(crate::properties::property_models::PropertyFilter,
+                    key: dep_id.to_string(),
+                    value: Some(json!(true)),
+                    prop_type: PropertyType::Flag
+                )
+            })
+            .collect();
+
+        if dep_filters.is_empty() {
+            mock!(FeatureFlag, id: id, key: key.mock_into(), active: active)
+        } else {
+            mock!(FeatureFlag, id: id, key: key.mock_into(), active: active, filters: dep_filters.mock_into())
+        }
     }
 
     /// Extracts sorted flag keys from evaluation stages for deterministic comparison.
@@ -1072,23 +1043,11 @@ mod precomputed_dependency_graph_tests {
     #[test]
     fn test_build_no_dependencies() {
         let flags = vec![
-            create_flag(1, "flag_a", HashSet::new(), true),
-            create_flag(2, "flag_b", HashSet::new(), true),
-            create_flag(3, "flag_c", HashSet::new(), true),
+            flag(1, "flag_a", HashSet::new(), true),
+            flag(2, "flag_b", HashSet::new(), true),
+            flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            evaluation_metadata: EvaluationMetadata {
-                dependency_stages: vec![vec![1, 2, 3]],
-                flags_with_missing_deps: vec![],
-                transitive_deps: HashMap::from([
-                    (1, HashSet::new()),
-                    (2, HashSet::new()),
-                    (3, HashSet::new()),
-                ]),
-            },
-            ..Default::default()
-        };
+        let feature_flags = flag_list_with_metadata(flags);
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, None);
 
@@ -1104,23 +1063,11 @@ mod precomputed_dependency_graph_tests {
     fn test_build_linear_chain() {
         // flag_a -> flag_b -> flag_c (flag_a depends on flag_b, which depends on flag_c)
         let flags = vec![
-            create_flag(1, "flag_a", HashSet::from([2]), true),
-            create_flag(2, "flag_b", HashSet::from([3]), true),
-            create_flag(3, "flag_c", HashSet::new(), true),
+            flag(1, "flag_a", HashSet::from([2]), true),
+            flag(2, "flag_b", HashSet::from([3]), true),
+            flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            evaluation_metadata: EvaluationMetadata {
-                dependency_stages: vec![vec![3], vec![2], vec![1]],
-                flags_with_missing_deps: vec![],
-                transitive_deps: HashMap::from([
-                    (1, HashSet::from([2, 3])),
-                    (2, HashSet::from([3])),
-                    (3, HashSet::new()),
-                ]),
-            },
-            ..Default::default()
-        };
+        let feature_flags = flag_list_with_metadata(flags);
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, None);
 
@@ -1148,25 +1095,12 @@ mod precomputed_dependency_graph_tests {
         //   \    /
         //   flag_d
         let flags = vec![
-            create_flag(1, "flag_a", HashSet::from([2, 3]), true),
-            create_flag(2, "flag_b", HashSet::from([4]), true),
-            create_flag(3, "flag_c", HashSet::from([4]), true),
-            create_flag(4, "flag_d", HashSet::new(), true),
+            flag(1, "flag_a", HashSet::from([2, 3]), true),
+            flag(2, "flag_b", HashSet::from([4]), true),
+            flag(3, "flag_c", HashSet::from([4]), true),
+            flag(4, "flag_d", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            evaluation_metadata: EvaluationMetadata {
-                dependency_stages: vec![vec![4], vec![2, 3], vec![1]],
-                flags_with_missing_deps: vec![],
-                transitive_deps: HashMap::from([
-                    (1, HashSet::from([2, 3, 4])),
-                    (2, HashSet::from([4])),
-                    (3, HashSet::from([4])),
-                    (4, HashSet::new()),
-                ]),
-            },
-            ..Default::default()
-        };
+        let feature_flags = flag_list_with_metadata(flags);
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, None);
 
@@ -1188,13 +1122,14 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_build_missing_dependency() {
-        // flag_a depends on flag_b (id=2), but flag_b doesn't exist
-        let flags = vec![
-            create_flag(1, "flag_a", HashSet::from([2]), true),
-            create_flag(3, "flag_c", HashSet::new(), true),
-        ];
+        // flag_a depends on flag_b (id=2), but flag_b doesn't exist.
+        // Django excludes missing-dep flags from dependency_stages, so we hand-craft
+        // the metadata to match production behavior rather than computing it.
         let feature_flags = FeatureFlagList {
-            flags,
+            flags: vec![
+                flag(1, "flag_a", HashSet::from([2]), true),
+                flag(3, "flag_c", HashSet::new(), true),
+            ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3]],
                 flags_with_missing_deps: vec![1],
@@ -1214,12 +1149,11 @@ mod precomputed_dependency_graph_tests {
     fn test_build_transitive_missing_dependency() {
         // flag_a -> flag_b -> (missing flag_c)
         // flag_a should also be marked as having missing deps
-        let flags = vec![
-            create_flag(1, "flag_a", HashSet::from([2]), true),
-            create_flag(2, "flag_b", HashSet::from([999]), true),
-        ];
         let feature_flags = FeatureFlagList {
-            flags,
+            flags: vec![
+                flag(1, "flag_a", HashSet::from([2]), true),
+                flag(2, "flag_b", HashSet::from([999]), true),
+            ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![2], vec![1]],
                 flags_with_missing_deps: vec![1, 2],
@@ -1242,15 +1176,7 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_build_empty_flag_list() {
-        let feature_flags = FeatureFlagList {
-            flags: vec![],
-            evaluation_metadata: EvaluationMetadata {
-                dependency_stages: vec![],
-                flags_with_missing_deps: vec![],
-                transitive_deps: HashMap::new(),
-            },
-            ..Default::default()
-        };
+        let feature_flags = flag_list_with_metadata(vec![]);
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, None);
 
@@ -1261,16 +1187,8 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_build_single_flag_no_dependencies() {
-        let flags = vec![create_flag(1, "solo_flag", HashSet::new(), true)];
-        let feature_flags = FeatureFlagList {
-            flags,
-            evaluation_metadata: EvaluationMetadata {
-                dependency_stages: vec![vec![1]],
-                flags_with_missing_deps: vec![],
-                transitive_deps: HashMap::from([(1, HashSet::new())]),
-            },
-            ..Default::default()
-        };
+        let flags = vec![flag(1, "solo_flag", HashSet::new(), true)];
+        let feature_flags = flag_list_with_metadata(flags);
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, None);
 
@@ -1281,14 +1199,13 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_build_inactive_flag_skips_dependencies() {
-        // Inactive flag references non-existent dependency — should not produce errors
-        // Django excludes inactive flags from dependency_stages and flags_with_missing_deps
-        let flags = vec![
-            create_flag(1, "inactive_flag", HashSet::from([999]), false),
-            create_flag(2, "active_flag", HashSet::new(), true),
-        ];
+        // Inactive flag references non-existent dependency — should not produce errors.
+        // The inactive flag is in filtered_out_flag_ids, so its missing deps are excluded.
         let feature_flags = FeatureFlagList {
-            flags,
+            flags: vec![
+                flag(1, "inactive_flag", HashSet::from([999]), false),
+                flag(2, "active_flag", HashSet::new(), true),
+            ],
             filtered_out_flag_ids: HashSet::from([1]),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![2]],
@@ -1302,6 +1219,38 @@ mod precomputed_dependency_graph_tests {
 
         assert!(precomputed.flags_with_missing_deps.is_empty());
         assert_eq!(precomputed.error_count, 0);
+    }
+
+    #[test]
+    fn test_build_with_cycle() {
+        // flag_a -> flag_b -> flag_a (cycle), flag_c is independent
+        let flags = vec![
+            flag(1, "flag_a", HashSet::from([2]), true),
+            flag(2, "flag_b", HashSet::from([1]), true),
+            flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = flag_list_with_metadata(flags);
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, None);
+
+        assert!(precomputed.has_cycle_errors);
+        assert!(precomputed.error_count > 0);
+
+        // Cyclic flags are removed; only flag_c should remain
+        let all_keys: HashSet<String> = precomputed
+            .evaluation_stages
+            .iter()
+            .flat_map(|stage| stage.iter().map(|f| f.key.clone()))
+            .collect();
+        assert!(all_keys.contains("flag_c"));
+        assert!(
+            !all_keys.contains("flag_a"),
+            "Cyclic flag should be removed"
+        );
+        assert!(
+            !all_keys.contains("flag_b"),
+            "Cyclic flag should be removed"
+        );
     }
 
     // --- Precomputed data tests: verify build_from_precomputed path ---
@@ -1347,9 +1296,9 @@ mod precomputed_dependency_graph_tests {
         // Flags with precomputed data: A(1) -> B(2) -> C(3)
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::from([3]), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
+                flag(1, "flag_a", HashSet::from([2]), true),
+                flag(2, "flag_b", HashSet::from([3]), true),
+                flag(3, "flag_c", HashSet::new(), true),
             ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3], vec![2], vec![1]],
@@ -1389,9 +1338,9 @@ mod precomputed_dependency_graph_tests {
     fn test_precomputed_missing_deps_collected() {
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::new(), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
+                flag(1, "flag_a", HashSet::from([2]), true),
+                flag(2, "flag_b", HashSet::new(), true),
+                flag(3, "flag_c", HashSet::new(), true),
             ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![2, 3], vec![1]],
@@ -1417,9 +1366,9 @@ mod precomputed_dependency_graph_tests {
         // Simulate Django output for A(1)->B(2)->A(1) cycle plus independent C(3)
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::from([1]), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
+                flag(1, "flag_a", HashSet::from([2]), true),
+                flag(2, "flag_b", HashSet::from([1]), true),
+                flag(3, "flag_c", HashSet::new(), true),
             ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3]], // only C, cycled flags excluded
@@ -1469,9 +1418,9 @@ mod precomputed_dependency_graph_tests {
         // falsely reporting a cycle.
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::new(), true),
-                create_flag(2, "flag_b", HashSet::new(), true),
-                create_flag(3, "flag_c", HashSet::new(), false),
+                flag(1, "flag_a", HashSet::new(), true),
+                flag(2, "flag_b", HashSet::new(), true),
+                flag(3, "flag_c", HashSet::new(), false),
             ],
             filtered_out_flag_ids: HashSet::from([3]),
             evaluation_metadata: EvaluationMetadata {
@@ -1494,9 +1443,9 @@ mod precomputed_dependency_graph_tests {
         // At request time, flag_b(2) is runtime-filtered (e.g., tag mismatch).
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::new(), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
+                flag(1, "flag_a", HashSet::from([2]), true),
+                flag(2, "flag_b", HashSet::new(), true),
+                flag(3, "flag_c", HashSet::new(), true),
             ],
             filtered_out_flag_ids: HashSet::from([2]),
             evaluation_metadata: EvaluationMetadata {
@@ -1536,10 +1485,10 @@ mod precomputed_dependency_graph_tests {
         // A(1)->B(2)->C(3), D(4) independent
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::from([3]), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
-                create_flag(4, "flag_d", HashSet::new(), true),
+                flag(1, "flag_a", HashSet::from([2]), true),
+                flag(2, "flag_b", HashSet::from([3]), true),
+                flag(3, "flag_c", HashSet::new(), true),
+                flag(4, "flag_d", HashSet::new(), true),
             ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3, 4], vec![2], vec![1]],
@@ -1577,9 +1526,9 @@ mod precomputed_dependency_graph_tests {
         // Three independent flags, request only one
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::new(), true),
-                create_flag(2, "flag_b", HashSet::new(), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
+                flag(1, "flag_a", HashSet::new(), true),
+                flag(2, "flag_b", HashSet::new(), true),
+                flag(3, "flag_c", HashSet::new(), true),
             ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2, 3]],
@@ -1604,7 +1553,7 @@ mod precomputed_dependency_graph_tests {
     #[test]
     fn test_build_with_flag_keys_precomputed_nonexistent_key() {
         let feature_flags = FeatureFlagList {
-            flags: vec![create_flag(1, "flag_a", HashSet::new(), true)],
+            flags: vec![flag(1, "flag_a", HashSet::new(), true)],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1]],
                 flags_with_missing_deps: vec![],
@@ -1627,9 +1576,9 @@ mod precomputed_dependency_graph_tests {
         // flag_a(1) -> flag_b(2) -> (missing 999), flag_c(3) independent
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::from([999]), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
+                flag(1, "flag_a", HashSet::from([2]), true),
+                flag(2, "flag_b", HashSet::from([999]), true),
+                flag(3, "flag_c", HashSet::new(), true),
             ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![2, 3], vec![1]],
@@ -1659,10 +1608,10 @@ mod precomputed_dependency_graph_tests {
         // flag_a(1)->flag_c(3), flag_b(2)->flag_c(3), flag_d(4) independent
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::from([3]), true),
-                create_flag(2, "flag_b", HashSet::from([3]), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
-                create_flag(4, "flag_d", HashSet::new(), true),
+                flag(1, "flag_a", HashSet::from([3]), true),
+                flag(2, "flag_b", HashSet::from([3]), true),
+                flag(3, "flag_c", HashSet::new(), true),
+                flag(4, "flag_d", HashSet::new(), true),
             ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3, 4], vec![1, 2]],
@@ -1705,17 +1654,14 @@ mod precomputed_dependency_graph_tests {
         // Simulates PG fallback: single_stage metadata has per-flag empty transitive_deps.
         // flag_keys filtering should work for independent flags since each flag maps to
         // an empty dep set, allowing unrelated flags to be skipped.
+        let flags = vec![
+            flag(1, "flag_a", HashSet::new(), true),
+            flag(2, "flag_b", HashSet::new(), true),
+            flag(3, "flag_c", HashSet::new(), true),
+        ];
         let feature_flags = FeatureFlagList {
-            flags: vec![
-                create_flag(1, "flag_a", HashSet::new(), true),
-                create_flag(2, "flag_b", HashSet::new(), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
-            ],
-            evaluation_metadata: EvaluationMetadata::single_stage(&[
-                create_flag(1, "flag_a", HashSet::new(), true),
-                create_flag(2, "flag_b", HashSet::new(), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
-            ]),
+            flags: flags.clone(),
+            evaluation_metadata: EvaluationMetadata::single_stage(&flags),
             ..Default::default()
         };
 
@@ -1738,8 +1684,8 @@ mod precomputed_dependency_graph_tests {
         // the dependency stages were computed.
         let feature_flags = FeatureFlagList {
             flags: vec![
-                create_flag(1, "flag_a", HashSet::new(), true),
-                create_flag(2, "flag_b", HashSet::from([1]), true),
+                flag(1, "flag_a", HashSet::new(), true),
+                flag(2, "flag_b", HashSet::from([1]), true),
             ],
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![

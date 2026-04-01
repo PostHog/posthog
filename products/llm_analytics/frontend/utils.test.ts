@@ -5,6 +5,7 @@ import {
     formatLLMEventTitle,
     getSessionID,
     getSessionStartTimestamp,
+    isLangChainMessage,
     looksLikeXml,
     normalizeMessage,
     normalizeMessages,
@@ -1046,6 +1047,68 @@ describe('LLM Analytics utils', () => {
                 expect(result[0].role).toBe('user')
                 expect(result[0].content).toBe('Hello')
             })
+        })
+    })
+
+    describe('LangChain/LangGraph format', () => {
+        it.each([
+            ['human type', { type: 'human', content: 'Hello' }, true],
+            ['ai type', { type: 'ai', content: 'Hi there', tool_calls: [] }, true],
+            ['tool type', { type: 'tool', content: 'result', tool_call_id: 'toolu_123' }, true],
+            ['context type', { type: 'context', content: '<system_reminder>...' }, true],
+            ['rejects messages with role field', { role: 'user', type: 'human', content: 'Hello' }, false],
+            ['rejects unknown types', { type: 'text', content: 'Hello' }, false],
+        ])('isLangChainMessage: %s', (_, input, expected) => {
+            expect(isLangChainMessage(input)).toBe(expected)
+        })
+
+        it('normalizeMessage maps human type to user role', () => {
+            const message = { type: 'human', content: 'Hello', id: 'msg-1' }
+            const result = normalizeMessage(message, 'assistant')
+            expect(result).toEqual([{ role: 'user', content: 'Hello' }])
+        })
+
+        it('normalizeMessage maps ai type to assistant role', () => {
+            const message = { type: 'ai', content: 'Hi there', id: 'msg-2', meta: {} }
+            const result = normalizeMessage(message, 'user')
+            expect(result).toEqual([{ role: 'assistant', content: 'Hi there' }])
+        })
+
+        it('normalizeMessage handles ai type with tool_calls', () => {
+            const message = {
+                type: 'ai',
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function' as const,
+                        id: 'toolu_123',
+                        function: { name: 'search', arguments: '{"q":"test"}' },
+                    },
+                ],
+            }
+            const result = normalizeMessage(message, 'user')
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('assistant')
+            expect(result[0].tool_calls).toHaveLength(1)
+            expect(result[0].tool_calls![0].function.name).toBe('search')
+        })
+
+        it('normalizeMessage handles tool type with tool_call_id', () => {
+            const message = {
+                type: 'tool',
+                content: 'Search results: ...',
+                tool_call_id: 'toolu_123',
+            }
+            const result = normalizeMessage(message, 'assistant')
+            expect(result).toEqual([{ role: 'assistant', content: 'Search results: ...', tool_call_id: 'toolu_123' }])
+        })
+
+        it('normalizeMessage maps context type to system role', () => {
+            const message = { type: 'context', content: '<system_reminder>Your initial mode is sql.</system_reminder>' }
+            const result = normalizeMessage(message, 'user')
+            expect(result).toEqual([
+                { role: 'system', content: '<system_reminder>Your initial mode is sql.</system_reminder>' },
+            ])
         })
     })
 

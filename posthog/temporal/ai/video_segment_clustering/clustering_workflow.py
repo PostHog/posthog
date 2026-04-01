@@ -11,7 +11,6 @@ from posthog.temporal.ai.video_segment_clustering.models import EmitSignalsResul
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
-    from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
     from posthog.temporal.ai.video_segment_clustering.activities import (
         cluster_segments_activity,
         emit_signals_from_clusters_activity,
@@ -26,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
         FetchSegmentsActivityInputs,
         PrimeSessionEmbeddingsActivityInputs,
     )
+    from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
 
     from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
 

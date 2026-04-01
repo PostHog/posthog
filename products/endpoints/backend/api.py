@@ -389,6 +389,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "current_version": endpoint.current_version,
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
+            "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
             "materialization": self._build_materialization_info(version),
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
@@ -1568,7 +1569,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "endpoint_materialized": True,
                 "endpoint_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
             }
-            tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
+            tag_queries(
+                workload=Workload.ENDPOINTS,
+                warehouse_query=True,
+                endpoint_version=version.version if version else None,
+            )
 
             result = self._execute_query_and_respond(
                 query_request_data,
@@ -1849,6 +1854,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             }
 
             cache_age = version.cache_age_seconds if version else None
+            tag_queries(endpoint_version=version.version if version else None)
 
             return self._execute_query_and_respond(
                 query_request_data,

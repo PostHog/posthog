@@ -2,7 +2,7 @@ import dataclasses
 from enum import Enum
 from typing import Literal, TypedDict
 
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 

@@ -22,8 +22,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai import AI_WORKFLOWS, SIGNALS_WORKFLOWS
-from posthog.temporal.ai.session_summary.state import (
+from posthog.temporal.ai import AI_WORKFLOWS
+from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_WORKFLOWS
+from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     _compress_redis_data,
     decompress_redis_data,
@@ -31,14 +32,14 @@ from posthog.temporal.ai.session_summary.state import (
     get_data_class_from_redis,
     get_redis_state_client,
 )
-from posthog.temporal.ai.session_summary.summarize_session import (
+from posthog.temporal.session_replay.session_summary.summarize_session import (
     SummarizeSingleSessionStreamWorkflow,
     execute_summarize_session_stream,
     fetch_session_data_activity,
     stream_llm_single_session_summary_activity,
 )
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext, SyncRedisTestContext
+from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.tests.session_replay.session_summary.conftest import AsyncRedisTestContext, SyncRedisTestContext
 
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryData, SingleSessionSummaryLlmInputs
@@ -289,8 +290,8 @@ class TestSummarizeSingleSessionStreamWorkflow:
         try:
             async with Worker(
                 activity_environment.client,
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                workflows=AI_WORKFLOWS + SIGNALS_WORKFLOWS,
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                workflows=AI_WORKFLOWS + SESSION_SUMMARY_WORKFLOWS,
                 activities=[stream_llm_single_session_summary_activity, fetch_session_data_activity],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ) as worker:
@@ -429,7 +430,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
                 return_value=input_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream",
+                "posthog.temporal.session_replay.session_summary.summarize_session._start_single_session_summary_workflow_stream",
                 return_value=mock_workflow_handle,
             ),
             patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
@@ -437,11 +438,11 @@ class TestSummarizeSingleSessionStreamWorkflow:
             patch.object(sync_redis_test_setup.redis_client, "delete"),  # Does nothing
             # Spy on decompress_redis_data to ensure it's called
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session.decompress_redis_data",
+                "posthog.temporal.session_replay.session_summary.summarize_session.decompress_redis_data",
                 side_effect=decompress_redis_data,
             ) as mock_decompress,
             # Mock time.sleep to speed up test
-            patch("posthog.temporal.ai.session_summary.summarize_session.time.sleep"),
+            patch("posthog.temporal.session_replay.session_summary.summarize_session.time.sleep"),
         ):
             # Collect results one by one to track the calls
             results = []
@@ -506,7 +507,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
                 return_value=input_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream",
+                "posthog.temporal.session_replay.session_summary.summarize_session._start_single_session_summary_workflow_stream",
                 return_value=mock_workflow_handle,
             ),
             patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
@@ -594,7 +595,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
                 return_value=input_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream",
+                "posthog.temporal.session_replay.session_summary.summarize_session._start_single_session_summary_workflow_stream",
                 return_value=mock_workflow_handle,
             ),
             patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),

@@ -11,9 +11,9 @@ from redis import (
 
 from posthog.models.user import User
 from posthog.redis import TEST_clear_clients, get_async_client, get_client
-from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
-from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.session_replay.session_summary.summarize_session_group import SessionGroupSummaryInputs
+from posthog.temporal.session_replay.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
 
 from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
