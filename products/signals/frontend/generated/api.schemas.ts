@@ -7,6 +7,11 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface PauseUntilApi {
+    /** Pause the grouping pipeline until this timestamp (ISO 8601). */
+    timestamp: string
+}
+
 /**
  * * `session_replay` - Session replay
  * `llm_analytics` - LLM analytics

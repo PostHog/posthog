@@ -25212,6 +25212,11 @@ export namespace Schemas {
       variants?: unknown;
     }
 
+    export interface PauseUntil {
+      /** Pause the grouping pipeline until this timestamp (ISO 8601). */
+      timestamp: string;
+    }
+
     export interface PersonBulkDeleteRequest {
       /** A list of PostHog person UUIDs to delete (max 1000). */
       ids?: string[];

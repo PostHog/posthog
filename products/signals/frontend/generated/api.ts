@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedSignalSourceConfigListApi,
+    PauseUntilApi,
     SignalSourceConfigApi,
     SignalSourceConfigsListParams,
 } from './api.schemas'
@@ -30,6 +31,54 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Control pause state of the signal grouping v2 pipeline for a team.
+ */
+export const getSignalGroupingPausePauseCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signal_grouping_pause/pause/`
+}
+
+export const signalGroupingPausePauseCreate = async (
+    projectId: string,
+    pauseUntilApi: PauseUntilApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalGroupingPausePauseCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pauseUntilApi),
+    })
+}
+
+/**
+ * Control pause state of the signal grouping v2 pipeline for a team.
+ */
+export const getSignalGroupingPauseStateRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signal_grouping_pause/state/`
+}
+
+export const signalGroupingPauseStateRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSignalGroupingPauseStateRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Control pause state of the signal grouping v2 pipeline for a team.
+ */
+export const getSignalGroupingPauseUnpauseCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signal_grouping_pause/unpause/`
+}
+
+export const signalGroupingPauseUnpauseCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSignalGroupingPauseUnpauseCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
 
 export const getSignalSourceConfigsListUrl = (projectId: string, params?: SignalSourceConfigsListParams) => {
     const normalizedParams = new URLSearchParams()
