@@ -51,17 +51,46 @@ locals {
   # Placeholders: {{OPERATION}}, {{REGION}}, {{ERROR_BUDGET}}
   # ---------------------------------------------------------------------------
   slo_burn_rate_query = <<-SQL
-    WITH hourly AS (
+    -- Single scan: GROUP BY (cid, hour) extracts correlation_id once per row.
+    -- Correlated events (cid != '') are paired by cid then attributed to start hour.
+    -- Uncorrelated events (cid = '') use bucket-based counting with clamp.
+    WITH per_cid_hour AS (
         SELECT
-            toStartOfHour(timestamp) AS hour,
-            countIf(event = 'slo_operation_started') AS total,
-            countIf(event = 'slo_operation_started')
-              - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS failures
+            coalesce(nullIf(properties.correlation_id, ''), '') AS cid,
+            toStartOfHour(timestamp) AS event_hour,
+            countIf(event = 'slo_operation_started') AS starts,
+            countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
+            min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
         FROM events
         WHERE event IN ('slo_operation_started', 'slo_operation_completed')
           AND properties.operation = '{{OPERATION}}'
           AND properties.region = '{{REGION}}'
           AND timestamp >= now() - INTERVAL 35 DAY
+        GROUP BY cid, event_hour
+    ),
+    hourly AS (
+        SELECT hour, sum(total) AS total, sum(failures) AS failures
+        FROM (
+            -- Uncorrelated: each row is one hour bucket, clamp failures to 0
+            SELECT
+                event_hour AS hour,
+                starts AS total,
+                greatest(starts - successes, 0) AS failures
+            FROM per_cid_hour
+            WHERE cid = ''
+
+            UNION ALL
+
+            -- Correlated: collapse across hours per cid, attribute to start hour
+            SELECT
+                toStartOfHour(min(first_start)) AS hour,
+                1 AS total,
+                if(max(successes) > 0, 0, 1) AS failures
+            FROM per_cid_hour
+            WHERE cid != ''
+            GROUP BY cid
+            HAVING hour IS NOT NULL
+        )
         GROUP BY hour
     ),
     hour_range AS (
@@ -265,13 +294,17 @@ resource "posthog_insight" "slo_success_rate" {
     source = {
       kind  = "HogQLQuery"
       query = <<-SQL
+        -- No correlation_id needed: daily buckets have negligible cross-bucket issues.
         WITH daily AS (
             SELECT
                 toDate(timestamp) AS date,
                 properties.operation AS operation,
                 countIf(event = 'slo_operation_started') AS total,
-                countIf(event = 'slo_operation_started')
-                  - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS failures
+                greatest(
+                    countIf(event = 'slo_operation_started')
+                      - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success'),
+                    0
+                ) AS failures
             FROM events
             WHERE event IN ('slo_operation_started', 'slo_operation_completed')
               AND properties.operation IN (${local.slo_operation_list})
@@ -347,6 +380,7 @@ resource "posthog_insight" "slo_volume" {
     source = {
       kind  = "HogQLQuery"
       query = <<-SQL
+        -- No correlation_id needed: single 28-day bucket has no cross-bucket issue.
         SELECT
             properties.operation AS operation,
             if(
@@ -357,8 +391,11 @@ resource "posthog_insight" "slo_volume" {
             countIf(event = 'slo_operation_started') AS started,
             countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
             countIf(event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures,
-            countIf(event = 'slo_operation_started')
-              - countIf(event = 'slo_operation_completed') AS never_completed,
+            greatest(
+                countIf(event = 'slo_operation_started')
+                  - countIf(event = 'slo_operation_completed'),
+                0
+            ) AS never_completed,
             if(
                 countIf(event = 'slo_operation_started') > 0,
                 round(countIf(event = 'slo_operation_completed' AND properties.outcome = 'success')

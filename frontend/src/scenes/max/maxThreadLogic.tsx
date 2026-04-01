@@ -727,6 +727,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             if (e.data?.attr === 'content') {
                                 relevantErrorMessage.content =
                                     'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                            } else if (e.detail) {
+                                relevantErrorMessage.content = e.detail
                             }
                         }
 

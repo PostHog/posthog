@@ -161,8 +161,8 @@ def wait_for_health_check(
     execute: _ExecuteFn,
     sandbox_id: str,
     port: int,
-    max_attempts: int = 20,
-    poll_interval: float = 0.3,
+    max_attempts: int = 60,
+    poll_interval: float = 0.5,
 ) -> bool:
     """Poll health endpoint until server is ready (single remote call).
 
@@ -198,12 +198,32 @@ def _get_docker_sandbox_class() -> SandboxClass:
     return DockerSandbox
 
 
+def _get_modal_docker_sandbox_class() -> SandboxClass:
+    """Modal sandbox with a separate app name for local development.
+
+    Uses a dedicated Modal app (posthog-sandbox-modal-docker-*) so that
+    local image builds with LOCAL_POSTHOG_CODE_MONOREPO_ROOT don't
+    pollute the production app's image cache.
+    """
+    if not settings.DEBUG:
+        raise RuntimeError("MODAL_DOCKER sandbox is for local development only (DEBUG=True).")
+    from .modal_sandbox import ModalSandbox
+
+    class ModalDockerSandbox(ModalSandbox):
+        DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
+        NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
+
+    return ModalDockerSandbox
+
+
 def get_sandbox_class() -> SandboxClass:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
-    # Docker is opt-in only, requires DEBUG mode
     if provider == "docker":
         return _get_docker_sandbox_class()
+
+    if provider and provider.upper() == "MODAL_DOCKER":
+        return _get_modal_docker_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
@@ -216,6 +236,8 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         from .modal_sandbox import ModalSandbox
 
         return ModalSandbox
+    if backend in ("modal_docker", "MODAL_DOCKER"):
+        return _get_modal_docker_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")

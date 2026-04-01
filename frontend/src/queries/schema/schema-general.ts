@@ -2909,13 +2909,15 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     limit?: integer
     offset?: integer
     orderBy?: 'latest' | 'earliest'
-    searchTerm?: string
+    filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]
     traceId?: string
     rootSpans?: boolean
     /** Cursor for fetching the next page of results */
     after?: string
+    /** Prefetch up to this many spans per trace and include them in results */
+    prefetchSpans?: integer
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -3244,7 +3246,6 @@ export interface ExperimentMetricBaseProperties extends Node {
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
-    only_count_matured_users?: boolean
     goal?: ExperimentMetricGoal
     isSharedMetric?: boolean
     sharedMetricId?: number

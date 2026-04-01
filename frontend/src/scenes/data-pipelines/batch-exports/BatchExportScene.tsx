@@ -27,6 +27,7 @@ import { HogFunctionSkeleton } from 'scenes/hog-functions/misc/HogFunctionSkelet
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
@@ -79,6 +80,11 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
                     },
                 ]
             },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [(_, props) => props],
+            (props: BatchExportConfigFormLogicProps): SidePanelSceneContext | null =>
+                props.id ? { activity_scope: ActivityScope.BATCH_EXPORT, activity_item_id: props.id } : null,
         ],
     }),
     actionToUrl(({ values }) => ({

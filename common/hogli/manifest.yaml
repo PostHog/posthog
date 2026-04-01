@@ -741,3 +741,7 @@ environment:
         bin_script: start-stripe-mock
         description: 'Start the local Stripe mock API server'
         hidden: true
+    fix:rdkafka:paths:
+        bin_script: fix-rdkafka-paths
+        description: 'Rewrite node-rdkafka dylib paths to use @loader_path on macOS for worktree portability'
+        hidden: true
