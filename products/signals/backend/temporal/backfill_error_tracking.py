@@ -35,8 +35,9 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
 
     from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
+    team = await Team.objects.aget(id=input.team_id)
+
     def _run_query():
-        team = Team.objects.get(id=input.team_id)
         runner = ErrorTrackingQueryRunner(
             team=team,
             query=ErrorTrackingQuery(
@@ -86,11 +87,10 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
 async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> None:
     """Emit an issue_created signal for a single error tracking issue."""
     from posthog.models import Team
-    from posthog.sync import database_sync_to_async
 
     from products.signals.backend.api import emit_signal
 
-    team = await database_sync_to_async(Team.objects.get)(id=input.team_id)
+    team = await Team.objects.aget(id=input.team_id)
 
     description = (
         f"New error tracking issue created - this particular exception was observed for the first time:\n"
