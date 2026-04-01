@@ -464,7 +464,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
         from posthog.models import Insight
 
-        Insight.objects.create(
+        insight = Insight.objects.create(
             team=self.team,
             name="My insight",
             query={
@@ -481,6 +481,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(data) == 1
         assert data[0]["type"] == "insight"
         assert data[0]["name"] == "My insight"
+        assert data[0]["id"] == str(insight.short_id)
+        assert data[0]["url"] == f"/insights/{insight.short_id}"
 
     def test_references_returns_empty_list_when_no_references(self):
         action = Action.objects.create(team=self.team, name="orphan action", steps_json=[{"event": "$pageview"}])

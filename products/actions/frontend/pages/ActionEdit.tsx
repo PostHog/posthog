@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
@@ -15,6 +16,7 @@ import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -23,7 +25,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
@@ -306,85 +307,156 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     )}
                 </SceneSection>
             </Form>
-            <SceneDivider />
             <ActionHogFunctions />
-            <SceneDivider />
-            {(id || action.steps?.length) && (
-                <SceneSection
-                    className="@container"
-                    title="Matching events"
-                    description={
-                        <>
-                            This is the list of <strong>recent</strong> events that match this action.
-                        </>
-                    }
-                >
-                    {id && !isComplete && !actionChanged ? (
-                        <div className="flex items-center">
-                            <Spinner className="mr-4" />
-                            Calculating action, please hold on...
-                        </div>
-                    ) : (
-                        <Query
-                            query={{
-                                kind: NodeKind.DataTableNode,
-                                source: {
-                                    kind: NodeKind.EventsQuery,
-                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                    ...(id && !actionChanged
-                                        ? { actionId: id }
-                                        : {
-                                              actionSteps: action.steps?.map(
-                                                  ({
-                                                      event,
-                                                      properties,
-                                                      selector,
-                                                      tag_name,
-                                                      text,
-                                                      text_matching,
-                                                      href,
-                                                      href_matching,
-                                                      url,
-                                                      url_matching,
-                                                  }) => ({
-                                                      event,
-                                                      properties,
-                                                      selector,
-                                                      tag_name,
-                                                      text,
-                                                      text_matching,
-                                                      href,
-                                                      href_matching,
-                                                      url,
-                                                      url_matching,
-                                                  })
-                                              ),
-                                          }),
-                                    after: '-24h',
-                                },
-                                full: true,
-                                showEventFilter: false,
-                                showPropertyFilter: false,
-                            }}
-                        />
-                    )}
-                </SceneSection>
-            )}
             {id && references.length > 0 && (
                 <>
-                    <SceneDivider />
-                    <SceneSection title="Used by" description="Resources that reference this action.">
-                        <ul className="space-y-1 list-disc pl-4">
-                            {references.map((ref) => (
-                                <li key={`${ref.type}-${ref.id}`}>
-                                    <span className="font-medium capitalize">{ref.type.replace('_', ' ')}</span>:{' '}
-                                    {ref.name}
-                                </li>
-                            ))}
-                        </ul>
-                    </SceneSection>
+                    <LemonCollapse
+                        defaultActiveKey="used-by"
+                        panels={[
+                            {
+                                key: 'used-by',
+                                header: {
+                                    children: (
+                                        <div className="py-1">
+                                            <div className="font-semibold">Used by</div>
+                                            <div className="text-secondary text-sm font-normal">
+                                                Resources that reference this action.
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                                content: <ReferencesList references={references} />,
+                            },
+                        ]}
+                    />
+                </>
+            )}
+            {(id || action.steps?.length) && (
+                <>
+                    <LemonCollapse
+                        defaultActiveKey="matching-events"
+                        panels={[
+                            {
+                                key: 'matching-events',
+                                header: {
+                                    children: (
+                                        <div className="py-1">
+                                            <div className="font-semibold">Matching events</div>
+                                            <div className="text-secondary text-sm font-normal">
+                                                Recent events that match this action.
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                                content:
+                                    id && !isComplete && !actionChanged ? (
+                                        <div className="flex items-center">
+                                            <Spinner className="mr-4" />
+                                            Calculating action, please hold on...
+                                        </div>
+                                    ) : (
+                                        <Query
+                                            query={{
+                                                kind: NodeKind.DataTableNode,
+                                                source: {
+                                                    kind: NodeKind.EventsQuery,
+                                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                                    ...(id && !actionChanged
+                                                        ? { actionId: id }
+                                                        : {
+                                                              actionSteps: action.steps?.map(
+                                                                  ({
+                                                                      event,
+                                                                      properties,
+                                                                      selector,
+                                                                      tag_name,
+                                                                      text,
+                                                                      text_matching,
+                                                                      href,
+                                                                      href_matching,
+                                                                      url,
+                                                                      url_matching,
+                                                                  }) => ({
+                                                                      event,
+                                                                      properties,
+                                                                      selector,
+                                                                      tag_name,
+                                                                      text,
+                                                                      text_matching,
+                                                                      href,
+                                                                      href_matching,
+                                                                      url,
+                                                                      url_matching,
+                                                                  })
+                                                              ),
+                                                          }),
+                                                    after: '-24h',
+                                                },
+                                                full: true,
+                                                showEventFilter: false,
+                                                showPropertyFilter: false,
+                                            }}
+                                        />
+                                    ),
+                            },
+                        ]}
+                    />
                 </>
             )}
         </SceneContent>
+    )
+}
+
+const REFERENCES_PAGE_SIZE = 10
+const REFERENCE_TYPE_LABELS: Record<string, string> = {
+    insight: 'Insight',
+    experiment: 'Experiment',
+    cohort: 'Cohort',
+    hog_function: 'Destination',
+}
+
+function ReferencesList({
+    references,
+}: {
+    references: { type: string; id: string; name: string; url: string }[]
+}): JSX.Element {
+    const [page, setPage] = useState(1)
+    const pageCount = Math.ceil(references.length / REFERENCES_PAGE_SIZE)
+    const pageItems = references.slice((page - 1) * REFERENCES_PAGE_SIZE, page * REFERENCES_PAGE_SIZE)
+
+    return (
+        <div className="space-y-2">
+            <ul className="space-y-1 list-disc pl-4">
+                {pageItems.map((ref) => (
+                    <li key={`${ref.type}-${ref.id}`}>
+                        <span className="font-medium">{REFERENCE_TYPE_LABELS[ref.type] ?? ref.type}</span>:{' '}
+                        <Link to={ref.url}>{ref.name}</Link>
+                    </li>
+                ))}
+            </ul>
+            {pageCount > 1 && (
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        disabledReason={page <= 1 ? 'No previous page' : undefined}
+                        onClick={() => setPage(page - 1)}
+                    >
+                        Previous
+                    </LemonButton>
+                    <span className="text-xs text-secondary">
+                        {page} of {pageCount}
+                    </span>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        disabledReason={page >= pageCount ? 'No next page' : undefined}
+                        onClick={() => setPage(page + 1)}
+                    >
+                        Next
+                    </LemonButton>
+                </div>
+            )}
+        </div>
     )
 }

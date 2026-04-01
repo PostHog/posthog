@@ -174,7 +174,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             },
         ],
         references: [
-            [] as { type: string; id: number; name: string }[],
+            [] as { type: string; id: string; name: string; url: string }[],
             {
                 loadReferences: async () => {
                     if (!props.id) {
@@ -219,9 +219,15 @@ export const actionEditLogic = kea<actionEditLogicType>([
             }
 
             if (values.references.length > 0) {
+                const typeLabels: Record<string, string> = {
+                    insight: 'Insight',
+                    experiment: 'Experiment',
+                    cohort: 'Cohort',
+                    hog_function: 'Destination',
+                }
                 const refSummary = values.references
                     .slice(0, 5)
-                    .map((r) => `${r.type}: ${r.name}`)
+                    .map((r) => `${typeLabels[r.type] ?? r.type}: ${r.name}`)
                     .join('\n')
                 const extra = values.references.length > 5 ? `\n...and ${values.references.length - 5} more` : ''
 

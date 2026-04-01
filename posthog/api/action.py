@@ -269,8 +269,9 @@ class ActionSerializer(
 
 class ActionReferenceSerializer(serializers.Serializer):
     type = serializers.CharField(help_text="Resource type: insight, experiment, cohort, or hog_function")
-    id = serializers.IntegerField(help_text="Resource ID")
+    id = serializers.CharField(help_text="Resource ID (integer or UUID depending on type)")
     name = serializers.CharField(help_text="Resource name")
+    url = serializers.CharField(help_text="Relative URL to the resource")
 
 
 def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
@@ -302,8 +303,9 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
         refs.append(
             {
                 "type": "insight",
-                "id": insight.id,
+                "id": str(insight.short_id),
                 "name": insight.name or insight.derived_name or "Unnamed",
+                "url": f"/insights/{insight.short_id}",
             }
         )
 
@@ -328,8 +330,9 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
             refs.append(
                 {
                     "type": "experiment",
-                    "id": exp.id,
+                    "id": str(exp.id),
                     "name": exp.name or "Unnamed",
+                    "url": f"/experiments/{exp.id}",
                 }
             )
     except ImportError:
@@ -350,8 +353,9 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
         refs.append(
             {
                 "type": "cohort",
-                "id": cohort.id,
+                "id": str(cohort.id),
                 "name": cohort.name or "Unnamed",
+                "url": f"/cohorts/{cohort.id}",
             }
         )
 
@@ -370,8 +374,9 @@ def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
         refs.append(
             {
                 "type": "hog_function",
-                "id": hf.id,
+                "id": str(hf.id),
                 "name": hf.name or "Unnamed",
+                "url": f"/functions/{hf.id}",
             }
         )
 
