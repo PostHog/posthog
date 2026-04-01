@@ -575,7 +575,6 @@ posthog/tasks/exports/test/test_image_exporter.py:0: error: Function is missing 
 posthog/tasks/exports/test/test_image_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/tasks/exports/test/test_image_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/tasks/exports/test/test_image_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
-posthog/tasks/process_scheduled_changes.py:0: error: Library stubs not installed for "croniter"  [import-untyped]
 posthog/tasks/test/test_process_scheduled_changes.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/tasks/test/test_process_scheduled_changes.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/tasks/test/test_stop_surveys_reached_target.py:0: error: No overload variant of "__sub__" of "datetime" matches argument type "None"  [operator]
