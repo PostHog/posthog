@@ -190,6 +190,11 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "date_start": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "campaign_group_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "cost_in_usd": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cost_in_local_currency": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
                     "impressions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "video_views": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "pivot_values": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
