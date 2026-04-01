@@ -21,6 +21,7 @@ import fcntl
 import shutil
 import argparse
 import subprocess
+import textwrap
 import webbrowser
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -655,7 +656,7 @@ def _copy_sandbox_backup_xml(worktree_path: str) -> None:
 
 def _init_cache_cleanup(port: int, worktree: str) -> None:
     info("Cleaning up cache init containers...")
-    compose("sandbox-cache-init", port, worktree, "down", "-v", check=False, capture=True)
+    compose("sandbox-cache-init", port, worktree, "down", "-v", "-t", "0", check=False, capture=True)
     shutil.rmtree(worktree, ignore_errors=True)
     run(["git", "worktree", "prune"], check=False)
 
@@ -951,7 +952,7 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     existing = registry.get(branch)
     if existing:
         error(f"Sandbox already exists for branch '{branch}' on port {existing.port}")
-        print(f"Use 'sandbox start {branch}' to start it, or 'sandbox destroy {branch}' first.")
+        print(f"Use 'sandbox start {branch}' to start it, or 'sandbox rm {branch}' first.")
         sys.exit(1)
 
     worktree_path = ensure_worktree(branch, base_branch)
@@ -998,22 +999,9 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
         info(f"Docker profiles: {', '.join(profiles)}")
     _restore_and_start(project, port, worktree_path, use_cache, profiles=profiles)
 
-    info("Waiting for PostHog to start...")
-    if not wait_for_health(f"http://localhost:{port}/_health", f"{project}-app-1"):
-        cmd_destroy(branch)
-        fatal("Sandbox creation failed. See logs above.")
-
-    url = f"http://localhost:{port}"
-    print()
-    success(f"PostHog running at {url}")
-    info(f"Worktree:  {worktree_path}")
-    info(f"Shell:     sandbox shell {branch}")
-    info(f"VSCode:    sandbox code {branch}")
-    if _load_config().get("jetbrains"):
-        info(f"JetBrains: sandbox idea {branch}")
-    info(f"SSH:       ssh -p {port + 2000} sandbox@localhost")
-    info(f"Logs:      sandbox logs {branch}")
-    webbrowser.open(url)
+    container = f"{project}-app-1"
+    health_url = f"http://localhost:{port}/_health"
+    _attach_with_health_poll(container, health_url)
 
 
 def cmd_start(branch: str) -> None:
@@ -1029,19 +1017,11 @@ def cmd_start(branch: str) -> None:
     compose(project, entry.port, entry.worktree, "up", "-d", capture=True, profiles=profiles)
 
     # Clear stale progress from the previous boot
-    run(["docker", "exec", f"{project}-app-1", "rm", "-f", "/tmp/sandbox-progress"], check=False, capture=True)
+    container = f"{project}-app-1"
+    run(["docker", "exec", container, "rm", "-f", "/tmp/sandbox-progress"], check=False, capture=True)
 
-    info("Waiting for PostHog to start...")
-    if not wait_for_health(f"http://localhost:{entry.port}/_health", f"{project}-app-1"):
-        fatal("Sandbox failed to start. See logs above.")
-
-    url = f"http://localhost:{entry.port}"
-    success(f"PostHog running at {url}")
-    info(f"VSCode:    sandbox code {branch}")
-    if _load_config().get("jetbrains"):
-        info(f"JetBrains: sandbox idea {branch}")
-    info(f"SSH:       ssh -p {entry.port + 2000} sandbox@localhost")
-    webbrowser.open(url)
+    health_url = f"http://localhost:{entry.port}/_health"
+    _attach_with_health_poll(container, health_url)
 
 
 def cmd_stop(branch: str) -> None:
@@ -1055,7 +1035,33 @@ def cmd_stop(branch: str) -> None:
     success("Sandbox stopped. Volumes preserved.")
 
 
-def cmd_destroy(branch: str) -> None:
+def _remove_worktree(worktree_path: str) -> None:
+    """Delete a worktree directory.
+
+    Containers may have created root-owned files, so we use a container
+    to delete contents, then rmdir the empty directory.
+    NEVER delete the main repo.
+    """
+    path = Path(worktree_path)
+    if not path.is_dir():
+        return
+    if path.resolve() == REPO_ROOT.resolve():
+        info("Worktree is the main repo — skipping directory cleanup.")
+        return
+
+    run(
+        ["docker", "run", "--rm", "-v", f"{worktree_path}:/cleanup",
+         "alpine", "sh", "-c", "find /cleanup -mindepth 1 -delete"],
+        check=False, capture=True,
+    )
+    try:
+        path.rmdir()
+    except OSError:
+        pass
+    run(["git", "worktree", "prune"], check=False)
+
+
+def cmd_destroy(branch: str, clean: bool = False) -> None:
     registry = Registry()
     entry = registry.get(branch)
     slug = entry.slug if entry else slugify(branch)
@@ -1070,36 +1076,14 @@ def cmd_destroy(branch: str) -> None:
     # entry is missing, derive profiles from the compose file to ensure nothing
     # is orphaned.
     profiles = resolve_docker_profiles(entry.intents) if entry else sorted(_all_sandbox_profiles())
-    compose(project, port, worktree, "down", "-v", check=False, capture=True, profiles=profiles)
+    compose(project, port, worktree, "down", "-v", "-t", "0", check=False, capture=True, profiles=profiles)
 
-    # Remove worktree — containers may have created root-owned files,
-    # so we use a container to delete, then rmdir the empty directory.
-    # NEVER delete the main repo even if the sandbox was created on the current branch.
-    if entry and entry.worktree and Path(entry.worktree).is_dir():
-        if Path(entry.worktree).resolve() == REPO_ROOT.resolve():
-            info("Worktree is the main repo — skipping directory cleanup.")
-        else:
-            run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "-v",
-                    f"{entry.worktree}:/cleanup",
-                    "alpine",
-                    "sh",
-                    "-c",
-                    "find /cleanup -mindepth 1 -delete",
-                ],
-                check=False,
-                capture=True,
-            )
-            try:
-                Path(entry.worktree).rmdir()
-            except OSError:
-                pass
+    if clean and entry and entry.worktree:
+        _remove_worktree(entry.worktree)
+    elif entry and entry.worktree and Path(entry.worktree).is_dir():
+        info(f"Worktree preserved at: {entry.worktree}")
+        info(f"  To remove: git worktree remove {entry.worktree}")
 
-    run(["git", "worktree", "prune"], check=False)
     registry.remove(branch)
     success("Sandbox destroyed.")
 
@@ -1184,12 +1168,8 @@ def cmd_idea(branch: str) -> None:
     info(f"  Project: /workspace")
 
 
-def cmd_shell(branch: str) -> None:
-    registry = Registry()
-    entry = _require_registered(registry, branch)
-    container = f"sandbox-{entry.slug}-app-1"
-
-    info(f"Attaching to mprocs in {container}... (detach with Ctrl-b d)")
+def _attach_tmux(container: str) -> None:
+    """Exec into the tmux session — replaces the current process."""
     os.execvp(
         "docker",
         [
@@ -1207,6 +1187,58 @@ def cmd_shell(branch: str) -> None:
             "posthog",
         ],
     )
+
+
+def _attach_with_health_poll(container: str, health_url: str) -> None:
+    """Attach to tmux; open browser in background when healthy."""
+    # Launch a detached process to poll health and open the browser.
+    # Separate process so the main process can execvp into tmux with a clean TTY.
+    url = health_url.replace("/_health", "")
+    script = textwrap.dedent(f"""\
+        import time, webbrowser, urllib.request
+        deadline = time.time() + 600
+        while time.time() < deadline:
+            try:
+                urllib.request.urlopen({health_url!r}, timeout=2)
+                webbrowser.open({url!r})
+                break
+            except Exception:
+                time.sleep(5)
+    """)
+    subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    # Wait for tmux then attach (replaces this process).
+    # The entrypoint installs deps before starting tmux, so there's a
+    # brief window where the container is running but tmux isn't ready.
+    info("Attaching to mprocs... (detach with Ctrl-b d)")
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        result = run(
+            ["docker", "exec", "-u", f"{os.getuid()}:{os.getgid()}", container,
+             "tmux", "-L", "sandbox", "has-session", "-t", "posthog"],
+            check=False, capture=True,
+        )
+        if result.returncode == 0:
+            break
+        time.sleep(2)
+    else:
+        fatal("Timed out waiting for mprocs. Run `sandbox logs <branch>` to investigate.")
+    _attach_tmux(container)
+
+
+def cmd_shell(branch: str) -> None:
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    container = f"sandbox-{entry.slug}-app-1"
+
+    info(f"Attaching to mprocs in {container}... (detach with Ctrl-b d)")
+    _attach_tmux(container)
 
 
 def cmd_logs(branch: str) -> None:
@@ -1260,11 +1292,11 @@ def build_parser() -> argparse.ArgumentParser:
 examples:
   sandbox create aspicer/cool-feature
   sandbox create aspicer/bugfix main
-  sandbox list
+  sandbox ls
   sandbox shell aspicer/cool-feature
   sandbox stop aspicer/cool-feature
   sandbox start aspicer/cool-feature
-  sandbox destroy aspicer/cool-feature""",
+  sandbox rm aspicer/cool-feature""",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -1280,7 +1312,6 @@ examples:
     for name, help_text in [
         ("start", "Start a stopped sandbox"),
         ("stop", "Stop a sandbox (preserves state)"),
-        ("destroy", "Destroy a sandbox and clean up"),
         ("shell", "Attach to the mprocs UI"),
         ("code", "Open VSCode attached to the sandbox container"),
         ("idea", "Open JetBrains Gateway for the sandbox"),
@@ -1288,6 +1319,10 @@ examples:
     ]:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("branch")
+
+    p = sub.add_parser("destroy", aliases=["rm"], help="Destroy a sandbox (preserves worktree)")
+    p.add_argument("branch")
+    p.add_argument("--clean", action="store_true", help="Also delete the git worktree")
 
     sub.add_parser("list", aliases=["ls"], help="List all sandboxes")
     sub.add_parser("rebuild-cache", help="Rebuild the database cache from master")
@@ -1311,7 +1346,8 @@ def main() -> None:
         "create": lambda: cmd_create(args.branch, args.base_branch),
         "start": lambda: cmd_start(args.branch),
         "stop": lambda: cmd_stop(args.branch),
-        "destroy": lambda: cmd_destroy(args.branch),
+        "destroy": lambda: cmd_destroy(args.branch, clean=args.clean),
+        "rm": lambda: cmd_destroy(args.branch, clean=args.clean),
         "list": cmd_list,
         "ls": cmd_list,
         "shell": lambda: cmd_shell(args.branch),
