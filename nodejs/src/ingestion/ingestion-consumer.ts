@@ -46,8 +46,6 @@ import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
 import { IngestionOutputs } from './outputs/ingestion-outputs'
-import { BatchPipeline } from './pipelines/batch-pipeline.interface'
-import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createOkContext } from './pipelines/helpers'
 import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
@@ -109,12 +107,8 @@ export class IngestionConsumer {
     public readonly promiseScheduler = new PromiseScheduler()
     private topHog!: TopHog
 
-    private joinedPipeline!: BatchPipeline<
-        JoinedIngestionPipelineInput,
-        void,
-        JoinedIngestionPipelineContext,
-        JoinedIngestionPipelineContext,
-        OverflowOutput | AsyncOutput
+    private joinedPipeline!: ReturnType<
+        typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
     >
 
     constructor(
@@ -241,7 +235,8 @@ export class IngestionConsumer {
             outputs,
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
-                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS
+                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
+                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -266,11 +261,7 @@ export class IngestionConsumer {
             groupTypeManager: this.deps.groupTypeManager,
             topHog: this.topHog!,
         }
-        this.joinedPipeline = createJoinedIngestionPipeline(
-            newBatchPipelineBuilder<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>(),
-            joinedPipelineConfig,
-            joinedPipelineDeps
-        ).build()
+        this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
 
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
@@ -374,11 +365,18 @@ export class IngestionConsumer {
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
         const batch = messages.map((message) => createOkContext({ message }, { message }))
 
-        this.joinedPipeline.feed(batch)
+        const feedResult = await this.joinedPipeline.feed(batch)
+        if (!feedResult.ok) {
+            throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
+        }
 
-        // Drain the pipeline
-        while ((await this.joinedPipeline.next()) !== null) {
-            // Continue until all results are processed
+        // Drain the pipeline, scheduling batch-level side effects
+        let result = await this.joinedPipeline.next()
+        while (result !== null) {
+            for (const sideEffect of result.sideEffects ?? []) {
+                void this.promiseScheduler.schedule(sideEffect)
+            }
+            result = await this.joinedPipeline.next()
         }
     }
 

@@ -1,4 +1,5 @@
 debug: false
+# TODO: remove old kafka config once the new livestream image is on master
 kafka:
     brokers: 'kafka:9092'
     topic: 'events_plugin_ingestion'
@@ -6,5 +7,20 @@ kafka:
     security_protocol: 'PLAINTEXT'
     session_recording_enabled: true
     session_recording_security_protocol: 'PLAINTEXT'
+consumers:
+    event:
+        enabled: true
+        brokers: 'kafka:9092'
+        topic: 'events_plugin_ingestion'
+        security_protocol: 'PLAINTEXT'
+        group_id: 'livestream'
+    session_recording:
+        enabled: true
+        brokers: 'kafka:9092'
+        topic: 'session_recording_snapshot_item_events'
+        security_protocol: 'PLAINTEXT'
+        group_id: 'livestream-session-recordings'
+    notification:
+        enabled: false
 mmdb:
     path: 'GeoLite2-City.mmdb'

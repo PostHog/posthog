@@ -532,6 +532,10 @@ def get_context_for_template(
                 )
                 posthog_app_context["custom_products"] = user_product_list.data
 
+    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
+    if "oauth_application" in context:
+        posthog_app_context["oauth_application"] = context.pop("oauth_application")
+
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
