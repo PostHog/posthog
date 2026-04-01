@@ -59,6 +59,16 @@ procs:
         capability: nodejs_error_tracking
         ready_pattern: 'All systems go'
 
+    ingestion-logs:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-logs HTTP_SERVER_PORT=6743 ./bin/posthog-node'
+        capability: nodejs_logs
+        ready_pattern: 'All systems go'
+
+    ingestion-traces:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6744 ./bin/posthog-node'
+        capability: nodejs_traces
+        ready_pattern: 'All systems go'
+
     ingestion:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
         capability: event_ingestion

@@ -199,7 +199,7 @@
         "kea-test-utils": "catalog:",
         "kea-waitfor": "catalog:",
         "kea-window-values": "catalog:",
-        "liquidjs": "^10.21.1",
+        "liquidjs": "^10.25.2",
         "lodash.debounce": "^4.0.8",
         "lodash.difference": "^4.5.0",
         "lodash.isequal": "^4.5.0",

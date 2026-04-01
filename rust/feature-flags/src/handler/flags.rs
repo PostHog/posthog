@@ -288,7 +288,8 @@ pub async fn evaluate_for_request(
         cohort_membership_provider: state.cohort_membership_provider.clone(),
         enable_realtime_cohort_evaluation: state
             .config
-            .is_team_included(team_id, &state.config.realtime_cohort_evaluation_team_ids),
+            .realtime_cohort_evaluation_team_ids
+            .includes_team(team_id),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

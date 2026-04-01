@@ -1,9 +1,6 @@
 import pytest
 from unittest.mock import Mock, patch
 
-import temporalio.workflow
-import temporalio.exceptions
-
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
     BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow,
@@ -28,6 +25,7 @@ class TestBackfillPrecalculatedPersonPropertiesCoordinatorInputs:
             "cohort_ids": [1, 2, 3],
             "filter_storage_key": "test-key-456",
             "batch_size": 500,
+            "concurrent_workflows": 5,
         }
 
         assert inputs.properties_to_log == expected
@@ -52,90 +50,85 @@ class TestBackfillPrecalculatedPersonPropertiesCoordinatorWorkflow:
             BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow.parse_inputs(["arg1", "arg2"])
 
     @pytest.mark.asyncio
-    async def test_starts_first_workflow_only(self):
-        """Should start only the first workflow in the pipeline."""
+    async def test_processes_ranges_with_concurrent_workflows(self):
+        """Should discover ranges and start child workflows with concurrency limit."""
         inputs = BackfillPrecalculatedPersonPropertiesCoordinatorInputs(
             team_id=123,
             filter_storage_key="test-key",
             cohort_ids=[1, 2],
             batch_size=100,
+            concurrent_workflows=2,
         )
 
         # Mock workflow info
         mock_workflow_info = Mock()
         mock_workflow_info.workflow_id = "test-coordinator-123"
 
+        # Mock person ID ranges returned by activity - single range to keep it simple
+        mock_ranges = [("person1", "person100")]
+
         workflow = BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow()
+
+        # Track child workflows started
+        child_workflows_started = []
+
+        # Mock the helper method instead of the complex asyncio logic
+        async def mock_start_child_workflow(inputs_arg, logger, batch_num, start_id, end_id, handles):
+            child_workflows_started.append(
+                {
+                    "batch_number": batch_num,
+                    "start_person_id": start_id,
+                    "end_person_id": end_id,
+                }
+            )
 
         with (
             patch("temporalio.workflow.info", return_value=mock_workflow_info),
-            patch("temporalio.workflow.start_child_workflow") as mock_start,
+            patch("temporalio.workflow.execute_activity", return_value=mock_ranges),
+            patch.object(workflow, "_start_child_workflow_for_range", side_effect=mock_start_child_workflow),
+            patch("asyncio.wait", return_value=([], [])),  # No pending workflows
             patch("temporalio.workflow.logger") as mock_logger,
-            patch("django.conf.settings.MESSAGING_TASK_QUEUE", "test-messaging-queue"),
         ):
             await workflow.run(inputs)
 
-            # Should start exactly one child workflow
-            assert mock_start.call_count == 1
+            # Should start child workflow for the range
+            assert len(child_workflows_started) == 1
+            assert child_workflows_started[0]["batch_number"] == 1
+            assert child_workflows_started[0]["start_person_id"] == "person1"
+            assert child_workflows_started[0]["end_person_id"] == "person100"
 
-            # Verify child workflow call with correct parameters
-            args, kwargs = mock_start.call_args
-
-            # Check workflow name
-            assert args[0] == "backfill-precalculated-person-properties"
-
-            # Check inputs
-            child_inputs = args[1]
-            assert child_inputs.team_id == 123
-            assert child_inputs.filter_storage_key == "test-key"
-            assert child_inputs.cohort_ids == [1, 2]
-            assert child_inputs.batch_size == 100
-            assert child_inputs.cursor == "00000000-0000-0000-0000-000000000000"
-            assert child_inputs.batch_sequence == 1
-
-            # Check workflow configuration
-            assert kwargs["id"] == "test-coordinator-123-batch-1"
-            assert kwargs["task_queue"] == "test-messaging-queue"
-            assert kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
-
-            # Should log pipeline started
+            # Should log successful completion
             log_calls = [str(call) for call in mock_logger.info.call_args_list]
-            assert any("Pipeline started successfully" in call for call in log_calls)
+            assert any("completed successfully" in call for call in log_calls)
 
     @pytest.mark.asyncio
-    async def test_handles_startup_errors(self):
-        """Should handle errors when starting the first workflow."""
+    async def test_handles_no_person_ranges(self):
+        """Should handle the case when no person ranges are found."""
         inputs = BackfillPrecalculatedPersonPropertiesCoordinatorInputs(
             team_id=123,
             filter_storage_key="test-key",
             cohort_ids=[1],
             batch_size=100,
+            concurrent_workflows=2,
         )
 
         # Mock workflow info
         mock_workflow_info = Mock()
-        mock_workflow_info.workflow_id = "test-coordinator-error"
+        mock_workflow_info.workflow_id = "test-coordinator-no-ranges"
 
-        # Mock startup error
-        startup_error = Exception("Failed to start workflow")
+        # Mock empty ranges
+        mock_ranges: list[tuple[str, str]] = []
 
         workflow = BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow()
 
         with (
             patch("temporalio.workflow.info", return_value=mock_workflow_info),
-            patch("temporalio.workflow.start_child_workflow", side_effect=startup_error) as mock_start,
+            patch("temporalio.workflow.execute_activity", return_value=mock_ranges),
             patch("temporalio.workflow.logger") as mock_logger,
-            patch("django.conf.settings.MESSAGING_TASK_QUEUE", "test-messaging-queue"),
         ):
-            with pytest.raises(Exception) as exc_info:
-                await workflow.run(inputs)
+            # Should complete without error
+            await workflow.run(inputs)
 
-            assert str(exc_info.value) == "Failed to start workflow"
-
-            # Should attempt to start workflow once
-            assert mock_start.call_count == 1
-
-            # Should log the error
-            error_calls = list(mock_logger.error.call_args_list)
-            assert len(error_calls) == 1
-            assert "Failed to start initial batch" in str(error_calls[0])
+            # Should log that no persons were found
+            log_calls = [str(call) for call in mock_logger.info.call_args_list]
+            assert any("No persons found for team" in call for call in log_calls)
