@@ -9,7 +9,7 @@ from products.data_warehouse.backend.models.join import DataWarehouseJoin
 pytestmark = [pytest.mark.django_db]
 
 
-class TestRevenueViewName:
+class TestRevenueViewName(BaseTest):
     @parameterized.expand(
         [
             ("", "stripe.customer_revenue_view"),
