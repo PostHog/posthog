@@ -94,7 +94,19 @@ Each trace in the results contains:
 - `errorCount` — number of errors in the trace
 - `isSupportTrace` — whether the trace was from a support impersonation session
 - `tools` — list of tool names called during the trace
-- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the full event data including `$ai_input`, `$ai_output_choices`, `$ai_model`, `$ai_latency`, etc.
+- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the full event data — see "Event types and their properties" below.
+
+## Event types and their properties
+
+Each event in `events` has an `event` field indicating its type. The key properties vary by type:
+
+- **`$ai_generation`** / **`$ai_embedding`** — an LLM or embedding API call. Properties include `$ai_input` (input prompt JSON), `$ai_output_choices` (output message JSON), `$ai_model`, `$ai_provider`, `$ai_latency`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_input_cost_usd`, `$ai_output_cost_usd`, `$ai_total_cost_usd`, `$ai_tools_called`, `$ai_is_error`, `$ai_error`.
+- **`$ai_span`** — a unit of work within a trace (e.g., a retrieval step, a tool execution). Properties include `$ai_input_state`, `$ai_output_state`, `$ai_latency`, `$ai_span_name`, `$ai_parent_id`.
+- **`$ai_trace`** — the root trace event. Properties include `$ai_input_state` (e.g., conversation messages sent), `$ai_output_state` (e.g., final response), `$ai_span_name`.
+- **`$ai_metric`** — a named evaluation metric. Properties include `$ai_metric_name`, `$ai_metric_value`.
+- **`$ai_feedback`** — user-provided feedback. Properties include `$ai_feedback_text`.
+
+All event types share `$ai_trace_id`, `$ai_span_id`, and `$ai_parent_id` for tree structure.
 
 ## Pagination
 
