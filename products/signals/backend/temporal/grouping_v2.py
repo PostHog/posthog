@@ -163,40 +163,45 @@ class TeamSignalGroupingV2Workflow:
     async def pause_until(cls, team_id: int, timestamp: datetime) -> None:
         """Pause the grouping workflow until the given timestamp. Starts the workflow if not running."""
         client = await async_connect()
-        await client.start_workflow(
-            cls.run,
-            TeamSignalGroupingV2Input(team_id=team_id),
-            id=cls.workflow_id_for(team_id),
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            run_timeout=timedelta(hours=3),
-            start_signal="set_paused_until",
-            start_signal_args=[timestamp],
-        )
+        handle = client.get_workflow_handle(cls.workflow_id_for(team_id))
+        try:
+            await handle.signal(cls.set_paused_until, timestamp)
+        except RPCError as e:
+            if e.status != RPCStatusCode.NOT_FOUND:
+                raise
+            await client.start_workflow(
+                cls.run,
+                TeamSignalGroupingV2Input(team_id=team_id),
+                id=cls.workflow_id_for(team_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                run_timeout=timedelta(hours=3),
+                start_signal="set_paused_until",
+                start_signal_args=[timestamp],
+            )
 
     @classmethod
     async def unpause(cls, team_id: int) -> bool:
         """Clear the paused state. Starts the workflow if not running. Returns whether it was actually paused."""
         client = await async_connect()
-        was_paused = False
+        handle = client.get_workflow_handle(cls.workflow_id_for(team_id))
         try:
-            handle = client.get_workflow_handle(cls.workflow_id_for(team_id))
             state = await handle.query(cls.get_paused_state)
             was_paused = state is not None and state > datetime.now(tz=UTC)
+            await handle.signal(cls.clear_paused)
+            return was_paused
         except RPCError as e:
-            if e.status == RPCStatusCode.NOT_FOUND:
-                pass
-            else:
+            if e.status != RPCStatusCode.NOT_FOUND:
                 raise
-        await client.start_workflow(
-            cls.run,
-            TeamSignalGroupingV2Input(team_id=team_id),
-            id=cls.workflow_id_for(team_id),
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            run_timeout=timedelta(hours=3),
-            start_signal="clear_paused",
-            start_signal_args=[],
-        )
-        return was_paused
+            await client.start_workflow(
+                cls.run,
+                TeamSignalGroupingV2Input(team_id=team_id),
+                id=cls.workflow_id_for(team_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                run_timeout=timedelta(hours=3),
+                start_signal="clear_paused",
+                start_signal_args=[],
+            )
+            return False
 
     @classmethod
     async def paused_state(cls, team_id: int) -> Optional[datetime]:
