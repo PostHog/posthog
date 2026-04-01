@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// Recomputes searchMatches from current process output
+// recomputeSearch fetches lines and delegates to recomputeSearchWith.
 func (m *Model) recomputeSearch() {
 	if m.searchQuery == "" {
 		m.searchMatches = nil
@@ -15,7 +15,12 @@ func (m *Model) recomputeSearch() {
 		m.viewport.StyleLineFunc = nil
 		return
 	}
-	lines := m.searchableLines()
+	m.recomputeSearchWith(m.searchableLines())
+}
+
+// recomputeSearchWith scans the provided lines for the current query.
+// Use this when lines are already available to avoid a redundant copy.
+func (m *Model) recomputeSearchWith(lines []string) {
 	if len(lines) == 0 {
 		m.searchMatches = nil
 		return

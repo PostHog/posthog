@@ -75,14 +75,20 @@ from .taxonomy import (
     EVENT_DELETED_FILE,
     EVENT_DOWNGRADED_PLAN,
     EVENT_DOWNLOADED_FILE,
+    EVENT_LOGGED_IN,
     EVENT_PAID_BILL,
     EVENT_SHARED_FILE_LINK,
     EVENT_SIGNED_UP,
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
-    FILE_ENGAGEMENT_FLAG_KEY,
-    FILE_PREVIEWS_FLAG_KEY,
-    ONBOARDING_EXPERIMENT_FLAG_KEY,
+    FLAG_FILE_ENGAGEMENT_EXPERIMENT,
+    FLAG_FILE_PREVIEWS,
+    FLAG_ONBOARDING_EXPERIMENT,
+    FLAG_PRICING_PAGE_EXPERIMENT,
+    FLAG_RETENTION_NUDGE_EXPERIMENT,
+    FLAG_SHARING_INCENTIVE_EXPERIMENT,
+    FLAG_TEAM_COLLAB_EXPERIMENT,
+    FLAG_UPGRADE_PROMPT_EXPERIMENT,
     URL_HOME,
     URL_SIGNUP,
 )
@@ -148,16 +154,40 @@ class HedgeboxMatrix(Matrix):
     onboarding_experiment_start: dt.datetime
     onboarding_experiment_end: dt.datetime
     file_engagement_experiment_start: dt.datetime
+    pricing_experiment_start: dt.datetime
+    pricing_experiment_end: dt.datetime
+    sharing_experiment_start: dt.datetime
+    sharing_experiment_end: dt.datetime
+    upgrade_prompt_experiment_start: dt.datetime
+    team_collab_experiment_start: dt.datetime
+    team_collab_experiment_end: dt.datetime
     extended_end: dt.datetime
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        elapsed = self.now - self.start
+
         # Legacy experiment (complete) - runs from 30% to 60% of simulation
-        self.onboarding_experiment_start = self.start + (self.now - self.start) * 0.3
-        self.onboarding_experiment_end = self.start + (self.now - self.start) * 0.6
+        self.onboarding_experiment_start = self.start + elapsed * 0.3
+        self.onboarding_experiment_end = self.start + elapsed * 0.6
 
         # New experiment (running) - starts at 70% of simulation, extends beyond now
-        self.file_engagement_experiment_start = self.start + (self.now - self.start) * 0.7
+        self.file_engagement_experiment_start = self.start + elapsed * 0.7
+
+        # Pricing page redesign (inconclusive) - 15% to 45%
+        self.pricing_experiment_start = self.start + elapsed * 0.15
+        self.pricing_experiment_end = self.start + elapsed * 0.45
+
+        # File sharing incentive (lost) - 40% to 65%
+        self.sharing_experiment_start = self.start + elapsed * 0.4
+        self.sharing_experiment_end = self.start + elapsed * 0.65
+
+        # Upgrade prompt (running, recent) - 90% onward
+        self.upgrade_prompt_experiment_start = self.start + elapsed * 0.9
+
+        # Team collaboration boost (stopped early) - 50% to 70%
+        self.team_collab_experiment_start = self.start + elapsed * 0.5
+        self.team_collab_experiment_end = self.start + elapsed * 0.7
 
         # Extended simulation for running experiment
         self.extended_end = self.now + dt.timedelta(days=30)
@@ -849,10 +879,25 @@ class HedgeboxMatrix(Matrix):
             pass  # This can happen if demo data generation is re-run for the same project
 
         # Feature flags
+        def create_experiment_flag(
+            key: str, name: str, variants: list[tuple[str, int]], created_at: dt.datetime
+        ) -> FeatureFlag:
+            return FeatureFlag.objects.create(
+                team=team,
+                key=key,
+                name=name,
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {"variants": [{"key": k, "rollout_percentage": pct} for k, pct in variants]},
+                },
+                created_by=user,
+                created_at=created_at,
+            )
+
         try:
             FeatureFlag.objects.create(
                 team=team,
-                key=FILE_PREVIEWS_FLAG_KEY,
+                key=FLAG_FILE_PREVIEWS,
                 name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
                 filters={
                     "groups": [
@@ -877,47 +922,58 @@ class HedgeboxMatrix(Matrix):
                 created_at=self.now - dt.timedelta(days=15),
             )
 
-            # LEGACY Experiment feature flag
-            onboarding_flag = FeatureFlag.objects.create(
-                team=team,
-                key=ONBOARDING_EXPERIMENT_FLAG_KEY,
-                name="Onboarding flow test",
-                filters={
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "rollout_percentage": 34},
-                            {"key": "red", "rollout_percentage": 33},
-                            {"key": "blue", "rollout_percentage": 33},
-                        ]
-                    },
-                },
-                created_by=user,
-                created_at=self.onboarding_experiment_start - dt.timedelta(hours=1),
+            # Experiment feature flags
+            onboarding_flag = create_experiment_flag(
+                FLAG_ONBOARDING_EXPERIMENT,
+                "Onboarding flow test",
+                [("control", 34), ("red", 33), ("blue", 33)],
+                self.onboarding_experiment_start - dt.timedelta(hours=1),
             )
-
-            # Experiment feature flag
-            file_engagement_flag = FeatureFlag.objects.create(
-                team=team,
-                key=FILE_ENGAGEMENT_FLAG_KEY,
-                name="File engagement boost",
-                filters={
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "rollout_percentage": 34},
-                            {"key": "red", "rollout_percentage": 33},
-                            {"key": "blue", "rollout_percentage": 33},
-                        ]
-                    },
-                },
-                created_by=user,
-                created_at=self.file_engagement_experiment_start - dt.timedelta(hours=2),
+            file_engagement_flag = create_experiment_flag(
+                FLAG_FILE_ENGAGEMENT_EXPERIMENT,
+                "File engagement boost",
+                [("control", 34), ("red", 33), ("blue", 33)],
+                self.file_engagement_experiment_start - dt.timedelta(hours=2),
+            )
+            pricing_flag = create_experiment_flag(
+                FLAG_PRICING_PAGE_EXPERIMENT,
+                "Pricing page redesign",
+                [("control", 50), ("test", 50)],
+                self.pricing_experiment_start - dt.timedelta(hours=1),
+            )
+            sharing_flag = create_experiment_flag(
+                FLAG_SHARING_INCENTIVE_EXPERIMENT,
+                "File sharing incentive",
+                [("control", 50), ("test", 50)],
+                self.sharing_experiment_start - dt.timedelta(hours=1),
+            )
+            upgrade_prompt_flag = create_experiment_flag(
+                FLAG_UPGRADE_PROMPT_EXPERIMENT,
+                "Upgrade prompt experiment",
+                [("control", 34), ("aggressive", 33), ("subtle", 33)],
+                self.upgrade_prompt_experiment_start - dt.timedelta(hours=1),
+            )
+            retention_nudge_flag = create_experiment_flag(
+                FLAG_RETENTION_NUDGE_EXPERIMENT,
+                "Retention nudge",
+                [("control", 50), ("test", 50)],
+                self.now - dt.timedelta(days=2),
+            )
+            team_collab_flag = create_experiment_flag(
+                FLAG_TEAM_COLLAB_EXPERIMENT,
+                "Team collaboration boost",
+                [("control", 50), ("test", 50)],
+                self.team_collab_experiment_start - dt.timedelta(hours=1),
             )
         except IntegrityError:
             # Flags already exist, fetch them
-            onboarding_flag = FeatureFlag.objects.get(team=team, key=ONBOARDING_EXPERIMENT_FLAG_KEY)
-            file_engagement_flag = FeatureFlag.objects.get(team=team, key=FILE_ENGAGEMENT_FLAG_KEY)
+            onboarding_flag = FeatureFlag.objects.get(team=team, key=FLAG_ONBOARDING_EXPERIMENT)
+            file_engagement_flag = FeatureFlag.objects.get(team=team, key=FLAG_FILE_ENGAGEMENT_EXPERIMENT)
+            pricing_flag = FeatureFlag.objects.get(team=team, key=FLAG_PRICING_PAGE_EXPERIMENT)
+            sharing_flag = FeatureFlag.objects.get(team=team, key=FLAG_SHARING_INCENTIVE_EXPERIMENT)
+            upgrade_prompt_flag = FeatureFlag.objects.get(team=team, key=FLAG_UPGRADE_PROMPT_EXPERIMENT)
+            retention_nudge_flag = FeatureFlag.objects.get(team=team, key=FLAG_RETENTION_NUDGE_EXPERIMENT)
+            team_collab_flag = FeatureFlag.objects.get(team=team, key=FLAG_TEAM_COLLAB_EXPERIMENT)
 
         # Experiments and shared metrics
 
@@ -1228,6 +1284,235 @@ class HedgeboxMatrix(Matrix):
             ExperimentToSavedMetric.objects.create(
                 experiment=new_experiment, saved_metric=metric, metadata={"type": "secondary"}
             )
+
+        # --- Additional experiments for coverage of various states ---
+
+        # Pricing page redesign (inconclusive) — uses high-volume pageview→signup funnel
+        Experiment.objects.create(
+            team=team,
+            name="Pricing page redesign",
+            description="Testing a simplified pricing page layout to improve signup conversion from the pricing page.",
+            feature_flag=pricing_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Pricing page to signup",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": EVENT_SIGNED_UP},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 14,
+                    "conversion_window_unit": "day",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Pageviews per user",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                    "goal": "increase",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.30),
+                "minimum_detectable_effect": 10,
+            },
+            start_date=self.pricing_experiment_start,
+            end_date=self.pricing_experiment_end,
+            conclusion="inconclusive",
+            conclusion_comment="No statistically significant difference detected between the control and test variants after the full run. Needs a larger sample size or bolder design change.",
+            created_at=pricing_flag.created_at,
+        )
+
+        # File sharing incentive (lost) — uses upload→download funnel and upload mean
+        Experiment.objects.create(
+            team=team,
+            name="File sharing incentive",
+            description="Testing whether a sharing prompt after upload increases file engagement and downloads.",
+            feature_flag=sharing_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Uploads per user",
+                    "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    "goal": "increase",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Upload to download",
+                    "series": [
+                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                        {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 7,
+                    "conversion_window_unit": "day",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.25),
+                "minimum_detectable_effect": 12,
+            },
+            start_date=self.sharing_experiment_start,
+            end_date=self.sharing_experiment_end,
+            conclusion="lost",
+            conclusion_comment="The sharing prompt annoyed users and led to fewer uploads overall. The test variant performed significantly worse than control.",
+            created_at=sharing_flag.created_at,
+        )
+
+        # Upgrade prompt experiment (running, recently started) — uses high-volume events
+        Experiment.objects.create(
+            team=team,
+            name="Upgrade prompt experiment",
+            description="Testing different prompt styles to increase user engagement and file activity.",
+            feature_flag=upgrade_prompt_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Login to upload",
+                    "series": [
+                        {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
+                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 7,
+                    "conversion_window_unit": "day",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Downloads per user",
+                    "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
+                    "goal": "increase",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 34},
+                    {"key": "aggressive", "rollout_percentage": 33},
+                    {"key": "subtle", "rollout_percentage": 33},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.35),
+                "minimum_detectable_effect": 15,
+            },
+            start_date=self.upgrade_prompt_experiment_start,
+            end_date=None,
+            created_at=upgrade_prompt_flag.created_at,
+        )
+
+        # Retention nudge (draft - not yet started)
+        Experiment.objects.create(
+            team=team,
+            name="Retention nudge",
+            description="Planning to test email and in-app nudges for users who haven't logged in for 3+ days.",
+            feature_flag=retention_nudge_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "7-day login retention",
+                    "goal": "increase",
+                    "start_event": {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
+                    "start_handling": "first_seen",
+                    "completion_event": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE, "math": "total"},
+                    "retention_window_start": 1,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Downloads per user",
+                    "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
+                    "goal": "increase",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.30),
+                "minimum_detectable_effect": 10,
+            },
+            start_date=None,
+            end_date=None,
+            created_at=retention_nudge_flag.created_at,
+        )
+
+        # Team collaboration boost (stopped early) — uses high-volume events
+        Experiment.objects.create(
+            team=team,
+            name="Team collaboration boost",
+            description="Testing a team activity feed to encourage more file uploads and engagement.",
+            feature_flag=team_collab_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Files uploaded per user",
+                    "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    "goal": "increase",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": str(uuid.uuid4()),
+                    "name": "Signup to upload",
+                    "series": [
+                        {"kind": "EventsNode", "event": EVENT_SIGNED_UP},
+                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 7,
+                    "conversion_window_unit": "day",
+                },
+            ],
+            metrics_secondary=[],
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.30),
+                "minimum_detectable_effect": 12,
+            },
+            start_date=self.team_collab_experiment_start,
+            end_date=self.team_collab_experiment_end,
+            conclusion="stopped_early",
+            conclusion_comment="Stopped early due to a bug in the activity feed causing excessive notifications. Need to fix the notification throttling before re-running.",
+            created_at=team_collab_flag.created_at,
+        )
 
         self._set_up_demo_data_warehouse_tables(team, user)
 

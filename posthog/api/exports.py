@@ -26,8 +26,7 @@ from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
-from posthog.slo.events import emit_slo_started
-from posthog.slo.types import SloArea, SloOperation, SloStartedProperties
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
@@ -293,25 +292,22 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         source = get_event_source(request) if request else EventSource.EXPORT
         distinct_id = str(user.distinct_id) if user else str(team.id)
 
-        emit_slo_started(
-            distinct_id=distinct_id,
-            properties=SloStartedProperties(
-                operation=SloOperation.EXPORT,
-                resource_id=str(instance.id),
-                area=SloArea.ANALYTIC_PLATFORM,
-                team_id=team.id,
-            ),
-            extra_properties={
-                "source": source,
-                "export_format": instance.export_format,
-            },
-        )
-
         workflow_inputs = ExportAssetWorkflowInputs(
             exported_asset_id=instance.id,
             team_id=team.id,
             distinct_id=distinct_id,
             export_format=instance.export_format,
+            slo=SloConfig(
+                operation=SloOperation.EXPORT,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=team.id,
+                resource_id=str(instance.id),
+                distinct_id=distinct_id,
+                start_properties={
+                    "export_format": instance.export_format,
+                    "source": source,
+                },
+            ),
         )
 
         async def _run():

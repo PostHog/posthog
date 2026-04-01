@@ -15,7 +15,7 @@ from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -49,7 +49,7 @@ from posthog.hogql.printer.utils import print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.api.documentation import extend_schema
-from posthog.api.mixins import PydanticModelMixin
+from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
@@ -259,6 +259,16 @@ def _validate_bucket_overrides(bucket_overrides: dict[str, str] | None) -> None:
     if invalid:
         valid_options = list(SUPPORTED_BUCKET_FUNCTIONS.keys())
         raise ValidationError(f"Invalid bucket override values: {invalid}. Valid options: {valid_options}")
+
+
+class MaterializationPreviewRequestSerializer(serializers.Serializer):
+    version = serializers.IntegerField(required=False)
+    bucket_overrides = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text='Per-column bucket function overrides, e.g. {"timestamp": "hour"}',
+    )
 
 
 @extend_schema(tags=[ProductKey.ENDPOINTS])
@@ -625,6 +635,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 columns = None
             EndpointVersion.objects.create(
                 endpoint=endpoint,
+                team=self.team,
                 version=1,
                 query=query_dict,
                 description=data.description or "",
@@ -665,7 +676,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(
                 e,
                 {
-                    "product_key": Product.ENDPOINTS,
+                    "product": Product.ENDPOINTS,
                     "team_id": self.team_id,
                     "endpoint_name": data.name,
                 },
@@ -713,6 +724,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
+
+        # Soft-delete via PATCH {deleted: true} — reuses destroy() logic, returns 200 with body for MCP
+        if data.deleted is True:
+            self.destroy(request, name=name)
+            return Response({"success": True}, status=status.HTTP_200_OK)
 
         self.validate_update_request(data, endpoint=endpoint, strict=False)
 
@@ -929,7 +945,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(
                 e,
                 {
-                    "product_key": Product.ENDPOINTS,
+                    "product": Product.ENDPOINTS,
                     "team_id": self.team_id,
                     "endpoint_id": endpoint.id,
                     "saved_query_id": current_version.saved_query.id if current_version.saved_query else None,
@@ -2166,19 +2182,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return Response(self._build_materialization_info(version))
 
-    @extend_schema(
+    @validated_request(
+        MaterializationPreviewRequestSerializer,
         description="Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.",
     )
-    @action(methods=["GET"], detail=True, url_path="materialization_preview")
-    def materialization_preview(self, request: Request, name=None, *args, **kwargs) -> Response:
+    @action(methods=["POST"], detail=True, url_path="materialization_preview")
+    def materialization_preview(self, request: ValidatedRequest, name=None, *args, **kwargs) -> Response:
         """Preview the materialization transform without enabling it.
 
         Returns the transformed query, range pair info, and aggregate re-aggregation info.
-        Supports ?version=N and ?bucket_overrides[column]=fn query params.
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
 
-        version_number = self._parse_version_param(request)
+        version_number = request.validated_data.get("version")
         if version_number is not None:
             try:
                 version = endpoint.get_version(version_number)
@@ -2191,14 +2207,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if not can_mat:
             return _cant_materialize_response(reason)
 
-        bucket_overrides: dict[str, str] | None = None
-        raw_overrides: dict[str, str] = {
-            k.removeprefix("bucket_overrides[").removesuffix("]"): str(v)
-            for k, v in request.query_params.items()
-            if k.startswith("bucket_overrides[")
-        }
-        if raw_overrides:
-            bucket_overrides = raw_overrides
+        bucket_overrides = request.validated_data.get("bucket_overrides")
+        if bucket_overrides:
             _validate_bucket_overrides(bucket_overrides)
 
         hogql_query = convert_insight_query_to_hogql(version.query, self.team)

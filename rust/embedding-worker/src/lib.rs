@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::time::Duration;
+use std::{borrow::Cow, sync::Arc};
 
 use anyhow::Result;
 use common_kafka::kafka_consumer::Offset;
@@ -87,6 +87,7 @@ pub async fn handle_single(
         Ok(r) => r,
         Err(e) => {
             counter!(EMBEDDING_FAILED, labels.render()).increment(1);
+            error!("Failed to handle request: {request:?}");
             return Err(e);
         }
     };
@@ -184,19 +185,25 @@ pub async fn generate_embedding(
 
 // This is here, rather than on the embedding model, to avoid taking a dep on tiktoken in common/types. We
 // can reconsider it later if we want
-pub fn generate_embedding_text(
-    content: &str,
+pub fn generate_embedding_text<'a>(
+    content: &'a str,
     model: &EmbeddingModel,
     labels: &RequestLabels,
-) -> Result<(String, usize)> {
+) -> Result<(Cow<'a, str>, usize)> {
+    let content = model.escape_input(content);
     let (text, count) = match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
             let encoder = tiktoken_rs::cl100k_base()?;
             let mut tokens: Vec<_> = encoder
-                .encode_with_special_tokens(content)
+                .encode_with_special_tokens(&content)
                 .into_iter()
                 .take(model.model_input_window())
                 .collect();
+
+            if tokens.len() < model.model_input_window() {
+                return Ok((content, tokens.len()));
+            }
+
             // Truncation can split a multi-byte character's token sequence,
             // producing bytes that aren't valid UTF-8 on decode. Drop trailing
             // tokens until we land on a clean boundary.
@@ -217,7 +224,7 @@ pub fn generate_embedding_text(
         counter!(MESSAGE_TRUNCATED, labels.render()).increment(1);
     }
 
-    Ok((text, count))
+    Ok((Cow::Owned(text), count))
 }
 
 pub fn construct_request(
@@ -259,6 +266,6 @@ mod tests {
 
         let (text, _count) =
             generate_embedding_text(&content, &model, &RequestLabels::default()).unwrap();
-        assert!(content.starts_with(&text));
+        assert!(content.starts_with(&*text));
     }
 }

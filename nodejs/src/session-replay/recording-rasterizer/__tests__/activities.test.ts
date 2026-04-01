@@ -141,7 +141,8 @@ describe('rasterizeRecordingActivity', () => {
             expect.any(String),
             'my-bucket',
             'exports/mp4/team-99/task-42',
-            expect.any(String)
+            expect.any(String),
+            expect.any(Function)
         )
     })
 

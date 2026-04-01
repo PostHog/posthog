@@ -81,6 +81,10 @@ STRIPE_ORCHESTRATOR_CALLBACK_URL = get_from_env("STRIPE_ORCHESTRATOR_CALLBACK_UR
 WORKOS_RADAR_API_KEY = get_from_env("WORKOS_RADAR_API_KEY", "")
 WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str_to_bool)
 
+# Cloudflare Turnstile (challenge verification for Radar "challenge" verdict)
+CLOUDFLARE_TURNSTILE_SECRET_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SECRET_KEY", "")
+CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", "")
+
 # Recall.ai (for desktop recordings product)
 RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")
 RECALL_AI_API_URL = get_from_env("RECALL_AI_API_URL", "https://us-west-2.recall.ai")
