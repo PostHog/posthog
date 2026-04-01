@@ -374,42 +374,31 @@ describe('clipboardUtils', () => {
             expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
         })
 
-        it('pads short header names to match data width', () => {
+        it.each([
+            {
+                name: 'pads short header names to match data width',
+                columns: ['n', 'v'],
+                rows: [{ result: ['very_long_value', 'x'] }],
+                // 'n' column: max(3, 1, 15) = 15; 'v' column: max(3, 1, 1) = 3
+                expected: ['| n               | v   |', '| --------------- | --- |', '| very_long_value | x   |'].join(
+                    '\n'
+                ),
+            },
+            {
+                name: 'escapes pipe characters in header and cell values',
+                columns: ['expr|rpxe'],
+                rows: [{ result: ['a|b'] }],
+                expected: ['| expr\\|rpxe |', '| ---------- |', '| a\\|b       |'].join('\n'),
+            },
+            {
+                name: 'handles null and undefined cell values',
+                columns: ['col'],
+                rows: [{ result: [null] }, { result: [undefined] }],
+                expected: ['| col |', '| --- |', '|     |', '|     |'].join('\n'),
+            },
+        ])('$name', ({ columns, rows, expected }) => {
             const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
-            // getCsvTableData sorts columns alphabetically: n, v
-            const columns = ['n', 'v']
-            const rows: DataTableRow[] = [{ result: ['very_long_value', 'x'] }]
-
-            copyTableToMarkdown(rows, columns, query)
-
-            // 'n' column: max(3, 1, 15) = 15; 'v' column: max(3, 1, 1) = 3
-            const expected = [
-                '| n               | v   |',
-                '| --------------- | --- |',
-                '| very_long_value | x   |',
-            ].join('\n')
-            expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
-        })
-
-        it('escapes pipe characters in header and cell values', () => {
-            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
-            const columns = ['expr|rpxe']
-            const rows: DataTableRow[] = [{ result: ['a|b'] }]
-
-            copyTableToMarkdown(rows, columns, query)
-
-            const expected = ['| expr\\|rpxe |', '| ---------- |', '| a\\|b       |'].join('\n')
-            expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
-        })
-
-        it('handles null and undefined cell values', () => {
-            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
-            const columns = ['col']
-            const rows: DataTableRow[] = [{ result: [null] }, { result: [undefined] }]
-
-            copyTableToMarkdown(rows, columns, query)
-
-            const expected = ['| col |', '| --- |', '|     |', '|     |'].join('\n')
+            copyTableToMarkdown(rows as DataTableRow[], columns, query)
             expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
         })
 
