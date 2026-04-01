@@ -318,99 +318,95 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
             </Form>
             <ActionHogFunctions />
             {id && analyticsReferences.length > 0 && (
-                <>
-                    <LemonCollapse
-                        defaultActiveKey="used-in-analytics"
-                        panels={[
-                            {
-                                key: 'used-in-analytics',
-                                header: {
-                                    children: (
-                                        <div className="py-1">
-                                            <div className="font-semibold">Used in analytics</div>
-                                            <div className="text-secondary text-sm font-normal">
-                                                Insights, experiments, and cohorts that reference this action.
-                                            </div>
+                <LemonCollapse
+                    defaultActiveKey="used-in-analytics"
+                    panels={[
+                        {
+                            key: 'used-in-analytics',
+                            header: {
+                                children: (
+                                    <div className="py-1">
+                                        <div className="font-semibold">Used in analytics</div>
+                                        <div className="text-secondary text-sm font-normal">
+                                            Insights, experiments, and cohorts that reference this action.
                                         </div>
-                                    ),
-                                },
-                                content: <ReferencesList logicProps={logicProps} />,
+                                    </div>
+                                ),
                             },
-                        ]}
-                    />
-                </>
+                            content: <ReferencesList logicProps={logicProps} />,
+                        },
+                    ]}
+                />
             )}
             {(id || action.steps?.length) && (
-                <>
-                    <LemonCollapse
-                        defaultActiveKey="matching-events"
-                        panels={[
-                            {
-                                key: 'matching-events',
-                                header: {
-                                    children: (
-                                        <div className="py-1">
-                                            <div className="font-semibold">Matching events</div>
-                                            <div className="text-secondary text-sm font-normal">
-                                                Recent events that match this action.
-                                            </div>
+                <LemonCollapse
+                    defaultActiveKey="matching-events"
+                    panels={[
+                        {
+                            key: 'matching-events',
+                            header: {
+                                children: (
+                                    <div className="py-1">
+                                        <div className="font-semibold">Matching events</div>
+                                        <div className="text-secondary text-sm font-normal">
+                                            Recent events that match this action.
                                         </div>
-                                    ),
-                                },
-                                content:
-                                    id && !isComplete && !actionChanged ? (
-                                        <div className="flex items-center">
-                                            <Spinner className="mr-4" />
-                                            Calculating action, please hold on...
-                                        </div>
-                                    ) : (
-                                        <Query
-                                            query={{
-                                                kind: NodeKind.DataTableNode,
-                                                source: {
-                                                    kind: NodeKind.EventsQuery,
-                                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                                    ...(id && !actionChanged
-                                                        ? { actionId: id }
-                                                        : {
-                                                              actionSteps: action.steps?.map(
-                                                                  ({
-                                                                      event,
-                                                                      properties,
-                                                                      selector,
-                                                                      tag_name,
-                                                                      text,
-                                                                      text_matching,
-                                                                      href,
-                                                                      href_matching,
-                                                                      url,
-                                                                      url_matching,
-                                                                  }) => ({
-                                                                      event,
-                                                                      properties,
-                                                                      selector,
-                                                                      tag_name,
-                                                                      text,
-                                                                      text_matching,
-                                                                      href,
-                                                                      href_matching,
-                                                                      url,
-                                                                      url_matching,
-                                                                  })
-                                                              ),
-                                                          }),
-                                                    after: '-24h',
-                                                },
-                                                full: true,
-                                                showEventFilter: false,
-                                                showPropertyFilter: false,
-                                            }}
-                                        />
-                                    ),
+                                    </div>
+                                ),
                             },
-                        ]}
-                    />
-                </>
+                            content:
+                                id && !isComplete && !actionChanged ? (
+                                    <div className="flex items-center">
+                                        <Spinner className="mr-4" />
+                                        Calculating action, please hold on...
+                                    </div>
+                                ) : (
+                                    <Query
+                                        query={{
+                                            kind: NodeKind.DataTableNode,
+                                            source: {
+                                                kind: NodeKind.EventsQuery,
+                                                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                                ...(id && !actionChanged
+                                                    ? { actionId: id }
+                                                    : {
+                                                          actionSteps: action.steps?.map(
+                                                              ({
+                                                                  event,
+                                                                  properties,
+                                                                  selector,
+                                                                  tag_name,
+                                                                  text,
+                                                                  text_matching,
+                                                                  href,
+                                                                  href_matching,
+                                                                  url,
+                                                                  url_matching,
+                                                              }) => ({
+                                                                  event,
+                                                                  properties,
+                                                                  selector,
+                                                                  tag_name,
+                                                                  text,
+                                                                  text_matching,
+                                                                  href,
+                                                                  href_matching,
+                                                                  url,
+                                                                  url_matching,
+                                                              })
+                                                          ),
+                                                      }),
+                                                after: '-24h',
+                                            },
+                                            full: true,
+                                            showEventFilter: false,
+                                            showPropertyFilter: false,
+                                        }}
+                                    />
+                                ),
+                        },
+                    ]}
+                />
             )}
         </SceneContent>
     )

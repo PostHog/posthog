@@ -231,6 +231,11 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 return
             }
 
+            if (values.referencesLoading) {
+                lemonToast.info('Checking for references. Please try again in a moment.')
+                return
+            }
+
             const performDelete = async (): Promise<void> => {
                 try {
                     await deleteWithUndo({
