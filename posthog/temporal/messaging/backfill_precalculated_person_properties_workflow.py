@@ -13,7 +13,7 @@ import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.client import KafkaProducer, _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -202,7 +202,7 @@ async def evaluate_single_filter(
     hog_globals: dict[str, Any],
     person_id: str,
     inputs: BackfillPrecalculatedPersonPropertiesInputs,
-    kafka_producer: KafkaProducer,
+    kafka_producer: _KafkaProducer,
     logger,
 ) -> list[Any]:
     """
