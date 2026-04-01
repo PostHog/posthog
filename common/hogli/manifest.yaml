@@ -263,6 +263,7 @@ deploy:
             \ exports -n     # Dry run exports only"
         prompt: true
 build:
+    build: null # Click-defined command; placed here for help categorization
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
         description: Build frontend packages and run TypeScript compilation

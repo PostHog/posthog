@@ -68,25 +68,21 @@ class TestPipelineMatching:
 
 class TestGetChangedFiles:
     @patch("hogli.build.subprocess.check_output")
-    def test_combines_branch_staged_unstaged_untracked(self, mock_output: MagicMock) -> None:
+    def test_combines_branch_and_working_tree(self, mock_output: MagicMock) -> None:
         mock_output.side_effect = [
             "abc123\n",  # merge-base
             "file_branch.py\n",  # branch diff
-            "file_staged.py\n",  # staged
-            "file_unstaged.py\n",  # unstaged
-            "file_untracked.py\n",  # untracked
+            " M file_modified.py\nA  file_staged.py\n?? file_untracked.py\n",  # status --porcelain
         ]
         result = _get_changed_files()
-        assert result == {"file_branch.py", "file_staged.py", "file_unstaged.py", "file_untracked.py"}
+        assert result == {"file_branch.py", "file_modified.py", "file_staged.py", "file_untracked.py"}
 
     @patch("hogli.build.subprocess.check_output")
     def test_deduplicates_files(self, mock_output: MagicMock) -> None:
         mock_output.side_effect = [
             "abc123\n",
             "same_file.py\n",
-            "same_file.py\n",
-            "same_file.py\n",
-            "",
+            "M  same_file.py\n",  # same file in working tree
         ]
         result = _get_changed_files()
         assert result == {"same_file.py"}
@@ -126,7 +122,7 @@ class TestBuildCommand:
     @patch("hogli.build._get_changed_files")
     def test_smart_mode_runs_matching_pipelines(self, mock_changed: MagicMock, mock_run: MagicMock) -> None:
         mock_changed.return_value = {"frontend/src/queries/schema/index.ts"}
-        mock_run.return_value = True
+        mock_run.return_value = (True, "")
         result = runner.invoke(cli, ["build"])
         assert result.exit_code == 0
         mock_run.assert_called_once()
@@ -135,7 +131,7 @@ class TestBuildCommand:
 
     @patch("hogli.build._run_pipeline")
     def test_force_runs_all_pipelines(self, mock_run: MagicMock) -> None:
-        mock_run.return_value = True
+        mock_run.return_value = (True, "")
         result = runner.invoke(cli, ["build", "--force"])
         assert result.exit_code == 0
         assert mock_run.call_count == len(PIPELINES)
@@ -159,8 +155,23 @@ class TestBuildCommand:
 
     @patch("hogli.build._run_pipeline")
     def test_continues_on_failure(self, mock_run: MagicMock) -> None:
-        mock_run.side_effect = [False, True, True, True, True, True, True]
-        result = runner.invoke(cli, ["build", "--force"])
+        mock_run.side_effect = [(False, "error")] + [(True, "")] * (len(PIPELINES) - 1)
+        result = runner.invoke(cli, ["build", "--force", "--sequential"])
         assert result.exit_code == 1
         assert "failures" in result.output
         assert mock_run.call_count == len(PIPELINES)
+
+    @patch("hogli.build._run_pipeline")
+    def test_sequential_flag_runs_sequentially(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = (True, "")
+        result = runner.invoke(cli, ["build", "--force", "--sequential"])
+        assert result.exit_code == 0
+        assert mock_run.call_count == len(PIPELINES)
+
+    @patch("hogli.build._run_pipeline")
+    def test_single_pipeline_runs_sequentially(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = (True, "ok output")
+        with patch("hogli.build._get_changed_files", return_value={"posthog/taxonomy/foo.py"}):
+            result = runner.invoke(cli, ["build"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once()
