@@ -96,4 +96,3 @@ warn_unused_ignores = true
 
 [tool.uv]
 managed = true
-exclude-newer = "7 days"
