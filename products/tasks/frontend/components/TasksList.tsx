@@ -35,12 +35,15 @@ export function TasksList(): JSX.Element {
             key: 'title',
             width: '40%',
             render: (_: any, task: Task) => (
-                <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                        <span className="font-semibold text-link cursor-pointer" onClick={() => openTask(task.id)}>
+                <div className="flex flex-col gap-1 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <span
+                            className="font-semibold text-link cursor-pointer shrink-0"
+                            onClick={() => openTask(task.id)}
+                        >
                             {task.slug}
                         </span>
-                        <span className="text-default">{task.title}</span>
+                        <span className="text-default truncate">{task.title}</span>
                     </div>
                     {task.description && <div className="text-muted text-xs line-clamp-1">{task.description}</div>}
                 </div>
