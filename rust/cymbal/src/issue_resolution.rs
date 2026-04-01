@@ -170,6 +170,9 @@ impl Issue {
 
         let reopened = !res.is_empty();
         if reopened {
+            // DB row is now active; keep in-memory state in sync so downstream Kafka payloads
+            // (fingerprint_issue_state, internal events) are not stale.
+            self.status = IssueStatus::Active;
             metrics::counter!(ISSUE_REOPENED).increment(1);
             capture_issue_reopened(self.team_id, self.id);
         }
