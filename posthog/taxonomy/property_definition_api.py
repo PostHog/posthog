@@ -103,6 +103,13 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=False,
     )
 
+    verified = serializers.BooleanField(
+        help_text="Filter by verified status. True returns only verified, false returns only unverified.",
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
     def validate(self, attrs):
         type_ = attrs.get("type", "event")
 
@@ -309,6 +316,22 @@ class QueryContext:
                     **self.params,
                     "excluded_core_properties": EXCLUDED_EVENT_CORE_PROPERTIES,
                 },
+            )
+        return self
+
+    def with_verified_filter(self, verified: Optional[bool], use_enterprise_taxonomy: bool) -> Self:
+        if verified is not None and use_enterprise_taxonomy:
+            if verified:
+                verified_filter = " AND verified = true"
+            else:
+                verified_filter = " AND (verified IS NULL OR verified = false)"
+            return dataclasses.replace(
+                self,
+                excluded_properties_filter=(
+                    self.excluded_properties_filter + verified_filter
+                    if self.excluded_properties_filter
+                    else verified_filter
+                ),
             )
         return self
 
@@ -544,12 +567,33 @@ class PropertyDefinitionViewSet(
         {
             "id": "$builtin_" + key,
             "name": key,
+            "description": val.get("description", ""),
             "is_numerical": val["type"] == "Numeric",
             "property_type": val["type"],
             "tags": val.get("tags", []),
+            "is_seen_on_filtered_events": None,
+            "verified": False,
+            "hidden": False,
             "virtual": True,
         }
         for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"].items()
+        if val.get("virtual", False)
+    ]
+
+    _BUILTIN_VIRTUAL_EVENT_PROPERTIES = [
+        {
+            "id": "$builtin_" + key,
+            "name": key,
+            "description": val.get("description", ""),
+            "is_numerical": val["type"] == "Numeric",
+            "property_type": val["type"],
+            "tags": val.get("tags", []),
+            "is_seen_on_filtered_events": None,
+            "verified": False,
+            "hidden": False,
+            "virtual": True,
+        }
+        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
         if val.get("virtual", False)
     ]
 
@@ -557,9 +601,13 @@ class PropertyDefinitionViewSet(
         {
             "id": "$builtin_" + key,
             "name": key,
+            "description": val.get("description", ""),
             "is_numerical": val["type"] == "Numeric",
             "property_type": val["type"],
             "tags": val.get("tags", []),
+            "is_seen_on_filtered_events": None,
+            "verified": False,
+            "hidden": False,
             "virtual": True,
         }
         for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["groups"].items()
@@ -666,6 +714,7 @@ class PropertyDefinitionViewSet(
                 .with_hidden_filter(
                     query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=EE_AVAILABLE
                 )
+                .with_verified_filter(query.validated_data.get("verified"), use_enterprise_taxonomy=EE_AVAILABLE)
             )
 
             span.set_attribute("joins_event_property", query_context.should_join_event_property)
@@ -726,19 +775,20 @@ class PropertyDefinitionViewSet(
 
         event_type = request.query_params.get("type", "event")
 
-        # Inject virtual person/group properties to the end of the results
-        if event_type in ["person", "group"]:
+        # Inject virtual event/person/group properties to the end of the results
+        if event_type in ["event", "person", "group"]:
             paginator = self.paginator
             assert isinstance(paginator, NotCountingLimitOffsetPaginator)
 
             query = PropertyDefinitionQuerySerializer(data=request.query_params)
             query.is_valid(raise_exception=True)
 
-            virtual_properties = (
-                self._BUILTIN_VIRTUAL_PERSON_PROPERTIES
-                if event_type == "person"
-                else self._BUILTIN_VIRTUAL_GROUP_PROPERTIES
-            )
+            if event_type == "event":
+                virtual_properties = self._BUILTIN_VIRTUAL_EVENT_PROPERTIES
+            elif event_type == "person":
+                virtual_properties = self._BUILTIN_VIRTUAL_PERSON_PROPERTIES
+            else:
+                virtual_properties = self._BUILTIN_VIRTUAL_GROUP_PROPERTIES
 
             matching_virtual_props = [p for p in virtual_properties if self._filter_virtual_property(p, query)]
 
@@ -759,8 +809,13 @@ class PropertyDefinitionViewSet(
         # Reimplement filtering logic in python for virtual properties
         v = q.validated_data
 
-        # Virtual properties only exist for person and groups
-        if v.get("type") not in ["person", "group"]:
+        # Virtual properties exist for events, persons, and groups
+        if v.get("type") not in ["event", "person", "group"]:
+            return False
+
+        # Virtual properties don't have real event associations, so exclude them
+        # when filtering by event names
+        if v.get("filter_by_event_names"):
             return False
 
         # explicit name filter  (?properties=a,b,c)

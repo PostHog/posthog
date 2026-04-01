@@ -235,7 +235,8 @@ export class IngestionConsumer {
             outputs,
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
-                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS
+                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
+                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
