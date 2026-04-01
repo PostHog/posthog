@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import temporalio
@@ -11,7 +11,6 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
-
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
@@ -185,7 +184,7 @@ class TeamSignalGroupingV2Workflow:
         try:
             handle = client.get_workflow_handle(cls.workflow_id_for(team_id))
             state = await handle.query(cls.get_paused_state)
-            was_paused = state is not None and state > datetime.now(tz=timezone.utc)
+            was_paused = state is not None and state > datetime.now(tz=UTC)
         except RPCError as e:
             if e.status == RPCStatusCode.NOT_FOUND:
                 pass
