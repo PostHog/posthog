@@ -1365,10 +1365,7 @@ mod tests {
     fn test_does_not_require_db_preparation_if_holdout_set() {
         use crate::flags::flag_models::Holdout;
         let mut flag = mock!(FeatureFlag);
-        flag.filters.holdout = Some(Holdout {
-            id: 1,
-            exclusion_percentage: 10.0,
-        });
+        flag.filters.holdout = Some(mock!(Holdout));
 
         assert!(!flag.requires_db_preparation(&HashMap::new()));
     }

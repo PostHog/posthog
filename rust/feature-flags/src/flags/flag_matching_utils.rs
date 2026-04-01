@@ -1533,20 +1533,7 @@ mod tests {
         );
 
         // Convert flag to FeatureFlagRow
-        let flag_row = FeatureFlagRow {
-            id: flag.id,
-            team_id: flag.team_id,
-            name: flag.name,
-            key: flag.key,
-            filters: json!(flag.filters),
-            deleted: flag.deleted,
-            active: flag.active,
-            ensure_experience_continuity: flag.ensure_experience_continuity,
-            version: flag.version,
-            evaluation_runtime: flag.evaluation_runtime,
-            evaluation_tags: flag.evaluation_tags,
-            bucketing_identifier: flag.bucketing_identifier,
-        };
+        let flag_row = mock!(FeatureFlagRow, from: flag);
 
         // Insert the feature flag into the database
         context.insert_flag(team.id, Some(flag_row)).await.unwrap();

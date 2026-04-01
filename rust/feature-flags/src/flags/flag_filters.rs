@@ -46,36 +46,10 @@ mod tests {
 
     use crate::flags::flag_models::FlagPropertyGroup;
     use crate::mock;
-    use crate::properties::property_models::{OperatorType, PropertyType};
+    use crate::properties::property_models::{PropertyFilter, PropertyType};
     use crate::utils::mock::MockInto;
 
     use super::*;
-
-    fn pf(
-        key: &str,
-        prop_type: PropertyType,
-        operator: OperatorType,
-    ) -> crate::properties::property_models::PropertyFilter {
-        mock!(crate::properties::property_models::PropertyFilter,
-            key: key.mock_into(),
-            prop_type: prop_type,
-            operator: Some(operator)
-        )
-    }
-
-    fn group(
-        props: Vec<crate::properties::property_models::PropertyFilter>,
-        rollout: f64,
-    ) -> FlagPropertyGroup {
-        mock!(FlagPropertyGroup,
-            properties: Some(props),
-            rollout_percentage: Some(rollout)
-        )
-    }
-
-    fn filters(groups: Vec<FlagPropertyGroup>) -> FlagFilters {
-        mock!(FlagFilters, groups: groups)
-    }
 
     #[rstest]
     #[case(100.0, true)]
@@ -85,31 +59,32 @@ mod tests {
         #[case] rollout_percentage: f64,
         #[case] expected: bool,
     ) {
-        let f = filters(vec![group(
-            vec![pf("cohort", PropertyType::Cohort, OperatorType::Exact)],
-            rollout_percentage,
-        )]);
+        let f = mock!(FlagFilters, groups: vec![
+            mock!(FlagPropertyGroup,
+                properties: Some(vec![mock!(PropertyFilter,
+                    key: "cohort".mock_into(),
+                    prop_type: PropertyType::Cohort
+                )]),
+                rollout_percentage: Some(rollout_percentage)
+            )
+        ]);
 
         assert_eq!(f.requires_cohort_filters(), expected);
     }
 
     #[test]
     fn test_requires_db_properties_when_overrides_not_enough() {
-        let f = filters(vec![
-            group(
-                vec![
-                    pf("some_key", PropertyType::Person, OperatorType::Exact),
-                    pf("another_key", PropertyType::Person, OperatorType::Exact),
-                ],
-                100.0,
+        let f = mock!(FlagFilters, groups: vec![
+            mock!(FlagPropertyGroup,
+                properties: Some(vec![
+                    mock!(PropertyFilter, key: "some_key".mock_into()),
+                    mock!(PropertyFilter, key: "another_key".mock_into()),
+                ])
             ),
-            group(
-                vec![pf(
-                    "yet_another_key",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                )],
-                100.0,
+            mock!(FlagPropertyGroup,
+                properties: Some(vec![
+                    mock!(PropertyFilter, key: "yet_another_key".mock_into()),
+                ])
             ),
         ]);
 
@@ -146,10 +121,13 @@ mod tests {
 
     #[test]
     fn test_requires_cohorts_when_groups_have_cohorts() {
-        let f = filters(vec![group(
-            vec![pf("some_key", PropertyType::Cohort, OperatorType::Exact)],
-            100.0,
-        )]);
+        let f = mock!(FlagFilters, groups: vec![
+            mock!(FlagPropertyGroup,
+                properties: Some(vec![
+                    mock!(PropertyFilter, key: "some_key".mock_into(), prop_type: PropertyType::Cohort),
+                ])
+            )
+        ]);
 
         assert!(f.requires_cohort_filters());
     }
@@ -157,18 +135,15 @@ mod tests {
     #[test]
     fn test_holdout_does_not_require_cohorts() {
         use crate::flags::flag_models::Holdout;
-        let mut f = filters(vec![]);
-        f.holdout = Some(Holdout {
-            id: 1,
-            exclusion_percentage: 10.0,
-        });
+        let mut f = mock!(FlagFilters, groups: vec![]);
+        f.holdout = Some(mock!(Holdout));
 
         assert!(!f.requires_cohort_filters());
     }
 
     #[test]
     fn test_requires_db_properties_when_aggregation_group_type_index_set() {
-        let mut f = filters(vec![]);
+        let mut f = mock!(FlagFilters, groups: vec![]);
         f.aggregation_group_type_index = Some(1);
 
         // Even though there are no properties, we still need to evaluate the DB properties
@@ -178,14 +153,13 @@ mod tests {
 
     #[test]
     fn test_super_groups_require_db_properties_when_overrides_insufficient() {
-        let mut f = filters(vec![]);
-        f.super_groups = Some(vec![group(
-            vec![pf(
-                "$feature_enrollment/feature-flags-flag-dependency",
-                PropertyType::Person,
-                OperatorType::Exact,
-            )],
-            100.0,
+        let mut f = mock!(FlagFilters, groups: vec![]);
+        f.super_groups = Some(vec![mock!(FlagPropertyGroup,
+            properties: Some(vec![
+                mock!(PropertyFilter,
+                    key: "$feature_enrollment/feature-flags-flag-dependency".mock_into()
+                ),
+            ])
         )]);
 
         {
@@ -205,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_feature_enrollment_requires_db_properties_when_override_missing() {
-        let mut f = filters(vec![]);
+        let mut f = mock!(FlagFilters, groups: vec![]);
         f.feature_enrollment = Some(true);
 
         assert!(f.requires_db_properties(&HashMap::new(), "my-flag"));
@@ -213,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_feature_enrollment_skips_db_when_override_present() {
-        let mut f = filters(vec![]);
+        let mut f = mock!(FlagFilters, groups: vec![]);
         f.feature_enrollment = Some(true);
 
         let overrides = HashMap::from([(
@@ -225,7 +199,7 @@ mod tests {
 
     #[test]
     fn test_does_not_require_db_properties_when_super_groups_empty() {
-        let mut f = filters(vec![]);
+        let mut f = mock!(FlagFilters, groups: vec![]);
         f.super_groups = Some(vec![]);
 
         // Empty super_groups don't require DB properties
@@ -235,11 +209,8 @@ mod tests {
     #[test]
     fn test_does_not_require_db_properties_when_holdout_set() {
         use crate::flags::flag_models::Holdout;
-        let mut f = filters(vec![]);
-        f.holdout = Some(Holdout {
-            id: 1,
-            exclusion_percentage: 10.0,
-        });
+        let mut f = mock!(FlagFilters, groups: vec![]);
+        f.holdout = Some(mock!(Holdout));
 
         // Holdouts don't require DB properties.
         assert!(!f.requires_db_properties(&HashMap::new(), "test-flag"));
@@ -247,13 +218,14 @@ mod tests {
 
     #[test]
     fn test_requires_db_properties_when_not_enough_overrides_single_group() {
-        let f = filters(vec![group(
-            vec![
-                pf("some_key", PropertyType::Person, OperatorType::Exact),
-                pf("another_key", PropertyType::Person, OperatorType::Exact),
-            ],
-            100.0,
-        )]);
+        let f = mock!(FlagFilters, groups: vec![
+            mock!(FlagPropertyGroup,
+                properties: Some(vec![
+                    mock!(PropertyFilter, key: "some_key".mock_into()),
+                    mock!(PropertyFilter, key: "another_key".mock_into()),
+                ])
+            )
+        ]);
 
         {
             let overrides =
@@ -279,21 +251,17 @@ mod tests {
 
     #[test]
     fn test_requires_db_properties_when_overrides_not_enough_for_multiple_groups() {
-        let f = filters(vec![
-            group(
-                vec![
-                    pf("some_key", PropertyType::Person, OperatorType::Exact),
-                    pf("another_key", PropertyType::Person, OperatorType::Exact),
-                ],
-                100.0,
+        let f = mock!(FlagFilters, groups: vec![
+            mock!(FlagPropertyGroup,
+                properties: Some(vec![
+                    mock!(PropertyFilter, key: "some_key".mock_into()),
+                    mock!(PropertyFilter, key: "another_key".mock_into()),
+                ])
             ),
-            group(
-                vec![pf(
-                    "yet_another_key",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                )],
-                100.0,
+            mock!(FlagPropertyGroup,
+                properties: Some(vec![
+                    mock!(PropertyFilter, key: "yet_another_key".mock_into()),
+                ])
             ),
         ]);
 

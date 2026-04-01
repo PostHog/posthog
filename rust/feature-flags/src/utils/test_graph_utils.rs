@@ -995,7 +995,7 @@ mod evaluation_metadata_serde_tests {
     }
 }
 
-/// Creates a test flag with the given dependencies, active state, and deleted state.
+/// Creates a test flag with the given dependencies and active state.
 /// Shared helper for feature flag graph integration tests.
 #[cfg(test)]
 fn flag(

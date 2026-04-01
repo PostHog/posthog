@@ -1476,18 +1476,10 @@ mod tests {
     }
 
     fn create_test_flag_with_variants(team_id: TeamId) -> FeatureFlag {
-        FeatureFlag {
-            id: 1,
-            team_id,
-            name: Some("Test Flag".to_string()),
-            key: "test_flag".to_string(),
+        mock!(FeatureFlag,
+            team_id: team_id,
             filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: None,
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                    ..Default::default()
-                }],
+                groups: vec![mock!(FlagPropertyGroup, properties: None)],
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
                         MultivariateFlagVariant {
@@ -1508,20 +1500,9 @@ mod tests {
                     ],
                 }),
                 aggregation_group_type_index: Some(1),
-                payloads: None,
-                super_groups: None,
-                feature_enrollment: None,
-
-                holdout: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: Some(1),
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        }
+                ..Default::default()
+            }
+        )
     }
 
     #[tokio::test]
@@ -5358,28 +5339,20 @@ mod tests {
     }
 
     fn build_device_bucketing_flag(team_id: TeamId) -> FeatureFlag {
-        FeatureFlag {
-            id: 1,
-            team_id,
-            name: Some("device flag".to_string()),
-            key: "device-flag".to_string(),
+        mock!(FeatureFlag,
+            team_id: team_id,
+            name: "device flag".mock_into(),
+            key: "device-flag".mock_into(),
             filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
+                groups: vec![mock!(FlagPropertyGroup,
                     properties: None,
-                    rollout_percentage: Some(50.0),
-                    variant: None,
-                    ..Default::default()
-                }],
-                ..FlagFilters::default()
+                    rollout_percentage: Some(50.0)
+                )],
+                ..Default::default()
             },
-            deleted: false,
-            active: true,
             ensure_experience_continuity: Some(true),
-            version: Some(1),
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: Some("device_id".to_string()),
-        }
+            bucketing_identifier: "device_id".mock_into()
+        )
     }
 
     #[tokio::test]
