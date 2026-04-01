@@ -23,8 +23,8 @@ class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
         # Attach workflow identity for debugging and query-level deduplication.
         info = workflow.info()
         workflow_context = {
+            "correlation_id": info.run_id,
             "workflow_id": info.workflow_id,
-            "workflow_run_id": info.run_id,
             "workflow_type": info.workflow_type,
         }
 

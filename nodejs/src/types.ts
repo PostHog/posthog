@@ -148,8 +148,6 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    logsIngestion?: boolean
-    tracesIngestion?: boolean
     errorTrackingIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
@@ -167,6 +165,7 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronV2Janitor?: boolean
+    cdpHogflowScheduler?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean
 }
