@@ -40,7 +40,7 @@ function removeDefaults(filter: Filters): Partial<Filters> {
         property: filter.property !== '' ? filter.property : undefined,
         type: filter.type !== 'event' ? filter.type : undefined,
         group_type_index: filter.group_type_index !== null ? filter.group_type_index : undefined,
-        verified: filter.verified !== undefined ? filter.verified : undefined,
+        verified: filter.verified,
     }
 }
 
