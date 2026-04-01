@@ -541,6 +541,8 @@ export function ActionFilterRow({
                                                     trendsDisplayCategory={trendsDisplayCategory}
                                                     allowedMathTypes={allowedMathTypes}
                                                     query={query || {}}
+                                                    fullWidth
+                                                    truncateText={{ maxWidthClass: 'max-w-full' }}
                                                 />
                                             </div>
                                         )}
