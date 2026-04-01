@@ -101,9 +101,9 @@ class ReportPresentationOutput(BaseModel):
     )
     summary: str = Field(
         description=(
-            "An Axios Smart Brevity-style summary with bolded section labels: "
-            "'**Why it matters:** …', '**What's happening:** …', '**The bottom line:** …'. "
-            "Each section is one sentence. Focus on user/business impact, concrete facts, and a specific next step."
+            "A very short factual summary of the report in 1-3 sentences. "
+            "Focus on what the signals collectively indicate and what product area is affected. "
+            "Do not restate actionability or priority."
         ),
     )
 
@@ -117,9 +117,7 @@ class ReportPresentationOutput(BaseModel):
 
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
-    summary: str = Field(
-        description="Generated Axios-style report summary (Why it matters / What's happening / The bottom line)."
-    )
+    summary: str = Field(description="Generated short factual report summary.")
     findings: list[SignalFinding] = Field(
         description="One finding per signal in the report, in the same order as the input signals.",
     )
@@ -434,15 +432,9 @@ def build_report_presentation_prompt(
   - Bad: "Various funnel improvements and bug fixes"
   - Bad: "Multiple analytics issues"
 
-- **Summary**: Write in the Axios Smart Brevity style with these three sections, each on its own line:
-  - **Why it matters:** One sentence on the business or user impact. This is the most important part — lead with it.
-  - **What's happening:** 1-2 sentences on the concrete facts. Reference specific signals, error types, metrics, or patterns from your research.
-  - **The bottom line:** One sentence with the specific, actionable next step — a code change, investigation, or decision.
-
-  Style rules:
-  - Be direct and specific. Every sentence must carry information.
-  - No filler phrases ("various issues detected", "it's worth noting").
-  - Bold the section labels exactly as shown above.
+- **Summary**: 1-3 short factual sentences explaining what the signals collectively indicate and what area of the product or codebase is involved.
+- Do **not** restate actionability, priority, urgency, or next steps unless they are part of the factual issue itself.
+- Keep the summary compact and information-dense.
 
 {previous_presentation_context}
 
