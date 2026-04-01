@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest
 
@@ -627,7 +627,52 @@ class TestDashboardTemplates(APIBaseTest):
         assert flag_response.status_code == status.HTTP_200_OK
         assert [(r["id"], r["scope"]) for r in flag_response.json()["results"]] == [(flag_template_id, "feature_flag")]
 
-    def create_template(self, overrides: dict[str, str | list[str]], team_id: Optional[int] = None) -> str:
+    def test_filter_template_list_by_is_featured(self) -> None:
+        DashboardTemplate.objects.all().delete()
+        featured_id = self.create_template(
+            {"template_name": "Featured list filter A", "is_featured": True},
+        )
+        not_featured_id = self.create_template(
+            {"template_name": "Not featured list filter B", "is_featured": False},
+        )
+
+        all_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
+        assert all_response.status_code == status.HTTP_200_OK
+        assert len(all_response.json()["results"]) == 2
+
+        featured_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?is_featured=true")
+        assert featured_response.status_code == status.HTTP_200_OK
+        featured_ids = {r["id"] for r in featured_response.json()["results"]}
+        assert featured_ids == {featured_id}
+
+        not_featured_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?is_featured=false")
+        assert not_featured_response.status_code == status.HTTP_200_OK
+        not_featured_ids = {r["id"] for r in not_featured_response.json()["results"]}
+        assert not_featured_ids == {not_featured_id}
+
+    def test_is_featured_list_excludes_feature_flag_scoped_templates(self) -> None:
+        """`?is_featured=true` on the default list does not pull in `scope=feature_flag` rows (use `scope=feature_flag` for those)."""
+        DashboardTemplate.objects.all().delete()
+        team_featured = self.create_template(
+            {"template_name": "Featured team scoped FF test", "is_featured": True, "scope": "team"},
+        )
+        global_featured = self.create_template(
+            {"template_name": "Featured global scoped FF test", "is_featured": True, "scope": "global"},
+        )
+        flag_featured = self.create_template(
+            {
+                "template_name": "Featured feature_flag scoped FF test",
+                "is_featured": True,
+                "scope": DashboardTemplate.Scope.FEATURE_FLAG,
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?is_featured=true")
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {team_featured, global_featured}
+        assert flag_featured not in ids
+
+    def create_template(self, overrides: dict[str, Any], team_id: Optional[int] = None) -> str:
         template = {**variable_template, **overrides}
         response = self.client.post(
             f"/api/projects/{team_id or self.team.pk}/dashboard_templates",

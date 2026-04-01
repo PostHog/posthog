@@ -18,3 +18,6 @@ export type AppMetricsOutput = typeof APP_METRICS_OUTPUT
 
 export const LOG_ENTRIES_OUTPUT = 'log_entries' as const
 export type LogEntriesOutput = typeof LOG_ENTRIES_OUTPUT
+
+export const TOPHOG_OUTPUT = 'tophog' as const
+export type TophogOutput = typeof TOPHOG_OUTPUT

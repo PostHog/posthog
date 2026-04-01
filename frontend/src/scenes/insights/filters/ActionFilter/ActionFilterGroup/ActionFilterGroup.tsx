@@ -116,25 +116,25 @@ export function ActionFilterGroup({
             }}
         >
             <div
-                className={clsx('flex flex-col overflow-hidden', {
+                className={clsx('flex flex-col overflow-hidden min-w-0', {
                     'border border-primary rounded hover:border-secondary': insightType === InsightType.TRENDS,
                 })}
             >
                 {/* Header: series indicator, math controls, action buttons */}
                 <div
                     className={clsx(
-                        'ActionFilterGroup--header flex flex-wrap items-center justify-between gap-2 px-4 border-b border-primary',
-                        insightType === InsightType.FUNNELS ? 'py-4' : 'py-3'
+                        'ActionFilterGroup--header flex items-start gap-x-2 gap-y-1 px-2 @min-[500px]/editor-panel:px-4 border-b border-primary',
+                        insightType === InsightType.FUNNELS ? 'py-4' : 'py-2 @min-[500px]/editor-panel:py-3'
                     )}
                 >
-                    <div className="flex flex-wrap items-center gap-0 min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-2 min-w-0">
                         {sortable && filterCount > 1 && (
                             <span className="ActionFilterRowDragHandle" {...listeners}>
                                 <SortableDragIcon />
                             </span>
                         )}
                         {showSeriesIndicator && (
-                            <div className="shrink-0 mr-2">
+                            <div className="shrink-0">
                                 {seriesIndicatorType === 'numeric' ? (
                                     <SeriesGlyph style={{ borderColor: 'var(--color-border-primary)' }}>
                                         {index + 1}
@@ -151,7 +151,19 @@ export function ActionFilterGroup({
 
                         {mathAvailability !== MathAvailability.None &&
                             mathAvailability !== MathAvailability.FunnelsOnly && (
-                                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                // we use flex-wrap when the math name is long so "Math:" and the
+                                // select can stack, but flex-nowrap for short names so they stay together.
+                                // CSS can't solve this because the select width varies by content.
+                                // Remove after insight-editor-panel experiment ends
+                                <div
+                                    className={clsx(
+                                        'flex items-center gap-2',
+                                        (mathDefinitions[filter.math || BaseMathType.TotalCount]?.name?.length ?? 0) >
+                                            25
+                                            ? 'flex-wrap'
+                                            : ''
+                                    )}
+                                >
                                     <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
                                     <MathSelector
                                         size="small"
@@ -253,7 +265,7 @@ export function ActionFilterGroup({
                     </div>
 
                     {!readOnly && (
-                        <div className="flex shrink-0 gap-1">
+                        <div className="flex shrink-0 gap-0.5 ml-auto @max-[500px]/editor-panel:[&_.LemonButton]:[--lemon-button-height:1.75rem] @max-[500px]/editor-panel:[&_.LemonButton]:[--lemon-button-icon-size:1rem]">
                             <Tooltip title="Rename group series">
                                 <LemonButton
                                     size="small"

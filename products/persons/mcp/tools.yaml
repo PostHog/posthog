@@ -169,3 +169,6 @@ tools:
     cohorts-persons-retrieve:
         operation: cohorts_persons_retrieve
         enabled: false
+    persons-batch-by-uuids-create:
+        operation: persons_batch_by_uuids_create
+        enabled: false

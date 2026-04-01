@@ -6,7 +6,9 @@ import { PluginServer } from '~/server'
 import { NodeServer } from '~/servers/base-server'
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
+import { IngestionLogsServer } from '~/servers/ingestion-logs-server'
 import { IngestionSessionReplayServer } from '~/servers/ingestion-session-replay-server'
+import { IngestionTracesServer } from '~/servers/ingestion-traces-server'
 import { RecordingApiServer } from '~/servers/recording-api-server'
 import { initSuperProperties } from '~/utils/posthog'
 
@@ -27,8 +29,14 @@ function createServer(): NodeServer {
         case PluginServerMode.ingestion_error_tracking:
             return new ErrorTrackingServer()
 
+        case PluginServerMode.ingestion_logs:
+            return new IngestionLogsServer()
+
+        case PluginServerMode.ingestion_traces:
+            return new IngestionTracesServer()
+
         default:
-            // CDP modes, logs, evaluation scheduler, local dev (null), local-cdp
+            // CDP modes, evaluation scheduler, local dev (null), local-cdp
             return new PluginServer()
     }
 }
