@@ -1310,6 +1310,11 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     def test_pinterest_ads_native_query_generation(self):
         campaign_table = self._create_mock_table("pinterest_campaigns", "PinterestAds")
         stats_table = self._create_mock_table("pinterest_campaign_analytics", "PinterestAds")
+        stats_table.columns = {
+            "total_impression": {"valid": True},
+            "total_clickthrough": {"valid": True},
+            "spend_in_dollar": {"valid": True},
+        }
 
         config = PinterestAdsConfig(
             campaign_table=campaign_table,
