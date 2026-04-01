@@ -1710,7 +1710,6 @@ def doctor() -> None:
         lambda: _check_migrations(),
     ]
 
-
     # Run all checks concurrently — each is I/O-bound and independent.
     results: list[CheckResult | None] = [None] * len(checks)
     with ThreadPoolExecutor(max_workers=len(checks)) as pool:
@@ -1729,7 +1728,6 @@ def doctor() -> None:
     for result in results:
         assert result is not None
         _print_check_result(result)
-
 
     click.echo()
 
