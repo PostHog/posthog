@@ -7,6 +7,7 @@ from typing import Any, Optional
 from django.conf import settings
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ErrorCodes
 from dagster import (
     AssetExecutionContext,
     BackfillPolicy,
@@ -41,6 +42,10 @@ from posthog.models.raw_sessions.sessions_v3 import (
 
 # This is the number of days to backfill in one SQL operation
 MAX_PARTITIONS_PER_RUN = 1
+
+# Number of sub-chunks to split a chunk into when retrying after a ClickHouse OOM error.
+# Each chunk_i is retried at most once by splitting into this many sub-queries.
+OOM_RETRY_SUB_CHUNKS = 10
 
 # Keep the number of concurrent runs low to avoid overloading ClickHouse and running into the dread "Too many parts".
 # This tag needs to also exist in Dagster Cloud (and the local dev dagster.yaml) for the concurrency limit to take effect.
@@ -464,6 +469,26 @@ def _get_experimental_chunking(config: ExperimentalSessionsBackfillConfig) -> tu
         return 1, "team_id", lambda i: "1"
 
 
+def _is_oom_error(exc: Exception) -> bool:
+    """Check if an exception is a ClickHouse MEMORY_LIMIT_EXCEEDED error."""
+    error_str = str(exc)
+    return f"error code {ErrorCodes.MEMORY_LIMIT_EXCEEDED}" in error_str or "MEMORY_LIMIT_EXCEEDED" in error_str
+
+
+def _sub_chunk_where(base_where: str, sub_chunk_i: int, total_sub_chunks: int) -> str:
+    """Add a cityHash64(distinct_id) range filter for sub-chunk splitting on OOM retry."""
+    max_uint64 = 2**64
+    chunk_size = max_uint64 // total_sub_chunks
+    low = sub_chunk_i * chunk_size
+    high = (sub_chunk_i + 1) * chunk_size
+
+    if sub_chunk_i == 0:
+        return f"({base_where}) AND cityHash64(distinct_id) < {high}"
+    if sub_chunk_i == total_sub_chunks - 1:
+        return f"({base_where}) AND cityHash64(distinct_id) >= {low}"
+    return f"({base_where}) AND cityHash64(distinct_id) >= {low} AND cityHash64(distinct_id) < {high}"
+
+
 def _do_experimental_backfill(
     sql_template: Callable,
     timestamp_field: str,
@@ -519,7 +544,37 @@ def _do_experimental_backfill(
                     include_session_timestamp=True,
                 )
                 context.log.info(backfill_sql)
-                sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
+
+                try:
+                    sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
+                except Exception as e:
+                    if not _is_oom_error(e):
+                        raise
+
+                    context.log.warning(
+                        f"OOM error on chunk {chunk_i + 1}/{num_chunks}, "
+                        f"retrying by splitting into {OOM_RETRY_SUB_CHUNKS} sub-chunks: {e}"
+                    )
+
+                    for sub_i in range(OOM_RETRY_SUB_CHUNKS):
+                        wait_for_parts_to_merge(
+                            context, config, sync_client=client, table=target_table, use_cluster=False
+                        )
+
+                        sub_where = _sub_chunk_where(chunk_where_clause, sub_i, OOM_RETRY_SUB_CHUNKS)
+                        sub_sql = sql_template(
+                            where=sub_where,
+                            target_table=target_table,
+                            include_session_timestamp=True,
+                        )
+                        context.log.info(
+                            f"Running sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i + 1}/{num_chunks}"
+                        )
+                        context.log.info(sub_sql)
+                        sync_execute(sub_sql, settings=merged_settings, sync_client=client)
+                        context.log.info(
+                            f"Completed sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i + 1}/{num_chunks}"
+                        )
 
                 if num_chunks > 1:
                     context.log.info(f"Completed chunk {chunk_i + 1}/{num_chunks}")

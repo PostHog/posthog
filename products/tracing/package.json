@@ -13,6 +13,7 @@
         "@posthog/icons": "*",
         "@types/react": "*",
         "clsx": "*",
+        "fast-deep-equal": "*",
         "react": "*"
     }
 }

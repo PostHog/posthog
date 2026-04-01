@@ -465,7 +465,7 @@ class ModalSandbox:
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --depth 1 --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            f"git clone --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"  # No --depth to allow git blame
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
@@ -532,10 +532,14 @@ class ModalSandbox:
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
-        return (
-            f"cd /scripts && env -0 > {ENV_FILE} && "
-            f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
-        )
+
+        if allowed_domains:
+            return (
+                f"cd /scripts && env -0 > {ENV_FILE} && "
+                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
+            )
+        else:
+            return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         result = self.execute(command, timeout_seconds=30)
@@ -569,7 +573,8 @@ class ModalSandbox:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        self._setup_agentsh(WORKING_DIR, allowed_domains)
+        if allowed_domains:
+            self._setup_agentsh(WORKING_DIR, allowed_domains)
 
         mcp_servers_arg = ""
         if mcp_configs:

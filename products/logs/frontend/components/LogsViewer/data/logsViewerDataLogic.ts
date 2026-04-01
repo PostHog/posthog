@@ -426,7 +426,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                                       trace: 'muted-alt',
                                   }[name],
                     }))
-                    .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
                 return { data, labels, dates }
             },

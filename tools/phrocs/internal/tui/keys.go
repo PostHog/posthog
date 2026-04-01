@@ -174,14 +174,9 @@ func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 
 	case key.Matches(msg, m.keys.Info), msg.Code == tea.KeyEscape:
 		m.infoMode = false
+		m.disableAllMetrics()
 		if !m.isDockerMode() {
-			m.activeContent = m.buildContent()
-			if m.activeContent == "" {
-				m.activeLineCount = 0
-			} else {
-				m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
-			}
-			m.viewport.SetContent(m.activeContent)
+			m.reloadActiveLines()
 			m.viewport.GotoBottom()
 			m.viewportAtBottom = true
 		}
@@ -368,6 +363,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 	case key.Matches(msg, m.keys.Info):
 		m.infoMode = true
+		m.toggleMetricsOnSelectedProc()
 		m.refreshInfoContent()
 		m.viewport.GotoTop()
 		m.dbg("info mode: enter")
