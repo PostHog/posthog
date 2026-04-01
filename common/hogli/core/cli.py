@@ -15,7 +15,7 @@ from collections import defaultdict
 from typing import Any
 
 import click
-from hogli import telemetry
+from hogli import hints, telemetry
 from hogli.core.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.core.manifest import REPO_ROOT, get_category_for_command, load_manifest
 
@@ -48,6 +48,11 @@ class CategorizedGroup(click.Group):
         finally:
             _fire_telemetry(ctx, exit_code)
             telemetry.flush()
+            if exit_code == 0:
+                try:
+                    hints.maybe_show_hint(ctx.invoked_subcommand)
+                except Exception:
+                    pass
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format commands grouped by category, git-style with extends tree."""
