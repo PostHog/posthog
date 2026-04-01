@@ -149,3 +149,19 @@ wrappers:
         exclude_properties:
             - response
             - modifiers
+
+    query-llm-trace-detail:
+        schema_ref: AssistantTraceQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Get LLM trace details
+        description_file: ./prompts/query-llm-trace-detail.md
+        exclude_properties:
+            - response
+            - modifiers
