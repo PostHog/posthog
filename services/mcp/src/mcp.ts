@@ -334,11 +334,14 @@ export class MCP extends McpAgent<Env> {
                     }
                 }
 
+                const useJson = tool._meta?.responseFormat === 'json'
+                const text = useJson ? JSON.stringify(result) : formatResponse(result)
+
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: formatResponse(result),
+                            text,
                         },
                     ],
                     // Include raw result as structuredContent for UI apps to consume
