@@ -334,12 +334,19 @@ macro_rules! log_stat_error {
     };
     (@impl $err:expr, $ctx:expr, $($extra:tt)*) => {{
         let err = &$err;
-        let msg = format!("{}: {err:#}", err.tag());
         match err.log_level() {
             ::tracing::Level::WARN =>
-                $crate::ctx_log!(::tracing::Level::WARN, $ctx, $($extra)* "{}", msg),
+                $crate::ctx_log!(::tracing::Level::WARN, $ctx,
+                    error_tag = %err.tag(),
+                    error = %err,
+                    $($extra)*
+                    "{err:#}"),
             _ =>
-                $crate::ctx_log!(::tracing::Level::ERROR, $ctx, $($extra)* "{}", msg),
+                $crate::ctx_log!(::tracing::Level::ERROR, $ctx,
+                    error_tag = %err.tag(),
+                    error = %err,
+                    $($extra)*
+                    "{err:#}"),
         }
         err.stat_error(Some(&$ctx));
     }};
