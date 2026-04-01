@@ -20,7 +20,7 @@ export type LiveEventsFeedColumn = 'event' | 'person' | 'url' | 'timestamp' | 'm
 
 const ALL_COLUMNS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp', 'more']
 
-const COLUMN_DEFINITIONS: Record<LiveEventsFeedColumn, LemonTableColumn<LiveEvent, keyof LiveEvent>> = {
+const COLUMN_DEFINITIONS: Record<LiveEventsFeedColumn, LemonTableColumn<LiveEvent, keyof LiveEvent | undefined>> = {
     event: {
         title: 'Event',
         key: 'event',
