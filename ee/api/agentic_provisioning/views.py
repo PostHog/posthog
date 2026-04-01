@@ -42,7 +42,7 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
+from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX, SHARED_PAYMENT_TOKEN_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
 
@@ -560,7 +560,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
             "account": {
                 "id": account_id,
-                "payment_credentials": "provider",
+                "payment_credentials": "orchestrator",
             },
         }
     )
@@ -619,6 +619,30 @@ def _exchange_refresh_token(request: Request) -> Response:
             "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
         }
     )
+
+
+def _store_shared_payment_token(team: Team, spt_token: str) -> None:
+    """Store a Stripe Shared Payment Token for the team's organization.
+
+    The SPT is used as the payment instrument when creating Stripe subscriptions
+    for orgs provisioned via Stripe Projects (instead of collecting a card directly).
+    """
+    cache_key = f"{SHARED_PAYMENT_TOKEN_CACHE_PREFIX}{team.organization_id}"
+    cache.set(
+        cache_key,
+        {"spt_token": spt_token, "team_id": team.id, "org_id": str(team.organization_id)},
+        timeout=None,
+    )
+    logger.info("stripe_app.spt_stored", team_id=team.id, org_id=str(team.organization_id))
+
+
+def get_shared_payment_token(org_id: str) -> str | None:
+    """Retrieve the stored SPT for an organization. Returns None if not set."""
+    cache_key = f"{SHARED_PAYMENT_TOKEN_CACHE_PREFIX}{org_id}"
+    data = cache.get(cache_key)
+    if data and isinstance(data, dict):
+        return data.get("spt_token")
+    return None
 
 
 def _create_provisioned_pat(user: User, team: Team) -> str | None:
@@ -680,6 +704,13 @@ def provisioning_resources_create(request: Request) -> Response:
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
+
+    # Store Stripe Shared Payment Token if provided (pay_as_you_go plan)
+    payment_credentials = request.data.get("payment_credentials")
+    if payment_credentials and payment_credentials.get("type") == "stripe_payment_token":
+        spt_token = payment_credentials.get("stripe_payment_token")
+        if spt_token:
+            _store_shared_payment_token(team, spt_token)
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
