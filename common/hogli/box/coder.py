@@ -366,7 +366,6 @@ def get_username() -> str:
         return username.lower()
 
     _fail("Failed to determine the Coder username.")
-    return ""
 
 
 def get_workspace_name(label: str | None = None) -> str:

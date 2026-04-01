@@ -137,9 +137,9 @@ def _workspace_label_suffix(name: str) -> str:
 def _get_workspace_or_fail(name: str) -> dict[str, Any]:
     """Return a workspace or exit with a consistent message when missing."""
     workspace = get_workspace(name)
-    if workspace is None:
-        _fail("No devbox found. Run 'hogli box:start' to create one.")
-    return workspace
+    if workspace is not None:
+        return workspace
+    _fail("No devbox found. Run 'hogli box:start' to create one.")
 
 
 def _workspace_status_color(status: str) -> str:
