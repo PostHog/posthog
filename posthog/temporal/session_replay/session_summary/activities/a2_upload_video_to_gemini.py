@@ -23,7 +23,7 @@ from posthog.schema import ReplayInactivityPeriod
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
-from posthog.temporal.ai.session_summary.types.video import (
+from posthog.temporal.session_replay.session_summary.types.video import (
     UploadedVideo,
     UploadVideoToGeminiOutput,
     VideoSummarySingleSessionInputs,

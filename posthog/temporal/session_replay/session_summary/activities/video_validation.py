@@ -6,7 +6,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.video_validation import SessionSummaryVideoValidator

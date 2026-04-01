@@ -13,7 +13,10 @@ from posthog.api.embedding_worker import emit_embedding_request
 from posthog.models.team.team import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.types.video import VideoSegmentOutput, VideoSummarySingleSessionInputs
+from posthog.temporal.session_replay.session_summary.types.video import (
+    VideoSegmentOutput,
+    VideoSummarySingleSessionInputs,
+)
 
 SESSION_SEGMENTS_EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072
 

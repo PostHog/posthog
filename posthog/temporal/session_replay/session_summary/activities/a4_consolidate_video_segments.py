@@ -14,7 +14,7 @@ from google.genai import types
 from posthoganalytics.ai.gemini import genai
 from temporalio.exceptions import ApplicationError
 
-from posthog.temporal.ai.session_summary.types.video import (
+from posthog.temporal.session_replay.session_summary.types.video import (
     ConsolidatedVideoAnalysis,
     VideoSegmentOutput,
     VideoSummarySingleSessionInputs,

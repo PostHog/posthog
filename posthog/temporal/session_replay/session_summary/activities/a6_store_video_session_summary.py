@@ -10,13 +10,16 @@ import structlog
 import temporalio
 
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.state import (
+from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
     get_redis_state_client,
 )
-from posthog.temporal.ai.session_summary.types.video import ConsolidatedVideoAnalysis, VideoSummarySingleSessionInputs
-from posthog.temporal.ai.session_summary.utils import parse_str_timestamp_to_ms
+from posthog.temporal.session_replay.session_summary.types.video import (
+    ConsolidatedVideoAnalysis,
+    VideoSummarySingleSessionInputs,
+)
+from posthog.temporal.session_replay.session_summary.utils import parse_str_timestamp_to_ms
 
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import (
