@@ -16,11 +16,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.models import Action
+from posthog.models import Action, Cohort, Insight
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.event.event import Selector
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.property.util import build_selector_regex
+from posthog.models.resource_transfer.visitors.cohort import CohortVisitor
+from posthog.models.resource_transfer.visitors.experiment_payload import (
+    collect_cohort_and_action_ids_from_experiment_json,
+)
+from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -278,18 +284,9 @@ class ActionReferenceSerializer(serializers.Serializer):
 def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
     """Find resources that reference a given action.
 
-    Uses the same Python extraction logic as the resource_transfer visitors
-    to stay in sync with schema changes. A broad DB-level text filter narrows
-    candidates before the precise Python check runs.
+    Reuses the resource_transfer visitor extractors so this stays in sync
+    with schema changes automatically.
     """
-    from posthog.models import Cohort, Insight
-    from posthog.models.hog_functions.hog_function import HogFunction
-    from posthog.models.resource_transfer.visitors.cohort import CohortVisitor
-    from posthog.models.resource_transfer.visitors.experiment_payload import (
-        collect_cohort_and_action_ids_from_experiment_json,
-    )
-    from posthog.models.resource_transfer.visitors.insight import InsightVisitor
-
     refs: list[dict[str, Any]] = []
 
     # Insights: confirm with the same extractor used by resource_transfer

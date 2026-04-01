@@ -189,9 +189,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (!props.id) {
                         return []
                     }
-                    const response = await api.get(
-                        `api/projects/${values.action.team_id || '@current'}/actions/${props.id}/references`
-                    )
+                    const response = await api.get(`api/projects/@current/actions/${props.id}/references`)
                     return response
                 },
             },
