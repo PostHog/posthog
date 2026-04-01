@@ -101,3 +101,41 @@ func (m *Manager) Send() func(tea.Msg) {
 	return m.send
 }
 
+// Add creates a new process from config and appends it to the manager.
+// If a process with the same name already exists, it is a no-op.
+func (m *Manager) Add(name string, pcfg config.ProcConfig, scrollback int) *Process {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.byName[name]; ok {
+		return m.byName[name]
+	}
+	if docker.IsDockerComposeShell(pcfg.Shell) {
+		pcfg.Shell = docker.StripComposeLogsTail(pcfg.Shell)
+	}
+	proc := NewProcess(name, pcfg, scrollback)
+	m.procs = append(m.procs, proc)
+	m.byName[name] = proc
+	return proc
+}
+
+// Remove stops a process and removes it from the manager.
+// Returns true if the process was found and removed.
+func (m *Manager) Remove(name string) bool {
+	m.mu.Lock()
+	p, ok := m.byName[name]
+	if !ok {
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.byName, name)
+	for i, proc := range m.procs {
+		if proc.Name == name {
+			m.procs = append(m.procs[:i], m.procs[i+1:]...)
+			break
+		}
+	}
+	m.mu.Unlock()
+	p.Stop()
+	return true
+}
+

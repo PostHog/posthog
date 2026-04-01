@@ -27,6 +27,7 @@ var (
 	colorGreen       = sharedpalette.ColorGreen
 	colorRed         = sharedpalette.ColorRed
 	colorBlack       = sharedpalette.ColorBlack
+	colorWhite       = sharedpalette.ColorWhite
 	brandYellow      = sharedpalette.BrandYellow
 	brandBlue        = sharedpalette.BrandBlue
 	brandRed         = sharedpalette.BrandRed

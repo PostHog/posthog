@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -88,8 +87,6 @@ func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea
 	case msg.Code == tea.KeyEnter:
 		m.dbg("setup mode: apply")
 		m.applySetupChanges()
-		// applySetupChanges calls syscall.Exec on success, so we only
-		// reach here on error. The error is displayed in the footer.
 
 	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
 		if m.setupCursor < len(m.setupEntries)-1 {
@@ -145,13 +142,14 @@ func (m *Model) applySetupChanges() {
 		return
 	}
 
-	// Build args: hogli dev:apply intent1 intent2 ...
+	// Snapshot current process names before applying changes
+	oldNames := make(map[string]bool)
+	for _, p := range m.mgr.Procs() {
+		oldNames[p.Name] = true
+	}
+
+	// Run hogli dev:apply synchronously to regenerate the config
 	args := append([]string{"hogli", "dev:apply"}, selected...)
-
-	// Stop all processes before restarting
-	m.mgr.StopAll()
-
-	// Run hogli dev:apply synchronously
 	cmd := exec.Command(hogliPath, args[1:]...)
 	cmd.Stderr = os.Stderr
 	output, err := cmd.Output()
@@ -160,18 +158,49 @@ func (m *Model) applySetupChanges() {
 		return
 	}
 
-	m.dbg("setup: hogli dev:apply output: %s", strings.TrimSpace(string(output)))
+	newConfigPath := strings.TrimSpace(string(output))
+	m.dbg("setup: hogli dev:apply output: %s", newConfigPath)
 
-	// Restart phrocs via exec
-	self, err := os.Executable()
+	// Load the new config
+	newCfg, err := config.Load(newConfigPath)
 	if err != nil {
-		m.setupError = fmt.Sprintf("find executable: %v", err)
+		m.setupError = fmt.Sprintf("load new config: %v", err)
 		return
 	}
-	// syscall.Exec replaces the current process
-	if err := syscall.Exec(self, os.Args, os.Environ()); err != nil {
-		m.setupError = fmt.Sprintf("restart failed: %v", err)
+
+	newNames := make(map[string]bool)
+	for name := range newCfg.Procs {
+		newNames[name] = true
 	}
+
+	// Remove processes that are no longer in the config
+	for name := range oldNames {
+		if !newNames[name] {
+			m.dbg("setup: removing process %s", name)
+			m.mgr.Remove(name)
+		}
+	}
+
+	// Add and start processes that are new in the config
+	send := m.mgr.Send()
+	for name := range newNames {
+		if !oldNames[name] {
+			m.dbg("setup: adding process %s", name)
+			p := m.mgr.Add(name, newCfg.Procs[name], newCfg.Scrollback)
+			if p.Cfg.ShouldAutostart() {
+				_ = p.Start(send)
+			}
+		}
+	}
+
+	// Update config path and refresh TUI state
+	m.configPath = newConfigPath
+	m.services = m.mgr.Procs()
+	m.sortServices()
+	m.setupMode = false
+	m.setupError = ""
+	updated := m.applySize()
+	*m = updated
 }
 
 func (m *Model) ensureSetupCursorVisible() {
@@ -200,7 +229,7 @@ func (m Model) renderSetupView() string {
 	w := m.width - horizontalBorderCount
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorYellow)
-	dimStyle := lipgloss.NewStyle().Foreground(colorGrey)
+	dimStyle := lipgloss.NewStyle().Foreground(colorBrightBlack)
 
 	var rows []string
 	rows = append(rows, "")
@@ -249,7 +278,7 @@ func (m Model) renderSetupView() string {
 			row := lipgloss.NewStyle().
 				Bold(true).
 				Foreground(colorWhite).
-				Background(colorDarkGrey).
+				Background(colorBlack).
 				Width(w).
 				Render(line)
 			rows = append(rows, row)
@@ -267,6 +296,6 @@ func (m Model) renderSetupView() string {
 		rows = append(rows, "")
 	}
 
-	style := borderStyle.Height(h)
+	style := baseBorderStyle.Height(h)
 	return style.Render(strings.Join(rows, "\n"))
 }
