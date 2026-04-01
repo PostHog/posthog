@@ -1,4 +1,5 @@
 import { NodeKind } from '../../frontend/src/queries/schema/schema-general'
+import { InsightShortId } from '../../frontend/src/types'
 import { InsightPage } from '../page-models/insightPage'
 import { expect, test, PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-base'
 
@@ -34,7 +35,7 @@ test.describe('SQL editor history', () => {
 
     test('preserves saved insight editing state across browser back and forward', async ({ page }) => {
         const insight = new InsightPage(page)
-        const insightShortId = workspace!.created_insights![0].short_id
+        const insightShortId = workspace!.created_insights![0].short_id as InsightShortId
 
         await test.step('open a saved SQL insight in the SQL editor', async () => {
             await insight.goToInsight(insightShortId, { edit: true })
