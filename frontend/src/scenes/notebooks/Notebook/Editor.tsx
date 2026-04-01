@@ -60,6 +60,7 @@ import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
 import { notebookLogic } from './notebookLogic'
+import { NotebookTrailingParagraph } from './NotebookTrailingParagraph'
 import { SlashCommandsExtension } from './SlashCommands'
 import { TableMenu } from './TableMenu'
 
@@ -84,6 +85,7 @@ export function Editor(): JSX.Element {
         document: false,
         gapcursor: false,
         link: false,
+        trailingNode: false,
     }
 
     const extensions = [
@@ -160,6 +162,7 @@ export function Editor(): JSX.Element {
         NotebookNodeSupportTickets,
         NotebookNodeRelatedGroups,
         NotebookNodeCustomerJourney,
+        NotebookTrailingParagraph,
     ]
 
     if (hasCollapsibleSections) {
