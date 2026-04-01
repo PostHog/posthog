@@ -64,13 +64,13 @@ function useBoldNumberTooltip({
     isTooltipShown: boolean
     seriesIndex?: number
     groupTypeLabel?: string
-}): React.RefObject<HTMLElement> {
+}): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
     const { series, insightData, trendsFilter, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
 
-    const elementRef = useRef<HTMLElement>(null)
+    const elementRef = useRef<HTMLDivElement>(null)
 
     const { getTooltip } = useInsightTooltip()
     const [tooltipRoot, tooltipEl] = getTooltip()
@@ -233,35 +233,38 @@ function BoldNumberComparison({
                 ) : previousValue === null || !showPersonsModal || !hasComparableDiff ? (
                     'previous period'
                 ) : (
-                    <Link
+                    <span
                         ref={comparisonRef}
                         onMouseEnter={() => setIsTooltipShown(true)}
                         onMouseLeave={() => setIsTooltipShown(false)}
                         onFocus={() => setIsTooltipShown(true)}
                         onBlur={() => setIsTooltipShown(false)}
-                        onClick={() => {
-                            if (context?.onDataPointClick) {
-                                context.onDataPointClick({ compare: 'previous' }, currentPeriodSeries)
-                            } else {
-                                openPersonsModal({
-                                    title: previousPeriodSeries.label,
-                                    query: {
-                                        kind: NodeKind.InsightActorsQuery,
-                                        source: querySource!,
-                                        compare: 'previous',
-                                        includeRecordings: true,
-                                    },
-                                    additionalSelect: {
-                                        value_at_data_point: 'event_count',
-                                        matched_recordings: 'matched_recordings',
-                                    },
-                                    orderBy: ['event_count DESC, actor_id DESC'],
-                                })
-                            }
-                        }}
                     >
-                        previous period
-                    </Link>
+                        <Link
+                            onClick={() => {
+                                if (context?.onDataPointClick) {
+                                    context.onDataPointClick({ compare: 'previous' }, currentPeriodSeries)
+                                } else {
+                                    openPersonsModal({
+                                        title: previousPeriodSeries.label,
+                                        query: {
+                                            kind: NodeKind.InsightActorsQuery,
+                                            source: querySource!,
+                                            compare: 'previous',
+                                            includeRecordings: true,
+                                        },
+                                        additionalSelect: {
+                                            value_at_data_point: 'event_count',
+                                            matched_recordings: 'matched_recordings',
+                                        },
+                                        orderBy: ['event_count DESC, actor_id DESC'],
+                                    })
+                                }
+                            }}
+                        >
+                            previous period
+                        </Link>
+                    </span>
                 )}
             </span>
         </LemonRow>
