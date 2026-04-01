@@ -1,7 +1,16 @@
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { toAbsoluteClickhouseTimestamp } from './logsViewerLogic'
+import { LogEntryLevel } from '~/types'
+
+import { groupLogs, LogEntry, toAbsoluteClickhouseTimestamp } from './logsViewerLogic'
+
+const makeEntry = (instanceId: string, timestamp: string, level: LogEntryLevel = 'INFO'): LogEntry => ({
+    instanceId,
+    timestamp: dayjs.tz(timestamp, 'UTC'),
+    level,
+    message: `msg-${instanceId}-${timestamp}`,
+})
 
 describe('logsViewerLogic', () => {
     describe('toAbsoluteClickhouseTimestamp', () => {
@@ -50,6 +59,99 @@ describe('logsViewerLogic', () => {
             expect(result).not.toContain('T')
             expect(result).not.toContain('Z')
             expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/)
+        })
+    })
+
+    describe('groupLogs', () => {
+        it('groups entries by instanceId', () => {
+            const entries = [
+                makeEntry('a', '2024-01-15 10:00:00'),
+                makeEntry('b', '2024-01-15 10:01:00'),
+                makeEntry('a', '2024-01-15 10:02:00'),
+            ]
+
+            const groups = groupLogs(entries)
+
+            expect(groups).toHaveLength(2)
+            expect(groups.map((g) => g.instanceId).sort()).toEqual(['a', 'b'])
+            expect(groups.find((g) => g.instanceId === 'a')?.entries).toHaveLength(2)
+            expect(groups.find((g) => g.instanceId === 'b')?.entries).toHaveLength(1)
+        })
+
+        it('tracks min and max timestamps per group', () => {
+            const entries = [
+                makeEntry('a', '2024-01-15 10:00:00'),
+                makeEntry('a', '2024-01-15 10:05:00'),
+                makeEntry('a', '2024-01-15 10:02:00'),
+            ]
+
+            const groups = groupLogs(entries)
+            const group = groups[0]
+
+            expect(group.minTimestamp.format('HH:mm:ss')).toBe('10:00:00')
+            expect(group.maxTimestamp.format('HH:mm:ss')).toBe('10:05:00')
+        })
+
+        it('sorts entries within a group by timestamp ascending', () => {
+            const entries = [
+                makeEntry('a', '2024-01-15 10:05:00'),
+                makeEntry('a', '2024-01-15 10:00:00'),
+                makeEntry('a', '2024-01-15 10:02:00'),
+            ]
+
+            const groups = groupLogs(entries)
+            const timestamps = groups[0].entries.map((e) => e.timestamp.format('HH:mm:ss'))
+
+            expect(timestamps).toEqual(['10:00:00', '10:02:00', '10:05:00'])
+        })
+
+        it.each([
+            { levels: ['INFO', 'ERROR', 'WARN'] as LogEntryLevel[], expected: 'ERROR' },
+            { levels: ['DEBUG', 'WARN', 'LOG'] as LogEntryLevel[], expected: 'WARN' },
+            { levels: ['INFO', 'INFO', 'INFO'] as LogEntryLevel[], expected: 'INFO' },
+        ])('escalates log level to $expected', ({ levels, expected }) => {
+            const entries = levels.map((level, i) => makeEntry('a', `2024-01-15 10:0${i}:00`, level))
+            const groups = groupLogs(entries)
+            expect(groups[0].logLevel).toBe(expected)
+        })
+
+        it('deduplicates entries with the same instanceId, level, and timestamp', () => {
+            const entries = [
+                makeEntry('a', '2024-01-15 10:00:00', 'INFO'),
+                makeEntry('a', '2024-01-15 10:00:00', 'INFO'),
+                makeEntry('a', '2024-01-15 10:01:00', 'INFO'),
+            ]
+
+            const groups = groupLogs(entries)
+
+            expect(groups[0].entries).toHaveLength(2)
+        })
+
+        it('merges existing and new entries for the same instanceId', () => {
+            const existingEntries = [
+                makeEntry('a', '2024-01-15 10:00:00'),
+                makeEntry('a', '2024-01-15 10:01:00'),
+                makeEntry('b', '2024-01-15 10:00:30'),
+            ]
+            const newEntries = [makeEntry('a', '2024-01-15 09:58:00'), makeEntry('c', '2024-01-15 09:55:00')]
+
+            const merged = groupLogs([...existingEntries, ...newEntries])
+
+            expect(merged).toHaveLength(3)
+            expect(merged.find((g) => g.instanceId === 'a')?.entries).toHaveLength(3)
+            expect(merged.find((g) => g.instanceId === 'c')?.entries).toHaveLength(1)
+        })
+
+        it('preserves group order based on first appearance', () => {
+            const entries = [
+                makeEntry('a', '2024-01-15 10:00:00'),
+                makeEntry('b', '2024-01-15 10:01:00'),
+                makeEntry('c', '2024-01-15 10:02:00'),
+            ]
+
+            const groups = groupLogs(entries)
+
+            expect(groups.map((g) => g.instanceId)).toEqual(['a', 'b', 'c'])
         })
     })
 })

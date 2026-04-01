@@ -1,15 +1,27 @@
+from io import BytesIO
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 
 from parameterized import parameterized
+from PIL import Image
 
+from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
 from products.conversations.backend.models import EmailChannel
 from products.conversations.backend.models.ticket import Ticket
+
+
+def _make_png_bytes() -> bytes:
+    """Generate a minimal valid 1x1 PNG."""
+    buf = BytesIO()
+    Image.new("RGB", (1, 1), color="red").save(buf, format="PNG")
+    return buf.getvalue()
 
 
 class TestEmailConnectDomainCaseInsensitivity(BaseTest):
@@ -628,3 +640,165 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             rich_content=None,
             author_name="Agent",
         )
+
+
+class TestEmailInboundAttachments(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="aabbcc111222",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+    def _base_post_data(self, msg_id: str = "<att@test.com>") -> dict:
+        return {
+            "recipient": "team-aabbcc111222@mg.posthog.com",
+            "from": "sender@test.com",
+            "Message-Id": msg_id,
+            "subject": "With attachment",
+            "stripped-text": "See attached",
+        }
+
+    @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_with_image_attachment(self, _mock_sig: MagicMock, mock_storage: MagicMock):
+        attachment = SimpleUploadedFile("photo.png", _make_png_bytes(), content_type="image/png")
+
+        data = self._base_post_data("<img@test.com>")
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            response = self.client.post("/api/conversations/v1/email/inbound", {**data, "attachment-1": attachment})
+
+        assert response.status_code == 200
+        mock_storage.assert_called_once()
+
+        comment = Comment.objects.filter(team=self.team, scope="conversations_ticket").first()
+        assert comment is not None
+        assert "![photo.png]" in comment.content
+        assert comment.rich_content is not None
+        image_nodes = [n for n in comment.rich_content["content"] if n["type"] == "image"]
+        assert len(image_nodes) == 1
+        assert image_nodes[0]["attrs"]["alt"] == "photo.png"
+        assert comment.item_context["email_attachments"] is not None
+        assert len(comment.item_context["email_attachments"]) == 1
+        assert comment.item_context["email_attachments"][0]["content_type"] == "image/png"
+
+    @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_with_non_image_attachment(self, _mock_sig: MagicMock, mock_storage: MagicMock):
+        pdf = SimpleUploadedFile("invoice.pdf", b"%PDF-1.4 fake content", content_type="application/pdf")
+
+        data = self._base_post_data("<pdf@test.com>")
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            response = self.client.post("/api/conversations/v1/email/inbound", {**data, "attachment-1": pdf})
+
+        assert response.status_code == 200
+
+        comment = Comment.objects.filter(team=self.team, scope="conversations_ticket").first()
+        assert comment is not None
+        assert "[invoice.pdf]" in comment.content
+        assert comment.rich_content is not None
+        link_nodes = [
+            n
+            for n in comment.rich_content["content"]
+            if n["type"] == "paragraph"
+            and any(m.get("type") == "link" for child in n.get("content", []) for m in child.get("marks", []))
+        ]
+        assert len(link_nodes) == 1
+
+    @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_with_multiple_attachments(self, _mock_sig: MagicMock, mock_storage: MagicMock):
+        png = SimpleUploadedFile("photo.png", _make_png_bytes(), content_type="image/png")
+        pdf = SimpleUploadedFile("doc.pdf", b"%PDF-1.4 content", content_type="application/pdf")
+
+        data = self._base_post_data("<multi@test.com>")
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            response = self.client.post(
+                "/api/conversations/v1/email/inbound", {**data, "attachment-1": png, "attachment-2": pdf}
+            )
+
+        assert response.status_code == 200
+        assert mock_storage.call_count == 2
+
+        comment = Comment.objects.filter(team=self.team, scope="conversations_ticket").first()
+        assert comment is not None
+        assert comment.rich_content is not None
+        assert len(comment.rich_content["content"]) == 3  # text paragraph + image + file link
+        assert comment.item_context["email_attachments"] is not None
+        assert len(comment.item_context["email_attachments"]) == 2
+
+    @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
+    @patch("products.conversations.backend.api.email_events.MAX_ATTACHMENT_SIZE", 100)
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_attachment_too_large_is_skipped(self, _mock_sig: MagicMock, mock_storage: MagicMock):
+        oversized = SimpleUploadedFile("big.bin", b"x" * 101, content_type="application/octet-stream")
+
+        data = self._base_post_data("<huge@test.com>")
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            response = self.client.post("/api/conversations/v1/email/inbound", {**data, "attachment-1": oversized})
+
+        assert response.status_code == 200
+        mock_storage.assert_not_called()
+
+        comment = Comment.objects.filter(team=self.team, scope="conversations_ticket").first()
+        assert comment is not None
+        assert comment.content == "See attached"
+        assert comment.rich_content is None
+        assert comment.item_context.get("email_attachments") is None
+
+    @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_without_object_storage_skips_attachments(self, _mock_sig: MagicMock, mock_storage: MagicMock):
+        png = SimpleUploadedFile("photo.png", _make_png_bytes(), content_type="image/png")
+
+        data = self._base_post_data("<nostorage@test.com>")
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            response = self.client.post("/api/conversations/v1/email/inbound", {**data, "attachment-1": png})
+
+        assert response.status_code == 200
+        mock_storage.assert_not_called()
+
+        comment = Comment.objects.filter(team=self.team, scope="conversations_ticket").first()
+        assert comment is not None
+        assert comment.content == "See attached"
+        assert comment.rich_content is None
+
+    @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_invalid_image_is_rejected(self, _mock_sig: MagicMock, mock_storage: MagicMock):
+        fake_image = SimpleUploadedFile("evil.png", b"<html>not an image</html>", content_type="image/png")
+
+        data = self._base_post_data("<evil@test.com>")
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            response = self.client.post("/api/conversations/v1/email/inbound", {**data, "attachment-1": fake_image})
+
+        assert response.status_code == 200
+        mock_storage.assert_not_called()
+
+        comment = Comment.objects.filter(team=self.team, scope="conversations_ticket").first()
+        assert comment is not None
+        assert comment.content == "See attached"
+        assert comment.rich_content is None
+
+    @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_no_attachments_unchanged(self, _mock_sig: MagicMock, mock_storage: MagicMock):
+        data = self._base_post_data("<plain@test.com>")
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            response = self.client.post("/api/conversations/v1/email/inbound", data)
+
+        assert response.status_code == 200
+        mock_storage.assert_not_called()
+
+        comment = Comment.objects.filter(team=self.team, scope="conversations_ticket").first()
+        assert comment is not None
+        assert comment.content == "See attached"
+        assert comment.rich_content is None
+        assert comment.item_context.get("email_attachments") is None

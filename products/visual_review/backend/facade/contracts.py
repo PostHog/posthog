@@ -34,9 +34,9 @@ class CreateRunInput:
     branch: str
     snapshots: list[SnapshotManifestItem]
     pr_number: int | None = None
+    # Deprecated: backend fetches baselines from GitHub. Kept for old CLI compat.
     baseline_hashes: dict[str, str] = field(default_factory=dict)
-    # Delta mode: CLI pre-compares hashes and sends only changed/new snapshots.
-    # unchanged_count lets the backend set total without creating rows for unchanged.
+    # Deprecated: backend computes from RunSnapshot rows at complete time.
     unchanged_count: int = 0
     removed_identifiers: list[str] = field(default_factory=list)
     purpose: str = "review"
@@ -89,15 +89,6 @@ class UploadTarget:
     content_hash: str
     url: str
     fields: dict[str, str]
-
-
-@dataclass(frozen=True)
-class CompleteRunInput:
-    """Optional body for completing a run. Supports shard flow reconciliation."""
-
-    removed_identifiers: list[str] = field(default_factory=list)
-    unchanged_count: int = 0
-    baseline_hashes: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
