@@ -24,7 +24,7 @@ from hogli.core.manifest import load_manifest
 
 TEMPLATE_NAME = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
-RUNTIME_SETUP_HINT = "Run `hogli box:setup`."
+RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
@@ -46,7 +46,7 @@ def _fail(message: str) -> NoReturn:
 
 def get_coder_url() -> str:
     """Resolve the configured Coder deployment URL."""
-    if url := os.environ.get("HOGLI_BOX_CODER_URL"):
+    if url := os.environ.get("HOGLI_DEVBOX_CODER_URL"):
         return url
 
     if url := os.environ.get("CODER_URL"):
@@ -54,11 +54,11 @@ def get_coder_url() -> str:
 
     manifest = load_manifest()
     metadata = manifest.get("metadata", {})
-    box_metadata = metadata.get("box", {})
-    if isinstance(box_metadata, dict) and isinstance(box_metadata.get("coder_url"), str):
-        return box_metadata["coder_url"]
+    devbox_metadata = metadata.get("devbox", {})
+    if isinstance(devbox_metadata, dict) and isinstance(devbox_metadata.get("coder_url"), str):
+        return devbox_metadata["coder_url"]
 
-    raise RuntimeError("Missing `metadata.box.coder_url` in common/hogli/manifest.yaml.")
+    raise RuntimeError("Missing `metadata.devbox.coder_url` in common/hogli/manifest.yaml.")
 
 
 def _run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
@@ -285,7 +285,7 @@ def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
 def print_setup_summary() -> None:
     """Print a short summary after setup completes."""
     click.echo()
-    click.echo("Setup complete. Run `hogli box:start` to create or start your devbox.")
+    click.echo("Setup complete. Run `hogli devbox:start` to create or start your devbox.")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:

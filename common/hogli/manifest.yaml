@@ -1,8 +1,8 @@
 metadata:
-    box:
+    devbox:
         coder_url: https://coder.hedgehog-kitefin.ts.net
     categories:
-        - key: box
+        - key: devbox
           title: Remote development environment (devbox)
         - key: devenv
           title: Intent-based dev environment
@@ -95,17 +95,17 @@ metadata:
         phrocs:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
-box:
-    box: null
-    box:setup: null
-    box:start: null
-    box:stop: null
-    box:ssh: null
-    box:open: null
-    box:logs: null
-    box:destroy: null
-    box:status: null
-    box:forward: null
+devbox:
+    devbox: null
+    devbox:setup: null
+    devbox:start: null
+    devbox:stop: null
+    devbox:ssh: null
+    devbox:open: null
+    devbox:logs: null
+    devbox:destroy: null
+    devbox:status: null
+    devbox:forward: null
 devenv:
     dev:setup: null
     dev:generate: null

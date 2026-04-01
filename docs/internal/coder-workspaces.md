@@ -21,7 +21,7 @@ Use this when you want a remote PostHog dev environment instead of running the f
 Run:
 
 ```bash
-hogli box:setup
+hogli devbox:setup
 ```
 
 This does the host-side setup only:
@@ -36,15 +36,15 @@ This does the host-side setup only:
 Run:
 
 ```bash
-hogli box
+hogli devbox
 ```
 
 Then use `hogli <command> --help` for command-specific options.
-If your template includes the Claude module, `hogli box:start` can prompt for a Claude OAuth token when the workspace is created.
-After connecting with `hogli box:ssh`, run `claude` directly in the workspace terminal.
+If your template includes the Claude module, `hogli devbox:start` can prompt for a Claude OAuth token when the workspace is created.
+After connecting with `hogli devbox:ssh`, run `claude` directly in the workspace terminal.
 
 Runtime commands assume setup is already complete.
-If they fail with `Run hogli box:setup`, rerun setup on your laptop first.
+If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
 
 ## Auth model
 

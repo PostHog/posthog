@@ -1,6 +1,6 @@
 """CLI commands for remote devbox management.
 
-Provides hogli box:* commands for managing Coder-based remote dev environments.
+Provides hogli devbox:* commands for managing Coder-based remote dev environments.
 """
 
 from __future__ import annotations
@@ -113,14 +113,14 @@ def _print_connection_info(name: str) -> None:
     """Print connection commands after workspace is ready."""
     suffix = _workspace_label_suffix(name)
     commands = [
-        ("SSH", "box:ssh"),
-        ("Open", "box:open"),
-        ("VS Code", "box:open --vscode"),
-        ("Web IDE", "box:open --web"),
-        ("Forward", "box:forward"),
-        ("Logs", "box:logs -f"),
-        ("Status", "box:status"),
-        ("Stop", "box:stop"),
+        ("SSH", "devbox:ssh"),
+        ("Open", "devbox:open"),
+        ("VS Code", "devbox:open --vscode"),
+        ("Web IDE", "devbox:open --web"),
+        ("Forward", "devbox:forward"),
+        ("Logs", "devbox:logs -f"),
+        ("Status", "devbox:status"),
+        ("Stop", "devbox:stop"),
     ]
 
     click.echo()
@@ -139,7 +139,7 @@ def _get_workspace_or_fail(name: str) -> dict[str, Any]:
     workspace = get_workspace(name)
     if workspace is not None:
         return workspace
-    _fail("No devbox found. Run 'hogli box:start' to create one.")
+    _fail("No devbox found. Run 'hogli devbox:start' to create one.")
 
 
 def _workspace_status_color(status: str) -> str:
@@ -164,7 +164,7 @@ def _sync_git_identity_parameters(name: str) -> None:
 
 
 def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: bool) -> None:
-    """Handle `box:start` when the workspace already exists."""
+    """Handle `devbox:start` when the workspace already exists."""
     status = get_workspace_status(workspace)
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
@@ -224,7 +224,7 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     if configure_git_identity is False:
         if existing_git_name and existing_git_email:
             click.echo(f"Using saved Git identity: {existing_git_name} <{existing_git_email}>")
-            click.echo("Run `hogli box:setup --configure-git-identity` to change.")
+            click.echo("Run `hogli devbox:setup --configure-git-identity` to change.")
         else:
             click.echo("Skipping Git identity setup.")
         return
@@ -232,7 +232,7 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     # Already saved -- skip unless explicitly asked to reconfigure
     if configure_git_identity is None and existing_git_name and existing_git_email:
         click.echo(f"Using saved Git identity: {existing_git_name} <{existing_git_email}>")
-        click.echo("Run `hogli box:setup --configure-git-identity` to change.")
+        click.echo("Run `hogli devbox:setup --configure-git-identity` to change.")
         return
 
     # Show prompts with best available defaults (saved > coder profile > empty)
@@ -257,26 +257,26 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
-@cli.command(name="box", help="Show available Coder workspace commands")
-def box_help() -> None:
-    """Show the available `hogli box:*` commands."""
+@cli.command(name="devbox", help="Show available Coder workspace commands")
+def devbox_help() -> None:
+    """Show the available `hogli devbox:*` commands."""
     click.echo("Available workspace commands:")
     click.echo()
-    click.echo("  hogli box:setup       install and configure local access")
-    click.echo("  hogli box:start       create or start your workspace")
-    click.echo("  hogli box:list        list your workspaces")
-    click.echo("  hogli box:ssh         open a shell in the workspace")
-    click.echo("  hogli box:open        open the workspace in the browser")
-    click.echo("  hogli box:forward     forward the PostHog UI to localhost")
-    click.echo("  hogli box:logs        stream workspace logs")
-    click.echo("  hogli box:status      show current workspace status")
-    click.echo("  hogli box:stop        stop the workspace")
-    click.echo("  hogli box:destroy     delete the workspace and its data")
+    click.echo("  hogli devbox:setup       install and configure local access")
+    click.echo("  hogli devbox:start       create or start your workspace")
+    click.echo("  hogli devbox:list        list your workspaces")
+    click.echo("  hogli devbox:ssh         open a shell in the workspace")
+    click.echo("  hogli devbox:open        open the workspace in the browser")
+    click.echo("  hogli devbox:forward     forward the PostHog UI to localhost")
+    click.echo("  hogli devbox:logs        stream workspace logs")
+    click.echo("  hogli devbox:status      show current workspace status")
+    click.echo("  hogli devbox:stop        stop the workspace")
+    click.echo("  hogli devbox:destroy     delete the workspace and its data")
     click.echo()
     click.echo("Run `hogli <command> --help` for command-specific options.")
 
 
-@cli.command(name="box:setup", help="Install and configure local access to Coder devboxes")
+@cli.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
 @click.option(
     "--configure-ssh/--skip-configure-ssh",
     default=None,
@@ -287,9 +287,9 @@ def box_help() -> None:
     default=None,
     help="Prompt for Git name/email defaults for new Coder workspaces",
 )
-def box_setup(configure_ssh: bool | None, configure_git_identity: bool | None) -> None:
+def devbox_setup(configure_ssh: bool | None, configure_git_identity: bool | None) -> None:
     """Prepare this machine for Coder workspaces."""
-    ensure_tailscale_connected("rerun `hogli box:setup`.")
+    ensure_tailscale_connected("rerun `hogli devbox:setup`.")
     ensure_coder_installed()
     ensure_coder_authenticated()
     maybe_configure_ssh(configure_ssh=configure_ssh)
@@ -297,14 +297,14 @@ def box_setup(configure_ssh: bool | None, configure_git_identity: bool | None) -
     print_setup_summary()
 
 
-@cli.command(name="box:list", help="List your devboxes")
-def box_list() -> None:
+@cli.command(name="devbox:list", help="List your devboxes")
+def devbox_list() -> None:
     """List all workspaces belonging to the current user."""
     ensure_runtime_ready()
     workspaces = list_user_workspaces()
 
     if not workspaces:
-        click.echo("No devboxes found. Run 'hogli box:start' to create one.")
+        click.echo("No devboxes found. Run 'hogli devbox:start' to create one.")
         return
 
     click.echo(f"{'LABEL':<16} {'STATUS':<12} {'NAME'}")
@@ -315,7 +315,7 @@ def box_list() -> None:
         click.echo(f"  {label:<14} {click.style(status, fg=_workspace_status_color(status)):<20} {ws_name}")
 
 
-@cli.command(name="box:start", help="Start or create your remote devbox")
+@cli.command(name="devbox:start", help="Start or create your remote devbox")
 @workspace_name_option
 @click.option(
     "--disk",
@@ -330,11 +330,11 @@ def box_list() -> None:
 )
 @click.option(
     "--claude-oauth-token",
-    envvar="HOGLI_BOX_CLAUDE_OAUTH_TOKEN",
+    envvar="HOGLI_DEVBOX_CLAUDE_OAUTH_TOKEN",
     hidden=True,
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
-def box_start(
+def devbox_start(
     workspace_label: str | None,
     disk: str,
     configure_claude: bool | None,
@@ -366,10 +366,10 @@ def box_start(
     _print_connection_info(name)
 
 
-@cli.command(name="box:stop", help="Stop your devbox (preserves disk, stops billing)")
+@cli.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")
 @workspace_name_option
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
-def box_stop(workspace_label: str | None, verbose: bool) -> None:
+def devbox_stop(workspace_label: str | None, verbose: bool) -> None:
     """Stop the devbox. State is preserved on the EBS volume."""
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
@@ -382,23 +382,23 @@ def box_stop(workspace_label: str | None, verbose: bool) -> None:
 
     click.echo(f"Stopping '{name}'...")
     stop_workspace(name, verbose=verbose)
-    click.echo("Stopped. Disk preserved. Run 'hogli box:start' to resume.")
+    click.echo("Stopped. Disk preserved. Run 'hogli devbox:start' to resume.")
 
 
-@cli.command(name="box:ssh", help="SSH into your devbox")
+@cli.command(name="devbox:ssh", help="SSH into your devbox")
 @workspace_name_option
-def box_ssh(workspace_label: str | None) -> None:
+def devbox_ssh(workspace_label: str | None) -> None:
     """Open an SSH session to the devbox."""
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
     ssh_replace(name)
 
 
-@cli.command(name="box:open", help="Open devbox in browser or VS Code")
+@cli.command(name="devbox:open", help="Open devbox in browser or VS Code")
 @workspace_name_option
 @click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
 @click.option("--web", is_flag=True, help="Open code-server (VS Code in browser)")
-def box_open(workspace_label: str | None, vscode: bool, web: bool) -> None:
+def devbox_open(workspace_label: str | None, vscode: bool, web: bool) -> None:
     """Open the devbox in a browser or editor."""
     if vscode and web:
         raise click.UsageError("Choose either `--vscode` or `--web`.")
@@ -417,20 +417,20 @@ def box_open(workspace_label: str | None, vscode: bool, web: bool) -> None:
         open_in_browser(name)
 
 
-@cli.command(name="box:logs", help="Tail devbox build and agent logs")
+@cli.command(name="devbox:logs", help="Tail devbox build and agent logs")
 @workspace_name_option
 @click.option("-f", "--follow", is_flag=True, help="Follow log output")
-def box_logs(workspace_label: str | None, follow: bool) -> None:
+def devbox_logs(workspace_label: str | None, follow: bool) -> None:
     """Tail workspace build and agent logs."""
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
     logs_replace(name, follow)
 
 
-@cli.command(name="box:destroy", help="Destroy your devbox and its data")
+@cli.command(name="devbox:destroy", help="Destroy your devbox and its data")
 @workspace_name_option
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
-def box_destroy(workspace_label: str | None, verbose: bool) -> None:
+def devbox_destroy(workspace_label: str | None, verbose: bool) -> None:
     """Destroy the devbox completely."""
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
@@ -448,16 +448,16 @@ def box_destroy(workspace_label: str | None, verbose: bool) -> None:
     click.echo("Destroyed.")
 
 
-@cli.command(name="box:status", help="Show devbox status")
+@cli.command(name="devbox:status", help="Show devbox status")
 @workspace_name_option
-def box_status(workspace_label: str | None) -> None:
+def devbox_status(workspace_label: str | None) -> None:
     """Show the current state of the devbox."""
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
 
     ws = get_workspace(name)
     if ws is None:
-        click.echo("No devbox found. Run 'hogli box:start' to create one.")
+        click.echo("No devbox found. Run 'hogli devbox:start' to create one.")
         return
 
     status = get_workspace_status(ws)
@@ -480,17 +480,17 @@ def box_status(workspace_label: str | None) -> None:
         _print_connection_info(name)
 
 
-@cli.command(name="box:forward", help="Forward PostHog UI to localhost")
+@cli.command(name="devbox:forward", help="Forward PostHog UI to localhost")
 @workspace_name_option
 @click.option("--port", default=8010, type=int, help="Local port to forward to")
-def box_forward(workspace_label: str | None, port: int) -> None:
+def devbox_forward(workspace_label: str | None, port: int) -> None:
     """Forward the PostHog UI port to localhost."""
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
     if not _local_port_is_available(port):
         _fail(
             f"Local port {port} is already in use.\n"
-            f"Stop the process using that port or rerun with `hogli box:forward --port {port + 1}`."
+            f"Stop the process using that port or rerun with `hogli devbox:forward --port {port + 1}`."
         )
 
     click.echo(f"Forwarding {name}:8010 -> localhost:{port}")
