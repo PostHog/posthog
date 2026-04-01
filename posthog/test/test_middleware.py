@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, override_settings
 from unittest.mock import patch
@@ -1390,3 +1391,45 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         self.assertIsNotNone(response)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.url, "/login?error_code=oauth_cancelled")
+
+
+@pytest.mark.parametrize(
+    "path,query_string,expected_coop",
+    [
+        ("/connect/vercel/link", "", "unsafe-none"),
+        ("/oauth/callback", "", "unsafe-none"),
+        ("/login", "next=/connect/vercel/link", "unsafe-none"),
+        ("/login", "next=/connect/vercel/link?session=abc", "unsafe-none"),
+        ("/login", "", "same-origin"),
+        ("/login", "next=/dashboard", "same-origin"),
+        ("/login", "next=/connect/vercel/../../admin", "same-origin"),
+        ("/some/other/path", "", "same-origin"),
+    ],
+    ids=[
+        "direct-oauth-vercel",
+        "direct-oauth-callback",
+        "login-next-oauth",
+        "login-next-oauth-with-params",
+        "login-no-next",
+        "login-next-non-oauth",
+        "login-next-path-traversal",
+        "unrelated-path",
+    ],
+)
+def test_oauth_coop_middleware(path, query_string, expected_coop):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from posthog.middleware import OAuthCoopMiddleware
+
+    factory = RequestFactory()
+    request = factory.get(path + ("?" + query_string if query_string else ""))
+
+    def get_response(req):
+        resp = HttpResponse("ok")
+        resp["Cross-Origin-Opener-Policy"] = "same-origin"
+        return resp
+
+    middleware = OAuthCoopMiddleware(get_response)
+    response = middleware(request)
+    assert response["Cross-Origin-Opener-Policy"] == expected_coop

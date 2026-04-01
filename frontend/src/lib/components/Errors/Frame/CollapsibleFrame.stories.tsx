@@ -6,7 +6,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameContext, ErrorTrackingStackFrameRecord } from '../types'
-import { CollapsibleFrame } from './CollapsibleFrame'
+import { CollapsibleFrame, CollapsibleFrameProps } from './CollapsibleFrame'
 
 const frameContext: ErrorTrackingStackFrameContext = {
     before: [
@@ -60,7 +60,7 @@ const eventProperties = {
     ],
 }
 
-const meta: Meta<typeof CollapsibleFrame> = {
+const meta: Meta<CollapsibleFrameProps> = {
     title: 'Components/Errors/CollapsibleFrame',
     component: CollapsibleFrame,
     decorators: [

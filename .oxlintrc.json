@@ -277,7 +277,7 @@
             "files": [
                 "common/mosaic/**/*.{ts,tsx}",
                 "services/mcp/src/ui-apps/**/*.{ts,tsx}",
-                "products/**/frontend/mcp-apps/**/*.{ts,tsx}"
+                "products/**/mcp/apps/**/*.{ts,tsx}"
             ],
             "rules": {
                 "react/forbid-elements": "off"

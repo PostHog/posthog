@@ -45,6 +45,8 @@ class DuckgresShadowResult:
     schema_name: str
     table_name: str
     error: str | None = None
+    file_size_bytes: int = 0
+    file_size_delta_bytes: int = 0
 
 
 def _is_duckgres_shadow_enabled(team: Team) -> bool:
@@ -153,6 +155,8 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             duration_seconds=duration,
             schema_name=result.schema_name,
             table_name=result.table_name,
+            file_size_bytes=result.file_size_bytes,
+            file_size_delta_bytes=result.file_size_delta_bytes,
         )
     except Exception as e:
         duration = time.monotonic() - start_time

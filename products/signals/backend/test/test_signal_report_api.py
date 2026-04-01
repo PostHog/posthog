@@ -1,11 +1,17 @@
+import json
+from datetime import timedelta
+from urllib.parse import urlencode
+
 from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -69,3 +75,187 @@ class TestSignalReportDeleteAPI(APIBaseTest):
         report = self._create_report(report_status=SignalReport.Status.DELETED)
         response = self.client.delete(self._url(str(report.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestSignalReportListAPI(APIBaseTest):
+    """GET list/retrieve: `priority` from actionability artefacts; `ordering` (comma-separated, e.g. `status,-total_weight`)."""
+
+    def _list_url(self, **query) -> str:
+        base = f"/api/projects/{self.team.id}/signal_reports/"
+        if not query:
+            return base
+        return f"{base}?{urlencode(query)}"
+
+    def _create_report(self, **kwargs) -> SignalReport:
+        defaults = {
+            "team": self.team,
+            "status": SignalReport.Status.READY,
+            "title": "Test report",
+            "summary": "Test summary",
+            "signal_count": 3,
+            "total_weight": 1.5,
+        }
+        defaults.update(kwargs)
+        return SignalReport.objects.create(**defaults)
+
+    def _priority_artefact(
+        self,
+        report: SignalReport,
+        *,
+        priority: str | None,
+        created_at=None,
+    ) -> SignalReportArtefact:
+        payload = {"explanation": "x"}
+        if priority is not None:
+            payload["priority"] = priority
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps(payload),
+        )
+        if created_at is not None:
+            art.save()
+            SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
+            art.refresh_from_db()
+        else:
+            art.save()
+        return art
+
+    # --- priority ---
+
+    def test_list_includes_priority_from_priority_artefact(self):
+        report = self._create_report()
+        self._priority_artefact(report, priority="P2")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        rows = response.json()["results"]
+        row = next(r for r in rows if r["id"] == str(report.id))
+        assert row["priority"] == "P2"
+
+    def test_list_uses_latest_priority_artefact_by_created_at(self):
+        report = self._create_report()
+        now = timezone.now()
+        self._priority_artefact(report, priority="P3", created_at=now - timedelta(hours=1))
+        self._priority_artefact(report, priority="P1", created_at=now)
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["priority"] == "P1"
+
+    def test_list_priority_null_without_priority_artefact(self):
+        report = self._create_report()
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["priority"] is None
+
+    @parameterized.expand(
+        [
+            ("invalid_json", "not-json{"),
+            ("json_null", "null"),
+            ("json_array", "[]"),
+            ("non_string_priority", json.dumps({"priority": 2})),
+            ("missing_priority_key", json.dumps({"choice": "immediately_actionable"})),
+        ]
+    )
+    def test_list_priority_null_for_bad_artefact_content(self, _name, content):
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=content,
+        )
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["priority"] is None
+
+    def test_retrieve_includes_priority(self):
+        report = self._create_report()
+        self._priority_artefact(report, priority="P0")
+
+        url = f"/api/projects/{self.team.id}/signal_reports/{report.id}/"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["priority"] == "P0"
+
+    # --- ordering ---
+
+    def test_ready_before_candidate_even_if_candidate_has_higher_weight(self):
+        """With `status` first, stage rank dominates; then `-total_weight`."""
+        low_ready = self._create_report(
+            title="Ready",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+        high_candidate = self._create_report(
+            status=SignalReport.Status.CANDIDATE,
+            title="Candidate",
+            summary="s",
+            signal_count=1,
+            total_weight=99.0,
+        )
+        response = self.client.get(
+            self._list_url(
+                status="ready,candidate",
+                ordering="status,-total_weight",
+            )
+        )
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(low_ready.id)) < ids.index(str(high_candidate.id))
+
+    def test_secondary_total_weight_within_same_status(self):
+        light = self._create_report(
+            title="A",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+        heavy = self._create_report(
+            title="B",
+            summary="s",
+            signal_count=1,
+            total_weight=10.0,
+        )
+        response = self.client.get(
+            self._list_url(
+                status="ready",
+                ordering="status,-total_weight",
+            )
+        )
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(heavy.id)) < ids.index(str(light.id))
+
+    def test_ordering_by_total_weight_only_crosses_status_rank(self):
+        """Without `status`, `ordering=-total_weight` is a global sort by weight."""
+        low_ready = self._create_report(
+            title="Ready",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+        high_candidate = self._create_report(
+            status=SignalReport.Status.CANDIDATE,
+            title="Candidate",
+            summary="s",
+            signal_count=1,
+            total_weight=99.0,
+        )
+        response = self.client.get(
+            self._list_url(
+                status="ready,candidate",
+                ordering="-total_weight",
+            )
+        )
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))

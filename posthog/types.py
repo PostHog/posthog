@@ -34,6 +34,7 @@ from posthog.schema import (
     RetentionQuery,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
+    SpanPropertyFilter,
     StickinessActorsQuery,
     StickinessQuery,
     TrendsQuery,
@@ -72,6 +73,7 @@ type AnyPropertyFilter = Union[
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
     LogPropertyFilter,
+    SpanPropertyFilter,
 ]
 
 type EntityNode = Union[

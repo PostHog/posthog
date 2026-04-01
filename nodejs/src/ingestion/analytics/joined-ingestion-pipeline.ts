@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
@@ -16,13 +15,20 @@ import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-o
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
-import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
+import { newBatchingPipeline } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
-import { AiEventOutput, AsyncOutput, EventOutput, HeatmapsOutput } from './outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    HeatmapsOutput,
+    PersonDistinctIdsOutput,
+    PersonsOutput,
+} from './outputs'
 import {
     PerDistinctIdPipelineConfig,
     PerDistinctIdPipelineInput,
@@ -30,7 +36,6 @@ import {
 } from './per-distinct-id-pipeline'
 import {
     PostTeamPreprocessingSubpipelineConfig,
-    PostTeamPreprocessingSubpipelineInput,
     createPostTeamPreprocessingSubpipeline,
 } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
@@ -51,13 +56,14 @@ export interface JoinedIngestionPipelineConfig {
         | OverflowOutput
         | AsyncOutput
         | GroupsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
 }
 
 export interface JoinedIngestionPipelineDeps {
-    kafkaProducer: KafkaProducerWrapper
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     hogTransformer: HogTransformerService
@@ -80,8 +86,6 @@ export interface JoinedIngestionPipelineContext {
     message: Message
 }
 
-type PreprocessingOutput = PostTeamPreprocessingSubpipelineInput
-
 function addTeamToContext<T extends { team: Team }, C>(
     element: OkResultWithContext<T, C>
 ): OkResultWithContext<T, C & { team: Team }> {
@@ -100,29 +104,10 @@ function getTokenAndDistinctId(input: PerDistinctIdPipelineInput): string {
     return `${token}:${distinctId}`
 }
 
-function mapToPerEventInput<C>(
-    element: OkResultWithContext<PreprocessingOutput, C>
-): OkResultWithContext<PerDistinctIdPipelineInput, C> {
-    const input = element.result.value
-    return {
-        result: ok({
-            message: input.message,
-            event: input.event,
-            team: input.team,
-            headers: input.headers,
-        }),
-        context: element.context,
-    }
-}
-
 export function createJoinedIngestionPipeline<
     TInput extends JoinedIngestionPipelineInput,
     TContext extends JoinedIngestionPipelineContext,
->(
-    builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>,
-    config: JoinedIngestionPipelineConfig,
-    deps: JoinedIngestionPipelineDeps
-) {
+>(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
         eventSchemaEnforcementEnabled,
         overflowEnabled,
@@ -136,7 +121,6 @@ export function createJoinedIngestionPipeline<
     } = config
 
     const {
-        kafkaProducer,
         personsStore,
         groupStore,
         hogTransformer,
@@ -181,30 +165,30 @@ export function createJoinedIngestionPipeline<
         hogTransformer,
         personsStore,
         groupStore,
-        kafkaProducer,
         groupId,
         topHog: topHogWrapper,
     }
 
-    return builder
-        .messageAware((b) =>
-            b
-                .sequentially((b) =>
-                    createPreTeamPreprocessingSubpipeline(b, {
-                        teamManager,
-                        eventIngestionRestrictionManager,
-                        overflowEnabled,
-                        preservePartitionLocality,
-                    })
-                )
-                .filterMap(addTeamToContext, (b) =>
+    return newBatchingPipeline<TInput, void, TContext, NonNullable<unknown>, TContext, OverflowOutput | AsyncOutput>(
+        (beforeBatch) => beforeBatch.pipe(({ elements }) => Promise.resolve(ok({ elements, batchContext: {} }))),
+        (batch) =>
+            batch
+                .messageAware((b) =>
                     b
-                        .teamAware((b) =>
-                            createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
-                                // Group by token:distinctId and process each group concurrently
-                                // Events within each group are processed sequentially
-                                .filterMap(mapToPerEventInput, (b) =>
-                                    b
+                        .sequentially((b) =>
+                            createPreTeamPreprocessingSubpipeline(b, {
+                                teamManager,
+                                eventIngestionRestrictionManager,
+                                overflowEnabled,
+                                preservePartitionLocality,
+                            })
+                        )
+                        .filterMap(addTeamToContext, (b) =>
+                            b
+                                .teamAware((b) =>
+                                    createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
+                                        // Group by token:distinctId and process each group concurrently
+                                        // Events within each group are processed sequentially
                                         .groupBy(getTokenAndDistinctId)
                                         .concurrently((eventsForDistinctId) =>
                                             eventsForDistinctId.sequentially((event) =>
@@ -212,19 +196,14 @@ export function createJoinedIngestionPipeline<
                                             )
                                         )
                                 )
-                                .gather()
-                                // Flush person and group stores after all events processed
-                                .pipeBatch(
-                                    createFlushBatchStoresStep({
-                                        personsStore,
-                                        groupStore,
-                                        kafkaProducer,
-                                    })
-                                )
+                                .handleIngestionWarnings(outputs)
                         )
-                        .handleIngestionWarnings(outputs)
                 )
-        )
-        .handleResults(pipelineConfig)
-        .handleSideEffects(promiseScheduler, { await: false })
+                .handleResults(pipelineConfig)
+                .handleSideEffects(promiseScheduler, { await: false }),
+        (afterBatch) => afterBatch.pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs })),
+        // Batch stores (personsStore, groupStore) are singletons that don't support
+        // concurrent batches yet — they accumulate state across events and flush once.
+        { concurrentBatches: 1 }
+    )
 }
