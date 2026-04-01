@@ -1,3 +1,6 @@
+import csv
+import tempfile
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -34,7 +37,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
 
-from products.data_warehouse.backend.models import DataWarehouseJoin, ExternalDataSchema
+from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery, ExternalDataSchema
 from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
@@ -44,8 +47,9 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
 )
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
-INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
-CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
+TEST_BUCKET_BASE = "test_storage_bucket"
+INVOICES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
+CUSTOMERS_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_customers"
 
 
 class TestPersonsRevenueAnalyticsMixin(ClickhouseTestMixin, APIBaseTest):
@@ -466,7 +470,6 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         assert results[0]["breakdown_value"] == ["350.42"]
 
 
-@snapshot_clickhouse_queries
 class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -474,14 +477,68 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
         self.mock_flag.start()
 
     def tearDown(self) -> None:
-        super().tearDown()
         self.mock_flag.stop()
+        if hasattr(self, "_materialized_cleanups"):
+            for cleanup in self._materialized_cleanups:
+                cleanup()
+        super().tearDown()
 
-    def create_managed_viewsets(self):
-        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
-            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
-        )
-        self.viewset.sync_views()
+    def create_and_materialize_viewsets(self):
+        with freeze_time(self.QUERY_TIMESTAMP):
+            viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+                team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+            )
+            viewset.sync_views()
+            materialization_csvs = self._get_materialization_csvs()
+        self._upload_materialized_csvs(materialization_csvs)
+
+    def _get_materialization_csvs(self):
+        materialization_csvs = []
+        for saved_query in DataWarehouseSavedQuery.objects.filter(
+            team=self.team, managed_viewset__isnull=False
+        ).order_by("name"):
+            query_text = saved_query.query.get("query", "") if isinstance(saved_query.query, dict) else ""
+            if not query_text:
+                continue
+
+            response = execute_hogql_query(parse_select(query_text), team=self.team, modifiers=self.MODIFIERS)
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(response.columns or [])
+                for row in response.results or []:
+                    writer.writerow(
+                        [value.strftime("%Y-%m-%d %H:%M:%S") if isinstance(value, datetime) else value for value in row]
+                    )
+                csv_path = Path(csv_file.name)
+
+            nullable_columns = {}
+            for col_name, col_def in (saved_query.columns or {}).items():
+                if isinstance(col_def, dict):
+                    ch_type = col_def["clickhouse"]
+                    if not ch_type.startswith("Nullable("):
+                        col_def = {**col_def, "clickhouse": f"Nullable({ch_type})"}
+                nullable_columns[col_name] = col_def
+
+            materialization_csvs.append((saved_query, csv_path, nullable_columns))
+
+        return materialization_csvs
+
+    def _upload_materialized_csvs(self, materialization_csvs):
+        self._materialized_cleanups = []
+        for saved_query, csv_path, nullable_columns in materialization_csvs:
+            table, _, _, _, cleanup = create_data_warehouse_table_from_csv(
+                csv_path,
+                saved_query.name,
+                nullable_columns,
+                f"{TEST_BUCKET_BASE}-{saved_query.name.replace('.', '_')}",
+                self.team,
+                source_prefix="",
+            )
+            self._materialized_cleanups.append(cleanup)
+            saved_query.table = table
+            saved_query.is_materialized = True
+            saved_query.save()
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):
@@ -497,10 +554,10 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        self.create_managed_viewsets()
+        self.create_and_materialize_viewsets()
 
         # Breaking down by revenue doesnt make any sense, but this is just proving it works
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
             query = TrendsQuery(
                 **{
                     "kind": "TrendsQuery",
@@ -530,10 +587,9 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
         ]
         self.team.revenue_analytics_config.save()
         self.team.save()
+        self.create_and_materialize_viewsets()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
-            self.create_managed_viewsets()  # Make sure this runs inside the freeze_time context
-
+        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
                 self.team,
@@ -555,9 +611,8 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
         for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
-
-        with freeze_time(self.QUERY_TIMESTAMP):
-            self.create_managed_viewsets()
+        self.create_and_materialize_viewsets()
+        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
             results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
@@ -580,11 +635,8 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
 
     def test_get_revenue_for_schema_source_for_id_join(self):
         self.setup_schema_sources()
-
         self.join.source_table_key = "id"
         self.join.save()
-
-        self.create_managed_viewsets()
 
         # These are the 6 IDs inside the CSV files, plus an extra dummy/empty one
         distinct_id_to_person_id: dict[str, str] = {}
@@ -592,7 +644,8 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        self.create_and_materialize_viewsets()
+        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
             queries = [
                 "SELECT id, revenue_analytics.revenue from persons order by id asc",
                 "SELECT id, $virt_revenue from persons order by id asc",
@@ -616,7 +669,6 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
 
     def test_get_revenue_for_events(self):
         self.setup_events()
-
         self.team.revenue_analytics_config.events = [
             RevenueAnalyticsEventItem(
                 eventName=self.PURCHASE_EVENT_NAME,
@@ -627,9 +679,9 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
         ]
         self.team.revenue_analytics_config.save()
         self.team.save()
-        self.create_managed_viewsets()
+        self.create_and_materialize_viewsets()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
             response = execute_hogql_query(
                 parse_select(
                     "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",
