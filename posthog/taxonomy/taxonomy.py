@@ -2545,6 +2545,11 @@ def decapitalize_first_word(text: str) -> str:
 
 
 for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
+    # Virtual event properties (e.g. $virt_is_bot) are computed from event-level
+    # data and don't exist on the persons table — skip them entirely.
+    if value.get("virtual", False):
+        continue
+
     if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):
         CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = {
             **value,
