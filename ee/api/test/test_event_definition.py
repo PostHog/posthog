@@ -181,15 +181,17 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             ("all_when_not_specified", None, ["$pageview", "entered_free_trial", "purchase", "watched_movie"]),
         ]
     )
-    def test_filter_event_definitions_by_verified(self, _name: str, verified_param: Optional[str], expected_names: list[str]):
+    def test_filter_event_definitions_by_verified(
+        self, _name: str, verified_param: Optional[str], expected_names: list[str]
+    ):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
 
         for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
-            EnterpriseEventDefinition.objects.filter(
-                name=event_definition["name"], team=self.demo_team
-            ).update(verified=event_definition["verified"] or False)
+            EnterpriseEventDefinition.objects.filter(name=event_definition["name"], team=self.demo_team).update(
+                verified=event_definition["verified"] or False
+            )
 
         url = "/api/projects/@current/event_definitions/"
         if verified_param is not None:
