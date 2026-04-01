@@ -9217,6 +9217,53 @@ export namespace Schemas {
       Empty: 'empty',
     } as const;
 
+    export type HrefMatching = typeof HrefMatching[keyof typeof HrefMatching];
+
+
+    export const HrefMatching = {
+      Contains: 'contains',
+      Exact: 'exact',
+      Regex: 'regex',
+    } as const;
+
+    export type TextMatching = typeof TextMatching[keyof typeof TextMatching];
+
+
+    export const TextMatching = {
+      Contains: 'contains',
+      Exact: 'exact',
+      Regex: 'regex',
+    } as const;
+
+    export type UrlMatching = typeof UrlMatching[keyof typeof UrlMatching];
+
+
+    export const UrlMatching = {
+      Contains: 'contains',
+      Exact: 'exact',
+      Regex: 'regex',
+    } as const;
+
+    export interface EventsQueryActionStep {
+      /** @nullable */
+      event?: string | null;
+      /** @nullable */
+      href?: string | null;
+      href_matching?: HrefMatching | null;
+      /** @nullable */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      /** @nullable */
+      selector?: string | null;
+      /** @nullable */
+      tag_name?: string | null;
+      /** @nullable */
+      text?: string | null;
+      text_matching?: TextMatching | null;
+      /** @nullable */
+      url?: string | null;
+      url_matching?: UrlMatching | null;
+    }
+
     export type EventsQueryKind = typeof EventsQueryKind[keyof typeof EventsQueryKind];
 
 
@@ -9265,6 +9312,11 @@ export namespace Schemas {
        * @nullable
        */
       actionId?: number | null;
+      /**
+       * Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.
+       * @nullable
+       */
+      actionSteps?: EventsQueryActionStep[] | null;
       /**
        * Only fetch events that happened after this timestamp
        * @nullable
