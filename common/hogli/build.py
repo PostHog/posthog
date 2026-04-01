@@ -197,13 +197,17 @@ def build(force: bool, dry_run: bool, list_pipelines: bool, sequential: bool) ->
             click.echo(f"Nothing to rebuild -- {len(changed)} changed file(s) don't match any build pipeline.")
             return
 
+    if dry_run:
+        click.echo(f"Would build {len(pipelines)} pipeline(s):")
+        for p in pipelines:
+            marker = " (requires running services)" if p.needs_services else ""
+            click.echo(f"  {p.name} -> hogli {p.command}{marker}")
+        return
+
     click.echo(f"Building {len(pipelines)} pipeline(s):")
     for p in pipelines:
         marker = " (requires running services)" if p.needs_services else ""
         click.echo(f"  {p.name} -> hogli {p.command}{marker}")
-
-    if dry_run:
-        return
 
     click.echo()
 
