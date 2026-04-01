@@ -541,7 +541,7 @@ class TestAlertSimulate(APIBaseTest):
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
 
-    @mock.patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @mock.patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_simulate_returns_valid_response(self, mock_calculate) -> None:
         mock_calculate.return_value = mock.MagicMock(
             result=[
@@ -582,9 +582,9 @@ class TestAlertSimulate(APIBaseTest):
         assert "interval" in data
         assert "total_points" in data
         assert "anomaly_count" in data
-        assert data["total_points"] == 35
+        assert data["total_points"] == 34  # 35 mock points minus 1 dropped incomplete interval
         assert isinstance(data["scores"], list)
-        assert len(data["scores"]) == 35
+        assert len(data["scores"]) == 34
 
     def test_simulate_missing_detector_config_returns_400(self) -> None:
         response = self.client.post(
@@ -607,7 +607,7 @@ class TestAlertSimulate(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @mock.patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @mock.patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_simulate_does_not_create_alert_check_records(self, mock_calculate) -> None:
         mock_calculate.return_value = mock.MagicMock(
             result=[

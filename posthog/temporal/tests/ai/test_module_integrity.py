@@ -26,6 +26,7 @@ class TestAITemporalModuleIntegrity:
             "TeamSignalGroupingV2Workflow",
             "BufferSignalsWorkflow",
             "SignalEmitterWorkflow",
+            "BackfillErrorTrackingWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS + ai.SIGNALS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -89,6 +90,8 @@ class TestAITemporalModuleIntegrity:
             "emit_signals_from_clusters_activity",
             "get_proactive_tasks_enabled_team_ids_activity",
             "actionability_judge_activity",
+            "emit_backfill_signal_activity",
+            "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
             "fetch_signal_type_examples_activity",
             "fetch_signals_for_report_activity",
@@ -108,6 +111,9 @@ class TestAITemporalModuleIntegrity:
             "report_safety_judge_activity",
             "safety_filter_activity",
             "wait_for_signal_in_clickhouse_activity",
+            "run_agentic_report_activity",
+            "select_repository_activity",
+            "signals_legacy_report_gate_activity",
             "summarize_signals_activity",
             "delete_report_activity",
             "flush_signals_to_s3_activity",

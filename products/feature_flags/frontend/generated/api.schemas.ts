@@ -923,6 +923,11 @@ export interface ScheduledChangeApi {
 * `monthly` - monthly
 * `yearly` - yearly */
     recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    cron_expression?: string | null
     /** @nullable */
     readonly last_executed_at: string | null
     /**
@@ -976,6 +981,11 @@ export interface PatchedScheduledChangeApi {
 * `monthly` - monthly
 * `yearly` - yearly */
     recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    cron_expression?: string | null
     /** @nullable */
     readonly last_executed_at?: string | null
     /**

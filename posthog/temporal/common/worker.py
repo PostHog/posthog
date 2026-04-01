@@ -16,11 +16,7 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
-from posthog.temporal.delete_recordings.metrics import (
-    DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
-    DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
-    DeleteRecordingsMetricsInterceptor,
-)
+from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
 from posthog.temporal.llm_analytics.sentiment.metrics import (
     SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
@@ -33,6 +29,11 @@ from posthog.temporal.llm_analytics.trace_clustering.metrics import (
     ClusteringMetricsInterceptor,
 )
 from posthog.temporal.llm_analytics.trace_summarization.metrics import SummarizationMetricsInterceptor
+from posthog.temporal.session_replay.delete_recordings.metrics import (
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+    DeleteRecordingsMetricsInterceptor,
+)
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.tasks.backend.temporal.metrics import TASKS_LATENCY_HISTOGRAM_BUCKETS, TASKS_LATENCY_HISTOGRAM_METRICS
@@ -99,6 +100,7 @@ SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS = [
 ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
+    SloInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     EvalsMetricsInterceptor,

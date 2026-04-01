@@ -5,8 +5,6 @@ Provides hogli dev:* commands for managing the development environment.
 
 from __future__ import annotations
 
-import os
-
 import click
 from hogli.core.cli import cli
 
@@ -96,23 +94,15 @@ def dev_generate(
 
     generator.generate_and_save(resolved, output_path, saved_config)
 
-    # Emit devenv_started when called from bin/start (signaled via env var)
-    process_manager = os.environ.get("HOGLI_PROCESS_MANAGER")
-    if process_manager:
-        from hogli import telemetry
-
-        # Normalize "*/bin/script" -> "script"
-        pm_name = os.path.basename(process_manager)
-        telemetry.track(
-            "devenv_started",
-            {
-                "intents": sorted(resolved.intents),
-                "intent_count": len(resolved.intents),
-                "unit_count": len(resolved.units),
-                "docker_profiles": sorted(resolved.docker_profiles),
-                "process_manager": pm_name,
-            },
-        )
+    # Stash devenv-specific properties so _fire_telemetry includes them
+    # in the command_completed event for dev:generate.
+    ctx = click.get_current_context()
+    ctx.meta["hogli.devenv"] = {
+        "intents": sorted(resolved.intents),
+        "intent_count": len(resolved.intents),
+        "unit_count": len(resolved.units),
+        "docker_profiles": sorted(resolved.docker_profiles),
+    }
 
     click.echo("Generated mprocs config from saved config")
     click.echo(f"  Products: {', '.join(sorted(resolved.intents))}")

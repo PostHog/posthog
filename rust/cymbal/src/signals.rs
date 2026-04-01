@@ -6,6 +6,7 @@ use tracing::warn;
 
 use crate::config::Config;
 use crate::issue_resolution::Issue;
+use crate::metric_consts::{SIGNAL_EMITTED, SIGNAL_EMIT_FAILED, SIGNAL_EMIT_RESPONSE};
 use crate::types::OutputErrProps;
 
 /// Signal payload matching the Django internal API contract.
@@ -128,10 +129,14 @@ impl SignalClient {
     }
 
     async fn send(&self, team_id: i32, body: EmitSignalRequest) {
+        let source_type = body.source_type;
         let url = format!(
             "{}/api/projects/{}/internal/signals/emit",
             self.base_url, team_id
         );
+
+        metrics::counter!(SIGNAL_EMITTED, "source_type" => source_type).increment(1);
+
         match self
             .http
             .post(&url)
@@ -140,13 +145,17 @@ impl SignalClient {
             .send()
             .await
         {
-            Ok(resp) if !resp.status().is_success() => {
-                warn!("Signal emit returned status {}", resp.status());
+            Ok(resp) => {
+                let status = resp.status().as_u16().to_string();
+                metrics::counter!(SIGNAL_EMIT_RESPONSE, "source_type" => source_type, "status" => status).increment(1);
+                if !resp.status().is_success() {
+                    warn!("Signal emit returned status {}", resp.status());
+                }
             }
             Err(e) => {
+                metrics::counter!(SIGNAL_EMIT_FAILED, "source_type" => source_type).increment(1);
                 warn!("Failed to emit signal: {e}");
             }
-            _ => {}
         }
     }
 }

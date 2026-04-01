@@ -473,6 +473,12 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
+class AssistantStickinessDisplayType(StrEnum):
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
+
+
 class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -1547,6 +1553,27 @@ class EventType(BaseModel):
     properties: dict[str, Any]
     timestamp: str
     uuid: str | None = None
+
+
+class HrefMatching(Enum):
+    CONTAINS = "contains"
+    EXACT = "exact"
+    REGEX = "regex"
+    NONE_TYPE_NONE = None
+
+
+class TextMatching(Enum):
+    CONTAINS = "contains"
+    EXACT = "exact"
+    REGEX = "regex"
+    NONE_TYPE_NONE = None
+
+
+class UrlMatching(Enum):
+    CONTAINS = "contains"
+    EXACT = "exact"
+    REGEX = "regex"
+    NONE_TYPE_NONE = None
 
 
 class Properties(BaseModel):
@@ -3452,6 +3479,9 @@ class PropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
     LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
+    SPAN = "span"
+    SPAN_ATTRIBUTE = "span_attribute"
+    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
     WORKFLOW_VARIABLE = "workflow_variable"
     EMPTY = "empty"
 
@@ -3667,6 +3697,15 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class RelevantCommit(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    reason: str
+    sha: str
+    url: str
 
 
 class ReplayInactivityPeriod(BaseModel):
@@ -3974,6 +4013,17 @@ class SharingConfigurationSettings(BaseModel):
     whitelabel: bool | None = None
 
 
+class SignalReviewerUserInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    email: str
+    first_name: str
+    id: float
+    last_name: str
+    uuid: str
+
+
 class SignalSourceProduct(StrEnum):
     SESSION_REPLAY = "session_replay"
     LLM_ANALYTICS = "llm_analytics"
@@ -4103,6 +4153,12 @@ class SourceMap(BaseModel):
     reported_conversion: str | None = None
     reported_conversion_value: str | None = None
     source: str | None = None
+
+
+class SpanPropertyFilterType(StrEnum):
+    SPAN = "span"
+    SPAN_ATTRIBUTE = "span_attribute"
+    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
 
 
 class StepOrderValue(StrEnum):
@@ -4313,6 +4369,9 @@ class TaxonomicFilterGroupType(StrEnum):
     LOGS = "logs"
     LOG_ATTRIBUTES = "log_attributes"
     LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
+    SPANS = "spans"
+    SPAN_ATTRIBUTES = "span_attributes"
+    SPAN_RESOURCE_ATTRIBUTES = "span_resource_attributes"
     REPLAY = "replay"
     REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
@@ -5172,6 +5231,28 @@ class AssistantGroupPropertyFilter5(BaseModel):
     type: Literal["group"] = "group"
 
 
+class AssistantLifecycleFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+    stacked: bool | None = Field(default=True, description="Whether the lifecycle bars should be stacked.")
+    toggledLifecycles: list[LifecycleToggle] | None = Field(
+        default=None,
+        description=(
+            "Lifecycles that have been removed from display are not included in this"
+            " array. Available values: `new`, `returning`, `resurrecting`,"
+            " `dormant`.\n- `new` - users who performed the event for the first time"
+            " during the period.\n- `returning` - users who were active in the previous"
+            " period and are active in the current period.\n- `resurrecting` - users"
+            " who were inactive for one or more periods and became active again.\n-"
+            " `dormant` - users who were active in the previous period but are inactive"
+            " in the current period."
+        ),
+    )
+
+
 class AssistantMessageMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5817,6 +5898,16 @@ class EndpointsUsageOverviewItem(BaseModel):
     key: EndpointsUsageOverviewItemKey
     previous: float | None = None
     value: float | None = None
+
+
+class EnrichedReviewer(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    github_login: str
+    github_name: str | None = None
+    relevant_commits: list[RelevantCommit]
+    user: SignalReviewerUserInfo | None = None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -7360,6 +7451,17 @@ class SourceFieldInputConfig(BaseModel):
     type: SourceFieldInputConfigType
 
 
+class SpanPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: SpanPropertyFilterType
+    value: list[str | float | bool] | str | float | bool | None = None
+
+
 class StickinessCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8414,6 +8516,84 @@ class AssistantInsightsQueryBase(BaseModel):
     )
 
 
+class AssistantLifecycleActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: int
+    kind: Literal["ActionsNode"] = Field(
+        default="ActionsNode",
+        description=(
+            "Defines the action series for the lifecycle insight. Lifecycle does not"
+            " support math aggregations. You must provide the action ID in the `id`"
+            " field and the name in the `name` field."
+        ),
+    )
+    name: str = Field(..., description="Action name from the plan.")
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantLifecycleEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    event: str | None = Field(default=None, description="The event or `null` for all events.")
+    kind: Literal["EventsNode"] = Field(
+        default="EventsNode",
+        description=(
+            "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations."
+        ),
+    )
+    name: str | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
 class AssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8590,6 +8770,236 @@ class AssistantRetentionQuery(BaseModel):
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+
+
+class AssistantStickinessActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str = Field(..., description="Action name from the plan.")
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantStickinessEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    event: str | None = Field(default=None, description="The event or `null` for all events.")
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantStickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computedAs: StickinessComputationMode | None = Field(
+        default=StickinessComputationMode.NON_CUMULATIVE,
+        description=(
+            "Computation mode. `non_cumulative` (default) shows users active on exactly"
+            " N intervals. `cumulative` shows users active on N or more intervals."
+        ),
+    )
+    display: AssistantStickinessDisplayType | None = Field(
+        default=AssistantStickinessDisplayType.ACTIONS_LINE_GRAPH,
+        description=(
+            "Visualization type for the stickiness chart. `ActionsLineGraph` - line"
+            " chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area"
+            " chart."
+        ),
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+    stickinessCriteria: StickinessCriteria | None = Field(
+        default=None,
+        description=(
+            "Filter which intervals count based on event frequency within each"
+            " interval. For example, only count intervals where the user performed the"
+            " event >= 3 times."
+        ),
+    )
+
+
+class AssistantStickinessQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Compare to date range. When enabled, shows the current and previous period side by side."),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description=(
+            "Granularity of the response. Can be one of `hour`, `day`, `week` or"
+            ' `month`. This determines what counts as one "interval" for stickiness'
+            " measurement. For example, with `day` interval over a 30-day range, the"
+            " X-axis shows 1 through 30 days, and each bar/point shows how many users"
+            " performed the event on exactly that many days."
+        ),
+    )
+    intervalCount: int | None = Field(
+        default=None,
+        description=(
+            "How many base intervals comprise one stickiness period. Defaults to 1. For"
+            ' example, `interval: "day"` with `intervalCount: 7` groups by 7-day'
+            " periods."
+        ),
+    )
+    kind: Literal["StickinessQuery"] = "StickinessQuery"
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+    series: list[AssistantStickinessEventsNode | AssistantStickinessActionsNode] = Field(
+        ...,
+        description=(
+            "Events or actions to include. Each series measures how many intervals"
+            " (e.g. days) within the date range a user performed the event."
+            " Prioritize the more popular and fresh events and actions. When the"
+            " `math` field is omitted on a series, it defaults to counting unique"
+            " persons."
+        ),
+    )
+    stickinessFilter: AssistantStickinessFilter | None = Field(
+        default=None, description="Properties specific to the stickiness insight"
     )
 
 
@@ -10847,6 +11257,7 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -10895,6 +11306,7 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -10930,6 +11342,7 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -10977,6 +11390,7 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11014,6 +11428,7 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11062,6 +11477,7 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11100,6 +11516,7 @@ class DashboardFilter(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11728,6 +12145,7 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -11776,6 +12194,7 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12011,6 +12430,7 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12057,6 +12477,7 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12146,6 +12567,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12281,6 +12703,7 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12329,12 +12752,51 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class EventsQueryActionStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str | None = None
+    href: str | None = None
+    href_matching: HrefMatching | None = None
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = None
+    selector: str | None = None
+    tag_name: str | None = None
+    text: str | None = None
+    text_matching: TextMatching | None = None
+    url: str | None = None
+    url_matching: UrlMatching | None = None
 
 
 class EventsQueryResponse(BaseModel):
@@ -12417,6 +12879,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12463,6 +12926,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12497,6 +12961,7 @@ class ExperimentEventExposureConfig(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
     ]
     response: dict[str, Any] | None = None
@@ -12528,6 +12993,7 @@ class FeatureFlagGroupType(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12593,6 +13059,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12642,6 +13109,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12675,6 +13143,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12725,6 +13194,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12759,6 +13229,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12807,6 +13278,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -12940,6 +13412,7 @@ class HogQLFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13109,6 +13582,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13156,6 +13630,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13540,6 +14015,7 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13570,6 +14046,7 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -13614,6 +14091,7 @@ class PropertyGroupFilterValue(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
     ]
 
@@ -15617,6 +16095,7 @@ class RetentionEntity(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -15999,6 +16478,7 @@ class TileFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16033,6 +16513,7 @@ class TraceNeighborsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16070,6 +16551,7 @@ class TraceQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16077,27 +16559,6 @@ class TraceQuery(BaseModel):
     response: TraceQueryResponse | None = None
     tags: QueryLogTags | None = None
     traceId: str
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class TraceSpansQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    dateRange: DateRange
-    kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    orderBy: OrderBy3 | None = None
-    response: TraceSpansQueryResponse | None = None
-    rootSpans: bool | None = None
-    searchTerm: str | None = None
-    serviceNames: list[str] | None = None
-    statusCodes: list[int] | None = None
-    tags: QueryLogTags | None = None
-    traceId: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -16134,6 +16595,7 @@ class TracesQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16536,6 +16998,7 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16583,6 +17046,7 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -16670,6 +17134,60 @@ class AssistantBasePropertyFilter(
         | AssistantStringOrBooleanValuePropertyFilter
         | AssistantNumericValuePropertyFilter
         | AssistantArrayPropertyFilter
+    )
+
+
+class AssistantLifecycleQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
+    )
+    kind: Literal["LifecycleQuery"] = "LifecycleQuery"
+    lifecycleFilter: AssistantLifecycleFilter | None = Field(
+        default=None, description="Properties specific to the lifecycle insight"
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+    series: list[AssistantLifecycleEventsNode | AssistantLifecycleActionsNode] = Field(
+        ...,
+        description=("Event or action to analyze. Lifecycle insights only support a single series."),
+        max_length=1,
     )
 
 
@@ -17726,6 +18244,7 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -17767,6 +18286,7 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -17818,6 +18338,7 @@ class RetentionQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -17870,6 +18391,7 @@ class StickinessQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -17895,6 +18417,31 @@ class TeamTaxonomyQuery(BaseModel):
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     response: TeamTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class TraceSpansQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    dateRange: DateRange
+    filterGroup: PropertyGroupFilter | None = None
+    kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    orderBy: OrderBy3 | None = None
+    prefetchSpans: int | None = Field(
+        default=None,
+        description=("Prefetch up to this many spans per trace and include them in results"),
+    )
+    response: TraceSpansQueryResponse | None = None
+    rootSpans: bool | None = None
+    serviceNames: list[str] | None = None
+    statusCodes: list[int] | None = None
+    tags: QueryLogTags | None = None
+    traceId: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -18073,6 +18620,7 @@ class CalendarHeatmapQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18410,6 +18958,7 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -18462,6 +19011,7 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -18502,6 +19052,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18545,6 +19096,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18588,6 +19140,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18631,6 +19184,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18674,6 +19228,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18717,6 +19272,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18790,6 +19346,7 @@ class LifecycleQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -18940,6 +19497,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -18969,6 +19527,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -19001,6 +19560,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -19071,6 +19631,7 @@ class TrendsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19321,6 +19882,7 @@ class FunnelsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19609,7 +20171,9 @@ class VisualizationBlock(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     ) = Field(
         ...,
@@ -19813,6 +20377,7 @@ class PathsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | PropertyGroupFilter
@@ -19838,7 +20403,9 @@ class VisualizationItem(BaseModel):
         TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -19847,7 +20414,9 @@ class VisualizationItem(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     )
     initiator: str | None = None
@@ -19863,7 +20432,9 @@ class VisualizationMessage(BaseModel):
         TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -19872,7 +20443,9 @@ class VisualizationMessage(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     )
     id: str | None = None
@@ -20041,6 +20614,7 @@ class EndpointRequest(BaseModel):
         ),
     )
     cache_age_seconds: float | None = None
+    deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
     derived_from_insight: str | None = None
     description: str | None = None
     is_active: bool | None = None
@@ -20096,6 +20670,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -20155,6 +20730,13 @@ class SessionBatchEventsQuery(BaseModel):
         extra="forbid",
     )
     actionId: int | None = Field(default=None, description="Show events matching a given action")
+    actionSteps: list[EventsQueryActionStep] | None = Field(
+        default=None,
+        description=(
+            "Show events matching action steps directly, used when no actionId is"
+            " provided (e.g. previewing unsaved actions). Ignored if actionId is set."
+        ),
+    )
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(
         default=None,
@@ -20184,6 +20766,7 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -20220,6 +20803,7 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -20285,6 +20869,13 @@ class EventsQuery(BaseModel):
         extra="forbid",
     )
     actionId: int | None = Field(default=None, description="Show events matching a given action")
+    actionSteps: list[EventsQueryActionStep] | None = Field(
+        default=None,
+        description=(
+            "Show events matching action steps directly, used when no actionId is"
+            " provided (e.g. previewing unsaved actions). Ignored if actionId is set."
+        ),
+    )
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(
         default=None,
@@ -20314,6 +20905,7 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -20346,6 +20938,7 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
         ]
         | None
@@ -20807,7 +21400,6 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageTrendsQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
-    result: Any | None = None
     type: Literal["insight"] = "insight"
     variablesOverride: dict[str, HogQLVariable] | None = None
 
@@ -21414,7 +22006,9 @@ class VisualizationArtifactContent(BaseModel):
         AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
         | EventsNode
         | ActionsNode

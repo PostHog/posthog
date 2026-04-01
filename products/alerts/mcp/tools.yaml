@@ -6,7 +6,8 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Alerts
 feature: alerts
-url_prefix: /insights
+url_prefix: /insights?tab=alerts
+ui_apps: {}
 tools:
     alerts-list:
         operation: alerts_list
@@ -24,7 +25,6 @@ tools:
             configuration, timing information, and firing check history. Supports filtering by insight ID via query
             parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase,
             relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
-
     alert-get:
         operation: alerts_retrieve
         enabled: true
@@ -36,14 +36,12 @@ tools:
             idempotent: true
         title: Get alert
         description: >
-            Get a specific alert by ID. Returns the full alert configuration including check results,
-            threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results
-            include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts.
-            By default returns the last 5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d')
-            to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500).
-            When date filters are provided without checks_limit, up to 500 checks are returned.
-            Check history is retained for 14 days.
-
+            Get a specific alert by ID. Returns the full alert configuration including check results, threshold
+            settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include
+            anomaly_scores, triggered_points, and triggered_dates for detector-based alerts. By default returns the last
+            5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window,
+            and checks_limit to control the maximum returned (default 5, max 500). When date filters are provided
+            without checks_limit, up to 500 checks are returned. Check history is retained for 14 days.
     alert-create:
         operation: alerts_create
         enabled: true
@@ -55,8 +53,8 @@ tools:
             idempotent: false
         title: Create alert
         description: >
-            Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection.
-            For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold
+            Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For
+            threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold
             configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad,
             iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold
             (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR
@@ -115,13 +113,12 @@ tools:
             idempotent: true
         title: Simulate detector on insight
         description: >
-            Run an anomaly detector on an insight's historical data without creating any alert or check records.
-            Use this to preview how a detector configuration would perform before saving it as an alert.
-            Requires an insight ID and a detector_config object with a type (zscore, mad, iqr, copod, ecod, hbos,
-            isolation_forest, knn, lof, ocsvm, pca, or ensemble). Optionally specify date_from (e.g. '-48h', '-30d')
-            to control how far back to simulate, and series_index to pick which series to analyze.
-            Returns data values, anomaly scores per point, triggered indices and dates, and for ensemble detectors,
-            per-sub-detector score breakdowns.
+            Run an anomaly detector on an insight's historical data without creating any alert or check records. Use
+            this to preview how a detector configuration would perform before saving it as an alert. Requires an insight
+            ID and a detector_config object with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn,
+            lof, ocsvm, pca, or ensemble). Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to
+            simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point,
+            triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.
     logs-alerts-list:
         operation: logs_alerts_list
         enabled: false

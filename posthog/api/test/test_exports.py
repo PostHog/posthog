@@ -1003,9 +1003,8 @@ class TestExports(APIBaseTest):
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
 
-    @patch("posthog.api.exports.emit_slo_started")
     @patch("posthog.api.exports.async_connect")
-    def test_workflow_failure_returns_201_with_failed_asset(self, mock_async_connect, _mock_slo) -> None:
+    def test_workflow_failure_returns_201_with_failed_asset(self, mock_async_connect) -> None:
         mock_client = AsyncMock()
         mock_client.execute_workflow.side_effect = Exception("workflow failed")
         mock_async_connect.return_value = mock_client
