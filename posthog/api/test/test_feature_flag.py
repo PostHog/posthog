@@ -5108,8 +5108,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    def test_validation_mixed_aggregation_types_rejected(self):
-        """Test that mixed aggregation types across condition sets are rejected"""
+    def test_mixed_aggregation_types_across_condition_sets_allowed(self):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -5136,16 +5135,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Mixed aggregation types across condition sets are not yet supported. All condition sets must use the same aggregation type.",
-                "attr": "filters",
-            },
-        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Flag-level aggregation is None when condition sets have mixed aggregation types
+        self.assertIsNone(response.json()["filters"]["aggregation_group_type_index"])
+        # Each condition set retains its own aggregation type
+        groups = response.json()["filters"]["groups"]
+        self.assertIsNone(groups[0]["aggregation_group_type_index"])
+        self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
 
     def test_per_condition_aggregation_normalization(self):
         """Test that flag-level aggregation is distributed to condition sets without one"""
@@ -6315,7 +6311,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Cannot change this flag to a group-based when linked to an Early Access Feature.",
+                "detail": "Cannot use group aggregation in any condition set when the flag is linked to an Early Access Feature.",
             }.items(),
             response.json().items(),
         )
@@ -9777,7 +9773,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["groups_affected"], 3)  # 2.0.0, 2.5.0, 3.0.0
         self.assertEqual(response_json["total_groups"], 5)
 
-    def test_user_blast_radius_with_mixed_person_and_group_properties(self):
+    def test_user_blast_radius_person_condition_separate_from_group_condition(self):
         create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
@@ -9800,7 +9796,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 properties={"size": "enterprise" if i < 3 else "startup"},
             )
 
-        response = self.client.post(
+        # Person-aggregated condition: only person properties
+        person_response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
                 "condition": {
@@ -9811,6 +9808,22 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "value": ["pro"],
                             "operator": "exact",
                         },
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": None,
+            },
+        )
+        self.assertEqual(person_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(person_response.json()["users_affected"], 6)
+        self.assertEqual(person_response.json()["total_users"], 10)
+
+        # Group-aggregated condition: only group properties
+        group_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
                         {
                             "key": "size",
                             "type": "group",
@@ -9824,87 +9837,16 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 0,
             },
         )
+        self.assertEqual(group_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(group_response.json()["groups_affected"], 3)
+        self.assertEqual(group_response.json()["total_groups"], 8)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 6)
-        self.assertEqual(response_json["total_users"], 10)
-        self.assertEqual(response_json["groups_affected"], 3)
-        self.assertEqual(response_json["total_groups"], 8)
-
-    @parameterized.expand(
-        [
-            ("without_group_aggregation", None),
-            ("with_group_aggregation", 0),
-        ]
-    )
-    def test_user_blast_radius_pure_person_condition_has_no_group_counts(self, _name, group_type_index):
-        if group_type_index is not None:
-            create_group_type_mapping_without_created_at(
-                team=self.team,
-                project_id=self.team.project_id,
-                group_type="organization",
-                group_type_index=0,
-            )
-
+    def test_user_blast_radius_pure_person_condition_has_no_group_counts(self):
         for i in range(5):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"plan": "pro" if i < 3 else "free"},
-            )
-
-        request_data: dict = {
-            "condition": {
-                "properties": [
-                    {
-                        "key": "plan",
-                        "type": "person",
-                        "value": ["pro"],
-                        "operator": "exact",
-                    },
-                ],
-                "rollout_percentage": 100,
-            },
-        }
-        if group_type_index is not None:
-            request_data["group_type_index"] = group_type_index
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            request_data,
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 3)
-        self.assertEqual(response_json["total_users"], 5)
-        self.assertNotIn("groups_affected", response_json)
-        self.assertNotIn("total_groups", response_json)
-
-    def test_user_blast_radius_with_group_key_in_mixed_condition(self):
-        create_group_type_mapping_without_created_at(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-        )
-
-        for i in range(5):
-            _create_person(
-                team_id=self.team.pk,
-                distinct_ids=[f"person{i}"],
-                properties={"plan": "pro" if i < 3 else "free"},
-            )
-
-        for i in range(6):
-            create_group(
-                team_id=self.team.pk,
-                group_type_index=0,
-                group_key=f"org:{i}",
-                properties={"size": "large"},
             )
 
         response = self.client.post(
@@ -9918,6 +9860,42 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "value": ["pro"],
                             "operator": "exact",
                         },
+                    ],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 3)
+        self.assertEqual(response_json["total_users"], 5)
+        self.assertNotIn("groups_affected", response_json)
+        self.assertNotIn("total_groups", response_json)
+
+    def test_user_blast_radius_with_group_key_filter(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        for i in range(6):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"size": "large"},
+            )
+
+        # Group-aggregated condition with $group_key filter
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
                         {
                             "key": "$group_key",
                             "type": "group",
@@ -9935,12 +9913,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 3)
-        self.assertEqual(response_json["total_users"], 5)
         self.assertEqual(response_json["groups_affected"], 2)
         self.assertEqual(response_json["total_groups"], 6)
 
-    def test_user_blast_radius_with_cohort_and_group_mixed_condition(self):
+    def test_user_blast_radius_cohort_condition_and_group_condition_separate(self):
         create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
@@ -9963,7 +9939,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 properties={"tier": "enterprise" if i < 2 else "startup"},
             )
 
-        # Create a cohort that matches persons with plan=pro
         cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -9981,7 +9956,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        response = self.client.post(
+        # Person-aggregated condition with cohort filter
+        person_response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
                 "condition": {
@@ -9991,6 +9967,22 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "type": "cohort",
                             "value": cohort.pk,
                         },
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": None,
+            },
+        )
+        self.assertEqual(person_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(person_response.json()["users_affected"], 5)
+        self.assertEqual(person_response.json()["total_users"], 8)
+
+        # Group-aggregated condition with group property filter
+        group_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
                         {
                             "key": "tier",
                             "type": "group",
@@ -10004,16 +9996,9 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 0,
             },
         )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_json = response.json()
-        # Cohort resolves person-side: 5 persons match plan=pro
-        self.assertEqual(response_json["users_affected"], 5)
-        self.assertEqual(response_json["total_users"], 8)
-        # Group-side: 2 groups match tier=enterprise
-        self.assertEqual(response_json["groups_affected"], 2)
-        self.assertEqual(response_json["total_groups"], 4)
+        self.assertEqual(group_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(group_response.json()["groups_affected"], 2)
+        self.assertEqual(group_response.json()["total_groups"], 4)
 
     def test_user_blast_radius_no_error_fields_for_successful_queries(self):
         for i in range(3):

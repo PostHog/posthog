@@ -634,6 +634,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     const targetGroupTypes: TaxonomicFilterGroupType[] = []
 
                     if (effectiveIndex != null) {
+                        // Group-aggregated condition: only show group properties
+                        // for the target group type. Condition sets are homogeneous.
                         const targetGroup = groupTypes.get(effectiveIndex as GroupTypeIndex)
                         if (targetGroup) {
                             targetGroupTypes.push(
@@ -643,11 +645,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                                 `${TaxonomicFilterGroupType.GroupNamesPrefix}_${effectiveIndex}` as unknown as TaxonomicFilterGroupType
                             )
                         }
-                        // Always include person properties and cohorts so users can
-                        // build mixed person+group conditions within a single condition set
-                        targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
-                        targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
                     } else {
+                        // Person-aggregated condition: show person, cohort, flag, and metadata properties
                         targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
                         targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
                         targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)

@@ -834,29 +834,26 @@ class FeatureFlagSerializer(
                 condition["aggregation_group_type_index"] = flag_level_aggregation
 
         # Derive the flag-level field from condition sets for backward compatibility.
-        # If all condition sets share the same value, use that; otherwise reject.
-        # Mixed aggregation types are not yet supported by the evaluation engine.
-        # Empty groups are valid on updates (e.g. scheduled changes), so skip this check.
+        # If all condition sets share the same aggregation, use that; when mixed,
+        # set to None since the evaluation engine reads per-condition aggregation.
         condition_aggregations = [c.get("aggregation_group_type_index") for c in filters["groups"]]
         if condition_aggregations:
-            if not all(a == condition_aggregations[0] for a in condition_aggregations):
-                raise serializers.ValidationError(
-                    "Mixed aggregation types across condition sets are not yet supported. "
-                    "All condition sets must use the same aggregation type."
-                )
-            filters["aggregation_group_type_index"] = condition_aggregations[0]
+            if all(a == condition_aggregations[0] for a in condition_aggregations):
+                filters["aggregation_group_type_index"] = condition_aggregations[0]
+            else:
+                filters["aggregation_group_type_index"] = None
 
         # Check Early Access Feature constraint: no condition set can use group
         # aggregation if the flag is linked to an Early Access Feature.
-        resolved_aggregation = filters.get("aggregation_group_type_index")
+        has_group_condition = any(c.get("aggregation_group_type_index") is not None for c in filters["groups"])
         if (
-            resolved_aggregation is not None
+            has_group_condition
             and self.instance is not None
             and hasattr(self.instance, "features")
             and self.instance.features.exists()
         ):
             raise serializers.ValidationError(
-                "Cannot change this flag to a group-based when linked to an Early Access Feature."
+                "Cannot use group aggregation in any condition set when the flag is linked to an Early Access Feature."
             )
 
         # Validate properties per condition set against that condition set's aggregation.
@@ -887,7 +884,10 @@ class FeatureFlagSerializer(
                             "Filters are not valid (group properties must match the condition set's group type)"
                         )
 
-        if resolved_aggregation is None:
+        # Circular dependency checks only apply to person-aggregated conditions
+        # since flag-based property filters only work with person aggregation
+        has_person_condition = any(c.get("aggregation_group_type_index") is None for c in filters["groups"])
+        if has_person_condition:
             self._check_flag_circular_dependencies(filters)
 
         variant_list = (filters.get("multivariate") or {}).get("variants", [])

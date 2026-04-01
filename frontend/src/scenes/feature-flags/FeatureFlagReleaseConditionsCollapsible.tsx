@@ -39,6 +39,7 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagGroupType,
+    GroupType,
     GroupTypeIndex,
     MultivariateFlagVariant,
     PropertyFilterType,
@@ -152,16 +153,11 @@ function ConditionHeader({
             ? Math.floor((affectedGroupCount * clamp(rollout, 0, 100)) / 100)
             : null
 
-    // Build the count summary: show group count first if present, then user count in parens
     const countSummary = (() => {
         if (actualGroupCount !== null && groupTargetName) {
-            const groupPart = `${humanFriendlyNumber(actualGroupCount)} ${groupTargetName}`
-            if (actualUserCount !== null && totalUsers !== null) {
-                return `${groupPart} (${humanFriendlyNumber(actualUserCount)} users)`
-            }
-            return groupPart
+            return `${humanFriendlyNumber(actualGroupCount)} ${groupTargetName}`
         }
-        if (actualUserCount !== null && totalUsers !== null) {
+        if (actualUserCount !== null && totalUsers !== null && totalUsers > 0) {
             return `${humanFriendlyNumber(actualUserCount)} ${aggregationTargetName}`
         }
         return null
@@ -293,6 +289,8 @@ interface ConditionProps {
     aggregationTargetName: string
     aggregationLabel: (groupTypeIndex: GroupTypeIndex) => { singular: string; plural: string }
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
+    groupTypes: Map<GroupTypeIndex, GroupType>
+    setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
     onMoveUp: () => void
     onMoveDown: () => void
     onDuplicate: () => void
@@ -361,6 +359,8 @@ const ConditionContent = ({
     aggregationTargetName,
     aggregationLabel,
     taxonomicGroupTypesForCondition,
+    groupTypes,
+    setConditionAggregation,
     onMoveUp,
     onMoveDown,
     onDuplicate,
@@ -477,9 +477,11 @@ const ConditionContent = ({
                                 affectedGroupCount={group.sort_key ? affectedGroups[group.sort_key] : undefined}
                                 aggregationTargetName={aggregationTargetName}
                                 groupTargetName={
-                                    releaseFilters.aggregation_group_type_index != null
+                                    (group.aggregation_group_type_index ??
+                                        releaseFilters.aggregation_group_type_index) != null
                                         ? aggregationLabel(
-                                              releaseFilters.aggregation_group_type_index as GroupTypeIndex
+                                              (group.aggregation_group_type_index ??
+                                                  releaseFilters.aggregation_group_type_index) as GroupTypeIndex
                                           ).plural
                                         : null
                                 }
@@ -513,6 +515,38 @@ const ConditionContent = ({
                                         />
                                     </div>
 
+                                    {groupTypes.size > 0 && (
+                                        <div>
+                                            <LemonLabel className="mb-1">Targeting</LemonLabel>
+                                            <LemonSelect
+                                                size="small"
+                                                data-attr={`condition-set-${index}-aggregation`}
+                                                value={
+                                                    group.aggregation_group_type_index ??
+                                                    releaseFilters.aggregation_group_type_index ??
+                                                    'person'
+                                                }
+                                                onChange={(value) => {
+                                                    setConditionAggregation(
+                                                        index,
+                                                        value === 'person' ? null : (value as number)
+                                                    )
+                                                }}
+                                                options={[
+                                                    { value: 'person' as const, label: 'Users' },
+                                                    ...Array.from(groupTypes.values()).map((gt) => ({
+                                                        value: gt.group_type_index,
+                                                        label:
+                                                            gt.name_plural ||
+                                                            gt.group_type.charAt(0).toUpperCase() +
+                                                                gt.group_type.slice(1) +
+                                                                's',
+                                                    })),
+                                                ]}
+                                            />
+                                        </div>
+                                    )}
+
                                     <div>
                                         <LemonLabel className="mb-1">Match filters</LemonLabel>
                                         <PropertyFilters
@@ -525,7 +559,8 @@ const ConditionContent = ({
                                                 updateConditionSet(index, undefined, properties)
                                             }}
                                             taxonomicGroupTypes={taxonomicGroupTypesForCondition(
-                                                releaseFilters.aggregation_group_type_index
+                                                group.aggregation_group_type_index ??
+                                                    releaseFilters.aggregation_group_type_index
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
@@ -620,24 +655,14 @@ const ConditionContent = ({
                                                                         <b>{humanFriendlyNumber(affectedGroupCount)}</b>{' '}
                                                                         of {humanFriendlyNumber(totalGroupCount)}{' '}
                                                                         {groupName} match these filters
-                                                                        {affectedUserCount > 0 && (
-                                                                            <>
-                                                                                {' '}
-                                                                                (
-                                                                                {humanFriendlyNumber(
-                                                                                    affectedUserCount
-                                                                                )}{' '}
-                                                                                users)
-                                                                            </>
-                                                                        )}
                                                                     </>
-                                                                ) : (
+                                                                ) : totalUsers && totalUsers > 0 ? (
                                                                     <>
                                                                         <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
                                                                         of {humanFriendlyNumber(totalUsers)}{' '}
                                                                         {aggregationTargetName} match these filters
                                                                     </>
-                                                                )}
+                                                                ) : null}
                                                             </>
                                                         )
                                                     }
@@ -653,17 +678,8 @@ const ConditionContent = ({
                                                                     ({rolloutPct}% of{' '}
                                                                     {humanFriendlyNumber(affectedGroupCount)} matching
                                                                     the filters)
-                                                                    {usersReceivingFlag > 0 && (
-                                                                        <>
-                                                                            {' '}
-                                                                            · ~{humanFriendlyNumber(
-                                                                                usersReceivingFlag
-                                                                            )}{' '}
-                                                                            users
-                                                                        </>
-                                                                    )}
                                                                 </>
-                                                            ) : (
+                                                            ) : totalUsers && totalUsers > 0 ? (
                                                                 <>
                                                                     Will match ~
                                                                     <b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
@@ -672,11 +688,12 @@ const ConditionContent = ({
                                                                     {humanFriendlyNumber(affectedUserCount)} matching
                                                                     the filters)
                                                                 </>
-                                                            )}
+                                                            ) : null}
                                                         </>
                                                     )
                                                 })()}
-                                                {releaseFilters.aggregation_group_type_index == null && (
+                                                {(group.aggregation_group_type_index ??
+                                                    releaseFilters.aggregation_group_type_index) == null && (
                                                     <Tooltip
                                                         title={
                                                             <>
@@ -837,6 +854,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         moveConditionSetDown,
         reorderConditionSets,
         setAggregationGroupTypeIndex,
+        setConditionAggregation,
         setOpenConditions,
     } = useActions(releaseConditionsLogic)
 
@@ -1133,6 +1151,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         aggregationTargetName={aggregationTargetName}
                                         aggregationLabel={aggregationLabel}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
+                                        groupTypes={groupTypes}
+                                        setConditionAggregation={setConditionAggregation}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
                                         onDuplicate={() => duplicateConditionSet(index)}
@@ -1203,6 +1223,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 aggregationTargetName={aggregationTargetName}
                                 aggregationLabel={aggregationLabel}
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
+                                groupTypes={groupTypes}
+                                setConditionAggregation={setConditionAggregation}
                                 onMoveUp={() => moveConditionSetUp(index)}
                                 onMoveDown={() => moveConditionSetDown(index)}
                                 onDuplicate={() => duplicateConditionSet(index)}

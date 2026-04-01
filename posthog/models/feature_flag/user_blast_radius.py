@@ -54,80 +54,6 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict):
     return Filter(data={"properties": prop_groups.to_dict()}, team=team)
 
 
-def _split_properties_by_type(
-    properties: list[Property],
-) -> tuple[list[Property], list[Property]]:
-    """Partition properties into person-type and group-type lists.
-
-    Returns (person_properties, group_properties). The $group_key property
-    is classified as group-type since it references the groups.key column.
-    """
-    person_props: list[Property] = []
-    group_props: list[Property] = []
-    for prop in properties:
-        if prop.type == "group" or prop.key == "$group_key":
-            group_props.append(prop)
-        else:
-            person_props.append(prop)
-    return person_props, group_props
-
-
-def _get_mixed_blast_radius(
-    team: Team,
-    filter: Filter,
-    group_type_index: GroupTypeIndex,
-    person_props: list[Property],
-    group_props: list[Property],
-) -> BlastRadiusResult:
-    """Calculate blast radius when a condition has both person and group properties.
-
-    Runs two independent queries — one against the persons table and one against
-    the groups table — and returns both counts. The counts are independent
-    estimates, which is acceptable since blast radius is already an approximation.
-
-    If one sub-query fails, the other's results are still returned alongside an
-    error message for the failed query, rather than failing the entire request.
-
-    Callers must ensure both person_props and group_props are non-empty.
-    """
-    # Person sub-query
-    users_affected: int = 0
-    total_users: int = team.persons_seen_so_far
-    users_query_error: Optional[str] = None
-    try:
-        person_filter = Filter(
-            data={"properties": PropertyGroup(type=filter.property_groups.type, values=person_props).to_dict()},
-            team=team,
-        )
-        users_affected, total_users = _get_person_blast_radius(team, person_filter)
-    except Exception as e:
-        logger.warning("Mixed blast radius: person sub-query failed", exc_info=True, extra={"team_id": team.pk})
-        users_query_error = str(e)
-
-    # Group sub-query
-    groups_affected: Optional[int] = None
-    total_groups: Optional[int] = None
-    groups_query_error: Optional[str] = None
-    try:
-        group_filter = Filter(
-            data={"properties": PropertyGroup(type=filter.property_groups.type, values=group_props).to_dict()},
-            team=team,
-        )
-        groups_affected, total_groups = _get_group_blast_radius(team, group_filter, group_type_index)
-    except Exception as e:
-        logger.warning("Mixed blast radius: group sub-query failed", exc_info=True, extra={"team_id": team.pk})
-        groups_query_error = str(e)
-
-    return BlastRadiusResult(
-        users_affected=users_affected,
-        total_users=total_users,
-        groups_affected=groups_affected,
-        total_groups=total_groups,
-        users_query_error=users_query_error,
-        groups_query_error=groups_query_error,
-    )
-
-
 def get_user_blast_radius(
     team: Team,
     feature_flag_condition: dict,
@@ -137,25 +63,16 @@ def get_user_blast_radius(
     cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
     if group_type_index is not None:
-        all_properties = cleaned_filter.property_groups.flat
-        person_props, group_props = _split_properties_by_type(all_properties)
-
-        if person_props and group_props:
-            return _get_mixed_blast_radius(team, cleaned_filter, group_type_index, person_props, group_props)
-        elif person_props:
-            # Pure person properties with group aggregation (the common case today)
-            affected, total = _get_person_blast_radius(team, cleaned_filter)
-            return BlastRadiusResult(users_affected=affected, total_users=total)
-        else:
-            # Pure group properties, or no properties at all — delegate to the
-            # group path which handles the "all groups" case for empty filters.
-            groups_affected, total_groups = _get_group_blast_radius(team, cleaned_filter, group_type_index)
-            return BlastRadiusResult(
-                users_affected=team.persons_seen_so_far,
-                total_users=team.persons_seen_so_far,
-                groups_affected=groups_affected,
-                total_groups=total_groups,
-            )
+        # Group-aggregated condition: query the groups table. Each condition set
+        # is homogeneous (all group properties or all person properties), so we
+        # route purely on the presence of group_type_index.
+        groups_affected, total_groups = _get_group_blast_radius(team, cleaned_filter, group_type_index)
+        return BlastRadiusResult(
+            users_affected=0,
+            total_users=0,
+            groups_affected=groups_affected,
+            total_groups=total_groups,
+        )
     else:
         affected, total = _get_person_blast_radius(team, cleaned_filter)
         return BlastRadiusResult(users_affected=affected, total_users=total)
