@@ -77,6 +77,10 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     /** Show hint about holding shift to highlight individual bars in stacked charts */
     showShiftKeyHint?: boolean
     formatCompareLabel?: (label: string, dateLabel?: string) => string
+    /** Callback to close/unpin the tooltip. When provided, a close button is rendered. */
+    onClose?: () => void
+    /** Callback when a series row is clicked (e.g. to open the actors modal from a pinned tooltip). */
+    onRowClick?: (datum: SeriesDatum) => void
 }
 
 export interface FormattedDateOptions {
