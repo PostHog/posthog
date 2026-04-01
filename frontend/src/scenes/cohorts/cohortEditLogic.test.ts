@@ -1038,12 +1038,17 @@ describe('cohortEditLogic', () => {
                         type: FilterLogicalOperator.Or,
                         values: [
                             {
-                                type: BehavioralFilterKey.Behavioral,
-                                value: BehavioralEventType.PerformEvent,
-                                event_type: TaxonomicFilterGroupType.Events,
-                                time_value: 30,
-                                time_interval: TimeUnitType.Day,
-                                key: '$pageview',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        type: BehavioralFilterKey.Behavioral,
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: TaxonomicFilterGroupType.Events,
+                                        time_value: 30,
+                                        time_interval: TimeUnitType.Day,
+                                        key: '$pageview',
+                                    },
+                                ],
                             },
                         ],
                     },
