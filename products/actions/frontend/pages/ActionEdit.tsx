@@ -56,7 +56,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     }
     const { isComplete } = useValues(actionLogic({ id }))
     const logic = actionEditLogic(logicProps)
-    const { action, actionChanged } = useValues(logic)
+    const { action, actionChanged, references } = useValues(logic)
     const { submitAction, deleteAction, setActionValue, setAction } = useActions(logic)
 
     // Sync the loaded action prop with the logic's internal state
@@ -369,6 +369,21 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                         />
                     )}
                 </SceneSection>
+            )}
+            {id && references.length > 0 && (
+                <>
+                    <SceneDivider />
+                    <SceneSection title="Used by" description="Resources that reference this action.">
+                        <ul className="space-y-1 list-disc pl-4">
+                            {references.map((ref) => (
+                                <li key={`${ref.type}-${ref.id}`}>
+                                    <span className="font-medium capitalize">{ref.type.replace('_', ' ')}</span>:{' '}
+                                    {ref.name}
+                                </li>
+                            ))}
+                        </ul>
+                    </SceneSection>
+                </>
             )}
         </SceneContent>
     )

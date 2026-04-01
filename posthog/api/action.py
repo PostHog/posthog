@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -5,6 +6,7 @@ from django.db.models import Count
 
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
+from rest_framework.decorators import action as drf_action
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -265,6 +267,117 @@ class ActionSerializer(
         return instance
 
 
+class ActionReferenceSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Resource type: insight, experiment, cohort, or hog_function")
+    id = serializers.IntegerField(help_text="Resource ID")
+    name = serializers.CharField(help_text="Resource name")
+
+
+def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
+    from posthog.models import Cohort, Insight
+    from posthog.models.hog_functions.hog_function import HogFunction
+
+    refs: list[dict[str, Any]] = []
+
+    # Action IDs can be stored as integers or numeric strings in JSON.
+    # Use jsonb_path_exists with both representations to catch all cases.
+    id_param = json.dumps({"id": action_id})
+    id_str_param = json.dumps({"id_str": str(action_id)})
+
+    # Insights: ActionsNode in query, actionId in EventsQuery, legacy filters
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+    insights = Insight.objects.filter(team_id=team.pk, deleted=False).extra(
+        where=[
+            """
+            jsonb_path_exists(query, '$.** ? (@.kind == "ActionsNode" && @.id == $id)', %s::jsonb)
+            OR jsonb_path_exists(query, '$.** ? (@.kind == "ActionsNode" && @.id == $id_str)', %s::jsonb)
+            OR jsonb_path_exists(query, '$.** ? (@.actionId == $id)', %s::jsonb)
+            OR jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id_str)', %s::jsonb)
+            OR jsonb_path_exists(filters, '$.** ? (@.type == "actions" && @.id == $id_str)', %s::jsonb)
+            """
+        ],
+        params=[id_param, id_str_param, id_param, id_str_param, id_str_param],
+    )
+    for insight in insights[:50]:
+        refs.append(
+            {
+                "type": "insight",
+                "id": insight.id,
+                "name": insight.name or insight.derived_name or "Unnamed",
+            }
+        )
+
+    # Experiments: action IDs in metrics, metrics_secondary, filters, etc.
+    try:
+        from products.experiments.backend.models.experiment import Experiment
+
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        experiments = Experiment.objects.filter(team_id=team.pk, deleted=False).extra(
+            where=[
+                """
+                jsonb_path_exists(metrics, '$.** ? (@.kind == "ActionsNode" && @.id == $id)', %s::jsonb)
+                OR jsonb_path_exists(metrics, '$.** ? (@.kind == "ActionsNode" && @.id == $id_str)', %s::jsonb)
+                OR jsonb_path_exists(metrics_secondary, '$.** ? (@.kind == "ActionsNode" && @.id == $id)', %s::jsonb)
+                OR jsonb_path_exists(metrics_secondary, '$.** ? (@.kind == "ActionsNode" && @.id == $id_str)', %s::jsonb)
+                OR jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id_str)', %s::jsonb)
+                """
+            ],
+            params=[id_param, id_str_param, id_param, id_str_param, id_str_param],
+        )
+        for exp in experiments[:50]:
+            refs.append(
+                {
+                    "type": "experiment",
+                    "id": exp.id,
+                    "name": exp.name or "Unnamed",
+                }
+            )
+    except ImportError:
+        pass
+
+    # Cohorts: behavioral filters with event_type=actions
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+    cohorts = Cohort.objects.filter(team__project_id=team.project_id, deleted=False).extra(
+        where=[
+            """
+            jsonb_path_exists(filters, '$.** ? (@.event_type == "actions" && @.key == $id_str)', %s::jsonb)
+            OR jsonb_path_exists(filters, '$.** ? (@.seq_event_type == "actions" && @.seq_event == $id_str)', %s::jsonb)
+            """
+        ],
+        params=[id_str_param, id_str_param],
+    )
+    for cohort in cohorts[:50]:
+        refs.append(
+            {
+                "type": "cohort",
+                "id": cohort.id,
+                "name": cohort.name or "Unnamed",
+            }
+        )
+
+    # Hog functions: filters.actions[].id
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+    hog_functions = HogFunction.objects.filter(team_id=team.pk, deleted=False).extra(
+        where=[
+            """
+            jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id)', %s::jsonb)
+            OR jsonb_path_exists(filters, '$.actions[*] ? (@.id == $id_str)', %s::jsonb)
+            """
+        ],
+        params=[id_param, id_str_param],
+    )
+    for hf in hog_functions[:50]:
+        refs.append(
+            {
+                "type": "hog_function",
+                "id": hf.id,
+                "name": hf.name or "Unnamed",
+            }
+        )
+
+    return refs
+
+
 @extend_schema(tags=[ProductKey.ACTIONS])
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
@@ -285,6 +398,13 @@ class ActionViewSet(
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
+
+    @extend_schema(responses={200: ActionReferenceSerializer(many=True)})
+    @drf_action(methods=["GET"], detail=True, required_scopes=["action:read"], pagination_class=None)
+    def references(self, request: request.Request, **kwargs: Any) -> Response:
+        action_obj = self.get_object()
+        refs = find_action_references(action_obj.id, action_obj.team)
+        return Response(ActionReferenceSerializer(refs, many=True).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         # :HACKY: we need to override this viewset method until actions support

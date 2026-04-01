@@ -459,3 +459,51 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "Special Folder/Actions" in fs_entry.path, (
             f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
         )
+
+    def test_references_returns_insight_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        from posthog.models import Insight
+
+        Insight.objects.create(
+            team=self.team,
+            name="My insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "insight"
+        assert data[0]["name"] == "My insight"
+
+    def test_references_returns_empty_list_when_no_references(self):
+        action = Action.objects.create(team=self.team, name="orphan action", steps_json=[{"event": "$pageview"}])
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_insights(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        from posthog.models import Insight
+
+        Insight.objects.create(
+            team=self.team,
+            name="Deleted insight",
+            deleted=True,
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []

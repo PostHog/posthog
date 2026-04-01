@@ -6,6 +6,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -172,6 +173,20 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     (merge ? { ...values.action, ...action } : action) as ActionType,
             },
         ],
+        references: [
+            [] as { type: string; id: number; name: string }[],
+            {
+                loadReferences: async () => {
+                    if (!props.id) {
+                        return []
+                    }
+                    const response = await api.get(
+                        `api/projects/${values.action.team_id || '@current'}/actions/${props.id}/references`
+                    )
+                    return response
+                },
+            },
+        ],
     })),
 
     listeners(({ values, actions }) => ({
@@ -180,24 +195,50 @@ export const actionEditLogic = kea<actionEditLogicType>([
             if (!actionId) {
                 return
             }
-            try {
-                await deleteWithUndo({
-                    endpoint: api.actions.determineDeleteEndpoint(),
-                    object: values.action,
-                    callback: (undo: boolean) => {
-                        if (undo) {
-                            router.actions.push(urls.action(actionId))
-                            refreshTreeItem('action', String(actionId))
-                        } else {
-                            actions.resetAction()
-                            deleteFromTree('action', String(actionId))
-                            router.actions.push(urls.actions())
-                            actions.loadActions()
-                        }
+
+            const performDelete = async (): Promise<void> => {
+                try {
+                    await deleteWithUndo({
+                        endpoint: api.actions.determineDeleteEndpoint(),
+                        object: values.action,
+                        callback: (undo: boolean) => {
+                            if (undo) {
+                                router.actions.push(urls.action(actionId))
+                                refreshTreeItem('action', String(actionId))
+                            } else {
+                                actions.resetAction()
+                                deleteFromTree('action', String(actionId))
+                                router.actions.push(urls.actions())
+                                actions.loadActions()
+                            }
+                        },
+                    })
+                } catch (e: any) {
+                    lemonToast.error(`Error deleting action: ${e.detail}`)
+                }
+            }
+
+            if (values.references.length > 0) {
+                const refSummary = values.references
+                    .slice(0, 5)
+                    .map((r) => `${r.type}: ${r.name}`)
+                    .join('\n')
+                const extra = values.references.length > 5 ? `\n...and ${values.references.length - 5} more` : ''
+
+                LemonDialog.open({
+                    title: 'This action is used by other resources',
+                    description: `Deleting this action may break the following:\n\n${refSummary}${extra}`,
+                    primaryButton: {
+                        children: 'Delete anyway',
+                        status: 'danger',
+                        onClick: performDelete,
+                    },
+                    secondaryButton: {
+                        children: 'Cancel',
                     },
                 })
-            } catch (e: any) {
-                lemonToast.error(`Error deleting action: ${e.detail}`)
+            } else {
+                await performDelete()
             }
         },
     })),
@@ -205,9 +246,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
     afterMount(({ actions, props }) => {
         if (!props.id) {
             actions.setActionValue('steps', [{ ...DEFAULT_ACTION_STEP }])
-        } else if (props.action) {
-            // Sync the prop action with the internal state when mounting with an existing action
-            actions.setAction(props.action, { merge: false })
+        } else {
+            if (props.action) {
+                // Sync the prop action with the internal state when mounting with an existing action
+                actions.setAction(props.action, { merge: false })
+            }
+            actions.loadReferences()
         }
     }),
 
