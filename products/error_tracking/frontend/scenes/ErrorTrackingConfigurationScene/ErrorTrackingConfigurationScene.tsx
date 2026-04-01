@@ -112,7 +112,11 @@ export function ErrorTrackingConfigurationScene(): JSX.Element {
                 <SceneBreadcrumbBackButton />
             </div>
             <ErrorTrackingSetupPrompt>
-                <Settings logicKey={ERROR_TRACKING_LOGIC_KEY} sectionId={sectionId} handleLocally />
+                <Settings
+                    logicKey={ERROR_TRACKING_LOGIC_KEY}
+                    sectionId="environment-error-tracking-configuration"
+                    handleLocally
+                />
             </ErrorTrackingSetupPrompt>
         </>
     )
