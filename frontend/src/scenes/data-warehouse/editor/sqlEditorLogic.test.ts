@@ -15,7 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { OutputTab } from './outputPaneLogic'
-import { getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -295,6 +295,43 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
                 .toNotHaveDispatchedActions(['syncUrlWithQuery'])
+        })
+    })
+
+    describe('activeTabMatchesUrlTarget', () => {
+        it('matches saved resources by id', () => {
+            expect(
+                activeTabMatchesUrlTarget(
+                    {
+                        uri: createMockMonaco().Uri.parse('tab-1'),
+                        name: 'Insight',
+                        insight: MOCK_INSIGHT,
+                    },
+                    { insightShortId: MOCK_INSIGHT_SHORT_ID }
+                )
+            ).toEqual(true)
+
+            expect(
+                activeTabMatchesUrlTarget(
+                    {
+                        uri: createMockMonaco().Uri.parse('tab-1'),
+                        name: 'View',
+                        view: MOCK_VIEW,
+                    },
+                    { viewId: MOCK_VIEW.id }
+                )
+            ).toEqual(true)
+        })
+
+        it('treats a plain SQL tab as distinct from saved resources', () => {
+            const plainTab = {
+                uri: createMockMonaco().Uri.parse('tab-1'),
+                name: 'Untitled',
+            }
+
+            expect(activeTabMatchesUrlTarget(plainTab, {})).toEqual(true)
+            expect(activeTabMatchesUrlTarget(plainTab, { insightShortId: MOCK_INSIGHT_SHORT_ID })).toEqual(false)
+            expect(activeTabMatchesUrlTarget(plainTab, { viewId: MOCK_VIEW.id })).toEqual(false)
         })
     })
 
