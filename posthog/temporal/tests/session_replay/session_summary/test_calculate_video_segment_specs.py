@@ -2,12 +2,12 @@ import pytest
 
 from posthog.schema import ReplayInactivityPeriod
 
-from posthog.temporal.ai.session_summary.summarize_session import (
+from posthog.temporal.session_replay.session_summary.summarize_session import (
     SESSION_VIDEO_CHUNK_DURATION_S,
     calculate_video_segment_specs,
 )
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.ai.session_summary.types.video import VideoSegmentSpec
+from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.session_replay.session_summary.types.video import VideoSegmentSpec
 
 DUMMY_INPUTS = SingleSessionSummaryInputs(
     session_id="test-session",

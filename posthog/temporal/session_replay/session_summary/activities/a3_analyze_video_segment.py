@@ -17,18 +17,18 @@ from posthoganalytics.ai.gemini import genai
 from temporalio.exceptions import ApplicationError
 
 from posthog.models import Team
-from posthog.temporal.ai.session_summary.state import (
+from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
     get_redis_state_client,
 )
-from posthog.temporal.ai.session_summary.types.video import (
+from posthog.temporal.session_replay.session_summary.types.video import (
     UploadedVideo,
     VideoSegmentOutput,
     VideoSegmentSpec,
     VideoSummarySingleSessionInputs,
 )
-from posthog.temporal.ai.session_summary.utils import format_seconds_as_mm_ss, parse_str_timestamp_to_s
+from posthog.temporal.session_replay.session_summary.utils import format_seconds_as_mm_ss, parse_str_timestamp_to_s
 
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tracking import capture_session_summary_timing

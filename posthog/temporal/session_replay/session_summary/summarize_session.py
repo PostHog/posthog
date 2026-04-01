@@ -25,7 +25,10 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.activities import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.session_summary.activities import (
     CaptureTimingInputs,
     analyze_video_segment_activity,
     capture_timing_activity,
@@ -36,10 +39,10 @@ from posthog.temporal.ai.session_summary.activities import (
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
 )
-from posthog.temporal.ai.session_summary.activities.video_validation import (
+from posthog.temporal.session_replay.session_summary.activities.video_validation import (
     validate_llm_single_session_summary_with_videos_activity,
 )
-from posthog.temporal.ai.session_summary.state import (
+from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     decompress_redis_data,
     generate_state_key,
@@ -47,15 +50,12 @@ from posthog.temporal.ai.session_summary.state import (
     get_redis_state_client,
     store_data_in_redis,
 )
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.ai.session_summary.types.video import (
+from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.session_replay.session_summary.types.video import (
     VideoSegmentOutput,
     VideoSegmentSpec,
     VideoSummarySingleSessionInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.client import async_connect
-from posthog.temporal.exports_video.workflow import VideoExportInputs
 
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
@@ -631,17 +631,17 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
 
     asset_id = export_result.asset_id
 
-    # If the asset needs rendering, run the video export as a child workflow
+    # If the asset needs rendering, run the rasterizer as a child workflow
     if export_result.needs_export:
-        workflow_id = f"session-video-summary-export_{video_inputs.team_id}_{video_inputs.session_id}"
+        workflow_id = f"session-video-summary-rasterize_{video_inputs.team_id}_{video_inputs.session_id}"
         await temporalio.workflow.execute_child_workflow(
-            "export-video",
-            VideoExportInputs(exported_asset_id=asset_id, use_puppeteer=True),
+            "rasterize-recording",
+            RasterizeRecordingInputs(exported_asset_id=asset_id),
             id=workflow_id,
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            execution_timeout=timedelta(hours=3),
+            execution_timeout=timedelta(minutes=30),
         )
 
     # Activity 2: Upload full video to Gemini (single upload)
@@ -740,7 +740,7 @@ async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryI
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 
@@ -756,7 +756,7 @@ async def _start_single_session_summary_workflow_stream(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
     )
     return handle

@@ -29,22 +29,24 @@ from posthog.redis import get_async_client
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.activities import CaptureTimingInputs, capture_timing_activity
-from posthog.temporal.ai.session_summary.activities.patterns import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.session_summary.activities import CaptureTimingInputs, capture_timing_activity
+from posthog.temporal.session_replay.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
-from posthog.temporal.ai.session_summary.state import (
+from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     generate_state_id_from_session_ids,
     generate_state_key,
     store_data_in_redis,
 )
-from posthog.temporal.ai.session_summary.summarize_session import ensure_llm_single_session_summary
-from posthog.temporal.ai.session_summary.types.group import (
+from posthog.temporal.session_replay.session_summary.summarize_session import ensure_llm_single_session_summary
+from posthog.temporal.session_replay.session_summary.types.group import (
     SessionBatchFetchOutput,
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
@@ -54,9 +56,7 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionSummaryStreamUpdate,
     WorkflowProgress,
 )
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
 
 from ee.hogai.session_summaries.constants import (
     FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
@@ -704,7 +704,7 @@ async def _start_session_group_summary_workflow(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 
