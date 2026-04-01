@@ -5,8 +5,29 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { logsViewerDataLogic } from './logsViewerDataLogic'
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+
+import { logsViewerDataLogic, shouldSkipFilterGroupChange } from './logsViewerDataLogic'
+
+// Shared helpers for building filter groups in tests
+const makeFilter = (
+    key: string,
+    value: string[] | null,
+    filterType: PropertyFilterType = PropertyFilterType.LogAttribute
+): any => ({
+    key,
+    value,
+    operator: PropertyOperator.Exact,
+    type: filterType,
+})
+
+const makeFilterGroup = (...filters: any[]): any => ({
+    type: FilterLogicalOperator.And,
+    values: [{ type: FilterLogicalOperator.And, values: filters }],
+})
 
 jest.mock('posthog-js')
 jest.mock('@posthog/lemon-ui', () => ({
@@ -178,5 +199,141 @@ describe('logsViewerDataLogic', () => {
                 expect(posthog.capture).not.toHaveBeenCalled()
             }
         )
+    })
+
+    describe('auto-refetch on filter changes', () => {
+        let filtersLogic: ReturnType<typeof logsViewerFiltersLogic.build>
+
+        beforeEach(async () => {
+            filtersLogic = logsViewerFiltersLogic({ id: 'test-tab' })
+            filtersLogic.mount()
+
+            // Run initial query so hasRunQuery is true
+            logic.actions.runQuery()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            filtersLogic.unmount()
+        })
+
+        it.each([
+            ['setSearchTerm', 'error message'],
+            ['setDateRange', { date_from: '-24h', date_to: null }],
+            ['setSeverityLevels', ['error', 'warn']],
+            ['setServiceNames', ['api-server']],
+        ])('%s triggers runQuery', async (action, value) => {
+            await expectLogic(logic, () => {
+                ;(filtersLogic.actions as any)[action](value)
+            }).toDispatchActions(['handleQueryChange', 'runQuery'])
+        })
+
+        it('setFilters triggers runQuery', async () => {
+            await expectLogic(logic, () => {
+                filtersLogic.actions.setFilters({ searchTerm: 'new search' })
+            }).toDispatchActions(['handleQueryChange', 'runQuery'])
+        })
+
+        it('setOrderBy triggers runQuery', async () => {
+            const configLogic = logsViewerConfigLogic({ id: 'test-tab' })
+            configLogic.mount()
+            await expectLogic(logic, () => {
+                configLogic.actions.setOrderBy('earliest')
+            }).toDispatchActions(['runQuery'])
+            configLogic.unmount()
+        })
+
+        it('adding an empty filter does not trigger runQuery', async () => {
+            jest.clearAllMocks()
+            filtersLogic.actions.setFilterGroup(
+                makeFilterGroup(makeFilter('service.name', null, PropertyFilterType.LogResourceAttribute)),
+                true
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(posthog.capture).not.toHaveBeenCalledWith(
+                'logs filter changed',
+                expect.objectContaining({ filter_type: 'attributes' })
+            )
+        })
+
+        it('completing a filter value triggers runQuery', async () => {
+            filtersLogic.actions.setFilterGroup(
+                makeFilterGroup(makeFilter('service.name', null, PropertyFilterType.LogResourceAttribute)),
+                true
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                filtersLogic.actions.setFilterGroup(
+                    makeFilterGroup(
+                        makeFilter('service.name', ['api-server'], PropertyFilterType.LogResourceAttribute)
+                    ),
+                    false
+                )
+            }).toDispatchActions(['handleQueryChange', 'runQuery'])
+        })
+
+        it('editing a filter while another is empty still triggers runQuery', async () => {
+            filtersLogic.actions.setFilterGroup(
+                makeFilterGroup(
+                    makeFilter('service.name', ['api-server'], PropertyFilterType.LogResourceAttribute),
+                    makeFilter('host', null, PropertyFilterType.LogAttribute)
+                ),
+                true
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                filtersLogic.actions.setFilterGroup(
+                    makeFilterGroup(
+                        makeFilter('service.name', ['worker'], PropertyFilterType.LogResourceAttribute),
+                        makeFilter('host', null, PropertyFilterType.LogAttribute)
+                    ),
+                    false
+                )
+            }).toDispatchActions(['handleQueryChange', 'runQuery'])
+        })
+    })
+})
+
+describe('shouldSkipFilterGroupChange', () => {
+    const emptyGroup = makeFilterGroup()
+
+    it.each([
+        ['no previous value', emptyGroup, undefined, true],
+        [
+            'values are deep equal',
+            makeFilterGroup(makeFilter('host', ['web-1'])),
+            makeFilterGroup(makeFilter('host', ['web-1'])),
+            true,
+        ],
+        ['new empty filter added', makeFilterGroup(makeFilter('host', null)), emptyGroup, true],
+        [
+            'filter value completed',
+            makeFilterGroup(makeFilter('host', ['web-1'])),
+            makeFilterGroup(makeFilter('host', null)),
+            false,
+        ],
+        [
+            'filter edited (same count)',
+            makeFilterGroup(makeFilter('host', ['web-2'])),
+            makeFilterGroup(makeFilter('host', ['web-1'])),
+            false,
+        ],
+        [
+            'edit while another empty (same count)',
+            makeFilterGroup(makeFilter('host', ['web-2']), makeFilter('env', null)),
+            makeFilterGroup(makeFilter('host', ['web-1']), makeFilter('env', null)),
+            false,
+        ],
+        [
+            'filter removed',
+            makeFilterGroup(makeFilter('host', ['web-1'])),
+            makeFilterGroup(makeFilter('host', ['web-1']), makeFilter('env', ['prod'])),
+            false,
+        ],
+    ])('%s → %s', (_, current, previous, expected) => {
+        expect(shouldSkipFilterGroupChange(current, previous)).toBe(expected)
     })
 })

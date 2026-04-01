@@ -31,6 +31,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -126,22 +127,32 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "date_to": data["end_date"] if data["end_date"] else "",
             "explicitDate": True,
         }
+
+        # Refresh action names in inline metrics (metrics and metrics_secondary)
         for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
-            for metric in metrics_list:
+            for i, metric in enumerate(metrics_list):
+                # Refresh action names to show current names instead of stale cached values
+                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
+                if refreshed_metric:
+                    metrics_list[i] = refreshed_metric
+                    metric = refreshed_metric
+
                 if metric.get("count_query", {}).get("dateRange"):
                     metric["count_query"]["dateRange"] = new_date_range
                 if metric.get("funnels_query", {}).get("dateRange"):
                     metric["funnels_query"]["dateRange"] = new_date_range
 
+        # Update date ranges in saved metrics
+        # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
         for saved_metric in data.get("saved_metrics", []):
-            if saved_metric.get("query", {}).get("count_query", {}).get("dateRange"):
-                saved_metric["query"]["count_query"]["dateRange"] = new_date_range
-            if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
-                saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
-
-            # Add fingerprint to saved metric returned from API
-            # so that frontend knows what timeseries records to query
             if saved_metric.get("query"):
+                if saved_metric["query"].get("count_query", {}).get("dateRange"):
+                    saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+                if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
+                    saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+
+                # Add fingerprint to saved metric returned from API
+                # so that frontend knows what timeseries records to query
                 saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
                     saved_metric["query"],
                     instance.start_date,

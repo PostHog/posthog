@@ -5,6 +5,7 @@ import json
 import math
 import time
 import logging
+import functools
 from datetime import datetime
 from typing import Any, Optional, cast
 
@@ -808,6 +809,15 @@ class FeatureFlagSerializer(
             is_create=self.instance is None,
         )
 
+    @functools.cached_property
+    def _allow_realtime_backfilled(self) -> bool:
+        """Lazily check whether realtime cohort flag targeting is enabled.
+
+        This avoids a potentially expensive feature_enabled() call for flags that don't
+        reference any cohort properties.
+        """
+        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
+
     def validate_filters(self, filters):
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
         # If we see this, just return the current filters
@@ -949,8 +959,6 @@ class FeatureFlagSerializer(
                     "Invalid variant definitions: Variant rollout percentages must sum to 100.",
                     code="invalid_input",
                 )
-
-        self._allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
 
         for condition in filters["groups"]:
             if condition.get("variant") and condition["variant"] not in variants:
@@ -1247,7 +1255,7 @@ class FeatureFlagSerializer(
                 temporary_flag,
                 team_id,
                 project_id,
-                allow_realtime_backfilled=getattr(self, "_allow_realtime_backfilled", False),
+                allow_realtime_backfilled=self._allow_realtime_backfilled,
             )
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
@@ -1266,6 +1274,22 @@ class FeatureFlagSerializer(
 
         should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
         self._update_filters(validated_data)
+
+        # Set default filters for remote config flags to 100% rollout
+        if validated_data.get("is_remote_configuration", False):
+            filters = validated_data.get("filters", {}) or {}
+            groups = filters.get("groups", [])
+
+            # If no groups exist, create one with 100% rollout
+            if not groups:
+                filters["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": None}]
+                validated_data["filters"] = filters
+            else:
+                # If groups exist, update any with 0% or None rollout to 100%
+                for group in groups:
+                    if group.get("rollout_percentage") in [0, None]:
+                        group["rollout_percentage"] = 100
+
         encrypt_flag_payloads(validated_data)
 
         try:

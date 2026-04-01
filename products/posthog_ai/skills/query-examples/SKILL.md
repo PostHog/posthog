@@ -19,6 +19,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Cohorts & Persons](./references/models-cohorts.md)
 - [Dashboards, Tiles & Insights](./references/models-dashboards-insights.md)
 - [Data Warehouse](./references/models-data-warehouse.md)
+- [Data Modeling Endpoints](./references/models-endpoints.md)
 - [Error Tracking](./references/models-error-tracking.md)
 - [Flags & Experiments](./references/models-flags-experiments.md)
 - [Hog Flows](./references/models-hog-flows.md)
@@ -27,6 +28,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Surveys](./references/models-surveys.md)
 - [SQL Variables](./references/models-variables.md)
 - [Skipped events in the read-data-schema tool](./references/taxonomy-skipped-events.md)
+- [Dynamic person and event properties](./references/taxonomy-dynamic-properties.md) — patterns like `$survey_dismissed/{id}`, `$feature/{key}` that don't appear in tool results
 
 ## HogQL References
 
@@ -56,3 +58,5 @@ Use the examples below to create optimized analytical queries.
 - [Sessions (listing sessions with duration, pageviews, and bounce rate)](./references/example-sessions.md)
 - [Session replay (listing recordings with activity filters)](./references/example-session-replay.md)
 - [Team taxonomy (top events by count, paginated)](./references/example-team-taxonomy.md)
+- [Event taxonomy (properties of an event, with sample values)](./references/example-event-taxonomy.md)
+- [Person property taxonomy (sample values for person properties)](./references/example-person-property-taxonomy.md)

@@ -103,6 +103,13 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=False,
     )
 
+    verified = serializers.BooleanField(
+        help_text="Filter by verified status. True returns only verified, false returns only unverified.",
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
     def validate(self, attrs):
         type_ = attrs.get("type", "event")
 
@@ -309,6 +316,22 @@ class QueryContext:
                     **self.params,
                     "excluded_core_properties": EXCLUDED_EVENT_CORE_PROPERTIES,
                 },
+            )
+        return self
+
+    def with_verified_filter(self, verified: Optional[bool], use_enterprise_taxonomy: bool) -> Self:
+        if verified is not None and use_enterprise_taxonomy:
+            if verified:
+                verified_filter = " AND verified = true"
+            else:
+                verified_filter = " AND (verified IS NULL OR verified = false)"
+            return dataclasses.replace(
+                self,
+                excluded_properties_filter=(
+                    self.excluded_properties_filter + verified_filter
+                    if self.excluded_properties_filter
+                    else verified_filter
+                ),
             )
         return self
 
@@ -666,6 +689,7 @@ class PropertyDefinitionViewSet(
                 .with_hidden_filter(
                     query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=EE_AVAILABLE
                 )
+                .with_verified_filter(query.validated_data.get("verified"), use_enterprise_taxonomy=EE_AVAILABLE)
             )
 
             span.set_attribute("joins_event_property", query_context.should_join_event_property)

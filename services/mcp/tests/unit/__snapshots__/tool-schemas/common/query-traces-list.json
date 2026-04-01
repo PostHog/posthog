@@ -1522,6 +1522,97 @@
                                 "type": "string"
                             },
                             "type": {
+                                "enum": ["span", "span_attribute", "span_resource_attribute"],
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "items": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "boolean"
+                                                }
+                                            ]
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["key", "operator", "type"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "operator": {
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "is_set",
+                                    "is_not_set",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "between",
+                                    "not_between",
+                                    "min",
+                                    "max",
+                                    "in",
+                                    "not_in",
+                                    "is_cleaned_path_exact",
+                                    "flag_evaluates_to",
+                                    "semver_eq",
+                                    "semver_neq",
+                                    "semver_gt",
+                                    "semver_gte",
+                                    "semver_lt",
+                                    "semver_lte",
+                                    "semver_tilde",
+                                    "semver_caret",
+                                    "semver_wildcard",
+                                    "icontains_multi",
+                                    "not_icontains_multi"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
                                 "const": "revenue_analytics",
                                 "default": "revenue_analytics",
                                 "type": "string"

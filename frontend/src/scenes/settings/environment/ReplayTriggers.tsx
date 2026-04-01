@@ -4,12 +4,12 @@ import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Link, Tool
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
+import { TriggerGroupsEditor } from 'lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNumeric, pluralize } from 'lib/utils'
-import { TriggerGroupsEditor } from 'scenes/settings/environment/replayTriggers/TriggerGroupsEditor'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'

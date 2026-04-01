@@ -30,8 +30,8 @@
 {% block content %}
 <div class="alert alert-info">
     <strong>Note:</strong> This tool triggers the Temporal workflow to backfill the precalculated_person_properties table
-    for realtime cohorts with person property filters. The backfill runs sequentially using cursor-based pagination
-    and processes persons in batches to avoid memory issues. Check the Temporal UI for progress and results.
+    for realtime cohorts with person property filters. The backfill runs with configurable concurrent child workflows using ID-range based batching
+    and processes persons efficiently. Check the Temporal UI for progress and results.
 </div>
 
 {% if messages %}
@@ -83,6 +83,17 @@
                 <p class="help">{{ form.batch_size.help_text }}</p>
             {% endif %}
             {{ form.batch_size.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.concurrent_workflows.id_for_label }}" class="required">
+                {{ form.concurrent_workflows.label }}:
+            </label>
+            {{ form.concurrent_workflows }}
+            {% if form.concurrent_workflows.help_text %}
+                <p class="help">{{ form.concurrent_workflows.help_text }}</p>
+            {% endif %}
+            {{ form.concurrent_workflows.errors }}
         </div>
     </fieldset>
 
