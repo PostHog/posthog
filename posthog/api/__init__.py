@@ -303,7 +303,7 @@ projects_router.register(
     r"signal_source_configs", signals.SignalSourceConfigViewSet, "project_signal_source_configs", ["team_id"]
 )
 projects_router.register(
-    r"signal_grouping_pause", signals.SignalGroupingPauseViewSet, "project_signal_grouping_pause", ["team_id"]
+    r"signal_processing", signals.SignalProcessingViewSet, "project_signal_processing", ["team_id"]
 )
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
