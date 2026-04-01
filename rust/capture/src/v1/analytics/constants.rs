@@ -54,6 +54,14 @@ pub(crate) const CAPTURE_V1_RATE_LIMITER: &str = "capture_v1_rate_limiter";
 pub(super) const DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID: &str = "rate_limited_token_distinct_id";
 
 // ---------------------------------------------------------------------------
+// Payload size limits
+// ---------------------------------------------------------------------------
+
+/// Maximum compressed (wire) body size the v1 endpoint will accept.
+/// The decompressed limit is separately enforced via `state.event_payload_size_limit`.
+pub(super) const CAPTURE_V1_MAX_COMPRESSED_BODY_BYTES: usize = 10 * 1024 * 1024; // 10MB
+
+// ---------------------------------------------------------------------------
 // Validation limits
 // ---------------------------------------------------------------------------
 

@@ -29,7 +29,7 @@ pub async fn handle_request(
 
     let raw_bytes = v1::util::extract_body_with_timeout(
         body,
-        state.event_payload_size_limit,
+        CAPTURE_V1_MAX_COMPRESSED_BODY_BYTES,
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
         &context.path,

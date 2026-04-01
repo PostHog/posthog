@@ -81,15 +81,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, Wrap
             return Err(Error::DuplicateEventUuid(event.uuid));
         }
 
-        let validation = validate_event(&event).and_then(|raw_ts| {
-            // global batch fail, so handle it here instead of per-event match below
-            if event.properties.get().as_bytes().first() != Some(&b'{') {
-                return Err(Error::MalformedEventProperties);
-            }
-            Ok(raw_ts)
-        });
-
-        match validation {
+        match validate_event(&event) {
             Ok(raw_ts) => {
                 metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
                 let adjusted = normalize_timestamp(context, &event, raw_ts);
@@ -205,6 +197,11 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
     let ts = DateTime::parse_from_rfc3339(&event.timestamp)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|_| Error::InvalidEventTimestamp)?;
+
+    if event.properties.get().as_bytes().first() != Some(&b'{') {
+        return Err(Error::MalformedEventProperties);
+    }
+
     Ok(ts)
 }
 
@@ -583,6 +580,16 @@ mod tests {
         assert!(matches!(
             validate_event(&event),
             Err(Error::DroppedPerformanceEvent)
+        ));
+    }
+
+    #[test]
+    fn event_malformed_properties() {
+        let mut event = valid_event();
+        event.properties = raw_obj("[1,2,3]");
+        assert!(matches!(
+            validate_event(&event),
+            Err(Error::MalformedEventProperties)
         ));
     }
 

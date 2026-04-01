@@ -342,4 +342,118 @@ mod tests {
         let result = decompress_payload(Some("lz4"), data, 4096, TEST_CHUNK_SIZE_KB).await;
         assert!(matches!(result, Err(Error::UnsupportedEncoding(_))));
     }
+
+    // --- split-limit tests (compressed limit < decompressed limit) ---
+
+    /// Simulates the two-step handler flow: extract with a compressed limit,
+    /// then decompress with a (larger) decompressed limit.
+    async fn handler_roundtrip(
+        encoding: Option<&str>,
+        raw: Bytes,
+        compressed_limit: usize,
+        decompressed_limit: usize,
+    ) -> Result<Bytes, Error> {
+        let body = Body::from(raw);
+        let wire =
+            extract_body_with_timeout(body, compressed_limit, None, TEST_CHUNK_SIZE_KB, "/test")
+                .await?;
+        decompress_payload(encoding, wire, decompressed_limit, TEST_CHUNK_SIZE_KB).await
+    }
+
+    #[tokio::test]
+    async fn extract_body_at_exact_limit_succeeds() {
+        let data = vec![b'x'; 128];
+        let body = Body::from(data.clone());
+        let result = extract_body_with_timeout(body, 128, None, TEST_CHUNK_SIZE_KB, "/test").await;
+        assert_eq!(result.unwrap().len(), 128);
+    }
+
+    #[tokio::test]
+    async fn extract_body_one_byte_over_limit_rejected() {
+        let data = vec![b'x'; 129];
+        let body = Body::from(data);
+        let result = extract_body_with_timeout(body, 128, None, TEST_CHUNK_SIZE_KB, "/test").await;
+        assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+    }
+
+    #[tokio::test]
+    async fn split_limits_gzip_bomb_rejected_at_decompression() {
+        let big = vec![0u8; 8192];
+        let compressed = Bytes::from(compress_gzip(&big));
+        assert!(
+            compressed.len() < 256,
+            "compressed should be much smaller than decompressed for this test"
+        );
+        let result = handler_roundtrip(Some("gzip"), compressed, 256, 4096).await;
+        assert!(
+            matches!(result, Err(Error::PayloadTooLarge(_))),
+            "decompressed 8KB should exceed the 4KB decompressed limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn split_limits_zstd_bomb_rejected_at_decompression() {
+        let big = vec![0u8; 8192];
+        let compressed = Bytes::from(compress_zstd(&big));
+        assert!(
+            compressed.len() < 256,
+            "compressed should be much smaller than decompressed for this test"
+        );
+        let result = handler_roundtrip(Some("zstd"), compressed, 256, 4096).await;
+        assert!(
+            matches!(result, Err(Error::PayloadTooLarge(_))),
+            "decompressed 8KB should exceed the 4KB decompressed limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn split_limits_compressed_over_wire_limit_rejected() {
+        let big = vec![b'a'; 4096];
+        let compressed = Bytes::from(compress_gzip(&big));
+        let wire_limit = compressed.len() - 1;
+        let result = handler_roundtrip(Some("gzip"), compressed, wire_limit, 1024 * 1024).await;
+        assert!(
+            matches!(result, Err(Error::PayloadTooLarge(_))),
+            "wire bytes should exceed the compressed limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn split_limits_both_within_bounds_succeeds_gzip() {
+        let original = b"split limit roundtrip gzip";
+        let compressed = Bytes::from(compress_gzip(original));
+        let result = handler_roundtrip(Some("gzip"), compressed, 4096, 4096).await;
+        assert_eq!(result.unwrap(), Bytes::from_static(original));
+    }
+
+    #[tokio::test]
+    async fn split_limits_both_within_bounds_succeeds_zstd() {
+        let original = b"split limit roundtrip zstd";
+        let compressed = Bytes::from(compress_zstd(original));
+        let result = handler_roundtrip(Some("zstd"), compressed, 4096, 4096).await;
+        assert_eq!(result.unwrap(), Bytes::from_static(original));
+    }
+
+    #[tokio::test]
+    async fn split_limits_both_within_bounds_succeeds_deflate() {
+        let original = b"split limit roundtrip deflate";
+        let compressed = Bytes::from(compress_deflate(original));
+        let result = handler_roundtrip(Some("deflate"), compressed, 4096, 4096).await;
+        assert_eq!(result.unwrap(), Bytes::from_static(original));
+    }
+
+    #[tokio::test]
+    async fn split_limits_both_within_bounds_succeeds_brotli() {
+        let original = b"split limit roundtrip brotli";
+        let compressed = Bytes::from(compress_brotli(original));
+        let result = handler_roundtrip(Some("br"), compressed, 4096, 4096).await;
+        assert_eq!(result.unwrap(), Bytes::from_static(original));
+    }
+
+    #[tokio::test]
+    async fn split_limits_uncompressed_passthrough_within_bounds() {
+        let original = Bytes::from("no encoding, just plain text");
+        let result = handler_roundtrip(None, original.clone(), 4096, 4096).await;
+        assert_eq!(result.unwrap(), original);
+    }
 }
