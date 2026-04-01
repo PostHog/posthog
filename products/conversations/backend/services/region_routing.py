@@ -50,6 +50,9 @@ def _build_proxy_kwargs(request: HttpRequest, headers: dict[str, str]) -> dict:
             for f in request.FILES.getlist(key):
                 f.seek(0)
                 files.append((key, (f.name, f.read(), f.content_type)))
+        # When files is empty, `requests` will use form-encoding instead of
+        # multipart. That's fine — the receiving handler reads via
+        # request.POST.get() which Django populates for both encodings.
         return {"data": data, "files": files, "headers": cleaned_headers}
 
 
