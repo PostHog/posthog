@@ -95,14 +95,40 @@ class TestAnthropicMessagesEndpoint:
             "messages": [{"role": "user", "content": "Hello"}],
         }
 
+    @pytest.fixture(
+        params=[
+            pytest.param("anthropic", id="anthropic"),
+            pytest.param("bedrock", id="bedrock"),
+        ]
+    )
+    def provider(self, request):
+        if request.param == "bedrock":
+            with patch(
+                "llm_gateway.api.anthropic.get_settings",
+                return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+            ):
+                yield request.param
+        else:
+            yield request.param
+
     @pytest.fixture
-    def mock_anthropic_response(self) -> dict[str, Any]:
+    def provider_request_body(self, provider) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "model": "claude-sonnet-4-6",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+        if provider == "bedrock":
+            body["provider"] = "bedrock"
+        return body
+
+    @pytest.fixture
+    def provider_mock_response(self) -> dict[str, Any]:
         return {
             "id": "msg_123",
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Hello!"}],
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-sonnet-4-6",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -137,16 +163,17 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_mock_response: dict,
+        provider: str,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
             "/v1/messages",
-            json=valid_request_body,
+            json=provider_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
 
@@ -169,10 +196,11 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
+        provider_request_body: dict,
         error_status: int,
         error_message: str,
         error_type: str,
+        provider: str,
     ) -> None:
         error = Exception(error_message)
         error.status_code = error_status  # type: ignore[attr-defined]
@@ -182,7 +210,7 @@ class TestAnthropicMessagesEndpoint:
 
         response = authenticated_client.post(
             "/v1/messages",
-            json=valid_request_body,
+            json=provider_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
 
@@ -200,16 +228,17 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_mock_response: dict,
         param_name: str,
         param_value: str,
+        provider: str,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
-        body_with_injection = {**valid_request_body, param_name: param_value}
+        body_with_injection = {**provider_request_body, param_name: param_value}
         response = authenticated_client.post(
             "/v1/messages",
             json=body_with_injection,
@@ -227,20 +256,21 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_mock_response: dict,
+        provider: str,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         body_with_model_list = {
-            **valid_request_body,
+            **provider_request_body,
             "model_list": [
                 {
-                    "model_name": "claude-3-5-sonnet-20241022",
+                    "model_name": "claude-sonnet-4-6",
                     "litellm_params": {
-                        "model": "claude-3-5-sonnet-20241022",
+                        "model": "claude-sonnet-4-6",
                         "api_base": "https://attacker.example.com",
                         "api_key": "sk-stolen-key",
                     },
@@ -262,15 +292,16 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_mock_response: dict,
+        provider: str,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         body_with_nested_injection = {
-            **valid_request_body,
+            **provider_request_body,
             "metadata": {
                 "safe": "value",
                 "api_key": "sk-stolen-key",
@@ -299,16 +330,17 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_mock_response: dict,
+        provider: str,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
             "/wizard/v1/messages",
-            json=valid_request_body,
+            json=provider_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
 
@@ -328,17 +360,18 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_mock_response: dict,
         product: str,
+        provider: str,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
             f"/{product}/v1/messages",
-            json=valid_request_body,
+            json=provider_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
 
@@ -372,18 +405,19 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        mock_anthropic_response: dict,
+        provider_mock_response: dict,
+        provider: str,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
             "/v1/messages",
             json={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "anthropic",
+                "provider": provider,
                 "use_bedrock_fallback": True,
             },
             headers={"Authorization": "Bearer phx_test_key"},

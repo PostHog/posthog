@@ -11,11 +11,11 @@ BEDROCK_SETTINGS_PATCH = patch(
 )
 
 
-class TestBedrockViaProvider:
-    """Tests for Bedrock accessed via provider field on the Anthropic routes."""
+class TestBedrockSpecific:
+    """Bedrock-specific integration tests for features not covered by the parametrized suite."""
 
     @pytest.fixture
-    def mock_anthropic_response(self) -> dict[str, Any]:
+    def mock_bedrock_response(self) -> dict[str, Any]:
         return {
             "id": "msg_123",
             "type": "message",
@@ -26,129 +26,23 @@ class TestBedrockViaProvider:
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
 
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     @BEDROCK_SETTINGS_PATCH
-    def test_passes_model_through_to_handler(
+    def test_anthropic_beta_header_parsed_to_list(
         self,
         mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
+        mock_litellm: MagicMock,
         authenticated_client: TestClient,
-        mock_anthropic_response: dict,
+        mock_bedrock_response: dict,
     ) -> None:
-        mock_handle.return_value = mock_anthropic_response
-
-        response = authenticated_client.post(
-            "/v1/messages",
-            json={
-                "model": "us.anthropic.claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
-            },
-            headers={"Authorization": "Bearer phx_test_key"},
-        )
-
-        assert response.status_code == 200
-        call_kwargs = mock_handle.call_args.kwargs
-        assert call_kwargs["model"] == "us.anthropic.claude-sonnet-4-6"
-
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
-    @BEDROCK_SETTINGS_PATCH
-    def test_product_route_supported(
-        self,
-        mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
-        authenticated_client: TestClient,
-        mock_anthropic_response: dict,
-    ) -> None:
-        mock_handle.return_value = mock_anthropic_response
-
-        response = authenticated_client.post(
-            "/wizard/v1/messages",
-            json={
-                "model": "us.anthropic.claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
-            },
-            headers={"Authorization": "Bearer phx_test_key"},
-        )
-        assert response.status_code == 200
-
-    @patch.dict("os.environ", {"AWS_REGION": "us-east-1"}, clear=False)
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
-    @patch("llm_gateway.api.anthropic.get_settings", return_value=MagicMock(bedrock_region_name=None))
-    def test_uses_aws_region_when_gateway_region_setting_missing(
-        self,
-        mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
-        authenticated_client: TestClient,
-        mock_anthropic_response: dict,
-    ) -> None:
-        mock_handle.return_value = mock_anthropic_response
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_bedrock_response)
+        mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
             "/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
-            },
-            headers={"Authorization": "Bearer phx_test_key"},
-        )
-
-        assert response.status_code == 200
-        assert mock_handle.call_args.kwargs["model"] == "us.anthropic.claude-sonnet-4-6"
-
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
-    @BEDROCK_SETTINGS_PATCH
-    def test_gateway_fields_stripped_from_request_data(
-        self,
-        mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
-        authenticated_client: TestClient,
-        mock_anthropic_response: dict,
-    ) -> None:
-        mock_handle.return_value = mock_anthropic_response
-
-        body = {
-            "model": "us.anthropic.claude-sonnet-4-6",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "provider": "bedrock",
-            "use_bedrock_fallback": False,
-            "tools": [
-                {
-                    "name": "get_weather",
-                    "description": "Get weather by city",
-                    "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}},
-                }
-            ],
-        }
-        response = authenticated_client.post(
-            "/v1/messages",
-            json=body,
-            headers={"Authorization": "Bearer phx_test_key"},
-        )
-
-        assert response.status_code == 200
-        request_data = mock_handle.call_args.kwargs["request_data"]
-        assert request_data["tools"] == body["tools"]
-        assert "provider" not in request_data
-        assert "use_bedrock_fallback" not in request_data
-
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
-    @BEDROCK_SETTINGS_PATCH
-    def test_anthropic_beta_header_parsed_to_list(
-        self,
-        mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
-        authenticated_client: TestClient,
-        mock_anthropic_response: dict,
-    ) -> None:
-        mock_handle.return_value = mock_anthropic_response
-
-        response = authenticated_client.post(
-            "/v1/messages",
-            json={
-                "model": "us.anthropic.claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "provider": "bedrock",
             },
@@ -159,75 +53,26 @@ class TestBedrockViaProvider:
         )
 
         assert response.status_code == 200
-        request_data = mock_handle.call_args.kwargs["request_data"]
-        assert request_data["anthropic_beta"] == [
+        call_kwargs = mock_litellm.call_args.kwargs
+        assert call_kwargs["anthropic_beta"] == [
             "interleaved-thinking-2025-05-14",
             "extended-thinking-2025-05-14",
         ]
 
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     @BEDROCK_SETTINGS_PATCH
     def test_no_anthropic_beta_when_header_absent(
         self,
         mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
+        mock_litellm: MagicMock,
         authenticated_client: TestClient,
-        mock_anthropic_response: dict,
+        mock_bedrock_response: dict,
     ) -> None:
-        mock_handle.return_value = mock_anthropic_response
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_bedrock_response)
+        mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
-            json={
-                "model": "us.anthropic.claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
-            },
-            headers={"Authorization": "Bearer phx_test_key"},
-        )
-
-        assert response.status_code == 200
-        request_data = mock_handle.call_args.kwargs["request_data"]
-        assert "anthropic_beta" not in request_data
-
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
-    @BEDROCK_SETTINGS_PATCH
-    def test_uses_bedrock_provider_config(
-        self,
-        mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
-        authenticated_client: TestClient,
-        mock_anthropic_response: dict,
-    ) -> None:
-        mock_handle.return_value = mock_anthropic_response
-
-        authenticated_client.post(
-            "/v1/messages",
-            json={
-                "model": "us.anthropic.claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "provider": "bedrock",
-            },
-            headers={"Authorization": "Bearer phx_test_key"},
-        )
-
-        from llm_gateway.api.handler import BEDROCK_CONFIG
-
-        call_kwargs = mock_handle.call_args.kwargs
-        assert call_kwargs["provider_config"] is BEDROCK_CONFIG
-
-    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
-    @BEDROCK_SETTINGS_PATCH
-    def test_maps_anthropic_model_to_bedrock(
-        self,
-        mock_get_settings: MagicMock,
-        mock_handle: AsyncMock,
-        authenticated_client: TestClient,
-        mock_anthropic_response: dict,
-    ) -> None:
-        mock_handle.return_value = mock_anthropic_response
-
-        authenticated_client.post(
             "/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
@@ -237,8 +82,36 @@ class TestBedrockViaProvider:
             headers={"Authorization": "Bearer phx_test_key"},
         )
 
-        call_kwargs = mock_handle.call_args.kwargs
-        assert call_kwargs["model"] == "us.anthropic.claude-sonnet-4-6"
+        assert response.status_code == 200
+        call_kwargs = mock_litellm.call_args.kwargs
+        assert "anthropic_beta" not in call_kwargs
+
+    @patch.dict("os.environ", {"AWS_REGION": "us-east-1"}, clear=False)
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    @patch("llm_gateway.api.anthropic.get_settings", return_value=MagicMock(bedrock_region_name=None))
+    def test_uses_aws_region_when_gateway_region_setting_missing(
+        self,
+        mock_get_settings: MagicMock,
+        mock_litellm: MagicMock,
+        authenticated_client: TestClient,
+        mock_bedrock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_bedrock_response)
+        mock_litellm.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "provider": "bedrock",
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert mock_litellm.call_args.kwargs["model"] == "us.anthropic.claude-sonnet-4-6"
 
 
 class TestBedrockFallback:
