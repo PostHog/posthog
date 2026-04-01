@@ -271,14 +271,8 @@ impl Error {
         headers.insert(header::ACCEPT, ACCEPT_JSON);
         headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
 
-        match self {
-            Self::RateLimited(_) => {
-                headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
-            }
-            Self::InternalError(_) | Self::ServiceUnavailable(_) => {
-                headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
-            }
-            _ => {}
+        if let Self::RateLimited(_) = self {
+            headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
         }
 
         headers
