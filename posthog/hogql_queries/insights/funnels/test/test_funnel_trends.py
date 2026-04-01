@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import cast
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from freezegun.api import freeze_time
@@ -28,12 +28,10 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
+from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.filters import Filter
-from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
@@ -43,13 +41,20 @@ FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _get_actors_at_step(self, filter, entrance_period_start, drop_off):
-        filter = Filter(data=filter, team=self.team)
-        person_filter = filter.shallow_clone({"entrance_period_start": entrance_period_start, "drop_off": drop_off})
-        funnel_query_builder = ClickhouseFunnelTrendsActors(person_filter, self.team)
-        _, serialized_result, _ = funnel_query_builder.get_actors()
-
-        return serialized_result
+    def _get_actors_at_step(
+        self,
+        query: FunnelsQuery,
+        funnel_trends_entrance_period_start: Optional[str] = None,
+        funnel_trends_drop_off: Optional[bool] = None,
+    ) -> list[str]:
+        actors = get_actors(
+            query,
+            self.team,
+            funnel_trends_entrance_period_start=funnel_trends_entrance_period_start,
+            funnel_trends_drop_off=funnel_trends_drop_off,
+        )
+        # return actors
+        return [actor[1] for actor in actors]
 
     def _create_sample_data(self):
         # five people, three steps
@@ -91,25 +96,33 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-06-07 00:00:00",
-            "date_to": "2021-06-13 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-06-07 00:00:00",
+                date_to="2021-06-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
         # funnel_trends = ClickhouseFunnelTrends(filter, self.team)
         # results = funnel_trends._exec_query()
         # formatted_results = funnel_trends._format_results(results)
-        query = cast(FunnelsQuery, filter_to_query(filters))
         runner = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True)
         results = runner.calculate().results
         formatted_results = runner.funnel_class._format_summarized_results(results)
@@ -127,22 +140,30 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-06-07 00:00:00",
-            "date_to": "2021-06-13 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-06-07 00:00:00",
+                date_to="2021-06-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(
@@ -195,7 +216,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         # 1 user who dropped off starting 2021-06-07
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-06-07 00:00:00", True
+            query, "2021-06-07 00:00:00", True
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
@@ -206,55 +227,71 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         # No users converted 2021-06-07
         funnel_trends_persons_nonexistent_converted_results = self._get_actors_at_step(
-            filters, "2021-06-07 00:00:00", False
+            query, "2021-06-07 00:00:00", False
         )
 
         self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
 
         # No users dropped off 2021-06-08
         funnel_trends_persons_nonexistent_converted_results = self._get_actors_at_step(
-            filters, "2021-06-08 00:00:00", True
+            query, "2021-06-08 00:00:00", True
         )
 
         self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
 
     # minute, hour, day, week, month
     def test_hour_interval(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "hour",
-            "date_from": "2021-05-01 00:00:00",
-            "funnel_window_interval": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+            ),
+            interval="hour",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+            ),
+        )
 
         with freeze_time("2021-05-06T23:40:59Z"):
-            query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 144)
 
     def test_day_interval(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 00:00:00",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
         journeys_for(
             {
@@ -267,31 +304,39 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(7, len(results))
 
-        persons = self._get_actors_at_step(filters, "2021-05-01 00:00:00", False)
+        persons = self._get_actors_at_step(query, "2021-05-01 00:00:00", False)
 
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
     @snapshot_clickhouse_queries
     def test_week_interval(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "week",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 00:00:00",
+            ),
+            interval="week",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=14,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
         journeys_for(
             {
@@ -304,9 +349,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
-        persons = self._get_actors_at_step(filters, "2021-04-25 00:00:00", False)
+        persons = self._get_actors_at_step(query, "2021-04-25 00:00:00", False)
 
         self.assertEqual(2, len(results))
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
@@ -316,20 +360,29 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         self.team.timezone = timezone
         self.team.save()
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "month",
-            "date_from": "2020-01-01 00:00:00",
-            "date_to": "2020-07-01 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-01 00:00:00",
+                date_to="2020-07-01 00:00:00",
+            ),
+            interval="month",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
         journeys_for(
             {
@@ -342,7 +395,6 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(
@@ -393,24 +445,33 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         entrance_period_start = "2020-05-01 00:00:00" if timezone == "UTC" else "2020-04-01 00:00:00"
-        persons = self._get_actors_at_step(filters, entrance_period_start, False)
+        persons = self._get_actors_at_step(query, entrance_period_start, False)
 
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_all_date_range(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "all",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="all",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
         journeys_for(
             {
@@ -424,34 +485,41 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time("2021-05-20T13:01:01Z"):
-            query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(20, len(results))
 
-        persons = self._get_actors_at_step(filters, "2021-05-01 00:00:00", False)
+        persons = self._get_actors_at_step(query, "2021-05-01 00:00:00", False)
 
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_all_results_for_day_interval(self):
         self._create_sample_data()
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 00:00:00",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         saturday = results[0]  # 5/1
@@ -492,22 +560,29 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
     def test_window_size_one_day(self):
         self._create_sample_data()
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_interval": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 00:00:00",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=1,
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         saturday = results[0]  # 5/1
@@ -560,22 +635,30 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-02 23:59:59",
-            "funnel_window_days": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-02 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=1,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 2)
@@ -615,22 +698,30 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-01 23:59:59",
-            "funnel_window_days": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-01 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=1,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 1)
@@ -652,22 +743,30 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-01 23:59:59",
-            "funnel_window_days": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-01 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=1,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 1)
@@ -701,22 +800,29 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-04 23:59:59",
-            "funnel_window_interval": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-04 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=1,
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 4)
@@ -743,7 +849,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         # 1 user who dropped off starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-05-04 00:00:00", True
+            query, "2021-05-04 00:00:00", True
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
@@ -754,7 +860,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         # 1 user who converted starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-05-04 00:00:00", False
+            query, "2021-05-04 00:00:00", False
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
@@ -790,23 +896,31 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-02 23:59:59",
-            "funnel_window_days": 3,
-            "funnel_from_step": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-02 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelFromStep=1,
+                funnelWindowInterval=3,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 2)
@@ -848,23 +962,31 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-02 23:59:59",
-            "funnel_window_days": 3,
-            "funnel_to_step": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-02 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelToStep=1,
+                funnelWindowInterval=3,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 2)
@@ -903,23 +1025,30 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-04 23:59:59",
-            "funnel_window_interval": 1,
-            "funnel_order_type": FunnelOrderType.UNORDERED,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-04 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelOrderType=FunnelOrderType.UNORDERED,
+                funnelWindowInterval=1,
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 4)
@@ -946,7 +1075,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         # 1 user who dropped off starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-05-04 00:00:00", True
+            query, "2021-05-04 00:00:00", True
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
@@ -957,7 +1086,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         # 1 user who converted starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-05-04 00:00:00", False
+            query, "2021-05-04 00:00:00", False
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
@@ -996,23 +1125,31 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-04 23:59:59",
-            "funnel_order_type": FunnelOrderType.STRICT,
-            "funnel_window_days": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-04 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelOrderType=FunnelOrderType.STRICT,
+                funnelWindowInterval=1,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 4)
@@ -1095,24 +1232,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-            "breakdown_type": "event",
-            "breakdown": "$browser",
-        }
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser",
+                breakdown_type="event",
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(len(results), 2)
@@ -1210,27 +1357,30 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-            filters = {
-                "insight": INSIGHT_FUNNELS,
-                "funnel_viz_type": "trends",
-                "display": TRENDS_LINEAR,
-                "interval": "day",
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-13 23:59:59",
-                "funnel_window_days": 7,
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
+            query = FunnelsQuery(
+                dateRange=DateRange(
+                    date_from="2021-05-01 00:00:00",
+                    date_to="2021-05-13 23:59:59",
+                ),
+                interval="day",
+                series=[
+                    EventsNode(event="step one"),
+                    EventsNode(event="step two"),
+                    EventsNode(event="step three"),
                 ],
-                "breakdown_type": "hogql",
-                "breakdown": "IF(distinct_id = 'user_two', NULL, 'foo')",  # Simulate some empty breakdown values
-                "breakdown_attribution_type": attribution_type,
-            }
-            if attribution_type == "step":
-                filters["breakdown_attribution_value"] = 1  # Example value; adjust if needed
+                breakdownFilter=BreakdownFilter(
+                    breakdown="IF(distinct_id = 'user_two', NULL, 'foo')",
+                    breakdown_type="hogql",
+                ),
+                funnelsFilter=FunnelsFilter(
+                    funnelVizType="trends",
+                    funnelWindowInterval=7,
+                    funnelWindowIntervalUnit="day",
+                    breakdownAttributionType=attribution_type,
+                    breakdownAttributionValue=1 if attribution_type == "step" else None,
+                ),
+            )
 
-            query = cast(FunnelsQuery, filter_to_query(filters))
             response = FunnelsQueryRunner(query=query, team=self.team).calculate()
             results = response.results
 
@@ -1298,25 +1448,35 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_days": 7,
-            "breakdown_limit": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-            "breakdown_type": "event",
-            "breakdown": "$browser",
-        }
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser",
+                breakdown_type="event",
+                breakdown_limit=1,
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(len(results), 1)
@@ -1369,24 +1529,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-            "breakdown_type": "person",
-            "breakdown": "$browser",
-        }
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser",
+                breakdown_type="person",
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(len(results), 2)
@@ -1456,24 +1626,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-            "breakdown_type": "cohort",
-            "breakdown": [cohort.pk],
-        }
+            breakdownFilter=BreakdownFilter(
+                breakdown=[cohort.pk],
+                breakdown_type="cohort",
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         assert len(results) == 2
@@ -1511,23 +1691,31 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "breakdown_type": "cohort",
-            "breakdown": [cohort.pk],
-        }
+            breakdownFilter=BreakdownFilter(
+                breakdown=[cohort.pk],
+                breakdown_type="cohort",
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Even though everyone is in the cohort, the "not in cohort" group should still appear
@@ -1591,22 +1779,30 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-04-30 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-04-30 00:00:00",
+                date_to="2021-05-07 00:00:00",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=14,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.team.timezone = "US/Pacific"
@@ -1645,23 +1841,30 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             },
             self.team,
         )
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "funnel_window_interval": 3,
-            "funnel_window_interval_unit": "hour",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=3,
+                funnelWindowIntervalUnit="hour",
+            ),
+        )
 
         with freeze_time("2021-05-06T23:40:59Z"):
-            query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
             conversion_rates = [row["conversion_rate"] for row in results]
             self.assertEqual(conversion_rates, [50.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -1685,23 +1888,31 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "breakdown_type": "event",
-            "breakdown": "$browser",
-        }
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser",
+                breakdown_type="event",
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(len(results), 1)
@@ -1735,58 +1946,69 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 30,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-            "breakdown_type": "event",
-            "breakdown": "$browser",
-        }
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser",
+                breakdown_type="event",
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=30,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(len(results), 1)
         self.assertEqual([100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], results[0]["data"])
 
     def test_funnel_exclusion_no_end_event(self):
-        filters = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0},
-                {"id": "paid", "type": "events", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-14 00:00:00",
+            ),
+            series=[
+                EventsNode(
+                    event="user signed up",
+                ),
+                EventsNode(
+                    event="paid",
+                ),
             ],
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "funnel_window_interval": 1,
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-14 00:00:00",
-            "exclusions": [
-                {
-                    "id": "x",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=1,
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="x",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
         # person 1
         _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -1855,7 +2077,6 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             timestamp="2021-05-02 08:00:00",
         )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(len(results), 1)
@@ -1883,29 +2104,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(1, results[0]["reached_from_step_count"])
@@ -1932,29 +2158,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(1, results[0]["reached_from_step_count"])
@@ -1981,29 +2212,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(0, results[0]["reached_from_step_count"])
@@ -2047,30 +2283,37 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 1,
-                    "funnel_to_step": 2,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=1,
+                        funnelToStep=2,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(1, results[0]["reached_from_step_count"])
@@ -2106,29 +2349,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(1, results[0]["reached_from_step_count"])
@@ -2166,29 +2414,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(0, results[0]["reached_from_step_count"])
@@ -2223,29 +2476,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(0, results[0]["reached_from_step_count"])
@@ -2274,29 +2532,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(1, results[0]["reached_from_step_count"])
@@ -2334,30 +2597,37 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 1,
-                    "funnel_to_step": 2,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=1,
+                        funnelToStep=2,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(1, results[0]["reached_from_step_count"])
@@ -2396,29 +2666,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(0, results[0]["reached_from_step_count"])
@@ -2464,31 +2739,37 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-02 23:59:59",
-            "funnel_window_interval": 30,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-            ],
-            "breakdown_type": "event",
-            "breakdown": "$browser",
-        }
+        def make_query(
+            breakdown_attribution_type: str | None = None, breakdown_attribution_value: int | None = None
+        ) -> FunnelsQuery:
+            return FunnelsQuery(
+                dateRange=DateRange(
+                    date_from="2021-05-01 00:00:00",
+                    date_to="2021-05-02 23:59:59",
+                ),
+                interval="day",
+                series=[EventsNode(event="step one"), EventsNode(event="step two")],
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$browser",
+                    breakdown_type="event",
+                ),
+                funnelsFilter=FunnelsFilter(
+                    funnelVizType="trends",
+                    funnelWindowInterval=30,
+                    funnelWindowIntervalUnit="second",
+                    breakdownAttributionType=breakdown_attribution_type,
+                    breakdownAttributionValue=breakdown_attribution_value,
+                ),
+            )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
+        query = make_query()
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 2 == len(results)
         assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
         assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
 
-        filters["breakdown_attribution_type"] = "all_events"
-        query = cast(FunnelsQuery, filter_to_query(filters))
+        query = make_query("all_events")
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 4 == len(results)
@@ -2497,9 +2778,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
         assert [0, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
-        filters["breakdown_attribution_type"] = "step"
-        filters["breakdown_attribution_value"] = 0
-        query = cast(FunnelsQuery, filter_to_query(filters))
+        query = make_query("step", 0)
         full_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate()
         results = full_results.results
 
@@ -2509,9 +2788,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
         assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
-        filters["breakdown_attribution_type"] = "step"
-        filters["breakdown_attribution_value"] = 1
-        query = cast(FunnelsQuery, filter_to_query(filters))
+        query = make_query("step", 1)
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 4 == len(results)
@@ -2561,34 +2838,43 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-02 23:59:59",
-            "funnel_window_interval": 30,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-            "breakdown_type": "event",
-            "breakdown": "$browser",
-            "funnel_from_step": 0,
-            "funnel_to_step": 2,
-        }
+        def make_query(
+            breakdown_attribution_type: str | None = None, breakdown_attribution_value: int | None = None
+        ) -> FunnelsQuery:
+            return FunnelsQuery(
+                dateRange=DateRange(
+                    date_from="2021-05-01 00:00:00",
+                    date_to="2021-05-02 23:59:59",
+                ),
+                interval="day",
+                series=[
+                    EventsNode(event="step one"),
+                    EventsNode(event="step two"),
+                    EventsNode(event="step three"),
+                ],
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$browser",
+                    breakdown_type="event",
+                ),
+                funnelsFilter=FunnelsFilter(
+                    funnelVizType="trends",
+                    funnelFromStep=0,
+                    funnelToStep=2,
+                    funnelWindowInterval=30,
+                    funnelWindowIntervalUnit="second",
+                    breakdownAttributionType=breakdown_attribution_type,
+                    breakdownAttributionValue=breakdown_attribution_value,
+                ),
+            )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
+        query = make_query()
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 2 == len(results)
         assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
         assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
 
-        filters["breakdown_attribution_type"] = "all_events"
-        query = cast(FunnelsQuery, filter_to_query(filters))
+        query = make_query("all_events")
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 4 == len(results)
@@ -2597,9 +2883,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
         assert [0, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
-        filters["breakdown_attribution_type"] = "step"
-        filters["breakdown_attribution_value"] = 0
-        query = cast(FunnelsQuery, filter_to_query(filters))
+        query = make_query("step", 0)
         full_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate()
         results = full_results.results
 
@@ -2609,9 +2893,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
         assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
-        filters["breakdown_attribution_type"] = "step"
-        filters["breakdown_attribution_value"] = 2
-        query = cast(FunnelsQuery, filter_to_query(filters))
+        query = make_query("step", 2)
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 4 == len(results)
@@ -2759,19 +3041,27 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             timestamp=datetime(2021, 5, 3, 0, 0, 0),
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "events": [{"id": "user signed up", "order": 0}, {"id": "added to cart", "order": 1}],
-            "funnel_window_interval": 3122064000,
-            "funnel_window_interval_unit": "second",
-        }
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 00:00:00",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="user signed up",
+                ),
+                EventsNode(
+                    event="added to cart",
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=3122064000,
+                funnelWindowIntervalUnit="second",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         # Since in funnel trends we're tracking conversion by day, not aggregated totals,
@@ -2796,24 +3086,32 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-06-07 00:00:00",
-            "date_to": "2021-06-13 23:59:59",
-            "funnel_window_days": 7,
-            "funnel_from_step": 0,
-            "funnel_to_step": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-06-07 00:00:00",
+                date_to="2021-06-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
             ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelFromStep=0,
+                funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         runner = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True)
         results = runner.calculate().results
 
@@ -2954,29 +3252,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_interval": 10,
-            "funnel_window_interval_unit": "second",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
             ],
-            "exclusions": [
-                {
-                    "id": "exclusion",
-                    "type": "events",
-                    "funnel_from_step": 0,
-                    "funnel_to_step": 1,
-                }
-            ],
-        }
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=10,
+                funnelWindowIntervalUnit="second",
+                exclusions=[
+                    FunnelExclusionEventsNode(
+                        event="exclusion",
+                        funnelFromStep=0,
+                        funnelToStep=1,
+                    ),
+                ],
+            ),
+        )
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(1, results[0]["reached_from_step_count"])
