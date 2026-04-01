@@ -233,7 +233,6 @@ To get practical test data, run `hogli dev:demo-data`.
 ## Option 3: Developing with Coder workspaces (PostHog employees only)
 
 If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](../../../internal/coder-workspaces.md).
-It covers `hogli devbox:setup`, the `hogli devbox` command overview, and the expected auth flow.
 
 ## Testing
 
