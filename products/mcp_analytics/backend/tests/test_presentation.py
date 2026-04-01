@@ -7,6 +7,51 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 
 class TestMCPAnalyticsPresentation(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
+            (
+                "missing_capability_create",
+                "post",
+                "missing_capabilities/",
+                {"goal": "debug surveys", "missing_capability": "Need an eligibility explainer"},
+            ),
+            ("feedback_list", "get", "feedback/", None),
+            ("missing_capability_list", "get", "missing_capabilities/", None),
+        ]
+    )
+    def test_endpoints_require_authentication(
+        self, _name: str, method: str, path: str, payload: dict[str, str] | None
+    ) -> None:
+        self.client.logout()
+
+        request = getattr(self.client, method)
+        response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @parameterized.expand(
+        [
+            ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
+            (
+                "missing_capability_create",
+                "post",
+                "missing_capabilities/",
+                {"goal": "debug surveys", "missing_capability": "Need an eligibility explainer"},
+            ),
+            ("feedback_list", "get", "feedback/", None),
+            ("missing_capability_list", "get", "missing_capabilities/", None),
+        ]
+    )
+    def test_endpoints_are_staff_only_in_cloud(
+        self, _name: str, method: str, path: str, payload: dict[str, str] | None
+    ) -> None:
+        with self.is_cloud(True):
+            request = getattr(self.client, method)
+            response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_create_feedback_submission(self) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
@@ -29,33 +74,6 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         assert data["category"] == "results"
         assert data["attempted_tool"] == "feature_flag_get_all"
         assert data["mcp_client_name"] == "Claude Desktop"
-
-    def test_create_feedback_submission_requires_authentication(self) -> None:
-        self.client.logout()
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
-            {"goal": "understand usage", "feedback": "Need clearer results"},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_create_feedback_submission_is_staff_only_in_cloud(self) -> None:
-        with self.is_cloud(True):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
-                {"goal": "understand usage", "feedback": "Need clearer results"},
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_feedback_list_is_staff_only_in_cloud(self) -> None:
-        with self.is_cloud(True):
-            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/feedback/")
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
