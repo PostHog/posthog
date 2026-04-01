@@ -166,8 +166,8 @@ export class CyclotronV2Worker {
                 )
             },
 
-            async retry(options?: { scheduledAt?: Date; state?: Buffer | null }): Promise<void> {
-                releaseGuard('retry')
+            async reschedule(options?: { scheduledAt?: Date; state?: Buffer | null }): Promise<void> {
+                releaseGuard('reschedule')
                 const scheduled = options?.scheduledAt ?? new Date()
                 const hasStateUpdate = options?.state !== undefined
 

@@ -65,7 +65,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             state: null,
             ack: jest.fn().mockResolvedValue(undefined),
             fail: jest.fn().mockResolvedValue(undefined),
-            retry: jest.fn().mockResolvedValue(undefined),
+            reschedule: jest.fn().mockResolvedValue(undefined),
             cancel: jest.fn().mockResolvedValue(undefined),
             heartbeat: jest.fn().mockResolvedValue(undefined),
             ...overrides,
@@ -154,15 +154,15 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect(job.fail).toHaveBeenCalledTimes(1)
         })
 
-        it('should call retry with serialized state on non-finished, non-errored jobs', async () => {
+        it('should call reschedule with serialized state on non-finished, non-errored jobs', async () => {
             const { queue } = createQueue()
             const job = createDequeuedJob()
             ;(queue as any).pendingJobs.set(job.id, job)
 
             await queue.queueInvocationResults([createResult({ invocation: { ...baseInvocation, id: job.id } })])
 
-            expect(job.retry).toHaveBeenCalledTimes(1)
-            const retryArg = job.retry.mock.calls[0][0]
+            expect(job.reschedule).toHaveBeenCalledTimes(1)
+            const retryArg = job.reschedule.mock.calls[0][0]
             const parsed = parseJSON(retryArg.state.toString('utf-8'))
             expect(parsed.state).toEqual(baseInvocation.state)
         })
@@ -180,8 +180,8 @@ describe('CyclotronJobQueuePostgresV2', () => {
                 }),
             ])
 
-            expect(job.retry).toHaveBeenCalledTimes(1)
-            const retryArg = job.retry.mock.calls[0][0]
+            expect(job.reschedule).toHaveBeenCalledTimes(1)
+            const retryArg = job.reschedule.mock.calls[0][0]
             expect(retryArg.scheduledAt).toEqual(scheduledAt.toJSDate())
         })
 
@@ -192,8 +192,8 @@ describe('CyclotronJobQueuePostgresV2', () => {
 
             await queue.queueInvocationResults([createResult({ invocation: { ...baseInvocation, id: job.id } })])
 
-            expect(job.retry).toHaveBeenCalledTimes(1)
-            const retryArg = job.retry.mock.calls[0][0]
+            expect(job.reschedule).toHaveBeenCalledTimes(1)
+            const retryArg = job.reschedule.mock.calls[0][0]
             expect(retryArg.scheduledAt).toBeUndefined()
         })
 
