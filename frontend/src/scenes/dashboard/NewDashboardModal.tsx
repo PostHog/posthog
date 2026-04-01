@@ -36,8 +36,8 @@ export function NewDashboardModal(): JSX.Element {
     ) : (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-secondary">
-                Here are some ready-made templates to help you get started quickly—pick one below, or choose the blank
-                dashboard to start from scratch.
+                Here are some ready-made templates to help you get started quickly. Pick one below, or choose to start
+                from scratch.
             </p>
             <div>
                 <LemonInput
