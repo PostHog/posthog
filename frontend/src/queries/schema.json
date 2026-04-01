@@ -13095,6 +13095,10 @@
                 "cache_age_seconds": {
                     "type": "number"
                 },
+                "deleted": {
+                    "description": "Set to true to soft-delete this endpoint",
+                    "type": "boolean"
+                },
                 "derived_from_insight": {
                     "type": "string"
                 },

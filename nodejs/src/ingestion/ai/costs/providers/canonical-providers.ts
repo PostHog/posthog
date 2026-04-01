@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-31 20:09:55 UTC
+// Generated at: 2026-04-01 10:21:11 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -57,7 +57,6 @@ export type CanonicalProvider =
     | 'inceptron-int4'
     | 'infermatic-bf16'
     | 'inflection'
-    | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'io-net-int4'
@@ -121,6 +120,7 @@ export type CanonicalProvider =
     | 'upstage'
     | 'venice'
     | 'venice-beta'
+    | 'venice-e2ee'
     | 'venice-fp16'
     | 'venice-fp4'
     | 'venice-fp8'

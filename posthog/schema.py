@@ -20555,6 +20555,7 @@ class EndpointRequest(BaseModel):
         ),
     )
     cache_age_seconds: float | None = None
+    deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
     derived_from_insight: str | None = None
     description: str | None = None
     is_active: bool | None = None
