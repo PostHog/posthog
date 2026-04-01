@@ -56,8 +56,7 @@ type Model struct {
 	// Center viewport with output of the active process
 	viewport         viewport.Model
 	viewportAtBottom bool
-	activeContent    string
-	activeLineCount  int
+	activeLines      []string
 
 	// Copy mode: keyboard-driven line selection within the output pane
 	copyMode   bool
@@ -106,6 +105,7 @@ type Model struct {
 	width  int
 	height int
 	ready  bool
+	isDark bool
 
 	mouseScrollSpeed int
 	hideHelp         bool // hide_keymap_window from config
@@ -119,6 +119,9 @@ type Model struct {
 func New(mgr *process.Manager, cfg *config.Config, logger *log.Logger) Model {
 	keys := defaultKeyMap()
 
+	h := help.New()
+	h.Styles = helpStyles()
+
 	return Model{
 		mgr:              mgr,
 		services:         mgr.Procs(),
@@ -126,11 +129,12 @@ func New(mgr *process.Manager, cfg *config.Config, logger *log.Logger) Model {
 		servicesOffset:   0,
 		focusedPane:      focusServices,
 		viewportAtBottom: true,
+		isDark:           true,
 		mouseScrollSpeed: cfg.MouseScrollSpeed,
 		hideHelp:         cfg.HideKeymapWindow,
 		procListWidth:    cfg.ProcListWidth,
 		keys:             keys,
-		help:             help.New(),
+		help:             h,
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		log:              logger,
 	}
@@ -165,14 +169,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.BackgroundColorMsg:
-		isDark := msg.IsDark()
-		m.help.Styles = help.DefaultStyles(isDark)
+		m.isDark = msg.IsDark()
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
-		// Refresh info panel on each spinner tick to keep uptime current
+
+	case process.MetricsMsg:
 		if m.infoMode {
 			m.refreshInfoContent()
 		}
@@ -365,7 +369,7 @@ func (m Model) applySize() Model {
 	// Reduce the viewport width to account for borders
 	vpW := ptyW - horizontalBorderCount
 	if m.isFullScreen() {
-		vpW = m.width - horizontalBorderCount
+		vpW = m.width
 	}
 
 	if !m.ready {
@@ -423,8 +427,9 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchCursor = 0
-		m.activeContent = ""
-		m.activeLineCount = 0
+		m.activeLines = nil
+		m.infoMode = false
+		m.disableAllMetrics()
 		m.keys.LazyDocker.SetEnabled(true)
 		m.keys.ProcViewer.SetEnabled(false)
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
@@ -434,15 +439,16 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.containers = nil
 		m.keys.LazyDocker.SetEnabled(false)
 		m.keys.ProcViewer.SetEnabled(true)
-		m.activeContent = m.buildContent()
-		if m.activeContent == "" {
-			m.activeLineCount = 0
+		m.disableAllMetrics()
+		if m.infoMode {
+			m.toggleMetricsOnSelectedProc()
+			m.refreshInfoContent()
 		} else {
-			m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
+			m.reloadActiveLines()
 		}
-		m.viewport.SetContent(m.activeContent)
 	}
 
+	// Scroll to bottom when switching processes if viewport was already at bottom
 	if m.viewportAtBottom {
 		m.viewport.GotoBottom()
 	}
@@ -453,42 +459,39 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 	return m, cmds
 }
 
-// Joins the active process's output lines into a viewport content string
-func (m Model) buildContent() string {
+func (m *Model) disableAllMetrics() {
+	for _, p := range m.services {
+		p.SetMetricsEnabled(false)
+	}
+}
+
+// Reloads activeLines from the process buffer and pushes to the viewport.
+func (m *Model) reloadActiveLines() {
 	p := m.activeProc()
 	if p == nil {
-		return ""
+		m.activeLines = nil
+	} else {
+		m.activeLines = p.Lines()
 	}
-	return strings.Join(p.Lines(), "\n")
+	m.viewport.SetContent(strings.Join(m.activeLines, "\n"))
 }
 
 // applyOutputDelta incrementally updates the viewport content using the
 // batch metadata in OutputMsg. Falls back to a full rebuild on eviction.
 func (m *Model) applyOutputDelta(msg process.OutputMsg) {
 	if msg.Evicted > 0 || len(msg.Added) == 0 {
-		m.activeContent = m.buildContent()
-		if m.activeContent == "" {
-			m.activeLineCount = 0
-		} else {
-			m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
-		}
-		m.viewport.SetContent(m.activeContent)
+		m.reloadActiveLines()
 		if m.searchQuery != "" {
 			m.recomputeSearch()
 		}
 		return
 	}
 
-	if m.activeLineCount == 0 || m.activeContent == "" {
-		m.activeContent = strings.Join(msg.Added, "\n")
-	} else {
-		m.activeContent += "\n" + strings.Join(msg.Added, "\n")
-	}
-	m.activeLineCount += len(msg.Added)
-	m.viewport.SetContent(m.activeContent)
+	m.activeLines = append(m.activeLines, msg.Added...)
+	m.viewport.SetContent(strings.Join(m.activeLines, "\n"))
 
 	if m.searchQuery != "" {
-		startIdx := m.activeLineCount - len(msg.Added)
+		startIdx := len(m.activeLines) - len(msg.Added)
 		for i, line := range msg.Added {
 			m.updateSearchForLine(line, startIdx+i, false)
 		}
@@ -559,4 +562,10 @@ func (m *Model) sortServices() {
 		}
 	}
 	m.ensureSidebarCursorVisible()
+}
+
+func (m Model) toggleMetricsOnSelectedProc() {
+	if p := m.activeProc(); p != nil {
+		p.SetMetricsEnabled(true)
+	}
 }

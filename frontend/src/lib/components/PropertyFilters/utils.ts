@@ -155,15 +155,25 @@ export function formatPropertyLabel(
 
     const isSingleEmptyString = Array.isArray(value) && value.length === 1 && value[0] === ''
 
-    return resolvedType === PropertyFilterType.Cohort
-        ? `${capitalizeFirstLetter(cohortOperatorMap[resolvedOperator] || 'user in')} ` +
-              (cohortName || (typeof value === 'number' ? cohortsById[value]?.name : undefined) || `ID ${value}`)
-        : (getCoreFilterDefinition(key, taxonomicFilterGroupType)?.label || label || key) +
-              (isOperatorFlag(resolvedOperator)
-                  ? ` ${allOperatorsMapping[resolvedOperator]}`
-                  : ` ${(allOperatorsMapping[resolvedOperator] || '?').split(' ')[0]} ${
-                        isSingleEmptyString ? '(empty string)' : valueFormatter(value) || ''
-                    } `)
+    if (resolvedType === PropertyFilterType.Cohort) {
+        return (
+            `${capitalizeFirstLetter(cohortOperatorMap[resolvedOperator] || 'user in')} ` +
+            (cohortName || (typeof value === 'number' ? cohortsById[value]?.name : undefined) || `ID ${value}`)
+        )
+    }
+
+    if (resolvedType === PropertyFilterType.Flag) {
+        return `${label || key} ${allOperatorsMapping[resolvedOperator] || '?'} ${valueFormatter(value) || ''}`
+    }
+
+    return (
+        (getCoreFilterDefinition(key, taxonomicFilterGroupType)?.label || label || key) +
+        (isOperatorFlag(resolvedOperator)
+            ? ` ${allOperatorsMapping[resolvedOperator]}`
+            : ` ${(allOperatorsMapping[resolvedOperator] || '?').split(' ')[0]} ${
+                  isSingleEmptyString ? '(empty string)' : valueFormatter(value) || ''
+              } `)
+    )
 }
 
 /** Make sure unverified user property filter input has at least a "type" */

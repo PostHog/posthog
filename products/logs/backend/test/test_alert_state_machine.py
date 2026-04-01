@@ -1,0 +1,313 @@
+from datetime import UTC, datetime, timedelta
+
+from unittest import TestCase
+
+from parameterized import parameterized
+
+from products.logs.backend.alert_state_machine import (
+    AlertCheckOutcome,
+    AlertSnapshot,
+    AlertState,
+    CheckResult,
+    NotificationAction,
+    evaluate_alert_check,
+)
+
+ERRORED = AlertState.ERRORED
+FIRING = AlertState.FIRING
+NOT_FIRING = AlertState.NOT_FIRING
+PENDING_RESOLVE = AlertState.PENDING_RESOLVE
+SNOOZED = AlertState.SNOOZED
+
+NOW = datetime(2026, 3, 19, 12, 0, 0, tzinfo=UTC)
+
+
+def _snapshot(
+    state: AlertState = NOT_FIRING,
+    evaluation_periods: int = 1,
+    datapoints_to_alarm: int = 1,
+    cooldown_minutes: int = 0,
+    last_notified_at: datetime | None = None,
+    snooze_until: datetime | None = None,
+    consecutive_failures: int = 0,
+    recent_checks_breached: tuple[bool, ...] | None = None,
+) -> AlertSnapshot:
+    return AlertSnapshot(
+        state=state,
+        evaluation_periods=evaluation_periods,
+        datapoints_to_alarm=datapoints_to_alarm,
+        cooldown_minutes=cooldown_minutes,
+        last_notified_at=last_notified_at,
+        snooze_until=snooze_until,
+        consecutive_failures=consecutive_failures,
+        recent_checks_breached=recent_checks_breached or (),
+    )
+
+
+def _check(breached: bool = False, error: str | None = None) -> CheckResult:
+    return CheckResult(
+        result_count=100 if breached else 0,
+        threshold_breached=breached,
+        error_message=error,
+    )
+
+
+class TestNotFiringTransitions(TestCase):
+    @parameterized.expand(
+        [
+            ("1_of_1_breach", 1, 1, (), True, FIRING, NotificationAction.FIRE),
+            ("1_of_1_no_breach", 1, 1, (), False, NOT_FIRING, NotificationAction.NONE),
+            ("2_of_3_breach_met", 2, 3, (True, False), True, FIRING, NotificationAction.FIRE),
+            ("2_of_3_breach_not_met", 2, 3, (False, False), True, NOT_FIRING, NotificationAction.NONE),
+            ("3_of_5_breach_met", 3, 5, (True, True, False, True), True, FIRING, NotificationAction.FIRE),
+            ("3_of_5_breach_not_met", 3, 5, (False, False, False, False), True, NOT_FIRING, NotificationAction.NONE),
+            ("first_ever_check_breach", 1, 1, (), True, FIRING, NotificationAction.FIRE),
+            ("first_ever_check_no_breach", 1, 1, (), False, NOT_FIRING, NotificationAction.NONE),
+            ("first_check_2_of_3_insufficient", 2, 3, (), True, NOT_FIRING, NotificationAction.NONE),
+        ]
+    )
+    def test_not_firing_transitions(
+        self,
+        _name: str,
+        n: int,
+        m: int,
+        recent: tuple[bool, ...],
+        breached: bool,
+        expected_state: AlertState,
+        expected_action: NotificationAction,
+    ) -> None:
+        snapshot = _snapshot(
+            state=NOT_FIRING,
+            datapoints_to_alarm=n,
+            evaluation_periods=m,
+            recent_checks_breached=recent,
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=breached), NOW)
+        assert outcome.new_state == expected_state
+        assert outcome.notification == expected_action
+
+
+class TestFiringTransitions(TestCase):
+    @parameterized.expand(
+        [
+            ("still_breaching_1_of_1", 1, 1, (), True, FIRING, NotificationAction.NONE),
+            ("still_breaching_2_of_3", 2, 3, (True, True), True, FIRING, NotificationAction.NONE),
+            ("clears_1_of_1", 1, 1, (), False, NOT_FIRING, NotificationAction.RESOLVE),
+            ("clears_enters_pending_2_of_3", 2, 3, (True, True), False, PENDING_RESOLVE, NotificationAction.NONE),
+        ]
+    )
+    def test_firing_transitions(
+        self,
+        _name: str,
+        n: int,
+        m: int,
+        recent: tuple[bool, ...],
+        breached: bool,
+        expected_state: AlertState,
+        expected_action: NotificationAction,
+    ) -> None:
+        snapshot = _snapshot(
+            state=FIRING,
+            datapoints_to_alarm=n,
+            evaluation_periods=m,
+            recent_checks_breached=recent,
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=breached), NOW)
+        assert outcome.new_state == expected_state
+        assert outcome.notification == expected_action
+
+
+class TestPendingResolveTransitions(TestCase):
+    @parameterized.expand(
+        [
+            # 2-of-3: window [False, False, True] -> 2 clears >= 2 -> resolve
+            ("clears_fully", 2, 3, (False, True), False, NOT_FIRING, NotificationAction.RESOLVE),
+            # 2-of-3: window [True, False, True] -> 2 breaches >= 2 -> back to FIRING
+            ("re_breaches", 2, 3, (False, True), True, FIRING, NotificationAction.NONE),
+            # 2-of-3: window [False, True, True] -> 1 clear < 2, 2 breach >= 2 -> FIRING
+            ("mixed_still_breaching", 2, 3, (True, True), False, PENDING_RESOLVE, NotificationAction.NONE),
+        ]
+    )
+    def test_pending_resolve_transitions(
+        self,
+        _name: str,
+        n: int,
+        m: int,
+        recent: tuple[bool, ...],
+        breached: bool,
+        expected_state: AlertState,
+        expected_action: NotificationAction,
+    ) -> None:
+        snapshot = _snapshot(
+            state=PENDING_RESOLVE,
+            datapoints_to_alarm=n,
+            evaluation_periods=m,
+            recent_checks_breached=recent,
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=breached), NOW)
+        assert outcome.new_state == expected_state
+        assert outcome.notification == expected_action
+
+
+class TestCooldownSuppression(TestCase):
+    def test_suppresses_fire_notification(self) -> None:
+        snapshot = _snapshot(
+            state=NOT_FIRING,
+            cooldown_minutes=10,
+            last_notified_at=NOW - timedelta(minutes=5),
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.new_state == FIRING
+        assert outcome.notification == NotificationAction.NONE
+        assert outcome.update_last_notified_at is False
+
+    def test_suppresses_resolve_notification(self) -> None:
+        snapshot = _snapshot(
+            state=FIRING,
+            cooldown_minutes=10,
+            last_notified_at=NOW - timedelta(minutes=5),
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
+        assert outcome.new_state == NOT_FIRING
+        assert outcome.notification == NotificationAction.NONE
+
+    def test_expired_cooldown_allows_notification(self) -> None:
+        snapshot = _snapshot(
+            state=NOT_FIRING,
+            cooldown_minutes=10,
+            last_notified_at=NOW - timedelta(minutes=15),
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.new_state == FIRING
+        assert outcome.notification == NotificationAction.FIRE
+        assert outcome.update_last_notified_at is True
+
+    def test_zero_cooldown_never_suppresses(self) -> None:
+        snapshot = _snapshot(
+            state=NOT_FIRING,
+            cooldown_minutes=0,
+            last_notified_at=NOW - timedelta(seconds=1),
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.notification == NotificationAction.FIRE
+
+    def test_no_prior_notification_never_suppresses(self) -> None:
+        snapshot = _snapshot(
+            state=NOT_FIRING,
+            cooldown_minutes=10,
+            last_notified_at=None,
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.notification == NotificationAction.FIRE
+
+
+class TestErrorHandling(TestCase):
+    def test_error_transitions_to_errored(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING)
+        outcome = evaluate_alert_check(snapshot, _check(error="ClickHouse timeout"), NOW)
+        assert outcome.new_state == ERRORED
+        assert outcome.notification == NotificationAction.NONE
+        assert outcome.error_message == "ClickHouse timeout"
+
+    def test_error_increments_consecutive_failures(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=2)
+        outcome = evaluate_alert_check(snapshot, _check(error="timeout"), NOW)
+        assert outcome.consecutive_failures == 3
+
+    def test_success_resets_consecutive_failures(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=3)
+        outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
+        assert outcome.consecutive_failures == 0
+
+    def test_error_from_firing_state(self) -> None:
+        snapshot = _snapshot(state=FIRING)
+        outcome = evaluate_alert_check(snapshot, _check(error="timeout"), NOW)
+        assert outcome.new_state == ERRORED
+
+    def test_errored_recovery_with_breach(self) -> None:
+        snapshot = _snapshot(state=ERRORED)
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.new_state == FIRING
+        assert outcome.notification == NotificationAction.FIRE
+
+    def test_errored_recovery_without_breach(self) -> None:
+        snapshot = _snapshot(state=ERRORED)
+        outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
+        assert outcome.new_state == NOT_FIRING
+        assert outcome.notification == NotificationAction.NONE
+
+
+class TestSnooze(TestCase):
+    def test_active_snooze_stays_snoozed(self) -> None:
+        snapshot = _snapshot(
+            state=SNOOZED,
+            snooze_until=NOW + timedelta(hours=1),
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.new_state == SNOOZED
+        assert outcome.notification == NotificationAction.NONE
+
+    def test_expired_snooze_resumes_as_not_firing(self) -> None:
+        snapshot = _snapshot(
+            state=SNOOZED,
+            snooze_until=NOW - timedelta(minutes=1),
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
+        assert outcome.new_state == NOT_FIRING
+
+    def test_expired_snooze_with_breach_fires(self) -> None:
+        snapshot = _snapshot(
+            state=SNOOZED,
+            snooze_until=NOW - timedelta(minutes=1),
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.new_state == FIRING
+        assert outcome.notification == NotificationAction.FIRE
+
+    def test_snooze_with_none_expiry_resumes_not_firing(self) -> None:
+        snapshot = _snapshot(
+            state=SNOOZED,
+            snooze_until=None,
+        )
+        # snooze_until=None means it doesn't expire by time, treat as expired
+        outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
+        assert outcome.new_state == NOT_FIRING
+
+
+class TestEdgeCases(TestCase):
+    def test_1_of_1_skips_pending_resolve(self) -> None:
+        snapshot = _snapshot(state=FIRING, datapoints_to_alarm=1, evaluation_periods=1)
+        outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
+        assert outcome.new_state == NOT_FIRING
+        assert outcome.notification == NotificationAction.RESOLVE
+
+    def test_window_truncated_to_m(self) -> None:
+        snapshot = _snapshot(
+            state=NOT_FIRING,
+            datapoints_to_alarm=2,
+            evaluation_periods=3,
+            recent_checks_breached=(True, True, True, True, True),
+        )
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        # Window is [True, True, True] (truncated to M=3), 3 breaches >= N=2
+        assert outcome.new_state == FIRING
+
+    def test_update_last_notified_at_on_fire(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING)
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.update_last_notified_at is True
+
+    def test_no_update_last_notified_at_on_suppress(self) -> None:
+        snapshot = _snapshot(state=FIRING)
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.update_last_notified_at is False
+
+    def test_outcome_is_frozen_dataclass(self) -> None:
+        snapshot = _snapshot()
+        outcome = evaluate_alert_check(snapshot, _check(), NOW)
+        assert isinstance(outcome, AlertCheckOutcome)
+
+    def test_alert_state_matches_model_state(self) -> None:
+        from products.logs.backend.models import LogsAlertConfiguration
+
+        assert set(AlertState) == {s.value for s in LogsAlertConfiguration.State}

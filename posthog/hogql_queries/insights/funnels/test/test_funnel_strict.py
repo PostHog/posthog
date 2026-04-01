@@ -123,8 +123,8 @@ class TestFunnelStrictStepsBreakdown(
                 },
             ],
         )
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [people["person2"].uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [people["person2"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(query, 1, ["Safari"]), [people["person2"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(query, 2, ["Safari"]), [people["person2"].uuid])
 
         assert_funnel_results_equal(
             results[1],
@@ -157,8 +157,8 @@ class TestFunnelStrictStepsBreakdown(
                 },
             ],
         )
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [people["person1"].uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
+        self.assertCountEqual(self._get_actor_ids_at_step(query, 1, ["Chrome"]), [people["person1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(query, 2, ["Chrome"]), [])
 
 
 class TestStrictFunnelGroupBreakdown(

@@ -101,7 +101,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._update_task_run_status("in_progress")
 
             await self._track_workflow_event(
-                "process_task_workflow_started",
+                "task_run_started",
                 {
                     "run_id": run_id,
                     "task_id": self.context.task_id,
@@ -125,12 +125,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             agent_server_output = await self._start_agent_server(sandbox_output)
 
             await self._track_workflow_event(
-                "process_task_agent_server_started",
+                "sandbox_started",
                 {
+                    "run_id": run_id,
                     "task_id": self.context.task_id,
                     "sandbox_id": sandbox_id,
                     "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
+                    "repository": self.context.repository,
                 },
             )
 
@@ -193,6 +195,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         except asyncio.CancelledError:
+            if self._context:
+                await self._track_workflow_event(
+                    "task_run_cancelled",
+                    {
+                        "run_id": run_id,
+                        "task_id": self.context.task_id,
+                        "repository": self.context.repository,
+                        "team_id": self.context.team_id,
+                    },
+                )
             await self._update_task_run_status("cancelled")
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
@@ -203,7 +215,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             error_message = str(e)[:500]
             if self._context:
                 await self._track_workflow_event(
-                    "process_task_workflow_failed",
+                    "task_run_failed",
                     {
                         "run_id": run_id,
                         "task_id": self.context.task_id,
@@ -300,6 +312,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             event_name=event_name,
             distinct_id=self.context.distinct_id,
             properties=properties,
+            groups={
+                "organization": self.context.organization_id,
+                "project": self.context.team_uuid,
+            },
         )
         await workflow.execute_activity(
             track_workflow_event,

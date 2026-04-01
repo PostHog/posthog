@@ -22,6 +22,7 @@ export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
     local_cdp = 'local-cdp',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
+    // TODO: Remove once charts deploy with mode=recordings-blob-ingestion-v2 for overflow pods
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
@@ -42,6 +43,7 @@ export enum PluginServerMode {
     ingestion_v2_testing = 'ingestion-v2-testing',
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
+    cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -84,7 +86,8 @@ export type CommonConfig = BaseServerConfig & {
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
     PERSONHOG_ADDR: string
-    PERSONHOG_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
@@ -145,6 +148,9 @@ export type CommonConfig = BaseServerConfig & {
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     LAZY_LOADER_MAX_SIZE: number
     INTERNAL_API_BASE_URL: string
+    HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
+    HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
+    HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
@@ -231,7 +237,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
-        PERSONHOG_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_TLS: false,
         PERSONHOG_TIMEOUT_MS: 5000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
@@ -300,6 +307,9 @@ export function getDefaultCommonConfig(): CommonConfig {
             ? 'http://posthog-web-django.posthog.svc.cluster.local:8000'
             : 'http://localhost:8000',
         INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
+        HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
+        HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
+        HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,

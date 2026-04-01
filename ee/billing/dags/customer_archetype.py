@@ -26,6 +26,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, wait_random
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models import Team
@@ -439,6 +440,7 @@ def archetype_account_data(
         context.log.info("Querying PostHog_Customer_Archetype saved query")
 
         team = Team.objects.get(id=ARCHETYPE_TEAM_ID)
+        tag_queries(product=Product.BILLING, feature=Feature.BILLING_ETL)
         query = f"SELECT {', '.join(COLUMNS)} FROM PostHog_Customer_Archetype"  # nosemgrep: hogql-fstring-audit -- COLUMNS are hardcoded constants
         response = execute_hogql_query(
             query=query,
