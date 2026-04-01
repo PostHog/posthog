@@ -47,6 +47,7 @@ class Product(StrEnum):
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
+    BILLING = "billing"
     INTERNAL = "internal"  # for internal use only
 
 
@@ -66,6 +67,8 @@ class Feature(StrEnum):
     DATA_DELETION = "data_deletion"
     SCHEMA_INTROSPECTION = "schema_introspection"
     USAGE_REPORT = "usage_report"
+    BILLING_ETL = "billing_etl"
+    QUOTA_LIMITING = "quota_limiting"
 
 
 class TemporalTags(BaseModel):
