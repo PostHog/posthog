@@ -86,9 +86,11 @@ class ExperimentQueryBuilder:
         ] = None,
         breakdowns: list[Breakdown] | None = None,
         force_precomputation: bool = False,
+        only_count_matured_users: bool = False,
     ):
         self.team = team
         self.metric = metric
+        self.only_count_matured_users = only_count_matured_users
         self.feature_flag_key = feature_flag_key
         self.variants = variants
         self.date_range_query = date_range_query
@@ -263,7 +265,7 @@ class ExperimentQueryBuilder:
         """
         if self.metric is None:
             return None
-        if not getattr(self.metric, "only_count_matured_users", False):
+        if not self.only_count_matured_users:
             return None
 
         maturity_seconds = self._get_maturity_window_seconds()

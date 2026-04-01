@@ -13,6 +13,7 @@ import { getBrowserLogo } from './browserLogos'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
+import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
@@ -36,6 +37,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         browserBreakdown,
         countryBreakdown,
         topPaths,
+        topReferrers,
         totalPageviews,
         totalUniqueVisitors,
         totalBrowsers,
@@ -94,6 +96,13 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_REFERRERS] && (
+                    <LiveTopReferrersTable
+                        referrers={topReferrers}
+                        isLoading={isLoading}
+                        totalPageviews={totalPageviews}
+                    />
+                )}
                 <BreakdownLiveCard<DeviceBreakdownItem>
                     title="Devices"
                     data={deviceBreakdown}
@@ -103,6 +112,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     statLabel="unique devices"
                     isLoading={isLoading}
                 />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <BreakdownLiveCard<BrowserBreakdownItem>
                     title="Browsers"
                     data={browserBreakdown}

@@ -28,7 +28,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ActorsQuery, HogQLQuery
+from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
@@ -41,6 +41,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET, PropertyOperatorType
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -1085,11 +1086,18 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-            # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
-            # used in the feature flag property filter UI
+            # Hides behavioral cohorts that can't be used in feature flags from the flag property filter UI.
+            # When realtime cohort flag targeting is enabled, realtime cohorts that have been
+            # backfilled are allowed through.
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
+                # Avoid circular import: feature_flag imports cohort models
+                from posthog.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
+
+                allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
                 all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
-                behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)
+                behavioral_cohort_ids = self._find_behavioral_cohorts(
+                    all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled
+                )
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
 
             # add additional filters provided by the client
@@ -1111,13 +1119,26 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .order_by("-created_at")
         )
 
-    def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
+    def _find_behavioral_cohorts(
+        self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
+    ) -> set[int]:
         """
         Find all cohorts that have behavioral filters or reference cohorts with behavioral filters
         using a graph-based approach.
+
+        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled are
+        excluded from the result because they can be evaluated via the cohort_membership table
+        during flag evaluation.
         """
         graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
-        affected_cohorts = set(behavioral_cohorts)
+
+        # When the feature is enabled, realtime+backfilled cohorts are flag-compatible
+        flag_compatible: set[int] = set()
+        if allow_realtime_backfilled:
+            flag_compatible = {
+                cid for cid in behavioral_cohorts if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
+            }
+        affected_cohorts = behavioral_cohorts - flag_compatible
 
         def find_affected_cohorts() -> None:
             changed = True
@@ -1192,6 +1213,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             filter = filter.shallow_clone({LIMIT: 100})
 
         query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         raw_result = sync_execute(
             query,
             {**params, **filter.hogql_context.values},
@@ -1465,6 +1487,8 @@ def will_create_loops(cohort: Cohort) -> bool:
 def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+
     CH_PAGE_SIZE = 10_000
 
     # Use cursor-based pagination to stream from ClickHouse in pages instead of
@@ -1508,6 +1532,7 @@ def insert_actors_into_cohort_by_query(
     *,
     team_id: int,
 ):
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {

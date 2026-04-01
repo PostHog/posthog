@@ -111,6 +111,7 @@ dependencies = [
     "pymysql==1.1.1",
     "pymongo==4.13.2",
     "pyroscope-io~=0.8.8",
+    "croniter~=6.0.0",
     "python-dateutil~=2.9.0",
     "python-snappy~=0.7.3",
     "python3-saml==1.16.0",
@@ -268,6 +269,8 @@ sentiment = [
 
 [tool.uv]
 required-version = "~=0.10.2"
+exclude-newer = "7 days"
+exclude-newer-package = { hogql-parser = false }
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }

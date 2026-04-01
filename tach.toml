@@ -364,6 +364,7 @@ depends_on = [
     "posthog",
     "products.data_warehouse",
     "products.error_tracking",
+    "products.tasks",
 ]
 layer = "non_isolated"
 

@@ -1,16 +1,16 @@
 import json
 import uuid
-import logging
 from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Value, When
 
+import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import filters, mixins, serializers, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -47,6 +47,10 @@ from products.signals.backend.serializers import (
     SignalReportSerializer,
     SignalSourceConfigSerializer,
 )
+from products.signals.backend.temporal.backfill_error_tracking import (
+    BackfillErrorTrackingInput,
+    BackfillErrorTrackingWorkflow,
+)
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.types import (
@@ -55,7 +59,7 @@ from products.signals.backend.temporal.types import (
 )
 from products.signals.backend.utils import EMBEDDING_MODEL
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -153,6 +157,30 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
             self._trigger_initial_clustering(instance)
+
+        if (
+            instance.source_product == SignalSourceConfig.SourceProduct.ERROR_TRACKING
+            and instance.source_type == SignalSourceConfig.SourceType.ISSUE_CREATED
+            and instance.enabled
+        ):
+            self._trigger_error_tracking_backfill()
+
+    def _trigger_error_tracking_backfill(self) -> None:
+        """Fire-and-forget backfill of recent error tracking issues as signals."""
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "backfill-error-tracking",  # type: ignore
+                BackfillErrorTrackingInput(team_id=self.team_id),  # type: ignore
+                id=BackfillErrorTrackingWorkflow.workflow_id_for(self.team_id),
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            logger.info(f"Started error tracking backfill workflow for team {self.team_id}")
+        except Exception:
+            logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
 
     def _trigger_initial_clustering(self, config: SignalSourceConfig) -> None:
         """Fire-and-forget the clustering workflow."""
@@ -254,9 +282,16 @@ class SignalReportViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReport.objects.all()
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ["signal_count", "total_weight", "created_at", "updated_at"]
-    ordering = ["-signal_count"]
+    _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
+    _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
+        "status": "pipeline_status_rank",
+        "is_suggested_reviewer": "is_suggested_reviewer",
+        "signal_count": "signal_count",
+        "total_weight": "total_weight",
+        "created_at": "created_at",
+        "updated_at": "updated_at",
+        "id": "id",
+    }
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team).annotate(artefact_count=Count("artefacts"))
@@ -270,7 +305,100 @@ class SignalReportViewSet(
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+        # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
+        qs = qs.annotate(
+            pipeline_status_rank=Case(
+                When(status=SignalReport.Status.READY, then=Value(0)),
+                When(status=SignalReport.Status.PENDING_INPUT, then=Value(1)),
+                When(status=SignalReport.Status.IN_PROGRESS, then=Value(2)),
+                When(status=SignalReport.Status.CANDIDATE, then=Value(3)),
+                When(status=SignalReport.Status.POTENTIAL, then=Value(4)),
+                When(status=SignalReport.Status.FAILED, then=Value(5)),
+                When(status=SignalReport.Status.SUPPRESSED, then=Value(6)),
+                When(status=SignalReport.Status.DELETED, then=Value(7)),
+                default=Value(50),
+                output_field=IntegerField(),
+            )
+        )
+        qs = qs.prefetch_related(
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+                ).order_by("-created_at"),
+                to_attr="prefetched_priority_artefacts",
+            )
+        )
+
+        # Annotate is_suggested_reviewer by resolving the current user's GitHub login
+        # and checking jsonb containment on the artefact content list. This stays fresh
+        # even when a user connects their GitHub account after the report was generated.
+        github_login = self._get_github_login(self.request.user)
+        if github_login:
+            # github_login comes from our own UserSocialAuth DB, not user input.
+            qs = qs.annotate(
+                is_suggested_reviewer=Exists(
+                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+                    SignalReportArtefact.objects.filter(
+                        report_id=OuterRef("id"),
+                        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                    ).extra(
+                        where=["content::jsonb @> %s::jsonb"],
+                        params=[json.dumps([{"github_login": github_login}])],
+                    )
+                )
+            )
+        else:
+            qs = qs.annotate(is_suggested_reviewer=Value(False))
+
         return qs
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        return self._apply_signal_report_ordering(queryset)
+
+    def _parse_ordering_string(self, raw: str) -> list[str]:
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        clauses: list[str] = []
+        for part in parts:
+            descending = part.startswith("-")
+            name = part[1:] if descending else part
+            db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
+            if db_field is None:
+                return self._default_signal_report_ordering_clauses
+            clause = f"-{db_field}" if descending else db_field
+            clauses.append(clause)
+        return clauses
+
+    @property
+    def _default_signal_report_ordering_clauses(self) -> list[str]:
+        return self._parse_ordering_string(self._DEFAULT_SIGNAL_REPORT_ORDERING)
+
+    def _parse_signal_report_ordering(self) -> list[str]:
+        raw = self.request.query_params.get("ordering", self._DEFAULT_SIGNAL_REPORT_ORDERING)
+        if not raw or not str(raw).strip():
+            return self._default_signal_report_ordering_clauses
+        clauses = self._parse_ordering_string(str(raw).strip())
+        return clauses if clauses else self._default_signal_report_ordering_clauses
+
+    def _apply_signal_report_ordering(self, queryset):
+        clauses = self._parse_signal_report_ordering()
+        has_id = any((c[1:] if c.startswith("-") else c) == "id" for c in clauses)
+        if not has_id:
+            clauses = [*clauses, "id"]
+        return queryset.order_by(*clauses)
+
+    @staticmethod
+    def _get_github_login(user) -> str | None:
+        """Resolve the GitHub login for a PostHog user via social auth."""
+        from social_django.models import UserSocialAuth
+
+        sa = UserSocialAuth.objects.filter(provider="github", user=user).only("extra_data").first()
+        if sa and isinstance(sa.extra_data, dict):
+            login = sa.extra_data.get("login")
+            if login:
+                return login.lower()
+        return None
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
@@ -310,9 +438,7 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
-        artefacts = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT).order_by(
-            "-created_at"
-        )
+        artefacts = report.artefacts.all().order_by("-created_at")
         serializer = SignalReportArtefactSerializer(artefacts, many=True)
         return Response(
             {

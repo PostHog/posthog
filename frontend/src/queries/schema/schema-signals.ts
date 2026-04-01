@@ -156,7 +156,30 @@ export interface ErrorTrackingSignalInput {
     extra: ErrorTrackingSignalExtra
 }
 
-// Discriminated union over all signal variants
+// ── Report reviewer types ────────────────────────────────────────────────────────
+
+export interface RelevantCommit {
+    sha: string
+    url: string
+    reason: string
+}
+
+export interface SignalReviewerUserInfo {
+    id: number
+    uuid: string
+    first_name: string
+    last_name: string
+    email: string
+}
+
+export interface EnrichedReviewer {
+    github_login: string
+    github_name: string | null
+    relevant_commits: RelevantCommit[]
+    user: SignalReviewerUserInfo | null
+}
+
+// ── Discriminated union over all signal variants ─────────────────────────────────
 
 /** @discriminator source_product */
 export type SignalInput =

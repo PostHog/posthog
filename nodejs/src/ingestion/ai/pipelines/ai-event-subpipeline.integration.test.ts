@@ -8,7 +8,7 @@ import { createTestPluginEvent } from '../../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '../../analytics/outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newPipelineBuilder } from '../../pipelines/builders'
@@ -87,6 +87,14 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
                 topic: 'ingestion_warnings_topic',
                 producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
             },
+            [PERSONS_OUTPUT]: {
+                topic: 'persons_topic',
+                producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
+            },
+            [PERSON_DISTINCT_IDS_OUTPUT]: {
+                topic: 'person_distinct_ids_topic',
+                producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
+            },
         }),
         teamManager: {
             setTeamIngestedEvent: jest.fn().mockResolvedValue(undefined),
@@ -104,9 +112,6 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
         } as any,
         groupStore: {} as any,
-        kafkaProducer: {
-            queueMessages: jest.fn().mockResolvedValue(undefined),
-        } as any,
         splitAiEventsConfig: { enabled: false, enabledTeams: '*' },
         groupId: 'test-group',
         topHog: (step) => step,
