@@ -448,12 +448,14 @@ describe('the feature flag release conditions logic', () => {
             }
         })
 
-        it('stores group counts from mixed blast radius response', async () => {
+        it('stores group counts from group-aggregated blast radius response', async () => {
             logic?.unmount()
 
+            // Group-aggregated conditions return users_affected=0 and total_users=0
+            // from the backend, with group counts populated instead
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue({
-                users_affected: 60,
-                total_users: 500,
+                users_affected: 0,
+                total_users: 0,
                 groups_affected: 15,
                 total_groups: 80,
             })
@@ -487,8 +489,8 @@ describe('the feature flag release conditions logic', () => {
                     .toDispatchActions(['setAffectedUsers', 'setAffectedGroups', 'setTotalGroups'])
                     .toFinishAllListeners()
 
-                expect(logic.values.affectedUsers).toEqual({ A: 60 })
-                expect(logic.values.totalUsers).toEqual(500)
+                expect(logic.values.affectedUsers).toEqual({ A: 0 })
+                expect(logic.values.totalUsers).toEqual(0)
                 expect(logic.values.affectedGroups).toEqual({ A: 15 })
                 expect(logic.values.totalGroups).toEqual({ A: 80 })
             } finally {
