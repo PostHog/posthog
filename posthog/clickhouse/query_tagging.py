@@ -47,6 +47,7 @@ class Product(StrEnum):
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
+    BILLING = "billing"
     INTERNAL = "internal"  # for internal use only
 
 
@@ -54,8 +55,8 @@ class Feature(StrEnum):
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
+    QUERY = "query"  # customer-facing queries only
     DIGEST = "digest"
-    QUERY = "query"  # user-facing queries only
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
@@ -64,8 +65,11 @@ class Feature(StrEnum):
     IMPORT_PIPELINE = "import_pipeline"
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
+    ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     SCHEMA_INTROSPECTION = "schema_introspection"
     USAGE_REPORT = "usage_report"
+    BILLING_ETL = "billing_etl"
+    QUOTA_LIMITING = "quota_limiting"
 
 
 class TemporalTags(BaseModel):
