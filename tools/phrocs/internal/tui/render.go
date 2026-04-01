@@ -230,6 +230,14 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
 		)
+	} else if m.setupMode {
+		hint := "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & restart  esc: cancel"
+		if m.setupError != "" {
+			hint = "-- SETUP --  error: " + m.setupError + "  esc: cancel"
+		}
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
+		)
 	} else if m.searchMode {
 		var matchInfo string
 		if m.searchQuery == "" {

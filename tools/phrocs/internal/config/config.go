@@ -76,6 +76,61 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// Intent is a minimal representation of an intent from intent-map.yaml.
+type Intent struct {
+	Description string `yaml:"description"`
+}
+
+// IntentMapConfig holds just enough of intent-map.yaml to display intents in the TUI.
+type IntentMapConfig struct {
+	Intents map[string]Intent `yaml:"intents"`
+}
+
+// LoadIntentMap reads devenv/intent-map.yaml and returns the parsed intents.
+func LoadIntentMap(path string) (*IntentMapConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var cfg IntentMapConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// PosthogConfig represents the _posthog section embedded in generated mprocs configs.
+type PosthogConfig struct {
+	Intents []string `yaml:"intents"`
+}
+
+// LoadPosthogConfig reads a generated mprocs.yaml and extracts the _posthog section.
+// Returns nil (no error) if the section is absent.
+func LoadPosthogConfig(configPath string) (*PosthogConfig, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	phSection, ok := raw["_posthog"]
+	if !ok {
+		return nil, nil
+	}
+	// Re-marshal and unmarshal the _posthog section into PosthogConfig
+	phBytes, err := yaml.Marshal(phSection)
+	if err != nil {
+		return nil, err
+	}
+	var cfg PosthogConfig
+	if err := yaml.Unmarshal(phBytes, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
 // OrderedNames returns process names in a stable, predictable order.
 // "info" is always first (if present), then remaining names sorted alphabetically.
 func (c *Config) OrderedNames() []string {

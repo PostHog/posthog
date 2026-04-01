@@ -179,6 +179,51 @@ def dev_intents() -> None:
         click.echo("")
 
 
+@cli.command(name="dev:apply", help="Apply intent config non-interactively (used by phrocs)")
+@click.argument("intents", nargs=-1, required=True)
+def dev_apply(intents: tuple[str, ...]) -> None:
+    """Apply a set of intents non-interactively, regenerating the mprocs config.
+
+    Preserves existing overrides (exclude_units, enable_autostart, etc.) from
+    the saved config, only replacing the intent list.
+    """
+    try:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    output_path = get_generated_mprocs_path()
+
+    # Load existing config to preserve overrides
+    saved_config = load_devenv_config(output_path)
+    if saved_config is None:
+        saved_config = DevenvConfig()
+
+    # Replace intents with the provided args
+    saved_config.intents = list(intents)
+
+    try:
+        resolved = resolver.resolve(
+            saved_config.intents,
+            include_units=saved_config.include_units,
+            exclude_units=saved_config.exclude_units,
+            skip_autostart=saved_config.skip_autostart,
+            enable_autostart=saved_config.enable_autostart,
+        )
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    generator = MprocsGenerator(registry)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    generator.generate_and_save(resolved, output_path, saved_config)
+
+    click.echo(str(output_path))
+
+
 @cli.command(name="dev:setup", help="Interactive wizard to configure your dev environment")
 @click.option("--log", "log_to_files", is_flag=True, help="Log process output to /tmp/posthog-*.log files")
 def dev_setup(log_to_files: bool) -> None:

@@ -372,6 +372,10 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.viewport.GotoTop()
 		m.dbg("info mode: enter")
 
+	case key.Matches(msg, m.keys.Setup):
+		m = m.enterSetupMode()
+		m.dbg("setup mode: enter")
+
 	case key.Matches(msg, m.keys.Hedgehog):
 		m.hedgehogMode = !m.hedgehogMode
 		m.dbg("hedgehog mode: %v", m.hedgehogMode)
