@@ -22,7 +22,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, TraceQuery
+from posthog.schema import DateRange, IntervalType, TraceQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -32,6 +32,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
     LLMAnalyticsSummarizationBurstThrottle,
@@ -119,11 +120,11 @@ class SummarizeRequestSerializer(serializers.Serializer):
         if has_trace_id and has_generation_id:
             raise serializers.ValidationError("Provide either trace_id or generation_id, not both.")
 
-        # Infer summarize_type from ID fields
+        # When using IDs, override summarize_type to prevent mismatches
         if has_trace_id:
-            attrs.setdefault("summarize_type", "trace")
+            attrs["summarize_type"] = "trace"
         elif has_generation_id:
-            attrs.setdefault("summarize_type", "event")
+            attrs["summarize_type"] = "event"
 
         # summarize_type is required when using data
         if has_data and not attrs.get("summarize_type"):
@@ -294,6 +295,15 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         self, generation_id: str, date_from: str | None, date_to: str | None
     ) -> tuple[str, dict]:
         """Fetch a single generation event by UUID and return (entity_id, entity_data) for summarization."""
+        from datetime import datetime
+
+        qdr = QueryDateRange(
+            DateRange(date_from=date_from or "-30d", date_to=date_to),
+            self.team,
+            IntervalType.DAY,
+            datetime.now(),
+        )
+
         result = execute_hogql_query(
             query=parse_select(
                 """
@@ -308,8 +318,8 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             ),
             placeholders={
                 "generation_uuid": ast.Constant(value=generation_id),
-                "date_from": ast.Constant(value=date_from or "-30d"),
-                "date_to": ast.Constant(value=date_to) if date_to else ast.Call(name="now", args=[]),
+                "date_from": ast.Constant(value=qdr.date_from().isoformat()),
+                "date_to": ast.Constant(value=qdr.date_to().isoformat()),
             },
             team=self.team,
         )
@@ -565,7 +575,7 @@ The response includes the structured summary, the text representation, and metad
 
             return Response(result, status=status.HTTP_200_OK)
 
-        except exceptions.ValidationError:
+        except exceptions.APIException:
             raise
         except Exception as e:
             logger.exception(
