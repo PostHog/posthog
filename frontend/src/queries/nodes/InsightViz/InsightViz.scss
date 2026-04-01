@@ -4,6 +4,7 @@
     flex-direction: column;
     gap: 1rem;
     container-type: inline-size;
+    container-name: insight-viz;
 
     .PropertyGroupFilters__add-filter-group-inline {
         display: block;
@@ -20,10 +21,50 @@
         .EditorFiltersWrapper {
             width: 100%;
 
-            @container (min-width: 768px) {
-                width: 30%;
-                min-width: 26rem;
-                max-width: 30rem;
+            &.EditorFiltersWrapper--panels {
+                // Hide empty ConfigFilter wrappers (e.g. SmoothingFilter on week/month)
+                .InsightDisplayConfig span.deprecated-space-x-2:empty {
+                    display: none;
+                }
+
+                // Allow property filter to shrink next to the X button
+                .property-filter-row .TaxonomicPropertyFilter {
+                    flex: 1;
+                    width: auto;
+                    min-width: 0;
+                }
+
+                // Propagate min-width:0 through the filter chain
+                .ActionFilterRow,
+                .ActionFilterRow-filters,
+                .ActionFilterGroup--events-list {
+                    min-width: 0;
+                }
+
+                @container insight-viz (min-width: 900px) {
+                    width: var(--editor-panel-width, max(min(30%, 600px), 420px));
+                    min-width: 320px;
+                    max-width: 600px;
+                }
+
+                @container editor-panel (max-width: 500px) {
+                    // Inline events: property filter row wraps below "where"
+                    .ActionFilterGroup--events-list .TaxonomicPropertyFilter__row {
+                        flex-wrap: wrap;
+                    }
+
+                    .ActionFilterGroup--events-list .TaxonomicPropertyFilter__row-items {
+                        flex-basis: 100%;
+                    }
+                }
+            }
+
+            &:not(.EditorFiltersWrapper--panels) {
+                @container (min-width: 768px) {
+                    width: 30%;
+                    min-width: 26rem;
+                    max-width: 30rem;
+                }
             }
         }
 

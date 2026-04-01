@@ -33,6 +33,7 @@ from posthog.schema import (
     RetentionEntity,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
+    SpanPropertyFilter,
 )
 
 from posthog.hogql import ast
@@ -554,6 +555,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
     ),
     team: Team,
     scope: Literal[
@@ -677,6 +679,9 @@ def property_to_expr(
         or property.type == "log"
         or property.type == "log_attribute"
         or property.type == "log_resource_attribute"
+        or property.type == "span"
+        or property.type == "span_attribute"
+        or property.type == "span_resource_attribute"
         or property.type == "revenue_analytics"
         or property.type == "workflow_variable"
     ):
@@ -751,6 +756,10 @@ def property_to_expr(
         elif property.type == "log_attribute":
             chain = ["attributes"]
         elif property.type == "log_resource_attribute":
+            chain = ["resource_attributes"]
+        elif property.type == "span_attribute":
+            chain = ["attributes"]
+        elif property.type == "span_resource_attribute":
             chain = ["resource_attributes"]
         elif property.type == "revenue_analytics":
             *chain, property.key = property.key.split(".")

@@ -29,6 +29,10 @@ import {
     OpenAICompletionMessage,
     OpenAIFileMessage,
     OpenAIImageURLMessage,
+    OpenAIResponsesBuiltinToolCall,
+    OpenAIResponsesFunctionCall,
+    OpenAIResponsesFunctionCallOutput,
+    OpenAIResponsesReasoning,
     OpenAIToolCall,
     VercelSDKImageMessage,
     VercelSDKInputImageMessage,
@@ -307,6 +311,52 @@ export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicI
         'content' in input &&
         (typeof input.content === 'string' || Array.isArray(input.content))
     )
+}
+
+// OpenAI Responses API type guards
+const OPENAI_RESPONSES_BUILTIN_TOOL_TYPES = new Set([
+    'web_search_call',
+    'code_interpreter_call',
+    'image_generation_call',
+    'mcp_call',
+    'file_search_call',
+    'computer_call',
+])
+
+export function isOpenAIResponsesFunctionCall(input: unknown): input is OpenAIResponsesFunctionCall {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'function_call' &&
+        'name' in input &&
+        'call_id' in input
+    )
+}
+
+export function isOpenAIResponsesFunctionCallOutput(input: unknown): input is OpenAIResponsesFunctionCallOutput {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'function_call_output' &&
+        'call_id' in input &&
+        'output' in input
+    )
+}
+
+export function isOpenAIResponsesBuiltinToolCall(input: unknown): input is OpenAIResponsesBuiltinToolCall {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        typeof input.type === 'string' &&
+        OPENAI_RESPONSES_BUILTIN_TOOL_TYPES.has(input.type)
+    )
+}
+
+export function isOpenAIResponsesReasoning(input: unknown): input is OpenAIResponsesReasoning {
+    return !!input && typeof input === 'object' && 'type' in input && input.type === 'reasoning'
 }
 
 export function isVercelSDKTextMessage(input: unknown): input is VercelSDKTextMessage {
@@ -801,6 +851,74 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                 role: toolResultRole,
                 content: rawMessage.content,
                 tool_call_id: rawMessage.tool_use_id,
+            },
+        ]
+    }
+
+    // OpenAI Responses API
+    // Function call (role-less, uses `type` instead)
+    if (isOpenAIResponsesFunctionCall(rawMessage)) {
+        let parsedArguments: Record<string, any> | string = rawMessage.arguments
+        if (typeof rawMessage.arguments === 'string') {
+            try {
+                parsedArguments = JSON.parse(rawMessage.arguments)
+            } catch {
+                parsedArguments = rawMessage.arguments
+            }
+        }
+        return [
+            {
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: rawMessage.call_id,
+                        function: {
+                            name: rawMessage.name,
+                            arguments: parsedArguments,
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+    // Function call output
+    if (isOpenAIResponsesFunctionCallOutput(rawMessage)) {
+        return [
+            {
+                role: normalizeRole('assistant (tool result)', roleToUse),
+                content: rawMessage.output,
+                tool_call_id: rawMessage.call_id,
+            },
+        ]
+    }
+    // Reasoning
+    if (isOpenAIResponsesReasoning(rawMessage)) {
+        const summaryText = Array.isArray(rawMessage.summary) ? rawMessage.summary.map((s) => s.text).join('\n') : ''
+        return [
+            {
+                role: normalizeRole('assistant (thinking)', roleToUse),
+                content: summaryText,
+            },
+        ]
+    }
+    // Built-in tool calls (web_search_call, code_interpreter_call, etc.)
+    if (isOpenAIResponsesBuiltinToolCall(rawMessage)) {
+        return [
+            {
+                role: 'assistant',
+                content: JSON.stringify(rawMessage),
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: rawMessage.id,
+                        function: {
+                            name: rawMessage.type,
+                            arguments: {},
+                        },
+                    },
+                ],
             },
         ]
     }

@@ -14,12 +14,15 @@ type Manager struct {
 	procs  []*Process
 	byName map[string]*Process
 	send   func(tea.Msg)
+
 }
 
 func NewManager(cfg *config.Config) *Manager {
+	mgr := &Manager{}
+
 	names := cfg.OrderedNames()
-	procs := make([]*Process, 0, len(names))
-	byName := make(map[string]*Process, len(names))
+	mgr.procs = make([]*Process, 0, len(names))
+	mgr.byName = make(map[string]*Process, len(names))
 
 	for _, name := range names {
 		pcfg := cfg.Procs[name]
@@ -28,14 +31,11 @@ func NewManager(cfg *config.Config) *Manager {
 			pcfg.Shell = docker.StripComposeLogsTail(pcfg.Shell)
 		}
 		proc := NewProcess(name, pcfg, cfg.Scrollback)
-		procs = append(procs, proc)
-		byName[name] = proc
+		mgr.procs = append(mgr.procs, proc)
+		mgr.byName[name] = proc
 	}
 
-	return &Manager{
-		procs:  procs,
-		byName: byName,
-	}
+	return mgr
 }
 
 // Must be called before StartAll
@@ -100,3 +100,4 @@ func (m *Manager) Send() func(tea.Msg) {
 	defer m.mu.Unlock()
 	return m.send
 }
+

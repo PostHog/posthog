@@ -405,6 +405,51 @@ impl KafkaAssigner for KafkaAssignerService {
 
         Ok(Response::new(proto::PartitionReleasedResponse {}))
     }
+
+    async fn deregister(
+        &self,
+        request: Request<proto::DeregisterRequest>,
+    ) -> Result<Response<proto::DeregisterResponse>, Status> {
+        let req = request.into_inner();
+        let consumer_name = &req.consumer_name;
+
+        assignment_coordination::util::validate_identifier(consumer_name)
+            .map_err(|e| Status::invalid_argument(format!("invalid consumer_name: {e}")))?;
+
+        // Look up the consumer's lease ID from the local registry.
+        let lease_id = self
+            .registry
+            .get_lease_id(consumer_name)
+            .ok_or_else(|| Status::not_found(format!("consumer {consumer_name} not connected")))?;
+
+        // Transition the consumer to Draining in etcd. The assigner's
+        // consumer watch loop will see this change and exclude the consumer
+        // from new partition assignments. On the next rebalance (triggered
+        // when all in-flight handoffs complete), the consumer's partitions
+        // will be handed off to other Ready consumers.
+        self.store
+            .update_consumer_status(consumer_name, ConsumerStatus::Draining, lease_id)
+            .await
+            .map_err(|e| {
+                Status::internal(format!("failed to update consumer status to Draining: {e}"))
+            })?;
+
+        // Always return WAIT_FOR_DRAIN so the consumer stays alive to
+        // complete handoffs via the handoff protocol.
+        // TODO: Wire in K8s awareness to return SHUTDOWN_NOW when the same
+        // pod name will come back (e.g. StatefulSet rollouts).
+        let action = proto::DeregisterAction::WaitForDrain;
+
+        tracing::info!(
+            consumer = %consumer_name,
+            action = ?action,
+            "consumer deregistered via gRPC, status set to Draining"
+        );
+
+        Ok(Response::new(proto::DeregisterResponse {
+            action: action.into(),
+        }))
+    }
 }
 
 /// Double-checked locking: run `init_fn` at most once per key.

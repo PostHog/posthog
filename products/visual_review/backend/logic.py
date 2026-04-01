@@ -304,7 +304,42 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
     return verified
 
 
-@transaction.atomic(using=WRITER_DB)
+def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
+    """Fetch baseline content hashes from GitHub for snapshot comparison.
+
+    Returns a dict of identifier → content_hash (plain, not signed).
+    The baseline YAML in the repo is the source of truth.
+    Returns empty dict when baseline file doesn't exist (first run).
+    Raises on network/auth errors — silent failure would misclassify all
+    snapshots as NEW and risk baseline data loss on auto-approve.
+
+
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+    except Exception:
+        # No GitHub integration configured — treat as no baseline (first run / local dev)
+        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
+        return {}
+
+    baseline_paths = repo.baseline_file_paths or {}
+    baseline_path = baseline_paths.get(run_type) or baseline_paths.get("default", ".snapshots.yml")
+
+    # _fetch_baseline_file returns ({}, None) on 404 — no exception for missing files
+    baselines_signed, _sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, branch)
+
+    return _verify_baseline_hashes(
+        repo,
+        {
+            identifier: entry["hash"]
+            for identifier, entry in baselines_signed.items()
+            if isinstance(entry, dict) and "hash" in entry
+        },
+    )
+
+
 def create_run(
     repo_id: UUID,
     team_id: int,
@@ -313,7 +348,7 @@ def create_run(
     branch: str,
     pr_number: int | None,
     snapshots: list[dict],
-    baseline_hashes: dict[str, str],
+    baseline_hashes: dict[str, str] | None = None,
     unchanged_count: int = 0,
     removed_identifiers: list[str] | None = None,
     purpose: str = RunPurpose.REVIEW,
@@ -324,20 +359,45 @@ def create_run(
 
     Returns the run and list of upload targets for missing artifacts.
     Each upload target has: content_hash, url, fields
+
+    baseline_hashes, unchanged_count, removed_identifiers are deprecated —
+    the backend fetches baselines from GitHub and computes everything.
+    Params kept for backward compat with older CLI versions.
     """
     repo = get_repo(repo_id, team_id)
 
-    # Verify HMAC signatures on baseline hashes before trusting them.
-    # Unsigned or invalid hashes are silently dropped (treated as no baseline → NEW).
-    verified_baselines = _verify_baseline_hashes(repo, baseline_hashes)
+    return _create_run_inner(
+        repo,
+        team_id,
+        run_type,
+        commit_sha,
+        branch,
+        pr_number,
+        snapshots,
+        purpose,
+        metadata,
+    )
 
+
+@transaction.atomic(using=WRITER_DB)
+def _create_run_inner(
+    repo,
+    team_id,
+    run_type,
+    commit_sha,
+    branch,
+    pr_number,
+    snapshots,
+    purpose,
+    metadata,
+) -> tuple[Run, list[dict]]:
     # Supersede ALL old runs before inserting the new one. The unique
     # partial index on (repo, branch, run_type) WHERE superseded_by IS NULL
     # requires the slot to be free before the insert. A new CI push always
     # replaces the previous run — approved and clean runs still show up in
     # their respective UI filters via REVIEW_STATE_FILTERS.
     supersede_filter = Run.objects.using(WRITER_DB).filter(
-        repo_id=repo_id,
+        repo_id=repo.id,
         branch=branch,
         run_type=run_type,
         superseded_by__isnull=True,
@@ -349,9 +409,6 @@ def create_run(
 
         Run.objects.using(WRITER_DB).filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=F("id"))
 
-    removed = removed_identifiers or []
-    total = len(snapshots) + unchanged_count
-
     run = Run.objects.create(
         repo=repo,
         team_id=repo.team_id,
@@ -360,7 +417,7 @@ def create_run(
         branch=branch,
         pr_number=pr_number,
         purpose=purpose,
-        total_snapshots=total,
+        total_snapshots=len(snapshots),
         metadata=metadata or {},
     )
 
@@ -368,7 +425,7 @@ def create_run(
     if superseded_ids:
         Run.objects.using(WRITER_DB).filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
 
-    _added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines, removed)
+    _added, uploads = _register_snapshots(run, repo, snapshots)
     _update_run_counts(run, using=WRITER_DB)
 
     transaction.on_commit(
@@ -382,13 +439,12 @@ def _register_snapshots(
     run: Run,
     repo: Repo,
     snapshots: list[dict],
-    verified_baselines: dict[str, str],
-    removed: list[str] | None = None,
 ) -> tuple[int, list[dict]]:
-    """Register snapshots on a run and return upload targets.
+    """Store snapshot rows and generate upload URLs.
 
-    Reused by create_run (full/delta manifest) and add_snapshots_to_run (shard flow).
-    Idempotent per (run, identifier) via unique constraint — safe for shard retries.
+    Stores raw identifier + hash pairs. Classification (CHANGED/NEW/UNCHANGED/REMOVED)
+    happens at complete_run time when the baseline is fetched once.
+    Idempotent per (run, identifier) via unique constraint — safe for retries.
     """
     repo_id = repo.id
     all_hashes: set[str] = set()
@@ -397,21 +453,7 @@ def _register_snapshots(
     for snap in snapshots:
         identifier = snap["identifier"]
         current_hash = snap["content_hash"]
-        baseline_hash = verified_baselines.get(identifier)
-
         all_hashes.add(current_hash)
-        if baseline_hash:
-            all_hashes.add(baseline_hash)
-
-        current_artifact = get_artifact(repo_id, current_hash)
-        baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
-
-        if baseline_hash is None:
-            result = SnapshotResult.NEW
-        elif current_hash == baseline_hash:
-            result = SnapshotResult.UNCHANGED
-        else:
-            result = SnapshotResult.CHANGED
 
         _snapshot, created = RunSnapshot.objects.get_or_create(
             run=run,
@@ -419,31 +461,11 @@ def _register_snapshots(
             identifier=identifier,
             defaults={
                 "current_hash": current_hash,
-                "baseline_hash": baseline_hash or "",
-                "current_artifact": current_artifact,
-                "baseline_artifact": baseline_artifact,
-                "result": result,
+                "baseline_hash": "",
+                "result": SnapshotResult.NEW,  # Provisional — reclassified at complete time
                 "current_width": snap.get("width"),
                 "current_height": snap.get("height"),
                 "metadata": snap.get("metadata") or {},
-            },
-        )
-        if created:
-            added_count += 1
-
-    for identifier in removed or []:
-        baseline_hash = verified_baselines.get(identifier)
-        baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
-        _snapshot, created = RunSnapshot.objects.get_or_create(
-            run=run,
-            team_id=repo.team_id,
-            identifier=identifier,
-            defaults={
-                "current_hash": "",
-                "baseline_hash": baseline_hash or "",
-                "baseline_artifact": baseline_artifact,
-                "result": SnapshotResult.REMOVED,
-                "metadata": {},
             },
         )
         if created:
@@ -480,17 +502,17 @@ def _update_run_counts(run: Run, using: str | None = None) -> None:
     run.save(using=db_alias, update_fields=["changed_count", "new_count", "removed_count"])
 
 
-@transaction.atomic(using=WRITER_DB)
 def add_snapshots_to_run(
     run_id: UUID,
     team_id: int,
     snapshots: list[dict],
-    baseline_hashes: dict[str, str],
+    baseline_hashes: dict[str, str] | None = None,
     unchanged_count: int = 0,
 ) -> tuple[int, list[dict]]:
     """Add a batch of snapshots to an existing run (shard-based flow).
 
     Returns (added_count, upload_targets). Idempotent — safe for retries.
+    baseline_hashes is deprecated — backend fetches from GitHub.
     """
     run = get_run(run_id, team_id=team_id)
 
@@ -498,14 +520,16 @@ def add_snapshots_to_run(
         raise ValueError(f"Can only add snapshots to pending runs (current status: {run.status})")
 
     repo = run.repo
-    verified_baselines = _verify_baseline_hashes(repo, baseline_hashes)
 
-    added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
+    return _add_snapshots_inner(run, run_id, team_id, repo, snapshots)
+
+
+@transaction.atomic(using=WRITER_DB)
+def _add_snapshots_inner(run, run_id, team_id, repo, snapshots):
+    added, uploads = _register_snapshots(run, repo, snapshots)
 
     # Atomically increment total (safe for concurrent shards)
-    Run.objects.using(WRITER_DB).filter(id=run_id, team_id=team_id).update(
-        total_snapshots=F("total_snapshots") + added + unchanged_count
-    )
+    Run.objects.using(WRITER_DB).filter(id=run_id, team_id=team_id).update(total_snapshots=F("total_snapshots") + added)
     _update_run_counts(run, using=WRITER_DB)
 
     return added, uploads
@@ -518,23 +542,16 @@ def mark_run_processing(run_id: UUID) -> Run:
     return run
 
 
-def complete_run(
-    run_id: UUID,
-    removed_identifiers: list[str] | None = None,
-    unchanged_count: int = 0,
-    baseline_hashes: dict[str, str] | None = None,
-) -> Run:
+def complete_run(run_id: UUID) -> Run:
     """
-    Complete a run: verify uploads, create artifacts, trigger diff processing.
+    Complete a run: detect removals, verify uploads, trigger diff processing.
 
-    In shard flow, this is where removed snapshots are detected and final
-    counts are reconciled — shards only know about their own subset.
-
-    1. Registers removed identifiers (shard flow)
-    2. Verifies all expected uploads exist in S3
-    3. Creates Artifact records for verified uploads
-    4. Links artifacts to snapshots
-    5. Triggers async diff processing (only if there are changes to diff)
+    1. Fetches baseline from GitHub, diffs against RunSnapshot rows to find removed
+    2. Creates REMOVED RunSnapshot rows
+    3. Verifies all expected uploads exist in S3
+    4. Creates Artifact records for verified uploads
+    5. Links artifacts to snapshots
+    6. Triggers async diff processing (only if there are changes to diff)
 
     Idempotent: returns immediately if already processing or completed.
     """
@@ -542,33 +559,64 @@ def complete_run(
     if run.status in (RunStatus.PROCESSING, RunStatus.COMPLETED):
         return run
 
-    # Shard flow: register removed identifiers at complete time
-    removed = removed_identifiers or []
-    if removed:
-        repo = run.repo
-        verified = _verify_baseline_hashes(repo, baseline_hashes or {})
-        for identifier in removed:
-            baseline_hash = verified.get(identifier)
-            baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
-            RunSnapshot.objects.get_or_create(
-                run=run,
-                team_id=repo.team_id,
-                identifier=identifier,
-                defaults={
-                    "current_hash": "",
-                    "baseline_hash": baseline_hash or "",
-                    "baseline_artifact": baseline_artifact,
-                    "result": SnapshotResult.REMOVED,
-                    "metadata": {},
-                },
-            )
+    # Transition to PROCESSING early so late add_snapshots calls are rejected.
+    # Atomic update with condition prevents race with concurrent complete calls.
+    updated = Run.objects.filter(id=run_id, team_id=run.repo.team_id, status=RunStatus.PENDING).update(
+        status=RunStatus.PROCESSING
+    )
+    if not updated:
+        # Another complete_run got here first, or status changed
+        return get_run(run_id)
 
-    # Reconcile final counts (includes shards' unchanged + any removals)
-    if unchanged_count or removed:
-        Run.objects.using(WRITER_DB).filter(id=run_id, team_id=run.repo.team_id).update(
-            total_snapshots=F("total_snapshots") + unchanged_count,
+    repo = run.repo
+
+    # Fetch baseline once — used for classification and removal detection
+    baseline = _resolve_baselines(repo, run.run_type, run.branch)
+
+    # Classify existing snapshots against baseline
+    for snapshot in run.snapshots.using(WRITER_DB).all():
+        baseline_hash = baseline.get(snapshot.identifier)
+        baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
+
+        if baseline_hash is None:
+            result = SnapshotResult.NEW
+        elif snapshot.current_hash == baseline_hash:
+            result = SnapshotResult.UNCHANGED
+        else:
+            result = SnapshotResult.CHANGED
+
+        snapshot.result = result
+        snapshot.baseline_hash = baseline_hash or ""
+        snapshot.baseline_artifact = baseline_artifact
+        snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
+        snapshot.save(
+            using=WRITER_DB, update_fields=["result", "baseline_hash", "baseline_artifact", "current_artifact"]
         )
-        _update_run_counts(run, using=WRITER_DB)
+
+    # Detect removed: baseline identifiers with no RunSnapshot row
+    if baseline:
+        produced = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
+        for identifier in baseline:
+            if identifier not in produced:
+                b_hash = baseline[identifier]
+                b_artifact = get_artifact(repo.id, b_hash) if b_hash else None
+                RunSnapshot.objects.using(WRITER_DB).get_or_create(
+                    run=run,
+                    team_id=repo.team_id,
+                    identifier=identifier,
+                    defaults={
+                        "current_hash": "",
+                        "baseline_hash": b_hash or "",
+                        "baseline_artifact": b_artifact,
+                        "result": SnapshotResult.REMOVED,
+                        "metadata": {},
+                    },
+                )
+
+    # Update total and counts from actual RunSnapshot rows
+    run.total_snapshots = run.snapshots.using(WRITER_DB).count()
+    run.save(using=WRITER_DB, update_fields=["total_snapshots"])
+    _update_run_counts(run, using=WRITER_DB)
 
     verify_uploads_and_create_artifacts(run_id)
 
@@ -1131,20 +1179,31 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
 
     snapshots = list(run.snapshots.all().order_by("identifier"))
 
-    # Preserve existing baselines for unchanged snapshots
-    baseline_updates = [
-        {"identifier": s.identifier, "new_hash": s.baseline_hash}
-        for s in snapshots
-        if s.result == SnapshotResult.UNCHANGED and s.baseline_hash
-    ]
-    # Approve changed/new snapshots with their current hash
-    change_updates = [
+    # Fetch current baseline from GitHub — the authoritative source.
+    # This ensures unchanged entries are preserved even in delta mode
+    # where unchanged snapshots have no RunSnapshot rows.
+    baseline_paths = repo.baseline_file_paths or {}
+    baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
+    current_baselines: dict[str, dict] = {}
+
+    github = get_github_integration_for_repo(repo)
+    if github.access_token_expired():
+        github.refresh_access_token()
+    current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
+
+    # Remove entries that are now REMOVED — they should not persist in the baseline
+    removed_identifiers = {s.identifier for s in snapshots if s.result == SnapshotResult.REMOVED}
+    for identifier in removed_identifiers:
+        current_baselines.pop(identifier, None)
+
+    # Apply changes from this run on top of the baseline
+    updates = [
         {"identifier": s.identifier, "new_hash": s.current_hash}
         for s in snapshots
         if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
     ]
 
-    baseline_content = _build_snapshots_yaml(repo, current_baselines={}, updates=baseline_updates + change_updates)
+    baseline_content = _build_snapshots_yaml(repo, current_baselines=current_baselines, updates=updates)
     return run, baseline_content
 
 
