@@ -31,22 +31,22 @@ procs:
             printf '  \033[38;5;245mRun \033[0m\033[38;2;29;74;255mhogli dev:setup\033[0m\033[38;5;245m to tailor this to your workflow.\033[0m\n'
 
     backend:
-        shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-backend'
+        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
         ready_pattern: 'Listening at'
         # no capability: always_required via intent-map.yaml
 
     celery-worker:
-        shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery worker'
+        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
         capability: celery_workers
         ready_pattern: 'celery@'
 
     celery-beat:
-        shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery beat'
+        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery beat'
         capability: celery_scheduler
         ready_pattern: 'celery beat'
 
     nodejs:
-        shell: 'bin/wait-for-docker && bin/check_ducklake_up && ./bin/posthog-node'
+        shell: 'bin/wait-for-docker && ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
@@ -70,7 +70,7 @@ procs:
         ready_pattern: 'All systems go'
 
     ingestion:
-        shell: 'bin/wait-for-docker && bin/check_ducklake_up && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
 
@@ -248,12 +248,12 @@ procs:
         capability: stripe_app
 
     migrate-postgres:
-        shell: 'bin/wait-for-docker && bin/check_ducklake_up && bin/migrate --scope=postgres'
+        shell: 'bin/wait-for-docker && bin/migrate --scope=postgres'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
 
     migrate-clickhouse:
-        shell: 'bin/wait-for-docker && bin/check_ducklake_up && bin/migrate --scope=clickhouse'
+        shell: 'bin/wait-for-docker && bin/migrate --scope=clickhouse'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
 
@@ -275,7 +275,6 @@ procs:
     generate-demo-data:
         shell: |-
             bin/wait-for-docker && \
-            bin/check_ducklake_up && \
             ./manage.py generate_demo_data
         autostart: false
         ready_pattern: 'Demo data ready'
@@ -284,7 +283,6 @@ procs:
     sync-feature-flags:
         shell: |-
             bin/wait-for-docker && \
-            bin/check_ducklake_up && \
             ./manage.py sync_feature_flags
         autostart: false
         ready_pattern: 'Feature flag sync complete'
@@ -293,7 +291,6 @@ procs:
     sync-hog-function-templates:
         shell: |-
             bin/wait-for-docker && \
-            bin/check_ducklake_up && \
             ./manage.py sync_hog_function_templates
         autostart: false
         ready_pattern: 'Hog function template sync complete'
