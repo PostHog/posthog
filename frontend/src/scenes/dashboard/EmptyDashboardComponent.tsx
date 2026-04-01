@@ -133,7 +133,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
             hogLayout="responsive"
             useMainContentContainerQueries={true}
             docsURL={DASHBOARD_DOCS_URL}
-            className="mt-2 mb-2 px-4 @min-[40rem]/main-content:px-8 py-8 @min-[48rem]/main-content:py-14"
+            className="mt-2 mb-2 px-4 @min-[40rem]/main-content:px-8 py-4 @min-[48rem]/main-content:py-14"
             contentClassName="[&>div:last-child]:!mt-4"
             actionElementOverride={
                 <DashboardEmptyActions
