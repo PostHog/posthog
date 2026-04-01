@@ -1813,7 +1813,7 @@ mod tests {
         );
 
         let cache = &matcher.flag_evaluation_state;
-        assert!(cache.person_properties.is_none());
+        assert!(cache.get_person_properties().is_none());
     }
 
     #[tokio::test]

@@ -1163,11 +1163,11 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(
+environments_router.register(
     r"tracing/spans",
     TracingSpansViewSet,
-    "project_tracing_spans",
-    ["project_id"],
+    "environment_tracing_spans",
+    ["team_id"],
 )
 
 environments_router.register(

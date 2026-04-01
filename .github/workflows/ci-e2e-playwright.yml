@@ -399,12 +399,14 @@ jobs:
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
                   # Start the Node.js containers now that the database exists and migrations have run.
-                  # plugins: CDP, logs (no mode = default capabilities)
+                  # plugins: CDP (no mode = default capabilities)
                   # ingestion-general: event ingestion (ingestion-v2-combined mode)
                   # ingestion-sessionreplay: session replay ingestion (recordings-blob-ingestion-v2 mode)
                   # recording-api: session replay API (recording-api mode)
                   # ingestion-error-tracking: error tracking ingestion (ingestion-errortracking mode)
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking
+                  # ingestion-logs: logs ingestion (ingestion-logs mode)
+                  # ingestion-traces: traces ingestion (ingestion-traces mode)
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -422,7 +424,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
-              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking
+              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
 
             - name: Run Playwright tests
               id: playwright-tests
@@ -531,6 +533,8 @@ jobs:
                   docker logs posthog-ingestion-sessionreplay-1 > playwright/test-results/docker-ingestion-sessionreplay.log 2>&1 || echo "No ingestion-sessionreplay container" > playwright/test-results/docker-ingestion-sessionreplay.log
                   docker logs posthog-recording-api-1 > playwright/test-results/docker-recording-api.log 2>&1 || echo "No recording-api container" > playwright/test-results/docker-recording-api.log
                   docker logs posthog-ingestion-error-tracking-1 > playwright/test-results/docker-ingestion-error-tracking.log 2>&1 || echo "No ingestion-error-tracking container" > playwright/test-results/docker-ingestion-error-tracking.log
+                  docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
+                  docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
 
             - name: Archive test artifacts
               if: always()
