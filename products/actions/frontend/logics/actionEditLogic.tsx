@@ -30,6 +30,13 @@ export interface ActionReference {
     created_by: UserBasicType | null
 }
 
+export const REFERENCE_TYPE_LABELS: Record<string, string> = {
+    insight: 'Insight',
+    experiment: 'Experiment',
+    cohort: 'Cohort',
+    hog_function: 'Destination',
+}
+
 export interface SetActionProps {
     merge?: boolean
 }
@@ -67,12 +74,19 @@ export const actionEditLogic = kea<actionEditLogicType>([
         actionAlreadyExists: (actionId: number | null) => ({ actionId }),
         deleteAction: true,
         migrateToHogFunction: true,
+        setReferencesSearch: (search: string) => ({ search }),
     }),
     reducers({
         createNew: [
             false,
             {
                 setCreateNew: (_, { createNew }) => createNew,
+            },
+        ],
+        referencesSearch: [
+            '',
+            {
+                setReferencesSearch: (_, { search }) => search,
             },
         ],
     }),
@@ -195,6 +209,23 @@ export const actionEditLogic = kea<actionEditLogicType>([
             },
         ],
     })),
+
+    selectors({
+        filteredReferences: [
+            (s) => [s.references, s.referencesSearch],
+            (references: ActionReference[], search: string): ActionReference[] => {
+                if (!search) {
+                    return references
+                }
+                const lower = search.toLowerCase()
+                return references.filter(
+                    (ref) =>
+                        ref.name.toLowerCase().includes(lower) ||
+                        (REFERENCE_TYPE_LABELS[ref.type] ?? ref.type).toLowerCase().includes(lower)
+                )
+            },
+        ],
+    }),
 
     listeners(({ values, actions }) => ({
         deleteAction: async () => {

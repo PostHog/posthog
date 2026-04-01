@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -16,17 +17,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.models import Action, Cohort, Insight
+from posthog.models import Action, Cohort, Insight, Team
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.event.event import Selector
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.property.util import build_selector_regex
-from posthog.models.resource_transfer.visitors.cohort import CohortVisitor
-from posthog.models.resource_transfer.visitors.experiment_payload import (
-    collect_cohort_and_action_ids_from_experiment_json,
-)
-from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -281,86 +277,144 @@ class ActionReferenceSerializer(serializers.Serializer):
     created_by = UserBasicSerializer(help_text="User who created the resource", allow_null=True)
 
 
-def find_action_references(action_id: int, team: Any) -> list[dict[str, Any]]:
-    """Find resources that reference a given action.
+_ACTION_JSONPATH = (
+    '$.** ? ((@.kind == "ActionsNode" && (@.id == $id || @.id == $id_str))'
+    " || (@.actionId == $id || @.actionId == $id_str)"
+    ' || (@.type == "actions" && (@.id == $id || @.id == $id_str)))'
+)
+_ACTIONS_ARRAY_JSONPATH = "$.actions[*] ? (@.id == $id || @.id == $id_str)"
 
-    Reuses the resource_transfer visitor extractors so this stays in sync
-    with schema changes automatically.
-    """
+_EXPERIMENT_JSON_FIELDS = (
+    "metrics",
+    "metrics_secondary",
+    "filters",
+    "parameters",
+    "exposure_criteria",
+    "stats_config",
+    "scheduling_config",
+    "variants",
+)
+
+
+def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
+    """Find resources that reference a given action using database-level jsonb_path queries."""
     refs: list[dict[str, Any]] = []
+    vars_json = json.dumps({"id": action_id, "id_str": str(action_id)})
+    cap = 50
 
-    # Insights: confirm with the same extractor used by resource_transfer
-    candidates = Insight.objects.filter(team_id=team.pk, deleted=False).select_related("created_by")
-    for insight in candidates.iterator():
-        if action_id in InsightVisitor._extract_action_ids(insight.filters, insight.query):
-            refs.append(
-                {
-                    "type": "insight",
-                    "id": str(insight.short_id),
-                    "name": insight.name or insight.derived_name or "Unnamed",
-                    "url": f"/insights/{insight.short_id}",
-                    "created_at": insight.created_at,
-                    "created_by": insight.created_by,
-                }
-            )
-            if len(refs) >= 50:
-                return refs
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+    insights = (
+        Insight.objects.filter(team_id=team.pk, deleted=False)
+        .select_related("created_by")
+        .extra(
+            where=[
+                f"""
+                jsonb_path_exists(query, '{_ACTION_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{_ACTION_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', %s::jsonb)
+                """
+            ],
+            params=[vars_json] * 3,
+        )
+    )
+    for insight in insights[:cap]:
+        refs.append(
+            {
+                "type": "insight",
+                "id": str(insight.short_id),
+                "name": insight.name or insight.derived_name or "Unnamed",
+                "url": f"/insights/{insight.short_id}",
+                "created_at": insight.created_at,
+                "created_by": insight.created_by,
+            }
+        )
 
-    # Experiments: reuse the experiment payload visitor
+    remaining = cap - len(refs)
+    if remaining <= 0:
+        return refs
+
     try:
         from products.experiments.backend.models.experiment import Experiment
 
-        for exp in Experiment.objects.filter(team_id=team.pk, deleted=False).select_related("created_by").iterator():
-            _, action_ids = collect_cohort_and_action_ids_from_experiment_json(exp)
-            if action_id in action_ids:
-                refs.append(
-                    {
-                        "type": "experiment",
-                        "id": str(exp.id),
-                        "name": exp.name or "Unnamed",
-                        "url": f"/experiments/{exp.id}",
-                        "created_at": exp.created_at,
-                        "created_by": exp.created_by,
-                    }
-                )
-                if len(refs) >= 50:
-                    return refs
+        exp_conditions = []
+        for field in _EXPERIMENT_JSON_FIELDS:
+            exp_conditions.append(f"jsonb_path_exists({field}, '{_ACTION_JSONPATH}', %s::jsonb)")
+            exp_conditions.append(f"jsonb_path_exists({field}, '{_ACTIONS_ARRAY_JSONPATH}', %s::jsonb)")
+
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        experiments = (
+            Experiment.objects.filter(team_id=team.pk, deleted=False)
+            .select_related("created_by")
+            .extra(where=[" OR ".join(exp_conditions)], params=[vars_json] * len(exp_conditions))
+        )
+        for exp in experiments[:remaining]:
+            refs.append(
+                {
+                    "type": "experiment",
+                    "id": str(exp.id),
+                    "name": exp.name or "Unnamed",
+                    "url": f"/experiments/{exp.id}",
+                    "created_at": exp.created_at,
+                    "created_by": exp.created_by,
+                }
+            )
+
+        remaining = cap - len(refs)
+        if remaining <= 0:
+            return refs
     except ImportError:
         pass
 
-    # Cohorts: reuse the cohort visitor
-    for cohort in (
-        Cohort.objects.filter(team__project_id=team.project_id, deleted=False).select_related("created_by").iterator()
-    ):
-        if action_id in CohortVisitor._extract_action_ids(cohort.filters):
-            refs.append(
-                {
-                    "type": "cohort",
-                    "id": str(cohort.id),
-                    "name": cohort.name or "Unnamed",
-                    "url": f"/cohorts/{cohort.id}",
-                    "created_at": cohort.created_at,
-                    "created_by": cohort.created_by,
-                }
-            )
-            if len(refs) >= 50:
-                return refs
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+    cohorts = (
+        Cohort.objects.filter(team__project_id=team.project_id, deleted=False)
+        .select_related("created_by")
+        .extra(
+            where=[
+                """
+                jsonb_path_exists(filters, '$.** ? (@.event_type == "actions" && (@.key == $id || @.key == $id_str))', %s::jsonb)
+                OR jsonb_path_exists(filters, '$.** ? (@.seq_event_type == "actions" && (@.seq_event == $id || @.seq_event == $id_str))', %s::jsonb)
+                """
+            ],
+            params=[vars_json] * 2,
+        )
+    )
+    for cohort in cohorts[:remaining]:
+        refs.append(
+            {
+                "type": "cohort",
+                "id": str(cohort.id),
+                "name": cohort.name or "Unnamed",
+                "url": f"/cohorts/{cohort.id}",
+                "created_at": cohort.created_at,
+                "created_by": cohort.created_by,
+            }
+        )
 
-    # Hog functions: check filter_action_ids property
-    for hf in HogFunction.objects.filter(team_id=team.pk, deleted=False).select_related("created_by").iterator():
-        if action_id in (hf.filter_action_ids or []):
-            refs.append(
-                {
-                    "type": "hog_function",
-                    "id": str(hf.id),
-                    "name": hf.name or "Unnamed",
-                    "url": f"/functions/{hf.id}",
-                    "created_at": hf.created_at,
-                    "created_by": hf.created_by,
-                }
-            )
-            if len(refs) >= 50:
-                return refs
+    remaining = cap - len(refs)
+    if remaining <= 0:
+        return refs
+
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+    hog_functions = (
+        HogFunction.objects.filter(team_id=team.pk, deleted=False)
+        .select_related("created_by")
+        .extra(
+            where=[f"jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', %s::jsonb)"],
+            params=[vars_json],
+        )
+    )
+    for hf in hog_functions[:remaining]:
+        refs.append(
+            {
+                "type": "hog_function",
+                "id": str(hf.id),
+                "name": hf.name or "Unnamed",
+                "url": f"/functions/{hf.id}",
+                "created_at": hf.created_at,
+                "created_by": hf.created_by,
+            }
+        )
 
     return refs
 

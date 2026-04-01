@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
@@ -45,7 +45,13 @@ import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLo
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
-import { ActionEditLogicProps, ActionReference, DEFAULT_ACTION_STEP, actionEditLogic } from '../logics/actionEditLogic'
+import {
+    ActionEditLogicProps,
+    ActionReference,
+    DEFAULT_ACTION_STEP,
+    REFERENCE_TYPE_LABELS,
+    actionEditLogic,
+} from '../logics/actionEditLogic'
 import { actionLogic } from '../logics/actionLogic'
 
 const RESOURCE_TYPE = 'action'
@@ -329,7 +335,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                         </div>
                                     ),
                                 },
-                                content: <ReferencesList references={references} />,
+                                content: <ReferencesList logicProps={logicProps} />,
                             },
                         ]}
                     />
@@ -411,13 +417,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     )
 }
 
-const REFERENCE_TYPE_LABELS: Record<string, string> = {
-    insight: 'Insight',
-    experiment: 'Experiment',
-    cohort: 'Cohort',
-    hog_function: 'Destination',
-}
-
 const REFERENCES_COLUMNS: LemonTableColumns<ActionReference> = [
     {
         title: 'Name',
@@ -451,24 +450,14 @@ const REFERENCES_COLUMNS: LemonTableColumns<ActionReference> = [
     createdAtColumn() as LemonTableColumns<ActionReference>[number],
 ]
 
-function ReferencesList({ references }: { references: ActionReference[] }): JSX.Element {
-    const [search, setSearch] = useState('')
-    const filtered = useMemo(
-        () =>
-            search
-                ? references.filter(
-                      (ref) =>
-                          ref.name.toLowerCase().includes(search.toLowerCase()) ||
-                          (REFERENCE_TYPE_LABELS[ref.type] ?? ref.type).toLowerCase().includes(search.toLowerCase())
-                  )
-                : references,
-        [references, search]
-    )
+function ReferencesList({ logicProps }: { logicProps: ActionEditLogicProps }): JSX.Element {
+    const { filteredReferences, referencesSearch } = useValues(actionEditLogic(logicProps))
+    const { setReferencesSearch } = useActions(actionEditLogic(logicProps))
 
     return (
         <div className="flex flex-col gap-4">
-            <LemonInput type="search" placeholder="Search..." value={search} onChange={setSearch} />
-            <LemonTable dataSource={filtered} columns={REFERENCES_COLUMNS} pagination={{ pageSize: 10 }} />
+            <LemonInput type="search" placeholder="Search..." value={referencesSearch} onChange={setReferencesSearch} />
+            <LemonTable dataSource={filteredReferences} columns={REFERENCES_COLUMNS} pagination={{ pageSize: 10 }} />
         </div>
     )
 }
