@@ -176,17 +176,18 @@ class TestPrinter(BaseTest):
             "Table column aliases are not allowed in clickhouse dialect",
         )
 
-    def test_range_table_function_not_supported_in_clickhouse(self):
-        self._assert_select_error(
-            "select range from range(10)",
-            "range() is not supported in ClickHouse dialect",
-        )
-
-    def test_generate_series_table_function_not_supported_in_clickhouse(self):
-        self._assert_select_error(
-            "select generate_series from generate_series(1, 10)",
-            "generate_series() is not supported in ClickHouse dialect",
-        )
+    @parameterized.expand(
+        [
+            ("range", "select range from range(10)", "range() is not supported in ClickHouse dialect"),
+            (
+                "generate_series",
+                "select generate_series from generate_series(1, 10)",
+                "generate_series() is not supported in ClickHouse dialect",
+            ),
+        ]
+    )
+    def test_table_function_not_supported_in_clickhouse(self, _name, query, expected_error):
+        self._assert_select_error(query, expected_error)
 
     def test_lambda_style_clickhouse_prints(self):
         printed = self._select("select lambda x: x + 1")
@@ -4583,36 +4584,33 @@ class TestPostgresPrinter(BaseTest):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
         self.assertIn("AS e (event_alias, ts_alias)", printed)
 
-    def test_range_table_function_prints(self):
-        printed = self._select("SELECT range FROM range(10)")
-        self.assertIn("range(10)", printed)
+    @parameterized.expand(
+        [
+            ("range_one_arg", "SELECT range FROM range(10)", "range(10)"),
+            ("range_two_args", "SELECT range FROM range(1, 10)", "range(1, 10)"),
+            ("range_three_args", "SELECT range FROM range(0, 10, 2)", "range(0, 10, 2)"),
+            (
+                "generate_series_two_args",
+                "SELECT generate_series FROM generate_series(1, 10)",
+                "generate_series(1, 10)",
+            ),
+        ]
+    )
+    def test_range_table_function_prints(self, _name, query, expected):
+        printed = self._select(query)
+        self.assertIn(expected, printed)
 
-    def test_range_table_function_with_start_stop(self):
-        printed = self._select("SELECT range FROM range(1, 10)")
-        self.assertIn("range(1, 10)", printed)
-
-    def test_range_table_function_with_step(self):
-        printed = self._select("SELECT range FROM range(0, 10, 2)")
-        self.assertIn("range(0, 10, 2)", printed)
-
-    def test_generate_series_table_function_prints(self):
-        printed = self._select("SELECT generate_series FROM generate_series(1, 10)")
-        self.assertIn("generate_series(1, 10)", printed)
-
-    def test_range_table_function_no_args_error(self):
+    @parameterized.expand(
+        [
+            ("no_args", "SELECT range FROM range", "requires arguments"),
+            ("empty_args", "SELECT range FROM range()", "requires at least 1 argument"),
+            ("too_many_args", "SELECT range FROM range(1, 2, 3, 4)", "requires at most 3 arguments"),
+        ]
+    )
+    def test_range_table_function_arg_errors(self, _name, query, expected_error):
         with self.assertRaises(QueryError) as ctx:
-            self._select("SELECT range FROM range")
-        self.assertIn("requires arguments", str(ctx.exception))
-
-    def test_range_table_function_empty_args_error(self):
-        with self.assertRaises(QueryError) as ctx:
-            self._select("SELECT range FROM range()")
-        self.assertIn("requires at least 1 argument", str(ctx.exception))
-
-    def test_range_table_function_too_many_args_error(self):
-        with self.assertRaises(QueryError) as ctx:
-            self._select("SELECT range FROM range(1, 2, 3, 4)")
-        self.assertIn("requires at most 3 arguments", str(ctx.exception))
+            self._select(query)
+        self.assertIn(expected_error, str(ctx.exception))
 
     @parameterized.expand(
         [
