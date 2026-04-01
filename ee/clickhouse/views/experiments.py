@@ -142,13 +142,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 if metric.get("funnels_query", {}).get("dateRange"):
                     metric["funnels_query"]["dateRange"] = new_date_range
 
-        # Refresh action names in saved metrics
+        # Update date ranges in saved metrics
+        # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
         for saved_metric in data.get("saved_metrics", []):
             if saved_metric.get("query"):
-                # Refresh action names (already done by ExperimentToSavedMetricSerializer.to_representation,
-                # but do it here too for consistency and in case saved_metrics are prefetched)
-                saved_metric["query"] = refresh_action_names_in_metric(saved_metric["query"], instance.team)
-
                 if saved_metric["query"].get("count_query", {}).get("dateRange"):
                     saved_metric["query"]["count_query"]["dateRange"] = new_date_range
                 if saved_metric["query"].get("funnels_query", {}).get("dateRange"):

@@ -19,17 +19,12 @@ class TestRefreshActionNamesInMetric(BaseTest):
         self.action2 = Action.objects.create(team=self.team, name="Original Action 2")
         self.action3 = Action.objects.create(team=self.team, name="Original Action 3")
 
-    @parameterized.expand(
-        [
-            ("mean", "source"),
-        ]
-    )
-    def test_refresh_action_names_in_single_field_metric(self, metric_type: str, field_name: str):
-        """Test refreshing action names in metrics with a single ActionsNode field."""
+    def test_refresh_action_names_in_mean_metric(self):
+        """Test refreshing action names in a mean metric."""
         query = {
             "kind": "ExperimentMetric",
-            "metric_type": metric_type,
-            field_name: {
+            "metric_type": "mean",
+            "source": {
                 "kind": "ActionsNode",
                 "id": self.action1.id,
                 "name": "Original Action 1",
@@ -45,9 +40,9 @@ class TestRefreshActionNamesInMetric(BaseTest):
 
         # Verify the name was updated
         assert updated_query is not None
-        assert updated_query[field_name]["name"] == "Renamed Action 1"
-        assert updated_query[field_name]["id"] == self.action1.id
-        assert updated_query[field_name]["kind"] == "ActionsNode"
+        assert updated_query["source"]["name"] == "Renamed Action 1"
+        assert updated_query["source"]["id"] == self.action1.id
+        assert updated_query["source"]["kind"] == "ActionsNode"
 
     def test_refresh_action_names_in_funnel_metric(self):
         """Test refreshing action names in a funnel metric with multiple steps."""
@@ -154,7 +149,8 @@ class TestRefreshActionNamesInMetric(BaseTest):
         """Test that missing or deleted actions don't cause errors."""
         if action_exists:
             action_id = self.action1.id
-            self.action1.delete()
+            self.action1.deleted = True
+            self.action1.save()
         else:
             action_id = 99999
 

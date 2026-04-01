@@ -57,7 +57,8 @@ def refresh_action_names_in_metric(query: dict[str, Any] | None, team: Team) -> 
     except Exception as e:
         # Be defensive - if anything goes wrong, return the original query unchanged
         logger.warning(
-            f"Error refreshing action names in metric query: {e}",
+            "Error refreshing action names in metric query: %s",
+            e,
             exc_info=True,
             extra={"team_id": team.id, "query_kind": query.get("kind") if query else None},
         )
@@ -72,7 +73,7 @@ def _collect_action_ids(obj: Any, action_ids: set[int]) -> None:
             try:
                 action_ids.add(int(obj["id"]))
             except (ValueError, TypeError):
-                logger.warning(f"Invalid action ID in ActionsNode: {obj['id']}")
+                logger.warning("Invalid action ID in ActionsNode: %s", obj["id"])
         for value in obj.values():
             _collect_action_ids(value, action_ids)
     elif isinstance(obj, list):
@@ -88,7 +89,7 @@ def _update_action_names(obj: Any, actions_by_id: dict[int, str]) -> None:
             try:
                 action_id = int(obj["id"])
             except (ValueError, TypeError):
-                logger.warning(f"Invalid action ID in ActionsNode: {obj['id']}")
+                logger.warning("Invalid action ID in ActionsNode: %s", obj["id"])
                 return
 
             if action_id in actions_by_id:
