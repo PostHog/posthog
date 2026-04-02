@@ -763,29 +763,17 @@ export function FeatureFlagReleaseConditionsCollapsible({
         groupTypes,
         openConditions,
         properties,
+        isMixedTargeting,
+        mixedGroupTypeIndex,
+        isAnyItemDragging,
+        draggedGroup,
     } = useValues(releaseConditionsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
     const isMixedTargetingEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
-    // Mixed targeting is active when the user has selected "User & Group" in Match by,
-    // or when loading a flag that already has mixed aggregation types across condition sets.
-    const hasMixedAggregations = (() => {
-        const aggregations = filterGroups.map((g: FeatureFlagGroupType) => g.aggregation_group_type_index ?? null)
-        return aggregations.length > 1 && !aggregations.every((a: number | null) => a === aggregations[0])
-    })()
-    const [isMixedTargeting, setIsMixedTargeting] = useState(hasMixedAggregations)
-
-    // The group type used for group-targeted condition sets in mixed mode.
-    // Defaults to the first group type, or the first group-type found in existing conditions.
     const groupTypeValues = Array.from(groupTypes.values()) as GroupType[]
-    const defaultGroupTypeIndex =
-        filterGroups.find((g: FeatureFlagGroupType) => g.aggregation_group_type_index != null)
-            ?.aggregation_group_type_index ??
-        groupTypeValues[0]?.group_type_index ??
-        0
-    const [mixedGroupTypeIndex, setMixedGroupTypeIndex] = useState<number>(defaultGroupTypeIndex)
 
     const {
         updateConditionSet,
@@ -798,6 +786,10 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setAggregationGroupTypeIndex,
         setConditionAggregation,
         setOpenConditions,
+        setIsMixedTargeting,
+        setMixedGroupTypeIndex,
+        setIsAnyItemDragging,
+        setDraggedGroup,
     } = useActions(releaseConditionsLogic)
 
     const handleAddConditionSet = (): void => {
@@ -810,8 +802,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
         }),
         useSensor(KeyboardSensor)
     )
-    const [isAnyItemDragging, setIsAnyItemDragging] = useState(false)
-    const [draggedGroup, setDraggedGroup] = useState<FeatureFlagGroupType | null>(null)
 
     const handleDragStart = (event: DragStartEvent): void => {
         setIsAnyItemDragging(true)
