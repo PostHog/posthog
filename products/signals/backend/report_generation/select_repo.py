@@ -129,7 +129,7 @@ async def select_repository_for_report(
         user_id=user_id,
         repository=REPO_SELECTION_DUMMY_REPOSITORY,
         sandbox_environment_id=sandbox_environment_id,
-        posthog_mcp_scopes=[],  # Only uses gh CLI, no PostHog API access needed
+        posthog_mcp_scopes=[],  # Only uses gh CLI — no PostHog MCP tools, only internal scopes (task:write, llm_gateway:read)
     )
     result = await run_sandbox_agent_get_structured_output(
         prompt=prompt,
