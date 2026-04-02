@@ -37,7 +37,7 @@ const FREQUENCY_OPTIONS: { value: string; days: number | undefined; label: strin
 export function WhenStep(): JSX.Element {
     const { survey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
-    const { recommendedFrequency } = useValues(surveyWizardLogic)
+    const { recommendedFrequency } = useValues(surveyWizardLogic({ id: survey.id || 'new' }))
 
     const conditions: Partial<SurveyDisplayConditions> = survey.conditions || {}
     const appearance: Partial<SurveyAppearance> = survey.appearance || {}

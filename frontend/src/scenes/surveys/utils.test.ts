@@ -3,6 +3,7 @@ import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
+    FeatureFlagFilters,
     PropertyFilterType,
     Survey,
     SurveyAppearance,
@@ -500,7 +501,7 @@ describe('survey utils', () => {
         })
 
         it('detects advanced audience targeting', () => {
-            const filters = {
+            const filters: FeatureFlagFilters = {
                 groups: [
                     {
                         properties: [
