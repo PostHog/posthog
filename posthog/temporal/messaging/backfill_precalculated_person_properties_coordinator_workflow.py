@@ -40,7 +40,14 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
     """Fetch a page of person ID ranges for a team using cursor-based pagination."""
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
+    if inputs.batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {inputs.batch_size}")
+    if inputs.page_size <= 0:
+        raise ValueError(f"page_size must be positive, got {inputs.page_size}")
+
     limit = inputs.batch_size * inputs.page_size
+    # Fetch one extra row to check if there's more data
+    query_limit = limit + 1
 
     if inputs.after_person_id is not None:
         query = """
@@ -56,7 +63,7 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
         query_params: dict[str, object] = {
             "team_id": inputs.team_id,
             "after_person_id": inputs.after_person_id,
-            "limit": limit,
+            "limit": query_limit,
         }
     else:
         query = """
@@ -70,7 +77,7 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
         """
         query_params = {
             "team_id": inputs.team_id,
-            "limit": limit,
+            "limit": query_limit,
         }
 
     ranges: list[tuple[str, str]] = []
@@ -78,6 +85,7 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
     current_batch_count = 0
     total_count = 0
     last_person_id: str | None = None
+    has_more_data = False
 
     with tags_context(
         team_id=inputs.team_id,
@@ -88,6 +96,12 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
         async with get_client(team_id=inputs.team_id) as client:
             async for row in client.stream_query_as_jsonl(query, query_parameters=query_params):
                 person_id = str(row["person_id"])
+
+                # If we hit the limit + 1, we know there's more data, but don't process this row
+                if total_count >= limit:
+                    has_more_data = True
+                    break
+
                 last_person_id = person_id
 
                 if current_batch_start is None:
@@ -102,16 +116,19 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
                     ranges.append((current_batch_start, person_id))
                     current_batch_start = None
                     current_batch_count = 0
-
-                if total_count % 10000 == 0:
+                    # Heartbeat after each completed range to ensure regular heartbeats
                     temporalio.activity.heartbeat(f"Page: processed {total_count} persons, {len(ranges)} ranges")
 
             # Handle final partial batch
             if current_batch_start is not None and current_batch_count > 0 and last_person_id is not None:
                 ranges.append((current_batch_start, last_person_id))
 
-    # If we got exactly `limit` rows, there might be more data
-    cursor = last_person_id if total_count == limit else None
+            # Final heartbeat to report completion
+            if total_count > 0:
+                temporalio.activity.heartbeat(f"Page: processed {total_count} persons, {len(ranges)} ranges")
+
+    # Set cursor only if we know there's more data
+    cursor = last_person_id if has_more_data else None
 
     return PersonIdRangesPageResult(ranges=ranges, cursor=cursor)
 
@@ -216,6 +233,11 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
         Fetches person ID ranges page by page and starts child workflows as
         ranges are discovered, respecting the concurrency limit throughout.
         """
+        if inputs.batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {inputs.batch_size}")
+        if inputs.concurrent_workflows <= 0:
+            raise ValueError(f"concurrent_workflows must be positive, got {inputs.concurrent_workflows}")
+
         workflow_logger = temporalio.workflow.logger
         cohort_ids = inputs.cohort_ids
         workflow_logger.info(

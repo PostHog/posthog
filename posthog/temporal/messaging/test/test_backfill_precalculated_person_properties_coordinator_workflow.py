@@ -78,7 +78,7 @@ class TestBackfillPrecalculatedPersonPropertiesCoordinatorWorkflow:
             patch("temporalio.workflow.info", return_value=mock_workflow_info),
             patch("temporalio.workflow.execute_activity", return_value=page_result),
             patch.object(workflow, "_start_child_workflow_for_range", side_effect=mock_start_child_workflow),
-            patch("asyncio.wait", return_value=([], [])),
+            patch("asyncio.wait", return_value=(set(), set())),
             patch("temporalio.workflow.logger") as mock_logger,
         ):
             await workflow.run(inputs)
