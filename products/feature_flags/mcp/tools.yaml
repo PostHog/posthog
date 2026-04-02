@@ -59,14 +59,6 @@ tools:
         title: Get feature flag definition
         description: |
             Get a feature flag by ID.
-        response:
-            include:
-                - id
-                - key
-                - name
-                - updated_at
-                - status
-                - tags
     create-feature-flag:
         operation: feature_flags_create
         enabled: true
