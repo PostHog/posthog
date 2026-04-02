@@ -275,18 +275,17 @@ const sharedInsecureAgent = new InsecureAgent()
  * undici holds onto these buffers until GC, and V8 never returns the ~64MB
  * ArrayBuffer arenas they live in to the OS.
  */
-function destroyBody(body: Dispatcher.ResponseData['body']): void {
-    // Swallow the error event that undici's BodyReadable emits on destroy
-    body.on('error', () => {})
-    body.destroy()
-}
-
 async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promise<string> {
+    const text = await body.text()
+    // After text() fully consumes the stream, destroy to release socket buffers.
+    // At this point the stream is already ended so destroy is a cleanup no-op,
+    // but it signals undici to release the underlying socket immediately.
     try {
-        return await body.text()
-    } finally {
-        destroyBody(body)
+        body.destroy()
+    } catch {
+        // Ignore destroy errors — the body is already fully consumed
     }
+    return text
 }
 
 export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
@@ -340,7 +339,12 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         dump: () => {
             if (!bodyPromise) {
                 bodyPromise = Promise.resolve('')
-                destroyBody(result.body)
+                try {
+                    result.body.on('error', () => {})
+                    result.body.destroy()
+                } catch {
+                    // Ignore destroy errors
+                }
             }
             return Promise.resolve()
         },
