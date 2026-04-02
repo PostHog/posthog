@@ -217,6 +217,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             false,
             {
                 setDebugMode: (_, { debugMode }: { debugMode: boolean }) => debugMode,
+                loadEndpoint: () => false,
             },
         ],
         bucketOverrides: [
