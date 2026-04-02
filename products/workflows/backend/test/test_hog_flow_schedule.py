@@ -186,6 +186,9 @@ class TestHogFlowScheduleAPI(APIBaseTest):
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
+@unittest.mock.patch(
+    "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+)
 class TestProcessDueSchedules(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
 
@@ -216,7 +219,7 @@ class TestProcessDueSchedules(APIBaseTest):
             HTTP_X_INTERNAL_API_SECRET="test-secret",
         )
 
-    def test_due_schedule_is_processed_and_next_run_at_advanced(self):
+    def test_due_schedule_is_processed_and_next_run_at_advanced(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
@@ -231,9 +234,6 @@ class TestProcessDueSchedules(APIBaseTest):
         assert schedule.next_run_at is not None
         assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
 
-    @unittest.mock.patch(
-        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
-    )
     def test_due_schedule_creates_batch_job(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
@@ -248,7 +248,7 @@ class TestProcessDueSchedules(APIBaseTest):
         assert batch_job.variables == {"greeting": "Hello"}
         mock_dispatch.assert_called_once()
 
-    def test_inactive_workflow_clears_next_run_at(self):
+    def test_inactive_workflow_clears_next_run_at(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
@@ -262,7 +262,7 @@ class TestProcessDueSchedules(APIBaseTest):
         schedule.refresh_from_db()
         assert schedule.next_run_at is None
 
-    def test_uninitialized_schedule_gets_next_run_at(self):
+    def test_uninitialized_schedule_gets_next_run_at(self, mock_dispatch):
         _, schedule = self._create_workflow_with_schedule(next_run_at=None)
         response = self._post()
         assert response.status_code == 200
@@ -271,7 +271,7 @@ class TestProcessDueSchedules(APIBaseTest):
         schedule.refresh_from_db()
         assert schedule.next_run_at is not None
 
-    def test_exhausted_rrule_marks_schedule_completed(self):
+    def test_exhausted_rrule_marks_schedule_completed(self, mock_dispatch):
         _, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
             starts_at=datetime(2019, 12, 31, tzinfo=UTC),
@@ -284,7 +284,7 @@ class TestProcessDueSchedules(APIBaseTest):
         assert schedule.status == "completed"
         assert schedule.next_run_at is None
 
-    def test_bad_rrule_appears_in_failed(self):
+    def test_bad_rrule_appears_in_failed(self, mock_dispatch):
         _, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
             rrule="INVALID_RRULE",
@@ -294,7 +294,7 @@ class TestProcessDueSchedules(APIBaseTest):
         assert str(schedule.id) in response.json()["failed"]
         assert len(response.json()["processed"]) == 0
 
-    def test_no_due_schedules_returns_empty(self):
+    def test_no_due_schedules_returns_empty(self, mock_dispatch):
         self._create_workflow_with_schedule(
             next_run_at=datetime(2099, 1, 1, tzinfo=UTC),
         )
@@ -304,9 +304,6 @@ class TestProcessDueSchedules(APIBaseTest):
         assert len(response.json()["initialized"]) == 0
         assert len(response.json()["failed"]) == 0
 
-    @unittest.mock.patch(
-        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
-    )
     def test_schedule_with_variable_overrides_resolves_correctly(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
@@ -323,7 +320,7 @@ class TestProcessDueSchedules(APIBaseTest):
         assert batch_job.variables["greeting"] == "Overridden"
         assert batch_job.variables["extra"] == "value"
 
-    def test_multiple_due_schedules_processed_independently(self):
+    def test_multiple_due_schedules_processed_independently(self, mock_dispatch):
         self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
         self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
         self._create_workflow_with_schedule(
@@ -336,7 +333,7 @@ class TestProcessDueSchedules(APIBaseTest):
         assert len(response.json()["processed"]) == 2
         assert len(response.json()["failed"]) == 1
 
-    def test_non_batch_trigger_not_reinitialized(self):
+    def test_non_batch_trigger_not_reinitialized(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
