@@ -554,11 +554,15 @@ async def materialize_model(
             write_duration = (dt.datetime.now() - write_start).total_seconds()
 
             row_count = row_count + batch.num_rows
-            job.rows_materialized = row_count
-
             save_start = dt.datetime.now()
-            await database_sync_to_async(job.save)()
+            updated = await database_sync_to_async(
+                DataModelingJob.objects.filter(id=job.id, status=DataModelingJob.Status.RUNNING).update
+            )(rows_materialized=row_count)
             save_duration = (dt.datetime.now() - save_start).total_seconds()
+
+            if updated == 0:
+                await logger.awarning("Job %s is no longer running, stopping materialization", job.id)
+                raise DataModelingCancelledException("Job was cancelled or preempted during materialization")
 
             await logger.adebug(
                 f"Batch {index} timings: write={write_duration:.2f}s, save={save_duration:.2f}s, total={write_duration + save_duration:.2f}s"
@@ -570,6 +574,8 @@ async def materialize_model(
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
     except ObjectDoesNotExist:
+        raise
+    except DataModelingCancelledException:
         raise
     except Exception as e:
         error_message = str(e)
