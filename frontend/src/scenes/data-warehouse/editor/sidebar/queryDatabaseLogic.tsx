@@ -128,7 +128,7 @@ type FieldTraversalOptions = {
     depth?: number
 }
 
-type SearchTreeSourceContext = {
+export type SearchTreeSourceContext = {
     allPosthogTables: DatabaseSchemaTable[]
     systemTables: DatabaseSchemaTable[]
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
@@ -138,7 +138,7 @@ type SearchTreeSourceContext = {
     allTablesMap: Record<string, DatabaseSchemaTable>
 }
 
-type SearchTreeMatches = {
+export type SearchTreeMatches = {
     relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
     relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
     relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]
@@ -149,7 +149,7 @@ type SearchTreeMatches = {
     relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
 }
 
-type TreeDataContext = {
+export type TreeDataContext = {
     allPosthogTables: DatabaseSchemaTable[]
     posthogTables: DatabaseSchemaTable[]
     systemTables: DatabaseSchemaTable[]
