@@ -17,20 +17,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="notificationevent",
             name="source_type",
-            field=models.CharField(
-                blank=True,
-                choices=[
-                    ("replay", "REPLAY"),
-                    ("notebook", "NOTEBOOK"),
-                    ("insight", "INSIGHT"),
-                    ("feature_flag", "FEATURE_FLAG"),
-                    ("dashboard", "DASHBOARD"),
-                    ("survey", "SURVEY"),
-                    ("experiment", "EXPERIMENT"),
-                    ("error_tracking", "ERROR_TRACKING"),
-                ],
-                max_length=64,
-                null=True,
-            ),
+            field=models.CharField(blank=True, max_length=64, null=True),
         ),
     ]
