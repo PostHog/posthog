@@ -29,13 +29,29 @@ IGNORED_DUPLICATE_MIGRATION_NUMBERS = frozenset(
 
 
 def get_all_migrations() -> list[tuple[str, str]]:
-    """Get all migrations as (index, name) tuples."""
+    """Get all migrations as (index, name) tuples.
+
+    Matches both legacy .py files and new-style directory-based migrations
+    (directories containing a manifest.yaml).
+    """
     migrations: list[tuple[str, str]] = []
-    for filename in os.listdir(MIGRATIONS_DIR):
-        match = re.match(r"([0-9]+)_([a-zA-Z_0-9]+)\.py", filename)
+    for entry in os.listdir(MIGRATIONS_DIR):
+        full_path = os.path.join(MIGRATIONS_DIR, entry)
+
+        # Legacy .py file migrations
+        match = re.match(r"([0-9]+)_([a-zA-Z_0-9]+)\.py", entry)
         if match:
             groups = match.groups()
             migrations.append((groups[0], groups[1]))
+            continue
+
+        # New-style directory-based migrations (contain manifest.yaml)
+        if os.path.isdir(full_path):
+            dir_match = re.match(r"([0-9]+)_([a-zA-Z_0-9]+)", entry)
+            if dir_match and os.path.isfile(os.path.join(full_path, "manifest.yaml")):
+                groups = dir_match.groups()
+                migrations.append((groups[0], groups[1]))
+
     return sorted(migrations, key=lambda x: (int(x[0]), x[1]))
 
 
@@ -89,7 +105,19 @@ class Command(BaseCommand):
             logger.warning("Not running migration-specific checks. See .github/workflows/ci-backend.yml for usage.")
             return
 
-        migrations = [m.strip() for m in sys.stdin.readlines() if m.strip()]
+        raw_paths = [m.strip() for m in sys.stdin.readlines() if m.strip()]
+
+        # Deduplicate directory-based migrations: multiple files (up.sql, down.sql,
+        # manifest.yaml) in the same directory represent one migration.
+        seen: dict[str, str] = {}
+        for path in raw_paths:
+            dir_match = re.search(r"clickhouse/migrations/([0-9]+_[a-zA-Z_0-9]+)/", path)
+            if dir_match:
+                key = dir_match.group(1)
+                seen.setdefault(key, path)
+            else:
+                seen[path] = path
+        migrations = list(seen.values())
 
         if len(migrations) > 1:
             logger.error("Multiple migrations in PR. Please limit to one migration per PR.")
@@ -121,14 +149,29 @@ class Command(BaseCommand):
 
         old_migrations = []
         for filename in master_migrations:
+            # Match both .py files and directories
             match = re.findall(r"([0-9]+)_([a-zA-Z_0-9]+)\.py", filename)
             if match:
                 old_migrations.append(match[0])
+            else:
+                dir_match = re.match(r"([0-9]+)_([a-zA-Z_0-9]+)$", filename)
+                if dir_match and os.path.isdir(os.path.join(MIGRATIONS_DIR, filename)):
+                    old_migrations.append(dir_match.groups())
 
         try:
-            _, index, name = re.findall(r"([a-z]+)/clickhouse/migrations/([0-9]+)_([a-zA-Z_0-9]+)\.py", new_migration)[
-                0
-            ]
+            # Try .py file pattern first, then directory pattern
+            py_match = re.findall(r"([a-z]+)/clickhouse/migrations/([0-9]+)_([a-zA-Z_0-9]+)\.py", new_migration)
+            if py_match:
+                _, index, name = py_match[0]
+            else:
+                # Directory-based migration: path like posthog/clickhouse/migrations/0224_name/manifest.yaml
+                dir_match_result = re.findall(
+                    r"([a-z]+)/clickhouse/migrations/([0-9]+)_([a-zA-Z_0-9]+)/", new_migration
+                )
+                if dir_match_result:
+                    _, index, name = dir_match_result[0]
+                else:
+                    raise IndexError(f"No match for path: {new_migration}")
         except (IndexError, CommandError) as exc:
             logger.warning("Could not parse migration path '%s': %s", new_migration, exc)
             return
