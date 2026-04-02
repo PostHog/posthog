@@ -27,6 +27,10 @@ type EmptyStateProps = {
     groupType: TaxonomicFilterGroupType
 }
 
+type TaxonomicFilterEmptyStateProps = {
+    isLoading?: boolean
+}
+
 const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }: EmptyStateProps): JSX.Element => {
     const { push } = useActions(router)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
@@ -56,15 +60,17 @@ const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }
                     >
                         {action.text}
                     </LemonButton>
-                    <LemonButton
-                        type="tertiary"
-                        sideIcon={<IconOpenSidebar className="w-4 h-4" />}
-                        to={`${docsUrl}?utm_medium=in-product&utm_campaign=taxonomic-filter-empty-state-docs-link`}
-                        data-attr="product-introduction-docs-link"
-                        targetBlank
-                    >
-                        Learn more
-                    </LemonButton>
+                    {docsUrl ? (
+                        <LemonButton
+                            type="tertiary"
+                            sideIcon={<IconOpenSidebar className="w-4 h-4" />}
+                            to={`${docsUrl}?utm_medium=in-product&utm_campaign=taxonomic-filter-empty-state-docs-link`}
+                            data-attr="product-introduction-docs-link"
+                            targetBlank
+                        >
+                            Learn more
+                        </LemonButton>
+                    ) : null}
                 </div>
             </div>
         </div>
@@ -156,7 +162,7 @@ const DefaultEmptyState = (): JSX.Element | null => {
     return null
 }
 
-const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, () => JSX.Element>> = {
+const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, React.ComponentType<TaxonomicFilterEmptyStateProps>>> = {
     [TaxonomicFilterGroupType.DataWarehouse]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehouseProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehousePersonProperties]: DataWarehouseEmptyState,
@@ -172,18 +178,7 @@ export const TaxonomicFilterEmptyState = ({ groupType, isLoading = false }: Prop
     const EmptyState = EMPTY_STATES[groupType]
 
     if (EmptyState) {
-        if (
-            isLoading &&
-            [
-                TaxonomicFilterGroupType.DataWarehouse,
-                TaxonomicFilterGroupType.DataWarehouseProperties,
-                TaxonomicFilterGroupType.DataWarehousePersonProperties,
-            ].includes(groupType)
-        ) {
-            return <DataWarehouseEmptyState isLoading />
-        }
-
-        return <EmptyState />
+        return <EmptyState isLoading={isLoading} />
     }
 
     return <DefaultEmptyState />
