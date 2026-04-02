@@ -64,6 +64,12 @@ export const getStorybookAppContext = (): AppContext => ({
             updated_at: new Date().toISOString(),
         },
     ],
+    oauth_application: {
+        client_id: 'storybook-client-id',
+        name: 'Storybook OAuth App',
+        is_verified: false,
+        logo_uri: null,
+    },
     resource_access_control: {
         action: 'manager',
         feature_flag: 'manager',

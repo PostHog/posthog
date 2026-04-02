@@ -30,6 +30,7 @@ from posthog.temporal.data_imports.pipelines.common.load import (
     notify_revenue_analytics_that_sync_has_completed,
     supports_partial_data_loading,
 )
+from posthog.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
@@ -414,6 +415,9 @@ class PipelineNonDLT(Generic[ResumableData]):
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
         await self._logger.adebug("Finished validating schema and updating table")
+
+        await self._logger.adebug("Syncing revenue analytics views")
+        await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)
 
 
 def _estimate_size(obj: Any) -> int:
