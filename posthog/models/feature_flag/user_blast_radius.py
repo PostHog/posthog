@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -13,15 +12,11 @@ from posthog.models.property import GroupTypeIndex, Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 
-logger = logging.getLogger(__name__)
-
 
 @dataclass
 class BlastRadiusResult:
-    users_affected: int
-    total_users: int
-    groups_affected: Optional[int] = None
-    total_groups: Optional[int] = None
+    affected: int
+    total: int
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -62,19 +57,10 @@ def get_user_blast_radius(
     cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
     if group_type_index is not None:
-        # Group-aggregated condition: query the groups table. Each condition set
-        # is homogeneous (all group properties or all person properties), so we
-        # route purely on the presence of group_type_index.
-        groups_affected, total_groups = _get_group_blast_radius(team, cleaned_filter, group_type_index)
-        return BlastRadiusResult(
-            users_affected=0,
-            total_users=0,
-            groups_affected=groups_affected,
-            total_groups=total_groups,
-        )
+        affected, total = _get_group_blast_radius(team, cleaned_filter, group_type_index)
     else:
         affected, total = _get_person_blast_radius(team, cleaned_filter)
-        return BlastRadiusResult(users_affected=affected, total_users=total)
+    return BlastRadiusResult(affected=affected, total=total)
 
 
 def get_user_blast_radius_persons(

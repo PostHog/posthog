@@ -8590,7 +8590,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 4, "total_users": 10}.items(), response_json.items())
+        self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):
@@ -8621,7 +8621,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 3, "total_users": 8}.items(), response_json.items())
+        self.assertLessEqual({"affected": 3, "total": 8}.items(), response_json.items())
 
     def test_user_blast_radius_with_zero_users(self):
         response = self.client.post(
@@ -8644,7 +8644,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 0, "total_users": 0}.items(), response_json.items())
+        self.assertLessEqual({"affected": 0, "total": 0}.items(), response_json.items())
 
     def test_user_blast_radius_with_zero_selected_users(self):
         for i in range(5):
@@ -8674,7 +8674,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 0, "total_users": 5}.items(), response_json.items())
+        self.assertLessEqual({"affected": 0, "total": 5}.items(), response_json.items())
 
     def test_user_blast_radius_with_all_selected_users(self):
         for i in range(5):
@@ -8692,7 +8692,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 5, "total_users": 5}.items(), response_json.items())
+        self.assertLessEqual({"affected": 5, "total": 5}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):
@@ -8740,7 +8740,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 3, "total_users": 10}.items(), response_json.items())
+        self.assertLessEqual({"affected": 3, "total": 10}.items(), response_json.items())
 
         # test the same with precalculated cohort. Snapshots shouldn't have group property filter
         cohort1.calculate_people_ch(pending_version=0)
@@ -8759,7 +8759,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
-            self.assertLessEqual({"users_affected": 3, "total_users": 10}.items(), response_json.items())
+            self.assertLessEqual({"affected": 3, "total": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_precalculated_cohorts(self):
@@ -8836,7 +8836,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
-            self.assertLessEqual({"users_affected": 2, "total_users": 10}.items(), response_json.items())
+            self.assertLessEqual({"affected": 2, "total": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_static_cohorts(self):
@@ -8888,7 +8888,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"users_affected": 2, "total_users": 10}.items(), response_json.items())
+        self.assertLessEqual({"affected": 2, "total": 10}.items(), response_json.items())
 
         cohort1.calculate_people_ch(pending_version=0)
         # converts to precalculated-cohort due to simplify filters
@@ -8911,7 +8911,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
-            self.assertLessEqual({"users_affected": 2, "total_users": 10}.items(), response_json.items())
+            self.assertLessEqual({"affected": 2, "total": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups(self):
@@ -8952,7 +8952,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"groups_affected": 4, "total_groups": 10}.items(), response_json.items())
+        self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
     def test_user_blast_radius_with_groups_zero_selected(self):
         create_group_type_mapping_without_created_at(
@@ -8992,7 +8992,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"groups_affected": 0, "total_groups": 5}.items(), response_json.items())
+        self.assertLessEqual({"affected": 0, "total": 5}.items(), response_json.items())
 
     def test_user_blast_radius_with_groups_all_selected(self):
         create_group_type_mapping_without_created_at(
@@ -9030,7 +9030,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"groups_affected": 5, "total_groups": 5}.items(), response_json.items())
+        self.assertLessEqual({"affected": 5, "total": 5}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups_multiple_queries(self):
@@ -9084,7 +9084,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertLessEqual({"groups_affected": 3, "total_groups": 10}.items(), response_json.items())
+        self.assertLessEqual({"affected": 3, "total": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_group_key_property(self):
@@ -9136,7 +9136,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match exactly 1 group out of 11 total
-        self.assertLessEqual({"groups_affected": 1, "total_groups": 11}.items(), response_json.items())
+        self.assertLessEqual({"affected": 1, "total": 11}.items(), response_json.items())
 
         # Test filtering by group key pattern
         response = self.client.post(
@@ -9161,7 +9161,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match 10 groups that have "org:" in their key
-        self.assertLessEqual({"groups_affected": 10, "total_groups": 11}.items(), response_json.items())
+        self.assertLessEqual({"affected": 10, "total": 11}.items(), response_json.items())
 
     def test_user_blast_radius_with_integer_property_values(self):
         """Test that integer property values are correctly normalized to strings for matching"""
@@ -9201,8 +9201,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Both p1 (int 25) and p2 (string "25") should match
-        self.assertEqual(response_json["users_affected"], 2)
-        self.assertEqual(response_json["total_users"], 3)
+        self.assertEqual(response_json["affected"], 2)
+        self.assertEqual(response_json["total"], 3)
 
     @parameterized.expand(
         [
@@ -9262,8 +9262,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["groups_affected"], expected_affected)
-        self.assertEqual(response_json["total_groups"], expected_total)
+        self.assertEqual(response_json["affected"], expected_affected)
+        self.assertEqual(response_json["total"], expected_total)
 
     def test_user_blast_radius_with_group_key_and_regular_properties(self):
         """Test combining $group_key with regular group properties"""
@@ -9322,8 +9322,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match only "org:premium" (has both org: prefix AND enterprise plan)
-        self.assertEqual(response_json["groups_affected"], 1)
-        self.assertEqual(response_json["total_groups"], 3)
+        self.assertEqual(response_json["affected"], 1)
+        self.assertEqual(response_json["total"], 3)
 
     def test_user_blast_radius_with_dynamic_cohort(self):
         """Test that dynamic cohorts are evaluated correctly"""
@@ -9368,8 +9368,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 1)
-        self.assertEqual(response_json["total_users"], 2)
+        self.assertEqual(response_json["affected"], 1)
+        self.assertEqual(response_json["total"], 2)
 
     def test_user_blast_radius_with_groups_incorrect_group_type(self):
         create_group_type_mapping_without_created_at(
@@ -9521,8 +9521,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match org-alpha and org-beta (2 out of 3)
-        self.assertEqual(response_json["groups_affected"], 2)
-        self.assertEqual(response_json["total_groups"], 3)
+        self.assertEqual(response_json["affected"], 2)
+        self.assertEqual(response_json["total"], 3)
 
     def test_user_blast_radius_with_group_key_is_not_list_values(self):
         """Test that IS_NOT operator with list values uses NOT IN logic"""
@@ -9578,8 +9578,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should only match org-gamma (1 out of 3)
-        self.assertEqual(response_json["groups_affected"], 1)
-        self.assertEqual(response_json["total_groups"], 3)
+        self.assertEqual(response_json["affected"], 1)
+        self.assertEqual(response_json["total"], 3)
 
     def test_user_blast_radius_with_group_key_icontains_list_values_raises_error(self):
         """Test that ICONTAINS operator with list values raises validation error"""
@@ -9661,8 +9661,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 1)
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 1)
+        self.assertEqual(response_json["total"], 8)
 
         # Test semver_gt
         response = self.client.post(
@@ -9683,8 +9683,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 4)  # 1.2.5, 1.3.0, 2.0.0, 2.1.0
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 4)  # 1.2.5, 1.3.0, 2.0.0, 2.1.0
+        self.assertEqual(response_json["total"], 8)
 
         # Test semver_gte
         response = self.client.post(
@@ -9705,8 +9705,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 5)  # 1.2.3, 1.2.5, 1.3.0, 2.0.0, 2.1.0
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 5)  # 1.2.3, 1.2.5, 1.3.0, 2.0.0, 2.1.0
+        self.assertEqual(response_json["total"], 8)
 
         # Test semver_lt
         response = self.client.post(
@@ -9727,8 +9727,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 3)  # 0.9.0, 1.0.0, 1.2.0
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 3)  # 0.9.0, 1.0.0, 1.2.0
+        self.assertEqual(response_json["total"], 8)
 
         # Test semver_lte
         response = self.client.post(
@@ -9749,8 +9749,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 4)  # 0.9.0, 1.0.0, 1.2.0, 1.2.3
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 4)  # 0.9.0, 1.0.0, 1.2.0, 1.2.3
+        self.assertEqual(response_json["total"], 8)
 
         # Test semver_tilde (~1.2.3 means >=1.2.3 <1.3.0)
         response = self.client.post(
@@ -9771,8 +9771,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 2)  # 1.2.3, 1.2.5
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 2)  # 1.2.3, 1.2.5
+        self.assertEqual(response_json["total"], 8)
 
         # Test semver_caret (^1.2.3 means >=1.2.3 <2.0.0)
         response = self.client.post(
@@ -9793,8 +9793,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 3)  # 1.2.3, 1.2.5, 1.3.0
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 3)  # 1.2.3, 1.2.5, 1.3.0
+        self.assertEqual(response_json["total"], 8)
 
         # Test semver_wildcard (1.2.* means >=1.2.0 <1.3.0)
         response = self.client.post(
@@ -9815,8 +9815,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 3)  # 1.2.0, 1.2.3, 1.2.5
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 3)  # 1.2.0, 1.2.3, 1.2.5
+        self.assertEqual(response_json["total"], 8)
 
         # Test semver_wildcard with major version (1.* means >=1.0.0 <2.0.0)
         response = self.client.post(
@@ -9837,8 +9837,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 5)  # 1.0.0, 1.2.0, 1.2.3, 1.2.5, 1.3.0
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 5)  # 1.0.0, 1.2.0, 1.2.3, 1.2.5, 1.3.0
+        self.assertEqual(response_json["total"], 8)
 
     def test_user_blast_radius_with_semver_caret_0x_versions(self):
         """Test semver caret operator handles 0.x.y versions per spec"""
@@ -9879,8 +9879,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 2)  # 0.2.3, 0.2.5 (NOT 0.3.0 or 1.0.0)
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 2)  # 0.2.3, 0.2.5 (NOT 0.3.0 or 1.0.0)
+        self.assertEqual(response_json["total"], 8)
 
         # Test ^0.0.3 means >=0.0.3 <0.0.4 (not <1.0.0 or <0.1.0)
         response = self.client.post(
@@ -9901,8 +9901,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 1)  # Only 0.0.3 (NOT 0.0.5, 0.1.0, etc.)
-        self.assertEqual(response_json["total_users"], 8)
+        self.assertEqual(response_json["affected"], 1)  # Only 0.0.3 (NOT 0.0.5, 0.1.0, etc.)
+        self.assertEqual(response_json["total"], 8)
 
     def test_user_blast_radius_with_semver_operators_on_groups(self):
         """Test semver operators work with group properties"""
@@ -9951,8 +9951,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        self.assertEqual(response_json["groups_affected"], 3)  # 2.0.0, 2.5.0, 3.0.0
-        self.assertEqual(response_json["total_groups"], 5)
+        self.assertEqual(response_json["affected"], 3)  # 2.0.0, 2.5.0, 3.0.0
+        self.assertEqual(response_json["total"], 5)
 
     def test_user_blast_radius_person_condition_separate_from_group_condition(self):
         create_group_type_mapping_without_created_at(
@@ -9996,8 +9996,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(person_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(person_response.json()["users_affected"], 6)
-        self.assertEqual(person_response.json()["total_users"], 10)
+        self.assertEqual(person_response.json()["affected"], 6)
+        self.assertEqual(person_response.json()["total"], 10)
 
         # Group-aggregated condition: only group properties
         group_response = self.client.post(
@@ -10019,8 +10019,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(group_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(group_response.json()["groups_affected"], 3)
-        self.assertEqual(group_response.json()["total_groups"], 8)
+        self.assertEqual(group_response.json()["affected"], 3)
+        self.assertEqual(group_response.json()["total"], 8)
 
     def test_user_blast_radius_pure_person_condition_has_no_group_counts(self):
         for i in range(5):
@@ -10050,10 +10050,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertEqual(response_json["users_affected"], 3)
-        self.assertEqual(response_json["total_users"], 5)
-        self.assertNotIn("groups_affected", response_json)
-        self.assertNotIn("total_groups", response_json)
+        self.assertEqual(response_json["affected"], 3)
+        self.assertEqual(response_json["total"], 5)
 
     def test_user_blast_radius_with_group_key_filter(self):
         create_group_type_mapping_without_created_at(
@@ -10094,8 +10092,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertEqual(response_json["groups_affected"], 2)
-        self.assertEqual(response_json["total_groups"], 6)
+        self.assertEqual(response_json["affected"], 2)
+        self.assertEqual(response_json["total"], 6)
 
     def test_user_blast_radius_cohort_condition_and_group_condition_separate(self):
         create_group_type_mapping_without_created_at(
@@ -10155,8 +10153,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(person_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(person_response.json()["users_affected"], 5)
-        self.assertEqual(person_response.json()["total_users"], 8)
+        self.assertEqual(person_response.json()["affected"], 5)
+        self.assertEqual(person_response.json()["total"], 8)
 
         # Group-aggregated condition with group property filter
         group_response = self.client.post(
@@ -10178,8 +10176,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(group_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(group_response.json()["groups_affected"], 2)
-        self.assertEqual(group_response.json()["total_groups"], 4)
+        self.assertEqual(group_response.json()["affected"], 2)
+        self.assertEqual(group_response.json()["total"], 4)
 
     def test_user_blast_radius_no_error_fields_for_successful_queries(self):
         for i in range(3):

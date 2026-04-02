@@ -120,8 +120,8 @@ export function FeatureFlagReleaseConditions({
         taxonomicGroupTypes,
         propertySelectErrors,
         computeBlastRadiusPercentage,
-        affectedUsers,
-        totalUsers,
+        affectedCounts,
+        totalCounts,
         filtersTaxonomicOptions,
         aggregationTargetName,
         properties,
@@ -452,7 +452,7 @@ export function FeatureFlagReleaseConditions({
                                 />
                                 of <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set. Will
                                 match approximately{' '}
-                                {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
+                                {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
                                     <b>
                                         {`${
                                             Math.max(
@@ -472,18 +472,15 @@ export function FeatureFlagReleaseConditions({
                                     <Spinner className="mr-1" />
                                 )}{' '}
                                 {(() => {
-                                    const affectedUserCount = group.sort_key ? affectedUsers[group.sort_key] : undefined
-                                    if (
-                                        affectedUserCount !== undefined &&
-                                        affectedUserCount >= 0 &&
-                                        totalUsers !== null
-                                    ) {
+                                    const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined
+                                    const total = group.sort_key ? totalCounts[group.sort_key] : undefined
+                                    if (affected !== undefined && affected >= 0 && total !== undefined) {
                                         const rolloutPct = Number.isNaN(group.rollout_percentage)
                                             ? 0
                                             : (group.rollout_percentage ?? 100)
                                         return `(${humanFriendlyNumber(
-                                            Math.floor((affectedUserCount * clamp(rolloutPct, 0, 100)) / 100)
-                                        )} / ${humanFriendlyNumber(totalUsers)})`
+                                            Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
+                                        )} / ${humanFriendlyNumber(total)})`
                                     }
                                     return ''
                                 })()}{' '}

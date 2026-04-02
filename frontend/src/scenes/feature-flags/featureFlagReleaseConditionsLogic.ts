@@ -112,16 +112,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             index,
             groupTypeIndex,
         }),
-        setAffectedUsers: (sortKey: string, count?: number) => ({
+        setAffectedCount: (sortKey: string, count?: number) => ({
             sortKey,
             count,
         }),
-        setTotalUsers: (count: number) => ({ count }),
-        setAffectedGroups: (sortKey: string, count?: number) => ({
-            sortKey,
-            count,
-        }),
-        setTotalGroups: (sortKey: string, count?: number) => ({
+        setTotalCount: (sortKey: string, count?: number) => ({
             sortKey,
             count,
         }),
@@ -297,34 +292,19 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
             },
         },
-        affectedUsers: [
+        affectedCounts: [
             {} as Record<string, number | undefined>,
             {
-                setAffectedUsers: (state, { sortKey, count }) => ({
+                setAffectedCount: (state, { sortKey, count }) => ({
                     ...state,
                     [sortKey]: count,
                 }),
             },
         ],
-        totalUsers: [
-            null as number | null,
-            {
-                setTotalUsers: (_, { count }) => count,
-            },
-        ],
-        affectedGroups: [
+        totalCounts: [
             {} as Record<string, number | undefined>,
             {
-                setAffectedGroups: (state, { sortKey, count }) => ({
-                    ...state,
-                    [sortKey]: count,
-                }),
-            },
-        ],
-        totalGroups: [
-            {} as Record<string, number | undefined>,
-            {
-                setTotalGroups: (state, { sortKey, count }) => ({
+                setTotalCount: (state, { sortKey, count }) => ({
                     ...state,
                     [sortKey]: count,
                 }),
@@ -372,8 +352,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
             await breakpoint(1000) // in ms
             const sourceSortKey = values.filters.groups[index]?.sort_key
-            const valueForSourceCondition = sourceSortKey ? values.affectedUsers[sourceSortKey] : undefined
-            actions.setAffectedUsers(newGroup.sort_key, valueForSourceCondition)
+            const valueForSourceCondition = sourceSortKey ? values.affectedCounts[sourceSortKey] : undefined
+            actions.setAffectedCount(newGroup.sort_key, valueForSourceCondition)
         },
         updateConditionSet: async ({ index, newProperties }, breakpoint) => {
             const group: FeatureFlagGroupTypeWithSortKey | undefined = values.filters.groups[index]
@@ -385,10 +365,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             const { sort_key: sortKey } = group
 
             if (newProperties) {
-                // properties have changed, so we'll have to re-fetch affected users
-                actions.setAffectedUsers(sortKey, undefined)
-                actions.setAffectedGroups(sortKey, undefined)
-                actions.setTotalGroups(sortKey, undefined)
+                // properties have changed, so we'll have to re-fetch affected counts
+                actions.setAffectedCount(sortKey, undefined)
+                actions.setTotalCount(sortKey, undefined)
 
                 // Add any new flag IDs from the updated properties
                 const newFlagIds = newProperties.flatMap((property) =>
@@ -416,18 +395,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
             )
 
-            actions.setAffectedUsers(sortKey, response.users_affected)
-            // Only update global totalUsers from person conditions — group conditions
-            // return total_users=0 which would clobber the real person count.
-            if (response.total_users !== -1 && groupTypeIndex == null) {
-                actions.setTotalUsers(response.total_users)
-            }
-            if (response.groups_affected !== undefined) {
-                actions.setAffectedGroups(sortKey, response.groups_affected)
-            }
-            if (response.total_groups !== undefined) {
-                actions.setTotalGroups(sortKey, response.total_groups)
-            }
+            actions.setAffectedCount(sortKey, response.affected)
+            actions.setTotalCount(sortKey, response.total)
         },
         setConditionAggregation: ({ index }) => {
             const group = values.filters.groups[index]
@@ -479,14 +448,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
         },
         calculateBlastRadiusForCondition: async ({ sortKey, properties, groupTypeIndex }) => {
-            actions.setAffectedUsers(sortKey, undefined)
-            actions.setAffectedGroups(sortKey, undefined)
-            actions.setTotalGroups(sortKey, undefined)
+            actions.setAffectedCount(sortKey, undefined)
+            actions.setTotalCount(sortKey, undefined)
 
             let response: UserBlastRadiusType
             if (!properties || properties.some(isEmptyProperty)) {
                 // don't compute for incomplete conditions
-                response = { users_affected: -1, total_users: -1 }
+                response = { affected: -1, total: -1 }
             } else {
                 try {
                     response = await api.create(
@@ -497,22 +465,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         }
                     )
                 } catch {
-                    response = { users_affected: -1, total_users: -1 }
+                    response = { affected: -1, total: -1 }
                 }
             }
 
-            actions.setAffectedUsers(sortKey, response.users_affected)
-            // Only update global totalUsers from person conditions — group conditions
-            // return total_users=0 which would clobber the real person count.
-            if (response.total_users !== -1 && groupTypeIndex == null) {
-                actions.setTotalUsers(response.total_users)
-            }
-            if (response.groups_affected !== undefined) {
-                actions.setAffectedGroups(sortKey, response.groups_affected)
-            }
-            if (response.total_groups !== undefined) {
-                actions.setTotalGroups(sortKey, response.total_groups)
-            }
+            actions.setAffectedCount(sortKey, response.affected)
+            actions.setTotalCount(sortKey, response.total)
         },
         calculateBlastRadius: () => {
             values.filters.groups.forEach((condition: FeatureFlagGroupTypeWithSortKey) => {
@@ -702,8 +660,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             },
         ],
         computeBlastRadiusPercentage: [
-            (s) => [s.affectedUsers, s.totalUsers],
-            (affectedUsers, totalUsers) => (rolloutPercentage, sortKey) => {
+            (s) => [s.affectedCounts, s.totalCounts],
+            (affectedCounts, totalCounts) => (rolloutPercentage, sortKey) => {
                 let effectiveRolloutPercentage = rolloutPercentage
                 if (
                     rolloutPercentage === undefined ||
@@ -713,25 +671,19 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     effectiveRolloutPercentage = 100
                 }
 
-                if (
-                    affectedUsers[sortKey] === -1 ||
-                    totalUsers === -1 ||
-                    !totalUsers ||
-                    affectedUsers[sortKey] === undefined
-                ) {
+                const affected = affectedCounts[sortKey]
+                const total = totalCounts[sortKey]
+
+                if (affected === -1 || total === -1 || !total || affected === undefined) {
                     return effectiveRolloutPercentage
                 }
 
-                let effectiveTotalUsers = totalUsers
-                if (effectiveTotalUsers === 0) {
-                    effectiveTotalUsers = 1
+                let effectiveTotal = total
+                if (effectiveTotal === 0) {
+                    effectiveTotal = 1
                 }
 
-                return (
-                    Math.round(
-                        effectiveRolloutPercentage * ((affectedUsers[sortKey] ?? 0) / effectiveTotalUsers) * 1000000
-                    ) / 1000000
-                )
+                return Math.round(effectiveRolloutPercentage * ((affected ?? 0) / effectiveTotal) * 1000000) / 1000000
             },
         ],
         getFlagKey: [

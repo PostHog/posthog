@@ -838,20 +838,10 @@ export interface UserBlastRadiusRequestApi {
 }
 
 export interface UserBlastRadiusResponseApi {
-    /** Number of users matching the condition */
-    users_affected: number
-    /** Total number of users in the project */
-    total_users: number
-    /**
-     * Number of groups matching the condition (only present for mixed person+group conditions)
-     * @nullable
-     */
-    groups_affected?: number | null
-    /**
-     * Total number of groups of this type (only present for mixed person+group conditions)
-     * @nullable
-     */
-    total_groups?: number | null
+    /** Number of entities matching the condition (users or groups depending on group_type_index) */
+    affected: number
+    /** Total number of entities of this type in the project */
+    total: number
 }
 
 /**

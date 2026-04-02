@@ -4053,10 +4053,8 @@ export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 
 }
 
 export interface UserBlastRadiusType {
-    users_affected: number
-    total_users: number
-    groups_affected?: number
-    total_groups?: number
+    affected: number
+    total: number
 }
 
 export enum ScheduledChangeModels {

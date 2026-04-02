@@ -1868,20 +1868,10 @@ class UserBlastRadiusRequestSerializer(serializers.Serializer):
 
 
 class UserBlastRadiusResponseSerializer(serializers.Serializer):
-    users_affected = serializers.IntegerField(help_text="Number of users matching the condition")
-    total_users = serializers.IntegerField(help_text="Total number of users in the project")
-    groups_affected = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Number of groups matching the condition (only present for mixed person+group conditions)",
+    affected = serializers.IntegerField(
+        help_text="Number of entities matching the condition (users or groups depending on group_type_index)"
     )
-    total_groups = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Total number of groups of this type (only present for mixed person+group conditions)",
-    )
+    total = serializers.IntegerField(help_text="Total number of entities of this type in the project")
 
 
 # HYPERCACHE CONTRACT: This serializer defines the JSON schema that the Rust feature-flags
@@ -3085,16 +3075,7 @@ class FeatureFlagViewSet(
 
         result = get_user_blast_radius(self.team, condition, group_type_index)
 
-        response_data: dict = {
-            "users_affected": result.users_affected,
-            "total_users": result.total_users,
-        }
-        if result.groups_affected is not None:
-            response_data["groups_affected"] = result.groups_affected
-        if result.total_groups is not None:
-            response_data["total_groups"] = result.total_groups
-
-        return Response(response_data)
+        return Response({"affected": result.affected, "total": result.total})
 
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):

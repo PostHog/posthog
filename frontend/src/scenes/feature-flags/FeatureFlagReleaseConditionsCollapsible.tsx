@@ -123,11 +123,8 @@ interface ConditionHeaderProps {
     group: FeatureFlagGroupType
     index: number
     totalGroups: number
-    affectedUserCount: number | undefined
-    totalUsers: number | null
-    affectedGroupCount: number | undefined
+    affectedCount: number | undefined
     aggregationTargetName: string
-    groupTargetName: string | null
     onDuplicate: () => void
     onRemove: () => void
 }
@@ -136,11 +133,8 @@ function ConditionHeader({
     group,
     index,
     totalGroups,
-    affectedUserCount,
-    totalUsers,
-    affectedGroupCount,
+    affectedCount,
     aggregationTargetName,
-    groupTargetName,
     onDuplicate,
     onRemove,
 }: ConditionHeaderProps): JSX.Element {
@@ -148,31 +142,12 @@ function ConditionHeader({
     const summary = group.description || summarizeProperties(group.properties || [], aggregationTargetName)
     const rollout = group.rollout_percentage ?? 100
 
-    // Calculate the actual user count based on rollout percentage
-    const actualUserCount =
-        affectedUserCount !== undefined && affectedUserCount >= 0
-            ? Math.floor((affectedUserCount * clamp(rollout, 0, 100)) / 100)
+    const actualCount =
+        affectedCount !== undefined && affectedCount >= 0
+            ? Math.floor((affectedCount * clamp(rollout, 0, 100)) / 100)
             : null
 
-    // Apply the same rollout-percentage scaling to groups as we do to users above:
-    // if 3 of 10 groups match the filter and rollout is 50%, ~1 group will receive the flag.
-    const actualGroupCount =
-        affectedGroupCount !== undefined && affectedGroupCount >= 0
-            ? Math.floor((affectedGroupCount * clamp(rollout, 0, 100)) / 100)
-            : null
-
-    // Group count takes precedence because the backend returns groups_affected only for
-    // group-aggregated conditions (with users_affected=0), so the presence of group data
-    // is the reliable signal for which count to display.
-    const countSummary = (() => {
-        if (actualGroupCount !== null && groupTargetName) {
-            return `${humanFriendlyNumber(actualGroupCount)} ${groupTargetName}`
-        }
-        if (actualUserCount !== null && totalUsers !== null && totalUsers > 0) {
-            return `${humanFriendlyNumber(actualUserCount)} ${aggregationTargetName}`
-        }
-        return null
-    })()
+    const countSummary = actualCount !== null ? `${humanFriendlyNumber(actualCount)} ${aggregationTargetName}` : null
 
     return (
         <div className="flex items-center justify-between w-full gap-2">
@@ -293,12 +268,9 @@ interface ConditionProps {
     group: FeatureFlagGroupTypeWithSortKey
     index: number
     totalGroups: number
-    affectedUsers: Record<string, number | undefined>
-    totalUsers: number | null
-    affectedGroups: Record<string, number | undefined>
-    totalGroupCounts: Record<string, number | undefined>
+    affectedCounts: Record<string, number | undefined>
+    totalCounts: Record<string, number | undefined>
     aggregationTargetName: (conditionGroupTypeIndex?: number | null) => string
-    aggregationLabel: (groupTypeIndex: GroupTypeIndex) => { singular: string; plural: string }
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
@@ -365,12 +337,9 @@ const ConditionContent = ({
     group,
     index,
     totalGroups,
-    affectedUsers,
-    totalUsers,
-    affectedGroups,
-    totalGroupCounts,
+    affectedCounts,
+    totalCounts,
     aggregationTargetName,
-    aggregationLabel,
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
@@ -490,19 +459,8 @@ const ConditionContent = ({
                                 group={group}
                                 index={index}
                                 totalGroups={totalGroups}
-                                affectedUserCount={group.sort_key ? affectedUsers[group.sort_key] : undefined}
-                                totalUsers={totalUsers}
-                                affectedGroupCount={group.sort_key ? affectedGroups[group.sort_key] : undefined}
+                                affectedCount={group.sort_key ? affectedCounts[group.sort_key] : undefined}
                                 aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
-                                groupTargetName={
-                                    (group.aggregation_group_type_index ??
-                                        releaseFilters.aggregation_group_type_index) != null
-                                        ? aggregationLabel(
-                                              (group.aggregation_group_type_index ??
-                                                  releaseFilters.aggregation_group_type_index) as GroupTypeIndex
-                                          ).plural
-                                        : null
-                                }
                                 onDuplicate={onDuplicate}
                                 onRemove={onRemove}
                             />
@@ -622,85 +580,41 @@ const ConditionContent = ({
                                                 className="w-20"
                                             />
                                         </div>
-                                        {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
+                                        {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
                                             <div className="text-xs text-muted mt-2">
                                                 {(() => {
-                                                    const affectedUserCount = group.sort_key
-                                                        ? affectedUsers[group.sort_key]
+                                                    const affected = group.sort_key
+                                                        ? affectedCounts[group.sort_key]
                                                         : undefined
-                                                    const affectedGroupCount = group.sort_key
-                                                        ? affectedGroups[group.sort_key]
-                                                        : undefined
-                                                    const totalGroupCount = group.sort_key
-                                                        ? totalGroupCounts[group.sort_key]
+                                                    const total = group.sort_key
+                                                        ? totalCounts[group.sort_key]
                                                         : undefined
                                                     const rolloutPct = Number.isNaN(group.rollout_percentage)
                                                         ? 0
                                                         : (group.rollout_percentage ?? 100)
 
-                                                    const effectiveGroupTypeIndex =
-                                                        group.aggregation_group_type_index ??
-                                                        releaseFilters.aggregation_group_type_index
-                                                    const hasGroupData =
-                                                        affectedGroupCount !== undefined &&
-                                                        affectedGroupCount >= 0 &&
-                                                        totalGroupCount !== undefined &&
-                                                        effectiveGroupTypeIndex != null
-                                                    const hasPersonData =
-                                                        affectedUserCount !== undefined &&
-                                                        affectedUserCount >= 0 &&
-                                                        totalUsers !== null
-
-                                                    if (!hasGroupData && !hasPersonData) {
+                                                    if (affected === undefined || affected < 0 || total === undefined) {
                                                         return null
                                                     }
 
-                                                    if (hasGroupData) {
-                                                        const groupName = aggregationLabel(
-                                                            effectiveGroupTypeIndex as GroupTypeIndex
-                                                        ).plural
-                                                        const groupsReceivingFlag = Math.floor(
-                                                            (affectedGroupCount * clamp(rolloutPct, 0, 100)) / 100
-                                                        )
-                                                        if (rolloutPct === 100) {
-                                                            return (
-                                                                <>
-                                                                    <b>{humanFriendlyNumber(affectedGroupCount)}</b> of{' '}
-                                                                    {humanFriendlyNumber(totalGroupCount)} {groupName}{' '}
-                                                                    match these filters
-                                                                </>
-                                                            )
-                                                        }
-                                                        return (
-                                                            <>
-                                                                Will match ~
-                                                                <b>{humanFriendlyNumber(groupsReceivingFlag)}</b> of{' '}
-                                                                {humanFriendlyNumber(totalGroupCount ?? 0)} {groupName}{' '}
-                                                                ({rolloutPct}% of{' '}
-                                                                {humanFriendlyNumber(affectedGroupCount)} matching the
-                                                                filters)
-                                                            </>
-                                                        )
-                                                    }
-
-                                                    const usersReceivingFlag = Math.floor(
-                                                        (affectedUserCount! * clamp(rolloutPct, 0, 100)) / 100
+                                                    const receivingFlag = Math.floor(
+                                                        (affected * clamp(rolloutPct, 0, 100)) / 100
                                                     )
                                                     if (rolloutPct === 100) {
                                                         return (
                                                             <>
-                                                                <b>{humanFriendlyNumber(affectedUserCount!)}</b> of{' '}
-                                                                {humanFriendlyNumber(totalUsers!)} {resolvedTargetName}{' '}
-                                                                match these filters
+                                                                <b>{humanFriendlyNumber(affected)}</b> of{' '}
+                                                                {humanFriendlyNumber(total)} {resolvedTargetName} match
+                                                                these filters
                                                             </>
                                                         )
                                                     }
                                                     return (
                                                         <>
-                                                            Will match ~<b>{humanFriendlyNumber(usersReceivingFlag)}</b>{' '}
-                                                            of {humanFriendlyNumber(totalUsers!)} {resolvedTargetName} (
-                                                            {rolloutPct}% of {humanFriendlyNumber(affectedUserCount!)}{' '}
-                                                            matching the filters)
+                                                            Will match ~<b>{humanFriendlyNumber(receivingFlag)}</b> of{' '}
+                                                            {humanFriendlyNumber(total)} {resolvedTargetName} (
+                                                            {rolloutPct}% of {humanFriendlyNumber(affected)} matching
+                                                            the filters)
                                                         </>
                                                     )
                                                 })()}
@@ -841,12 +755,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const {
         filterGroups,
         filtersTaxonomicOptions,
-        affectedUsers,
-        totalUsers,
-        affectedGroups,
-        totalGroups: totalGroupCounts,
+        affectedCounts,
+        totalCounts,
         aggregationTargetName,
-        aggregationLabel,
         taxonomicGroupTypesForCondition,
         filters: releaseFilters,
         groupTypes,
@@ -1229,12 +1140,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         group={group as FeatureFlagGroupTypeWithSortKey}
                                         index={index}
                                         totalGroups={filterGroups.length}
-                                        affectedUsers={affectedUsers}
-                                        totalUsers={totalUsers}
-                                        affectedGroups={affectedGroups}
-                                        totalGroupCounts={totalGroupCounts}
+                                        affectedCounts={affectedCounts}
+                                        totalCounts={totalCounts}
                                         aggregationTargetName={aggregationTargetName}
-                                        aggregationLabel={aggregationLabel}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
@@ -1303,10 +1211,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 group={group as FeatureFlagGroupTypeWithSortKey}
                                 index={index}
                                 totalGroups={filterGroups.length}
-                                affectedUsers={affectedUsers}
-                                totalUsers={totalUsers}
-                                affectedGroups={affectedGroups}
-                                totalGroupCounts={totalGroupCounts}
+                                affectedCounts={affectedCounts}
+                                totalCounts={totalCounts}
                                 aggregationTargetName={aggregationTargetName}
                                 aggregationLabel={aggregationLabel}
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
