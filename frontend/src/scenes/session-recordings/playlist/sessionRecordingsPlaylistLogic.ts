@@ -176,12 +176,52 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     order_direction: 'DESC',
 }
 
-export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
+export const getDefaultFilters = (
+    personUUID?: PersonUUID,
+    pinnedFilters?: UniversalFiltersGroup
+): RecordingUniversalFilters => {
     const filterTestAccounts = getDefaultFilterTestAccounts()
-    return {
+    const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
+    }
+    if (pinnedFilters) {
+        defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)
+    }
+    return defaults
+}
+
+function mergePinnedFilters(
+    filterGroup: UniversalFiltersGroup,
+    pinnedFilters: UniversalFiltersGroup
+): UniversalFiltersGroup {
+    const pinnedValues = pinnedFilters.values
+    if (pinnedValues.length === 0) {
+        return filterGroup
+    }
+
+    const firstGroup = filterGroup.values[0]
+    const isNestedGroup = firstGroup && 'values' in firstGroup && 'type' in firstGroup
+
+    if (isNestedGroup) {
+        const nested = firstGroup as UniversalFiltersGroup
+        const existingNonPinned = nested.values.filter((v) => !pinnedValues.some((pv) => equal(v, pv)))
+        return {
+            ...filterGroup,
+            values: [{ ...nested, values: [...pinnedValues, ...existingNonPinned] }, ...filterGroup.values.slice(1)],
+        }
+    }
+
+    const existingNonPinned = filterGroup.values.filter((v) => !pinnedValues.some((pv) => equal(v, pv)))
+    return {
+        ...filterGroup,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [...pinnedValues, ...existingNonPinned],
+            },
+        ],
     }
 }
 
@@ -493,6 +533,7 @@ export interface SessionRecordingPlaylistLogicProps {
     onlyPinned?: boolean
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
+    pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
@@ -722,7 +763,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
         filters: [
-            props.filters ?? getDefaultFilters(props.personUUID),
+            props.filters ?? getDefaultFilters(props.personUUID, props.pinnedFilters),
             { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
                 setFilters: (state, { filters }) => {
@@ -731,21 +772,24 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             posthog.captureException(new Error('Invalid filters provided'), {
                                 filters,
                             })
-                            return getDefaultFilters(props.personUUID)
+                            return getDefaultFilters(props.personUUID, props.pinnedFilters)
                         }
 
-                        return {
+                        const newState = {
                             ...state,
-                            // if we're setting a relative date_from, then we need to clear the existing date_to
                             date_to: filters.date_from && isRelativeDate(filters.date_from) ? null : state.date_to,
                             ...filters,
                         }
+                        if (props.pinnedFilters) {
+                            newState.filter_group = mergePinnedFilters(newState.filter_group, props.pinnedFilters)
+                        }
+                        return newState
                     } catch (e) {
                         posthog.captureException(e)
-                        return getDefaultFilters(props.personUUID)
+                        return getDefaultFilters(props.personUUID, props.pinnedFilters)
                     }
                 },
-                resetFilters: () => getDefaultFilters(props.personUUID),
+                resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),
             },
         ],
         showFilters: [
@@ -1339,14 +1383,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
         ],
 
+        pinnedFilters: [
+            () => [(_, props) => props.pinnedFilters],
+            (pinnedFilters): UniversalFiltersGroup | undefined => pinnedFilters,
+        ],
+
         totalFiltersCount: [
-            (s) => [s.filters, (_, props) => props.personUUID],
-            (filters, personUUID) => {
-                const defaultFilters = getDefaultFilters(personUUID)
+            (s) => [s.filters, (_, props) => props.personUUID, (_, props) => props.pinnedFilters],
+            (filters, personUUID, pinnedFilters) => {
+                const defaultFilters = getDefaultFilters(personUUID, pinnedFilters)
                 const groupFilters = filtersFromUniversalFilterGroups(filters)
+                const pinnedValues: UniversalFilterValue[] = pinnedFilters?.values ?? []
+                const userFilterCount = groupFilters.filter((f) => !pinnedValues.some((pv) => equal(f, pv))).length
 
                 return (
-                    groupFilters.length +
+                    userFilterCount +
                     (equal(filters.duration[0], defaultFilters.duration[0]) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
@@ -1610,6 +1661,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     afterMount(({ actions, props, values }) => {
         if (props.onlyPinned) {
             return
+        }
+
+        if (props.pinnedFilters) {
+            const merged = mergePinnedFilters(values.filters.filter_group, props.pinnedFilters)
+            if (!equal(merged, values.filters.filter_group)) {
+                actions.setFilters({ filter_group: merged })
+                return
+            }
         }
 
         // If updateSearchParams is enabled and URL has filters different from current state,

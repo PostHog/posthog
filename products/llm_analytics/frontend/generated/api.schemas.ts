@@ -738,18 +738,18 @@ export const Mode02aEnumApi = {
 } as const
 
 export interface SummarizeRequestApi {
-    /** Type of entity to summarize
+    /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
 
 * `trace` - trace
 * `event` - event */
-    summarize_type: SummarizeTypeEnumApi
+    summarize_type?: SummarizeTypeEnumApi
     /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
 * `minimal` - minimal
 * `detailed` - detailed */
     mode?: Mode02aEnumApi
-    /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
-    data: unknown
+    /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
+    data?: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
     /**
@@ -757,6 +757,20 @@ export interface SummarizeRequestApi {
      * @nullable
      */
     model?: string | null
+    /** Trace ID to summarize. The backend fetches the trace data automatically. Requires date_from for efficient lookup. */
+    trace_id?: string
+    /** Generation event UUID to summarize. The backend fetches the event data automatically. Requires date_from for efficient lookup. */
+    generation_id?: string
+    /**
+     * Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of date range for ID-based lookup. Defaults to now.
+     * @nullable
+     */
+    date_to?: string | null
 }
 
 export interface SummaryBulletApi {

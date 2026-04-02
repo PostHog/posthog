@@ -236,6 +236,9 @@ const handleRequest = async (
     const featuresParam = url.searchParams.get('features')
     const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
 
+    const toolsParam = url.searchParams.get('tools')
+    const tools = toolsParam ? toolsParam.split(',').filter(Boolean) : undefined
+
     // Region param is used to route API calls to the correct PostHog instance (US or EU).
     // This is set by the wizard based on user's cloud region selection during MCP setup.
     const regionParam = url.searchParams.get('region') || undefined
@@ -245,7 +248,7 @@ const handleRequest = async (
     const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
-    const extraContextProps = { features, region: regionParam, version, readOnly }
+    const extraContextProps = { features, tools, region: regionParam, version, readOnly }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
 
