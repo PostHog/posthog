@@ -47,24 +47,24 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': (req) => {
-                    const query = (req.body as any).query
-                    const queryKind = query.kind
-
-                    if (queryKind === 'DatabaseSchemaQuery') {
-                        return [200, databaseSchemaMock]
-                    } else if (queryKind === 'RevenueAnalyticsMetricsQuery') {
-                        return [200, revenueAnalyticsMetricsQueryMock]
-                    } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
-                        return [200, revenueAnalyticsOverviewMock]
-                    } else if (queryKind === 'RevenueAnalyticsGrossRevenueQuery') {
-                        return [200, revenueAnalyticsGrossRevenueQueryMock]
-                    } else if (queryKind === 'RevenueAnalyticsMRRQuery') {
-                        return [200, revenueAnalyticsMRRQueryMock]
-                    } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
-                        return [200, revenueAnalyticsTopCustomersMock]
-                    }
-                },
+                '/api/environments/:team_id/query/DatabaseSchemaQuery': () => [200, databaseSchemaMock],
+                '/api/environments/:team_id/query/RevenueAnalyticsMetricsQuery': () => [
+                    200,
+                    revenueAnalyticsMetricsQueryMock,
+                ],
+                '/api/environments/:team_id/query/RevenueAnalyticsOverviewQuery': () => [
+                    200,
+                    revenueAnalyticsOverviewMock,
+                ],
+                '/api/environments/:team_id/query/RevenueAnalyticsGrossRevenueQuery': () => [
+                    200,
+                    revenueAnalyticsGrossRevenueQueryMock,
+                ],
+                '/api/environments/:team_id/query/RevenueAnalyticsMRRQuery': () => [200, revenueAnalyticsMRRQueryMock],
+                '/api/environments/:team_id/query/RevenueAnalyticsTopCustomersQuery': () => [
+                    200,
+                    revenueAnalyticsTopCustomersMock,
+                ],
             },
         }),
     ],

@@ -50,7 +50,9 @@ const meta: Meta = {
                     ]
                 },
             },
-            post: { '/api/environments/:team_id/query': () => [200, DatabaseSchemaQuery] },
+            post: {
+                '/api/environments/:team_id/query/DatabaseSchemaQuery': () => [200, DatabaseSchemaQuery],
+            },
         }),
     ],
 }
