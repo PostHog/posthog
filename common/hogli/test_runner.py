@@ -44,6 +44,7 @@ class TestRunConfig:
     command: list[str]
     description: str
     env: dict[str, str] = field(default_factory=dict)
+    cwd: Path | None = None
 
 
 def _python_env() -> dict[str, str]:
@@ -197,7 +198,8 @@ def _detect_go_test(file_only: str) -> TestRunConfig:
 
     return TestRunConfig(
         test_type="go",
-        command=["bash", "-c", f"cd {mod_root_rel} && go test {target}"],
+        command=["go", "test", target],
+        cwd=mod_root,
         description=f"Go test (in {mod_root_rel}, go test {target})",
     )
 
@@ -393,19 +395,19 @@ def _run_changed(extra_args: list[str]) -> None:
             config = detect_test_type(files[0])
             command = config.command[:-1] + files  # replace last arg (single file) with all files
             click.secho(f"Running {len(files)} Python test file(s)...", fg="cyan")
-            _run(command + extra_args, env=config.env if config.env else None)
+            _run(command + extra_args, env=config.env if config.env else None, cwd=config.cwd)
         elif test_type == "jest":
             # jest can take multiple files at once
             config = detect_test_type(files[0])
             command = config.command[:-1] + files
             click.secho(f"Running {len(files)} Jest test file(s)...", fg="cyan")
-            _run(command + extra_args, env=config.env if config.env else None)
+            _run(command + extra_args, env=config.env if config.env else None, cwd=config.cwd)
         else:
             # Other types: run individually
             for f in files:
                 config = detect_test_type(f)
                 click.secho(f"Running: {f}", fg="cyan")
-                _run(config.command + extra_args, env=config.env if config.env else None)
+                _run(config.command + extra_args, env=config.env if config.env else None, cwd=config.cwd)
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +437,7 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
     elif config.test_type == "jest":
         # Jest has built-in --watch
         click.secho(f"Watching: {config.description}", fg="cyan")
-        _run([*config.command, "--watch", *extra_args], env=config.env if config.env else None)
+        _run([*config.command, "--watch", *extra_args], env=config.env if config.env else None, cwd=config.cwd)
 
     else:
         raise click.UsageError(
@@ -450,7 +452,7 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
 
 
 @cli.command(
-    name="test:run",
+    name="test",
     help=(
         "Auto-detect test type and run the correct test runner.\n\n"
         "Accepts files, directories, and pytest node IDs. Detects Python\n"
@@ -461,15 +463,15 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
         "  --changed  Run tests for files changed on the current branch\n\n"
         "  --watch    Re-run tests on file changes (Python and Jest only)\n\n"
         "Examples:\n\n"
-        "  hogli test:run posthog/api/test/test_user.py\n\n"
-        "  hogli test:run posthog/api/test/\n\n"
-        "  hogli test:run posthog/api/test/test_user.py --watch\n\n"
-        "  hogli test:run --changed\n\n"
-        "  hogli test:run livestream/"
+        "  hogli test posthog/api/test/test_user.py\n\n"
+        "  hogli test posthog/api/test/\n\n"
+        "  hogli test posthog/api/test/test_user.py --watch\n\n"
+        "  hogli test --changed\n\n"
+        "  hogli test livestream/"
     ),
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
-@click.argument("file_path", required=False)
+@click.argument("file_path", required=False, type=click.Path())
 @click.option("--changed", is_flag=True, help="Run tests for files changed on the current branch")
 @click.option("--watch", is_flag=True, help="Re-run tests on file changes (Python and Jest)")
 @click.pass_context
@@ -496,4 +498,4 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
     config = detect_test_type(resolved)
 
     click.secho(f"Detected: {config.description}", fg="cyan")
-    _run(config.command + list(ctx.args), env=config.env if config.env else None)
+    _run(config.command + list(ctx.args), env=config.env if config.env else None, cwd=config.cwd)

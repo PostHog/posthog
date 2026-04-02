@@ -111,18 +111,19 @@ class TestDetectTestType:
 
     @parameterized.expand(
         [
-            ("livestream/main_test.go", "livestream", "go test ./..."),
-            ("livestream/main.go", "livestream", "go test ./..."),
-            ("livestream/handlers/handler.go", "livestream", "go test ./handlers/..."),
-            ("livestream/go.mod", "livestream", "go test ./..."),
-            ("tools/phrocs/internal/tui/app_test.go", "tools/phrocs", "go test ./internal/tui/..."),
-            ("bin/hobby-installer/installer_test.go", "bin/hobby-installer", "go test ./..."),
+            ("livestream/main_test.go", "livestream", "./..."),
+            ("livestream/main.go", "livestream", "./..."),
+            ("livestream/handlers/handler.go", "livestream", "./handlers/..."),
+            ("livestream/go.mod", "livestream", "./..."),
+            ("tools/phrocs/internal/tui/app_test.go", "tools/phrocs", "./internal/tui/..."),
+            ("bin/hobby-installer/installer_test.go", "bin/hobby-installer", "./..."),
         ]
     )
-    def test_go_tests(self, file_path: str, expected_mod_root: str, expected_go_cmd: str) -> None:
+    def test_go_tests(self, file_path: str, expected_mod_root: str, expected_target: str) -> None:
         config = detect_test_type(file_path)
         assert config.test_type == "go"
-        assert config.command == ["bash", "-c", f"cd {expected_mod_root} && {expected_go_cmd}"]
+        assert config.command == ["go", "test", expected_target]
+        assert config.cwd == _get_repo_root() / expected_mod_root
 
     def test_go_no_go_mod_raises(self) -> None:
         with pytest.raises(click.UsageError, match="No go.mod found"):
@@ -145,12 +146,14 @@ class TestDetectTestType:
     def test_go_directory(self) -> None:
         config = detect_test_type("livestream")
         assert config.test_type == "go"
-        assert config.command == ["bash", "-c", "cd livestream && go test ./..."]
+        assert config.command == ["go", "test", "./..."]
+        assert config.cwd == _get_repo_root() / "livestream"
 
     def test_go_subdirectory(self) -> None:
         config = detect_test_type("livestream/events")
         assert config.test_type == "go"
-        assert config.command == ["bash", "-c", "cd livestream && go test ./events/..."]
+        assert config.command == ["go", "test", "./events/..."]
+        assert config.cwd == _get_repo_root() / "livestream"
 
     def test_rust_directory(self) -> None:
         config = detect_test_type("rust/capture/tests")
