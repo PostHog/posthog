@@ -85,6 +85,9 @@ services:
             RECORDING_API_URL: http://recording-api:6738
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
+            CLICKHOUSE_LOGS_CLUSTER_HOST: clickhouse
+            CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
+            CLICKHOUSE_LOGS_DATABASE: posthog
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
@@ -126,6 +129,9 @@ services:
             GRANIAN_WORKERS: '2'
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
             DEPLOYMENT: 'hobby'
+            CLICKHOUSE_LOGS_CLUSTER_HOST: clickhouse
+            CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
+            CLICKHOUSE_LOGS_DATABASE: posthog
         depends_on:
             - db
             - redis7
@@ -203,6 +209,9 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
         depends_on:
             - db
             - redis7
