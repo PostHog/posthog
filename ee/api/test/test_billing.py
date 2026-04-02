@@ -13,6 +13,7 @@ from django.utils.timezone import now
 
 import jwt
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 from requests import Response, get
 from rest_framework import status
 
@@ -868,6 +869,11 @@ class TestBillingAPI(APILicensedTest):
 
 
 class TestPortalBillingAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     @patch("ee.api.billing.requests.get")
     def test_portal_success(self, mock_request):
         mock_request.return_value.status_code = 200
@@ -880,6 +886,11 @@ class TestPortalBillingAPI(APILicensedTest):
 
 
 class TestActivateBillingAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     @patch("ee.billing.billing_manager.BillingManager.activate_subscription")
     def test_activate_post_success(self, mock_activate_subscription):
         mock_activate_subscription.return_value = {"success": True, "products": ["product_analytics"]}
@@ -952,9 +963,6 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
         response = self.client.post(self.url, self.data)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"], "You need to be an organization admin or owner to apply for the startup program"
-        )
 
     def test_startup_apply_missing_org_id(self):
         empty_data: dict[str, Any] = {}
@@ -1041,7 +1049,6 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         response = self.client.post(self.url, self.data)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "You need to be an organization admin or owner to claim coupons")
 
     def test_claim_coupon_missing_code(self):
         empty_data: dict[str, Any] = {}
@@ -1197,3 +1204,67 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         passed_params = call_args[1]
         self.assertEqual(passed_params["teams_map"], {})
         mock_get_teams_map.assert_called_once()
+
+
+class TestBillingPermissionDeniedForMembers(APILicensedTest):
+    """Verify that billing-modifying actions reject member-level users with 403."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    @parameterized.expand(
+        [
+            ("activate", "post", "/api/billing/activate", {"products": "all_products:"}),
+            ("deactivate", "post", "/api/billing/deactivate", {"products": "product_1"}),
+            ("patch", "patch", "/api/billing//", {"custom_limits_usd": {}}),
+            ("subscription_switch_plan", "post", "/api/billing/subscription/switch-plan", {"plan": "test"}),
+            ("portal", "get", "/api/billing/portal", None),
+            ("activate_trial", "post", "/api/billing/trials/activate", {"product": "test"}),
+            ("cancel_trial", "post", "/api/billing/trials/cancel", {"product": "test"}),
+            ("purchase_credits", "post", "/api/billing/credits/purchase", {"amount": 100}),
+            ("claim_coupon", "post", "/api/billing/coupons/claim", {"code": "TEST"}),
+            ("startup_apply", "post", "/api/billing/startups/apply", "USE_ORG_ID"),
+        ]
+    )
+    def test_permission_denied(self, _name, method, url, data):
+        if data == "USE_ORG_ID":
+            data = {"organization_id": str(self.organization.id)}
+        client_method = getattr(self.client, method)
+        if data is not None:
+            kwargs = {"data": data}
+            if method == "patch":
+                kwargs["content_type"] = "application/json"
+            response = client_method(url, **kwargs)
+        else:
+            response = client_method(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("ee.api.billing.requests.get")
+    def test_list_still_accessible(self, mock_request):
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = create_billing_response(
+            customer=create_billing_customer(),
+        )
+
+        response = self.client.get("/api/billing")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_invoices_still_accessible(self):
+        response = self.client.get("/api/billing/get_invoices")
+        self.assertIn(
+            response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
+        )
+
+    def test_credits_overview_still_accessible(self):
+        response = self.client.get("/api/billing/credits/overview")
+        self.assertIn(
+            response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
+        )
+
+    def test_coupons_overview_still_accessible(self):
+        response = self.client.get("/api/billing/coupons/overview")
+        self.assertIn(
+            response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
+        )

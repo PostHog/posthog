@@ -8,6 +8,7 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -49,7 +50,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             className={
                 className ??
                 clsx(
-                    'flex gap-2 items-end flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
+                    'flex gap-2 items-end flex-wrap border',
                     dashboardMode === DashboardMode.Edit
                         ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
                         : 'border-transparent'
@@ -57,7 +58,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             }
         >
             {showDateFilter && (
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
                     <AppShortcut
                         name="DashboardDateFilter"
                         keybind={[keyBinds.dateFilter]}
@@ -75,7 +76,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                             explicitDate={effectiveEditBarFilters.explicitDate}
                             onChange={(from_date, to_date, explicitDate) => {
                                 if (dashboardMode !== DashboardMode.Edit) {
-                                    setDashboardMode(DashboardMode.Edit, null)
+                                    setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
                                 }
                                 setDates(from_date, to_date, explicitDate)
                             }}
@@ -93,7 +94,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                 <PropertyFilters
                     onChange={(properties) => {
                         if (dashboardMode !== DashboardMode.Edit) {
-                            setDashboardMode(DashboardMode.Edit, null)
+                            setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
                         }
                         setProperties(properties)
                     }}
@@ -122,10 +123,11 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         insightProps={insightProps}
                         breakdownFilter={effectiveEditBarFilters.breakdown_filter}
                         isTrends={false}
+                        isFunnels={false}
                         showLabel={false}
                         updateBreakdownFilter={(breakdown_filter) => {
                             if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, null)
+                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
                             }
                             let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
                             // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object

@@ -11,6 +11,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -38,8 +39,15 @@ function CategoryPillContent({
     onClick: () => void
 }): JSX.Element {
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore, needsMoreSearchCharacters } =
-        useValues(infiniteListLogic)
+    const {
+        totalResultCount,
+        totalListCount,
+        isLoading,
+        isLocalDataLoading,
+        hasRemoteDataSource,
+        hasMore,
+        needsMoreSearchCharacters,
+    } = useValues(infiniteListLogic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
@@ -48,7 +56,7 @@ function CategoryPillContent({
         totalListCount > 0 ||
         taxonomicFilterGroupTypesWithEmptyStates.includes(groupType) ||
         groupType === TaxonomicFilterGroupType.SuggestedFilters
-    const showLoading = isLoading && hasRemoteDataSource
+    const showLoading = (isLoading && hasRemoteDataSource) || isLocalDataLoading
 
     return (
         <LemonTag
@@ -127,6 +135,7 @@ export function InfiniteSelectResults({
     const logic = infiniteListLogic(infiniteListLogicProps)
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
+    const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
     const { totalListCount } = useValues(logic)
 
@@ -188,6 +197,10 @@ export function InfiniteSelectResults({
                                     onClick={() => {
                                         setActiveTab(groupType)
                                         focusInput()
+                                        reportTaxonomicFilterCategorySelected(
+                                            groupType,
+                                            taxonomicFilterLogicProps.eventNames?.[0]
+                                        )
                                     }}
                                 />
                             )

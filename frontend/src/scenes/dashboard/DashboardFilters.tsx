@@ -10,6 +10,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { QuickFilterSelector } from 'lib/components/QuickFilters/QuickFilterSelector'
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
 import { quickFiltersSectionLogic } from 'lib/components/QuickFilters/quickFiltersSectionLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -30,7 +31,7 @@ export function DashboardPrimaryFilters(): JSX.Element {
 
     return (
         <>
-            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+            <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
                 <AppShortcut
                     name="DashboardDateFilter"
                     keybind={[keyBinds.dateFilter]}
@@ -48,7 +49,7 @@ export function DashboardPrimaryFilters(): JSX.Element {
                         explicitDate={effectiveEditBarFilters.explicitDate}
                         onChange={(from_date, to_date, explicitDate) => {
                             if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, null)
+                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
                             }
                             setDates(from_date, to_date, explicitDate)
                         }}
@@ -147,12 +148,7 @@ export function DashboardAdvancedOptions(): JSX.Element | null {
         return null
     }
 
-    return (
-        <DashboardEditBar
-            showDateFilter={false}
-            className="flex gap-2 items-end flex-wrap border rounded p-2 md:[&>*]:grow-0 [&>*]:grow"
-        />
-    )
+    return <DashboardEditBar showDateFilter={false} className="flex gap-2 items-end flex-wrap border rounded p-2" />
 }
 
 interface DashboardFilterBarProps {
@@ -163,9 +159,9 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
     const { placement, dashboard, dashboardMode, hasVariables, dashboardFiltersEnabled } = useValues(dashboardLogic)
 
     return (
-        <div className="flex flex-col gap-2 w-full">
-            <div className="flex gap-2 justify-between">
-                <div className="flex flex-col md:flex-row gap-2 justify-between">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
+                <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:justify-between items-start lg:items-center">
                     {![
                         DashboardPlacement.Public,
                         DashboardPlacement.Export,
@@ -179,9 +175,13 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                     <div
-                        className={clsx('flex shrink-0 gap-4 items-center dashoard-items-actions ml-auto', {
-                            'mt-7': hasVariables,
-                        })}
+                        className={clsx(
+                            'flex flex-col lg:flex-row items-end lg:items-center gap-4 dashoard-items-actions',
+                            'min-w-0 max-lg:basis-full max-lg:w-full max-lg:ml-0 shrink-0 lg:ml-auto',
+                            {
+                                'mt-7': hasVariables,
+                            }
+                        )}
                     >
                         {dashboardFiltersEnabled && <DashboardAdvancedOptionsToggle />}
                         <div className={`left-item ${placement === DashboardPlacement.Public ? 'text-right' : ''}`}>

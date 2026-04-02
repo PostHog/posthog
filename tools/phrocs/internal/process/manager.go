@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
+	"github.com/posthog/posthog/phrocs/internal/docker"
 )
 
 // Orchestrates all processes for the dev environment
@@ -13,23 +14,28 @@ type Manager struct {
 	procs  []*Process
 	byName map[string]*Process
 	send   func(tea.Msg)
+
 }
 
 func NewManager(cfg *config.Config) *Manager {
+	mgr := &Manager{}
+
 	names := cfg.OrderedNames()
-	procs := make([]*Process, 0, len(names))
-	byName := make(map[string]*Process, len(names))
+	mgr.procs = make([]*Process, 0, len(names))
+	mgr.byName = make(map[string]*Process, len(names))
 
 	for _, name := range names {
-		proc := NewProcess(name, cfg.Procs[name], cfg.Scrollback)
-		procs = append(procs, proc)
-		byName[name] = proc
+		pcfg := cfg.Procs[name]
+		// Strip trailing "docker compose ... logs" from docker-compose shells
+		if docker.IsDockerComposeShell(pcfg.Shell) {
+			pcfg.Shell = docker.StripComposeLogsTail(pcfg.Shell)
+		}
+		proc := NewProcess(name, pcfg, cfg.Scrollback)
+		mgr.procs = append(mgr.procs, proc)
+		mgr.byName[name] = proc
 	}
 
-	return &Manager{
-		procs:  procs,
-		byName: byName,
-	}
+	return mgr
 }
 
 // Must be called before StartAll
@@ -53,14 +59,22 @@ func (m *Manager) StartAll() {
 	}
 }
 
-// Sends SIGTERM to every running process (called on quit)
+// Stops every running process in parallel and waits for all of them to exit
+// (with SIGKILL escalation). Called on quit to ensure no orphaned processes
+// keep ports occupied.
 func (m *Manager) StopAll() {
 	m.mu.Lock()
 	procs := m.procs
 	m.mu.Unlock()
+	var wg sync.WaitGroup
 	for _, p := range procs {
-		p.Stop()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.Stop()
+		}()
 	}
+	wg.Wait()
 }
 
 // Returns the ordered slice of all processes (safe for reading status/lines)
@@ -86,3 +100,4 @@ func (m *Manager) Send() func(tea.Msg) {
 	defer m.mu.Unlock()
 	return m.send
 }
+

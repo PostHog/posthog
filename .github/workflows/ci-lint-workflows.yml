@@ -1,0 +1,20 @@
+name: Lint workflows
+
+on:
+    pull_request:
+        paths:
+            - .github/workflows/**
+
+permissions:
+    contents: read
+
+jobs:
+    check-timeouts:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@v6
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+            - run: uv run .github/scripts/check-ci-timeouts.py

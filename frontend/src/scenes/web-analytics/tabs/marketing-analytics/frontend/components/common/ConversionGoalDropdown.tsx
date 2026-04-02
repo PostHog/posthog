@@ -14,7 +14,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode } from '~/queries/utils'
 import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
-import { ActionFilter, BaseMathType, DataWarehouseFilter, EntityTypes, FilterType, PropertyMathType } from '~/types'
+import { ActionFilter, BaseMathType, AnyDataWarehouseFilter, EntityTypes, FilterType, PropertyMathType } from '~/types'
 
 import {
     ConversionGoalSchema,
@@ -97,7 +97,7 @@ export function ConversionGoalDropdown({
                         {
                             actions: actions as ActionFilter[] | undefined,
                             events: events as ActionFilter[] | undefined,
-                            data_warehouse: data_warehouse as DataWarehouseFilter[] | undefined,
+                            data_warehouse: data_warehouse as AnyDataWarehouseFilter[] | undefined,
                         },
                         true,
                         MathAvailability.All
@@ -138,7 +138,8 @@ export function ConversionGoalDropdown({
 
                     // Override the schema with the schema from the data warehouse
                     if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
-                        const dwNode = data_warehouse[0] as DataWarehouseFilter & Record<ConversionGoalSchema, string>
+                        const dwNode = data_warehouse[0] as AnyDataWarehouseFilter &
+                            Record<ConversionGoalSchema, string>
                         const schema = dwNode
                         const overrideSchema: Record<ConversionGoalSchema, string> = {
                             utm_campaign_name: schema[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],

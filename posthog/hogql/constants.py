@@ -136,7 +136,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_ast_elements: Optional[int] = 4_000_000  # default value 50000
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
-    allow_experimental_analyzer: Optional[bool] = None
+    enable_analyzer: Optional[bool] = None
     transform_null_in: Optional[bool] = True
     # A bugfix workaround that stops clauses that look like
     # `or(event = '1', event = '2', event = '3')` from being optimized into `event IN ('1', '2', '3')`
@@ -148,3 +148,17 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
     use_hive_partitioning: Optional[int] = 0
+
+
+def get_default_hogql_global_settings(
+    team_id: int | None = None,
+    base: HogQLGlobalSettings | None = None,
+) -> HogQLGlobalSettings:
+    settings = base.model_copy(deep=True) if base is not None else HogQLGlobalSettings()
+    # Only enable if not explicitly disabled (None = not set, False = explicitly disabled)
+    if settings.enable_analyzer is None and team_id is not None:
+        from posthog.settings.data_stores import is_enable_analyzer_team
+
+        if is_enable_analyzer_team(team_id):
+            settings.enable_analyzer = True
+    return settings

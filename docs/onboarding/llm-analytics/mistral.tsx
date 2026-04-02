@@ -78,8 +78,8 @@ export const getMistralSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     <Markdown>
                         We call Mistral through the OpenAI client and generate a response. We'll use PostHog's OpenAI
                         provider to capture all the details of the call. Initialize PostHog with your PostHog project
-                        API key and host from [your project settings](https://app.posthog.com/settings/project), then
-                        pass the PostHog client along with the Mistral config (the base URL and API key) to our OpenAI
+                        token and host from [your project settings](https://app.posthog.com/settings/project), then pass
+                        the PostHog client along with the Mistral config (the base URL and API key) to our OpenAI
                         wrapper.
                     </Markdown>
 

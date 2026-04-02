@@ -1,4 +1,14 @@
-import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
+import {
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    DragOverEvent,
+    DragStartEvent,
+    MouseSensor,
+    TouchSensor,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import React, {
     CSSProperties,
@@ -80,7 +90,10 @@ export type TreeDataItem = {
     /** Order of object in tree */
     visualOrder?: number
 }
-type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
+type LemonTreeBaseProps = Omit<
+    HTMLAttributes<HTMLDivElement>,
+    'onDragStart' | 'onDragOver' | 'onDragEnd' | 'onDragCancel'
+> & {
     /** The data to render in the tree. */
     data: TreeDataItem[]
     /** The ID of the folder/node to select by default. Will expand the node if it has children. */
@@ -158,6 +171,12 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     contentRef?: React.RefObject<HTMLElement>
     /** Handler for when a drag operation completes */
     onDragEnd?: (dragEvent: DragEndEvent) => void
+    /** Handler for when a drag operation starts */
+    onDragStart?: (dragEvent: DragStartEvent) => void
+    /** Handler for when the drag target changes */
+    onDragOver?: (dragEvent: DragOverEvent) => void
+    /** Handler for when a drag operation is canceled */
+    onDragCancel?: () => void
     /** Whether the item is checked. */
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
     /** Whether to disable the scrollable shadows. */
@@ -320,7 +339,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         iconOnly: size === 'narrow',
                                         disabled: isEmptyFolder,
                                         className: cn(
-                                            'group/lemon-tree-button gap-[5px] min-w-0 pr-0 group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]',
+                                            'group/lemon-tree-button gap-[5px] min-w-0 pr-0',
                                             'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3 -outline-offset-2',
                                             {
                                                 'bg-fill-button-tertiary-hover':
@@ -335,6 +354,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
                                                 'rounded-l-[var(--radius)] justify-center [&_svg]:size-4':
                                                     size === 'narrow',
+                                                // Only show side action on hover for default size
+                                                'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
+                                                    size !== 'narrow',
                                             }
                                         ),
                                     }}
@@ -571,7 +593,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     if (isItemDroppable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
+                            <TreeNodeDroppable id={item.id} isDroppable={isItemDroppable(item)}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )
@@ -598,6 +620,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             showFolderActiveState = false,
             contentRef,
             onDragEnd,
+            onDragStart,
+            onDragOver,
+            onDragCancel,
             expandedItemIds,
             onSetExpandedItemIds,
             isItemDraggable,
@@ -1243,6 +1268,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     if (item) {
                         setActiveDragItem(item)
                     }
+                    onDragStart?.(event)
+                }}
+                onDragOver={(dragEvent) => {
+                    onDragOver?.(dragEvent)
                 }}
                 onDragEnd={(dragEvent) => {
                     const active = dragEvent.active?.id
@@ -1253,6 +1282,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         onDragEnd?.(dragEvent)
                     }
                     setIsDragging(false)
+                    setActiveDragItem(null)
+                }}
+                onDragCancel={() => {
+                    setIsDragging(false)
+                    setActiveDragItem(null)
+                    onDragCancel?.()
                 }}
             >
                 <ScrollableShadows

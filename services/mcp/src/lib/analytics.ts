@@ -4,8 +4,8 @@ import { PostHog } from 'posthog-node'
 const POSTHOG_API_KEY = 'sTMFPsFhdP1Ssg'
 const POSTHOG_HOST = 'https://us.i.posthog.com'
 
-const DEV_POSTHOG_API_KEY = env.POSTHOG_ANALYTICS_API_KEY ?? POSTHOG_API_KEY
-const DEV_POSTHOG_HOST = env.POSTHOG_ANALYTICS_HOST ?? POSTHOG_HOST
+const DEV_POSTHOG_API_KEY: string | undefined = env.POSTHOG_ANALYTICS_API_KEY ?? POSTHOG_API_KEY
+const DEV_POSTHOG_HOST: string | undefined = env.POSTHOG_ANALYTICS_HOST ?? POSTHOG_HOST
 
 let _client: PostHog | undefined
 
@@ -32,4 +32,18 @@ export const getPostHogClient = (devMode?: boolean): PostHog => {
     }
 
     return _client
+}
+
+export async function isFeatureFlagEnabled(
+    flagKey: string,
+    distinctId: string,
+    devMode?: boolean
+): Promise<boolean> {
+    try {
+        const client = getPostHogClient(devMode)
+        const result = await client.isFeatureEnabled(flagKey, distinctId)
+        return result === true
+    } catch {
+        return false
+    }
 }

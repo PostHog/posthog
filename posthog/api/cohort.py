@@ -28,7 +28,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ActorsQuery, HogQLQuery
+from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
@@ -41,6 +41,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET, PropertyOperatorType
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -69,6 +70,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.util import validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
@@ -81,7 +83,10 @@ from posthog.utils import format_query_params_absolute_url
 
 
 def validate_filters_and_compute_realtime_support(
-    filters_dict: dict, team: Team, current_cohort_type: str | None = None, cohort_count: int | None = None
+    filters_dict: dict,
+    team: Team,
+    current_cohort_type: str | None = None,
+    cohort_count: int | None = None,
 ) -> tuple[dict, str | None, list | None]:
     try:
         if not filters_dict:
@@ -326,7 +331,9 @@ logger = structlog.get_logger(__name__)
 
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
     person_ids = serializers.ListField(
-        child=serializers.UUIDField(), required=True, help_text="List of person UUIDs to add to the cohort"
+        child=serializers.UUIDField(),
+        required=True,
+        help_text="List of person UUIDs to add to the cohort",
     )
 
 
@@ -430,6 +437,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "last_calculation",
+            "last_backfill_person_properties_at",
             "errors_calculating",
             "last_error_message",
             "count",
@@ -447,6 +455,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "last_calculation",
+            "last_backfill_person_properties_at",
             "errors_calculating",
             "last_error_message",
             "count",
@@ -482,11 +491,16 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort_data = {
             "cohort_type": value,
             "is_static": self.initial_data.get(
-                "is_static", getattr(self.instance, "is_static", False) if self.instance else False
+                "is_static",
+                getattr(self.instance, "is_static", False) if self.instance else False,
             ),
-            "query": self.initial_data.get("query", getattr(self.instance, "query", None) if self.instance else None),
+            "query": self.initial_data.get(
+                "query",
+                getattr(self.instance, "query", None) if self.instance else None,
+            ),
             "filters": self.initial_data.get(
-                "filters", getattr(self.instance, "filters", None) if self.instance else None
+                "filters",
+                getattr(self.instance, "filters", None) if self.instance else None,
             ),
         }
 
@@ -499,18 +513,19 @@ class CohortSerializer(serializers.ModelSerializer):
 
         return value
 
-    def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict, person_ids: list[str] | None) -> None:
+    def _handle_static(
+        self,
+        cohort: Cohort,
+        context: dict,
+        validated_data: dict,
+        person_ids: list[str] | None,
+    ) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_feature_flag, insert_cohort_from_query
 
         request = self.context["request"]
         if request.FILES.get("csv") or person_ids:
             if person_ids:
-                uuids = [
-                    str(uuid)
-                    for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
-                    .filter(team_id=self.context["team_id"], uuid__in=person_ids)
-                    .values_list("uuid", flat=True)
-                ]
+                uuids = validate_person_uuids_exist(self.context["team_id"], person_ids)
                 cohort.insert_users_list_by_uuid(uuids, team_id=self.context["team_id"])
             if request.FILES.get("csv"):
                 self._calculate_static_by_csv(request.FILES["csv"], cohort)
@@ -535,11 +550,15 @@ class CohortSerializer(serializers.ModelSerializer):
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
 
-        # Process bytecode for filters if present
-        if validated_data.get("filters"):
+        # Process bytecode for filters if present. Static cohorts define
+        # membership by an explicit list of person IDs, so their cohort_type
+        # must never be overridden by the filter-based realtime calculation.
+        if validated_data.get("filters") and not validated_data.get("is_static"):
             team = Team.objects.get(id=self.context["team_id"])
             clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
-                validated_data["filters"], team, current_cohort_type=validated_data.get("cohort_type")
+                validated_data["filters"],
+                team,
+                current_cohort_type=validated_data.get("cohort_type"),
             )
             validated_data["filters"] = clean_filters
             validated_data["cohort_type"] = computed_cohort_type
@@ -565,7 +584,11 @@ class CohortSerializer(serializers.ModelSerializer):
             cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(
-            request.user, "cohort created", cohort.get_analytics_metadata(), team=cohort.team, request=request
+            request.user,
+            "cohort created",
+            cohort.get_analytics_metadata(),
+            team=cohort.team,
+            request=request,
         )
         return cohort
 
@@ -624,7 +647,10 @@ class CohortSerializer(serializers.ModelSerializer):
         return None
 
     def _extract_ids_single_column(
-        self, first_row: list[str], reader: Iterator[list[str]], skip_header: bool = False
+        self,
+        first_row: list[str],
+        reader: Iterator[list[str]],
+        skip_header: bool = False,
     ) -> list[str]:
         """Process single-column CSV format"""
         distinct_ids = []
@@ -681,13 +707,25 @@ class CohortSerializer(serializers.ModelSerializer):
         if isinstance(e, UnicodeDecodeError):
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
         elif isinstance(e, csv.Error):
-            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
+            capture_exception(
+                e,
+                additional_properties={
+                    "cohort_id": cohort.pk,
+                    "team_id": self.context["team_id"],
+                },
+            )
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.FORMAT_ERROR]})
         elif isinstance(e, ValidationError):
             # If it's already a ValidationError, just re-raise it to preserve format
             raise
         else:
-            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
+            capture_exception(
+                e,
+                additional_properties={
+                    "cohort_id": cohort.pk,
+                    "team_id": self.context["team_id"],
+                },
+            )
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.GENERIC_ERROR]})
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
@@ -759,7 +797,10 @@ class CohortSerializer(serializers.ModelSerializer):
             return raw
         if not isinstance(raw, dict) or "properties" not in raw:
             raise ValidationError(
-                {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}
+                {
+                    "detail": "Must contain a 'properties' key with type and values",
+                    "type": "validation_error",
+                }
             )
         try:
             # Validate structure
@@ -847,15 +888,19 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
         cohort.query = validated_data.get("query", cohort.query)
 
-        # Process bytecode for filters if they're being updated
+        # Process bytecode for filters if they're being updated. Static cohorts
+        # define membership by an explicit list of person IDs, so their
+        # cohort_type must never be overridden by the filter-based calculation.
         if "filters" in validated_data:
             filters = validated_data["filters"]
-            if filters:
+            if filters and not cohort.is_static:
                 clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
-                    filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
+                    filters,
+                    cohort.team,
+                    current_cohort_type=cohort.cohort_type,
+                    cohort_count=cohort.count,
                 )
                 cohort.filters = clean_filters
-                # Always compute cohort_type from filters; ignore any client-provided value
                 cohort.cohort_type = computed_cohort_type
             else:
                 cohort.filters = filters
@@ -876,7 +921,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
                 # Check if cohort is used in test_account_filters
                 teams_with_cohort = Team.objects.filter(
-                    project_id=cohort.team.project_id, test_account_filters__contains=[{"type": "cohort"}]
+                    project_id=cohort.team.project_id,
+                    test_account_filters__contains=[{"type": "cohort"}],
                 )
                 teams_using_cohort = []
                 for team in teams_with_cohort:
@@ -1040,11 +1086,18 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-            # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
-            # used in the feature flag property filter UI
+            # Hides behavioral cohorts that can't be used in feature flags from the flag property filter UI.
+            # When realtime cohort flag targeting is enabled, realtime cohorts that have been
+            # backfilled are allowed through.
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
+                # Avoid circular import: feature_flag imports cohort models
+                from posthog.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
+
+                allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
                 all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
-                behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)
+                behavioral_cohort_ids = self._find_behavioral_cohorts(
+                    all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled
+                )
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
 
             # add additional filters provided by the client
@@ -1066,13 +1119,26 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .order_by("-created_at")
         )
 
-    def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
+    def _find_behavioral_cohorts(
+        self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
+    ) -> set[int]:
         """
         Find all cohorts that have behavioral filters or reference cohorts with behavioral filters
         using a graph-based approach.
+
+        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled are
+        excluded from the result because they can be evaluated via the cohort_membership table
+        during flag evaluation.
         """
         graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
-        affected_cohorts = set(behavioral_cohorts)
+
+        # When the feature is enabled, realtime+backfilled cohorts are flag-compatible
+        flag_compatible: set[int] = set()
+        if allow_realtime_backfilled:
+            flag_compatible = {
+                cid for cid in behavioral_cohorts if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
+            }
+        affected_cohorts = behavioral_cohorts - flag_compatible
 
         def find_affected_cohorts() -> None:
             changed = True
@@ -1147,6 +1213,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             filter = filter.shallow_clone({LIMIT: 100})
 
         query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         raw_result = sync_execute(
             query,
             {**params, **filter.hogql_context.values},
@@ -1215,12 +1282,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_ids cannot be empty")
         if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
             raise ValidationError("List size exceeds limit")
-        uuids = [
-            str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team_id=self.team_id, uuid__in=person_ids)
-            .values_list("uuid", flat=True)
-        ]
+        uuids = validate_person_uuids_exist(self.team_id, person_ids)
         if len(uuids) == 0:
             raise ValidationError("No valid users to add to cohort")
         cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
@@ -1275,7 +1337,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return Response({"success": True}, status=200)
 
-    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
+    @action(
+        methods=["GET"],
+        url_path="activity",
+        detail=False,
+        required_scopes=["activity_log:read"],
+    )
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
@@ -1418,12 +1485,37 @@ def will_create_loops(cohort: Cohort) -> bool:
 
 
 def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
-    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-    ids = sync_execute(
-        f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-        {"cohort_id": cohort.pk, "team_id": team_id},
+    from posthog.helpers.batch_iterators import CursorBatchIterator
+
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+
+    CH_PAGE_SIZE = 10_000
+
+    # Use cursor-based pagination to stream from ClickHouse in pages instead of
+    # loading all rows into memory at once. The old approach fetched every row into
+    # a Python list, which OOM'd for large cohorts (1M+ people).
+    # Cursor-based avoids the O(n²) cost of LIMIT/OFFSET where later pages must
+    # scan and discard all preceding rows.
+    def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
+        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+            {
+                "cohort_id": cohort.pk,
+                "team_id": team_id,
+                "cursor": cursor,
+                "limit": batch_size,
+            },
+        )
+        if not rows:
+            return [], cursor
+        items = [str(r[0]) for r in rows]
+        return items, items[-1]
+
+    batch_iterator = CursorBatchIterator(
+        fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
     )
-    cohort.insert_users_list_by_uuid_into_pg_only(items=[str(id[0]) for id in ids], team_id=team_id)
+    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
 
 
 def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
@@ -1433,8 +1525,14 @@ def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
 
 
 def insert_actors_into_cohort_by_query(
-    cohort: Cohort, query: str, params: dict[str, Any], context: HogQLContext, *, team_id: int
+    cohort: Cohort,
+    query: str,
+    params: dict[str, Any],
+    context: HogQLContext,
+    *,
+    team_id: int,
 ):
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {
@@ -1532,7 +1630,9 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                     # :TRICKY: This is inefficient because it tries to get the hashkey overrides one by one.
                     # But reusing functions is better for maintainability. Revisit optimising if this becomes a bottleneck.
                     person_overrides = get_feature_flag_hash_key_overrides(
-                        team_id, [distinct_id], person_id_to_distinct_id_mapping={person.id: distinct_id}
+                        team_id,
+                        [distinct_id],
+                        person_id_to_distinct_id_mapping={person.id: distinct_id},
                     )
 
                 try:
@@ -1544,7 +1644,10 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                         groups={},
                         cache=matcher_cache,
                         hash_key_overrides=person_overrides,
-                        property_value_overrides={**default_person_properties, **person.properties},
+                        property_value_overrides={
+                            **default_person_properties,
+                            **person.properties,
+                        },
                         group_property_value_overrides={},
                         cohorts_cache=cohorts_cache,
                     ).get_match(feature_flag)
@@ -1552,7 +1655,9 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                         uuids_to_add_to_cohort.append(str(person.uuid))
                 except (DatabaseError, ValueError, ValidationError):
                     logger.exception(
-                        "Error evaluating feature flag for person", person_uuid=str(person.uuid), team_id=team_id
+                        "Error evaluating feature flag for person",
+                        person_uuid=str(person.uuid),
+                        team_id=team_id,
                     )
                 except Exception as err:
                     # matching errors are not fatal, so we just log them and move on.

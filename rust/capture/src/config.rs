@@ -2,7 +2,6 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
-use health::HealthStrategy;
 use tracing::Level;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -196,9 +195,6 @@ pub struct Config {
     #[envconfig(default = "")]
     pub s3_fallback_prefix: String,
 
-    #[envconfig(default = "ALL")]
-    pub healthcheck_strategy: HealthStrategy,
-
     #[envconfig(default = "false")]
     pub is_mirror_deploy: bool,
 
@@ -242,14 +238,14 @@ pub struct Config {
     #[envconfig(default = "256")]
     pub body_read_chunk_size_kb: usize,
 
-    /// Enable dual-write of exception events to the error tracking pipeline.
+    /// Enable routing of exception events to the Node error tracking pipeline.
     #[envconfig(default = "false")]
-    pub error_tracking_dual_write_enabled: bool,
+    pub error_tracking_node_rollout_enabled: bool,
 
-    /// Sample rate for error tracking dual-write (0.0 to 100.0).
-    /// Only applies when dual-write is enabled.
+    /// Percentage of exception events routed to the Node pipeline (0.0 to 100.0).
+    /// Only applies when error_tracking_node_rollout_enabled is true.
     #[envconfig(default = "0.0")]
-    pub error_tracking_dual_write_sample_rate: f64,
+    pub error_tracking_node_rollout_rate: f64,
 
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,

@@ -2,11 +2,13 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { identifierToHuman } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -28,6 +30,7 @@ import {
 
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
+import { GAPromotionDialogContent } from './GAPromotionDialogContent'
 
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
@@ -273,10 +276,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateEarlyAccessFeature)
             }
         },
-        showGAPromotionConfirmation: async ({ onConfirm }) => {
-            const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
-            const React = await import('react')
-            const { GAPromotionDialogContent } = await import('./GAPromotionDialogContent')
+        showGAPromotionConfirmation: ({ onConfirm }) => {
             let rolloutToAll = false
             LemonDialog.open({
                 title: 'Promote to General Availability?',

@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -11,48 +11,56 @@ import fullTrace from './__mocks__/fullTrace.json'
 import traceWithoutContent from './__mocks__/traceWithoutContent.json'
 import { LLMAnalyticsTraceScene } from './LLMAnalyticsTraceScene'
 
-const meta: Meta = {
+interface LLMAnalyticsTraceSceneProps {
+    trace: LLMTrace
+    eventId?: string
+}
+
+const meta: Meta<LLMAnalyticsTraceSceneProps> = {
     title: 'Scenes-App/LLM Analytics/Trace',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
     },
+    render: ({ trace, eventId }) => {
+        useStorybookMocks({
+            post: {
+                '/api/environments/:team_id/query/': () => [200, { results: [trace] }],
+            },
+        })
+
+        useOnMountEffect(() => {
+            router.actions.push(
+                urls.llmAnalyticsTrace(trace.id, eventId ? { event: eventId, timestamp: trace.createdAt } : undefined)
+            )
+        })
+
+        return (
+            <div className="relative flex flex-col p-4">
+                <LLMAnalyticsTraceScene />
+            </div>
+        )
+    },
 }
 export default meta
+type Story = StoryObj<LLMAnalyticsTraceSceneProps>
 
-const Template: StoryFn<{ trace: LLMTrace; eventId?: string }> = ({ trace, eventId }): JSX.Element => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [trace] }],
-        },
-    })
-
-    useOnMountEffect(() => {
-        router.actions.push(
-            urls.llmAnalyticsTrace(trace.id, eventId ? { event: eventId, timestamp: trace.createdAt } : undefined)
-        )
-    })
-
-    return (
-        <div className="relative flex flex-col p-4">
-            <LLMAnalyticsTraceScene />
-        </div>
-    )
+export const Full: Story = {
+    args: {
+        trace: fullTrace,
+    },
 }
 
-export const Full: StoryFn<{ trace: LLMTrace; eventId?: string }> = Template.bind({})
-Full.args = {
-    trace: fullTrace,
+export const FullSpecificEvent: Story = {
+    args: {
+        trace: fullTrace,
+        eventId: fullTrace.events.at(-8)!.id,
+    },
 }
 
-export const FullSpecificEvent: StoryFn<{ trace: LLMTrace; eventId?: string }> = Template.bind({})
-FullSpecificEvent.args = {
-    trace: fullTrace,
-    eventId: fullTrace.events.at(-8)!.id,
-}
-
-export const WithoutContent: StoryFn<{ trace: LLMTrace; eventId?: string }> = Template.bind({})
-WithoutContent.args = {
-    trace: traceWithoutContent,
+export const WithoutContent: Story = {
+    args: {
+        trace: traceWithoutContent,
+    },
 }

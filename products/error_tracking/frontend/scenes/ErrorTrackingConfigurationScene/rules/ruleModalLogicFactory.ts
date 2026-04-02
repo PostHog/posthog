@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, UniversalFiltersGroup } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { rulesLogic } from './rulesLogic'
 import { ErrorTrackingBaseRule, ErrorTrackingRuleType } from './types'
@@ -93,7 +93,9 @@ export function createRuleModalLogic<T extends ErrorTrackingBaseRule>(options: R
                         }
 
                         if (properties.length > 0) {
-                            query.properties = properties
+                            query.fixedProperties = [
+                                { type: filters.type ?? FilterLogicalOperator.And, values: properties },
+                            ]
                         } else if (!allowEmptyFilters) {
                             return null
                         }

@@ -27,6 +27,16 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         fields = ["id", "filters", "assignee", "issue", "order_key", "disabled_data", "created_at", "updated_at"]
         read_only_fields = ["team_id", "created_at", "updated_at"]
 
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "type": {"type": "string", "enum": ["user", "role"]},
+                "id": {"oneOf": [{"type": "integer"}, {"type": "string", "format": "uuid"}]},
+            },
+        }
+    )
     def get_assignee(self, obj):
         if obj.user_id:
             return {"type": "user", "id": obj.user_id}
@@ -103,6 +113,9 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         )
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def partial_update(self, request, *args, **kwargs) -> Response:
+        return self.update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)

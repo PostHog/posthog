@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -97,6 +97,19 @@ impl EmbeddingModel {
         match self {
             EmbeddingModel::OpenAITextEmbeddingSmall => 8192,
             EmbeddingModel::OpenAITextEmbeddingLarge => 8192,
+        }
+    }
+
+    /// Apply model-specific escaping/sanitisation to input text before tokenisation.
+    pub fn escape_input<'a>(&self, content: &'a str) -> std::borrow::Cow<'a, str> {
+        match self {
+            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+                if content.contains("<|endoftext|>") {
+                    // Open AI's embedding endpoints 500 in the face of <|endoftext|> tokens
+                    return Cow::Owned(content.replace("<|endoftext|>", ">|endoftext|<"));
+                }
+                Cow::Borrowed(content)
+            }
         }
     }
 
@@ -222,5 +235,27 @@ impl From<EmbeddingResponse> for Vec<EmbeddingRecord> {
         }
 
         records
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_input() {
+        let model = EmbeddingModel::default();
+
+        // Normal text passes through borrowed
+        let normal = "hello world";
+        let result = model.escape_input(normal);
+        assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(result, "hello world");
+
+        // endoftext token gets escaped
+        let bad = "foo <|endoftext|> bar";
+        let result = model.escape_input(bad);
+        assert!(matches!(result, std::borrow::Cow::Owned(_)));
+        assert_eq!(result, "foo >|endoftext|< bar");
     }
 }

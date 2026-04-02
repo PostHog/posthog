@@ -157,7 +157,7 @@ export function VisualReviewRunsScene(): JSX.Element {
                     label: (
                         <span>
                             {label}
-                            {counts[key] > 0 && (
+                            {(key === 'needs_review' || key === 'processing') && counts[key] > 0 && (
                                 <span className={`ml-1.5 px-1.5 py-0.5 text-xs rounded-full ${TAB_STYLES[key]}`}>
                                     {counts[key]}
                                 </span>

@@ -230,7 +230,7 @@ impl GlobalRateLimiter {
     }
 
     #[cfg(test)]
-    fn new_with(limiter: impl CommonGlobalRateLimiter + 'static) -> Self {
+    pub(crate) fn new_with(limiter: impl CommonGlobalRateLimiter + 'static) -> Self {
         Self {
             limiter: Box::new(limiter),
         }

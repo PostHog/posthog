@@ -400,6 +400,7 @@ async def handle_error(
         await logger.ainfo("Marking job %s as failed", job.id)
         await logger.aerror(f"handle_error: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.FAILED
+        job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
     await queue.put(
@@ -419,6 +420,7 @@ async def handle_cancelled(
     if job:
         await logger.aerror(f"handle_cancelled: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.CANCELLED
+        job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
     await queue.put(
@@ -552,11 +554,15 @@ async def materialize_model(
             write_duration = (dt.datetime.now() - write_start).total_seconds()
 
             row_count = row_count + batch.num_rows
-            job.rows_materialized = row_count
-
             save_start = dt.datetime.now()
-            await database_sync_to_async(job.save)()
+            updated = await database_sync_to_async(
+                DataModelingJob.objects.filter(id=job.id, status=DataModelingJob.Status.RUNNING).update
+            )(rows_materialized=row_count)
             save_duration = (dt.datetime.now() - save_start).total_seconds()
+
+            if updated == 0:
+                await logger.awarning("Job %s is no longer running, stopping materialization", job.id)
+                raise DataModelingCancelledException("Job was cancelled or preempted during materialization")
 
             await logger.adebug(
                 f"Batch {index} timings: write={write_duration:.2f}s, save={save_duration:.2f}s, total={write_duration + save_duration:.2f}s"
@@ -568,6 +574,8 @@ async def materialize_model(
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
     except ObjectDoesNotExist:
+        raise
+    except DataModelingCancelledException:
         raise
     except Exception as e:
         error_message = str(e)
@@ -680,7 +688,8 @@ async def materialize_model(
     await database_sync_to_async(saved_query.save)()
 
     await logger.adebug("Creating DataWarehouseTable model")
-    dwh_table = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
+    create_result = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
+    dwh_table = create_result.table
 
     await database_sync_to_async(saved_query.refresh_from_db)()
     saved_query.table_id = dwh_table.id
@@ -711,6 +720,7 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     await logger.aerror(f"mark_job_as_failed: {error_message}")
     await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
+    job.rows_materialized = 0
     job.error = strip_hostname_from_error(error_message)
     await database_sync_to_async(job.save)()
 
@@ -797,7 +807,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_client(allow_experimental_analyzer=1) as client:
+    async with get_client(enable_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -858,7 +868,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     # Query for types first, check for any types ArrowStream doesn't support
     # and rewrite the query wrapping those columns in a `toString(..)`
-    async with get_client(allow_experimental_analyzer=1) as client:
+    async with get_client(enable_analyzer=1) as client:
         query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
         has_type_to_convert = False
 
@@ -951,7 +961,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
     # Set max block size to 50,000 rows
-    async with get_client(max_block_size=50_000, allow_experimental_analyzer=1) as client:
+    async with get_client(max_block_size=50_000, enable_analyzer=1) as client:
         batches = []
         batches_size = 0
         batch_count = 0
@@ -1377,10 +1387,15 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
     logger = LOGGER.bind()
 
     orphaned_count = await database_sync_to_async(
-        DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
+        DataModelingJob.objects.filter(
+            team_id=inputs.team_id,
+            status=DataModelingJob.Status.RUNNING,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+        ).update
     )(
         status=DataModelingJob.Status.FAILED,
-        error="Job timed out",
+        rows_materialized=0,
+        error="Preempted: This job did not complete before the next scheduled job was triggered.",
         updated_at=dt.datetime.now(dt.UTC),
     )
 
@@ -1504,7 +1519,7 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 
     await database_sync_to_async(
         DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
-    )(status=DataModelingJob.Status.CANCELLED)
+    )(status=DataModelingJob.Status.CANCELLED, rows_materialized=0)
     await logger.ainfo(
         "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
     )

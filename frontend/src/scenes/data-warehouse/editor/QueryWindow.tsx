@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconGear, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -14,6 +14,7 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -36,14 +37,31 @@ interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
     tabId: string
     mode?: SQLEditorMode
+    showDatabaseTree: boolean
+    onShowDatabaseTree: () => void
 }
 
-export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowProps): JSX.Element {
+export function QueryWindow({
+    onSetMonacoAndEditor,
+    tabId,
+    mode,
+    showDatabaseTree,
+    onShowDatabaseTree,
+}: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
 
-    const { queryInput, sourceQuery, originalQueryInput, suggestedQueryInput, editingView } = useValues(sqlEditorLogic)
+    const {
+        queryInput,
+        sourceQuery,
+        originalQueryInput,
+        suggestedQueryInput,
+        editingView,
+        selectedConnectionId,
+        sendRawQueryEnabled,
+    } = useValues(sqlEditorLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading } = useActions(sqlEditorLogic)
+    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, setSendRawQuery } =
+        useActions(sqlEditorLogic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
@@ -52,6 +70,60 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+    const canSendRawQuery = isDirectQueryEnabled && !!selectedConnectionId
+    const sendRawQueryLabel = (
+        <span className="inline-flex items-center gap-1">
+            <span>Send raw query</span>
+            <Tooltip title="Send the query directly to the selected external connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
+                <span
+                    className="inline-flex cursor-help"
+                    onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }}
+                >
+                    <IconInfo className="size-3.5 text-muted-alt" />
+                </span>
+            </Tooltip>
+        </span>
+    )
+
+    const editorSettingsItems = [
+        ...(vimModeFeatureEnabled
+            ? [
+                  {
+                      custom: true,
+                      label: () => (
+                          <LemonSwitch
+                              checked={editorVimModeEnabled}
+                              onChange={setEditorVimModeEnabled}
+                              label="Vim mode"
+                              size="small"
+                              fullWidth
+                              data-attr="sql-editor-vim-toggle"
+                          />
+                      ),
+                  },
+              ]
+            : []),
+        ...(canSendRawQuery
+            ? [
+                  {
+                      custom: true,
+                      label: () => (
+                          <LemonSwitch
+                              checked={sendRawQueryEnabled}
+                              onChange={setSendRawQuery}
+                              label={sendRawQueryLabel}
+                              size="small"
+                              fullWidth
+                              data-attr="sql-editor-send-raw-query-toggle"
+                          />
+                      ),
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <div className="flex grow flex-col overflow-hidden">
@@ -62,7 +134,10 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
                 )}
             >
                 <div className="flex items-center gap-2">
-                    <ExpandDatabaseTreeButton />
+                    <ExpandDatabaseTreeButton
+                        showDatabaseTree={showDatabaseTree}
+                        onShowDatabaseTree={onShowDatabaseTree}
+                    />
                     <RunButton />
                     <CollapsedConnectionSelector mode={mode} isDirectQueryEnabled={isDirectQueryEnabled} />
                     <LemonDivider vertical />
@@ -73,28 +148,8 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
 
                 <div className="ml-auto flex items-center gap-2">
                     <FixErrorButton type="secondary" size="small" source="action-bar" />
-                    {vimModeFeatureEnabled ? (
-                        <LemonMenu
-                            items={[
-                                {
-                                    custom: true,
-                                    label: () => (
-                                        <div className="">
-                                            <LemonSwitch
-                                                checked={editorVimModeEnabled}
-                                                onChange={setEditorVimModeEnabled}
-                                                label="Vim mode"
-                                                size="small"
-                                                fullWidth
-                                                data-attr="sql-editor-vim-toggle"
-                                            />
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                            closeOnClickInside={false}
-                            placement="bottom-end"
-                        >
+                    {editorSettingsItems.length > 0 ? (
+                        <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
                             <LemonButton
                                 icon={<IconGear />}
                                 type="secondary"
@@ -172,11 +227,17 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
     )
 }
 
-function ExpandDatabaseTreeButton(): JSX.Element | null {
+function ExpandDatabaseTreeButton({
+    showDatabaseTree,
+    onShowDatabaseTree,
+}: {
+    showDatabaseTree: boolean
+    onShowDatabaseTree: () => void
+}): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     const { toggleDatabaseTreeCollapsed } = useActions(editorSizingLogic)
 
-    if (!isDatabaseTreeCollapsed) {
+    if (showDatabaseTree && !isDatabaseTreeCollapsed) {
         return null
     }
 
@@ -186,7 +247,13 @@ function ExpandDatabaseTreeButton(): JSX.Element | null {
             type="secondary"
             size="small"
             tooltip="Expand database schema panel"
-            onClick={toggleDatabaseTreeCollapsed}
+            onClick={() => {
+                if (!showDatabaseTree) {
+                    onShowDatabaseTree()
+                    return
+                }
+                toggleDatabaseTreeCollapsed()
+            }}
         />
     )
 }

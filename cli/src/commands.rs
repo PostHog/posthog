@@ -176,7 +176,7 @@ impl Cli {
                     crate::sourcemaps::plain::upload::upload(&upload_args)?;
                 }
                 SourcemapCommand::Process(args) => {
-                    let (inject, upload) = args.into();
+                    let (inject, upload) = args.resolve_stdin()?.into();
                     crate::sourcemaps::plain::inject::inject(&inject)?;
                     crate::sourcemaps::plain::upload::upload(&upload)?;
                 }

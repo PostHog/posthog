@@ -16,6 +16,7 @@ pub mod quota_limiters;
 pub mod router;
 pub mod s3_client;
 pub mod server;
+pub mod setup;
 pub mod sinks;
 pub mod test_endpoint;
 pub mod time;
@@ -23,6 +24,7 @@ pub mod token;
 pub mod utils;
 pub mod v0_endpoint;
 pub mod v0_request;
+pub mod v1;
 
 // Re-export timestamp parsing from common-types for backwards compatibility
 pub use common_types::timestamp;

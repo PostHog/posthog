@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconSupport, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -13,6 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { HealthIssueList } from './components/HealthIssueList'
 import { HealthIssueSummaryCards } from './components/HealthIssueSummaryCards'
+import { PlatformStatusBanner } from './components/PlatformStatusBanner'
 import { healthSceneLogic } from './healthSceneLogic'
 
 const HealthCard = ({
@@ -86,6 +88,7 @@ const LegacyHealthScene = (): JSX.Element => {
 const UnifiedHealthScene = (): JSX.Element => {
     const { showDismissed, healthIssuesLoading } = useValues(healthSceneLogic)
     const { refreshHealthData, setShowDismissed } = useActions(healthSceneLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <SceneContent>
@@ -94,6 +97,14 @@ const UnifiedHealthScene = (): JSX.Element => {
             <div className="flex items-center justify-between -mt-2 mb-2">
                 <p className="text-sm mb-0">See an at-a-glance view of the health of your project.</p>
                 <div className="flex items-center gap-1">
+                    <LemonButton
+                        icon={<IconSupport />}
+                        type="secondary"
+                        size="small"
+                        onClick={() => openSupportForm({ kind: 'support', target_area: 'health_overview' })}
+                    >
+                        Get help from our team
+                    </LemonButton>
                     <LemonButton
                         icon={<IconRefresh />}
                         type="tertiary"
@@ -118,6 +129,7 @@ const UnifiedHealthScene = (): JSX.Element => {
             </div>
 
             <div className="flex flex-col gap-6 max-w-5xl">
+                <PlatformStatusBanner />
                 <HealthIssueSummaryCards />
                 <HealthIssueList />
             </div>

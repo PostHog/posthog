@@ -48,7 +48,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         config = new_source.parse_config(source.job_inputs)
         schemas = new_source.get_schemas(config, inputs.team_id)
 
-        schemas_to_sync = [s.name for s in schemas]
+        schemas_to_sync = {s.name: s.label for s in schemas}
     else:
         raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")
 

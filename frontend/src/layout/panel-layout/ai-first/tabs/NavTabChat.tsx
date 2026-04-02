@@ -80,6 +80,7 @@ export function NavTabChat({
         <div className="flex flex-col flex-1 overflow-hidden">
             <Combobox.Root
                 items={conversationGroups}
+                itemToStringLabel={(item: Conversation) => item?.title ?? ''}
                 itemToStringValue={(item: Conversation) => item?.title ?? ''}
                 open
                 autoHighlight
@@ -127,7 +128,7 @@ export function NavTabChat({
                     <ScrollableShadows
                         direction="vertical"
                         className="flex flex-col flex-1 min-h-0 overflow-hidden"
-                        innerClassName="flex flex-col px-1 pb-4 -mx-1"
+                        innerClassName="flex flex-col px-1 pb-4 -mx-1 scroll-pt-8 focus-visible:outline-accent -outline-offset-2"
                         styledScrollbars
                     >
                         {conversationHistoryLoading && conversationHistory.length === 0 ? (
@@ -141,8 +142,12 @@ export function NavTabChat({
                                 <Combobox.List className="flex flex-col">
                                     {(group: ConversationGroup) => (
                                         <Collapsible
-                                            key={group.value}
-                                            defaultOpen={group.value === 'Today' || conversationGroups.length === 1}
+                                            key={`${group.value}-${!!inputValue}`}
+                                            defaultOpen={
+                                                !!inputValue ||
+                                                group.value === 'Today' ||
+                                                conversationGroups.length === 1
+                                            }
                                         >
                                             <Combobox.Group items={group.items}>
                                                 <Combobox.GroupLabel
@@ -160,14 +165,7 @@ export function NavTabChat({
                                                                     <Combobox.Item
                                                                         key={conversation.id}
                                                                         value={conversation}
-                                                                        onClick={(e) => {
-                                                                            e.preventDefault()
-                                                                            router.actions.push(
-                                                                                AiChatListItem.getHref(conversation.id)
-                                                                            )
-                                                                            onItemClick?.()
-                                                                        }}
-                                                                        render={
+                                                                        render={(props) => (
                                                                             <Tooltip
                                                                                 title={
                                                                                     conversation.title ||
@@ -176,6 +174,7 @@ export function NavTabChat({
                                                                                 placement="right"
                                                                             >
                                                                                 <Link
+                                                                                    {...props}
                                                                                     to={AiChatListItem.getHref(
                                                                                         conversation.id
                                                                                     )}
@@ -194,6 +193,15 @@ export function NavTabChat({
                                                                                             }
                                                                                         />
                                                                                     }
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault()
+                                                                                        router.actions.push(
+                                                                                            AiChatListItem.getHref(
+                                                                                                conversation.id
+                                                                                            )
+                                                                                        )
+                                                                                        onItemClick?.()
+                                                                                    }}
                                                                                 >
                                                                                     <AiChatListItem.Content
                                                                                         title={conversation.title}
@@ -204,7 +212,7 @@ export function NavTabChat({
                                                                                     />
                                                                                 </Link>
                                                                             </Tooltip>
-                                                                        }
+                                                                        )}
                                                                     />
                                                                     <AiChatListItem.Trigger />
                                                                 </AiChatListItem.Group>
@@ -219,11 +227,13 @@ export function NavTabChat({
                                         </Collapsible>
                                     )}
                                 </Combobox.List>
-                                <Combobox.Empty className="empty:hidden">
-                                    <div className="flex flex-col items-center justify-center text-center py-8 text-muted border border-dashed rounded-md">
-                                        <p className="text-xs mb-0">No chats found</p>
-                                    </div>
-                                </Combobox.Empty>
+                                <div className="p-2 empty:hidden">
+                                    <Combobox.Empty className="empty:hidden">
+                                        <div className="flex flex-col items-center justify-center text-center py-8 text-muted border border-dashed rounded-md">
+                                            <p className="text-xs mb-0">No chats found</p>
+                                        </div>
+                                    </Combobox.Empty>
+                                </div>
                             </>
                         )}
                     </ScrollableShadows>

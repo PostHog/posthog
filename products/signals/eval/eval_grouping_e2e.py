@@ -6,17 +6,19 @@ Feeds synthetic signals through the real pipeline (LLM query generation,
 embedding search, LLM matching, specificity verification) with mocked
 infrastructure (in-memory embedding store replaces ClickHouse + Kafka).
 
-After grouping, each report is summarized and judged for safety (prompt
-injection detection) and actionability (can a coding agent act on it).
+After grouping, each report is judged for safety (prompt injection detection).
 
 Captures four levels of metrics:
-- Per-signal: correct_match (binary), failure_mode (categorical: NONE,
-  UNDERGROUP, OVERGROUP, SPECIFICITY_SPLIT)
+- Per-signal matching: correct_match (binary), correct_match_pre_specificity
+  (binary, LLM matcher decision before specificity judge),
+  failure_mode (categorical: NONE, UNDERGROUP, OVERGROUP),
+  query_diversity (numeric, avg pairwise cosine distance between query
+  embeddings), candidate_diversity (numeric, avg 1 − Jaccard across
+  query pairs' candidate sets)
 - Per-report grouping: purity, is_pure, group_recall
-- Per-report judges: correct_safety (binary), correct_actionability
-  (binary), actionability_choice (categorical)
-- Aggregate: ARI, homogeneity, completeness, v_measure, mean_purity,
-  mean_group_recall, unsafe_blocked_rate
+- Per-report judges: correct_classification (binary) for report-safety-check
+- Aggregate: ARI, homogeneity, completeness, mean_purity,
+  group_recall, malicious_leaked_rate
 
 Run:
     pytest products/signals/eval/eval_grouping_e2e.py -xvs
@@ -25,11 +27,9 @@ Run:
 
 import sys
 import uuid
-import random
 import asyncio
 import logging
-from dataclasses import dataclass
-from enum import Enum
+from itertools import combinations
 from time import time
 from typing import Any
 
@@ -43,7 +43,6 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     _summarize_long_descriptions,
 )
 
-from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, judge_report_actionability
 from products.signals.backend.temporal.grouping import (
     generate_search_queries,
     match_signal_to_report,
@@ -51,112 +50,27 @@ from products.signals.backend.temporal.grouping import (
 )
 from products.signals.backend.temporal.report_safety_judge import judge_report_safety
 from products.signals.backend.temporal.safety_filter import safety_filter
-from products.signals.backend.temporal.summarize_signals import summarize_signals
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
     MatchResult,
     NewReportMatch,
     NoMatchMetadata,
+    SignalCandidate,
     SpecificityMetadata,
 )
 from products.signals.eval.capture import EvalMetric, capture_evaluation, deterministic_uuid
-from products.signals.eval.data_spec import EvalSignalSpec
+from products.signals.eval.common import (
+    MAX_CONCURRENT_RUNS,
+    EvalProgress,
+    EvalSignalCase,
+    MatchFailureMode,
+    get_signals_stream,
+)
 from products.signals.eval.fixtures.grouping_data import GROUP_DATA
 from products.signals.eval.mock import EmbeddingStore, ReportStore
 
-RNG_SEED = 1337
-MAX_CONCURRENT_RUNS = 70
 
-
-class EvalProgress:
-    """Encapsulates tqdm progress bars and error counters for the eval run."""
-
-    def __init__(self, n_signals: int, n_groups: int):
-        self.n_signals = n_signals
-        self.n_groups = n_groups
-        self.active = 0
-        self.dropped = 0
-        self._bar = tqdm(total=n_signals, desc="Matching", unit="sig", file=sys.stderr)
-
-    def signal_started(self):
-        self.active += 1
-        self._update_postfix()
-
-    def signal_done(self):
-        self.active -= 1
-        self._bar.update(1)
-        self._update_postfix()
-
-    def signal_dropped(self):
-        self.active -= 1
-        self.dropped += 1
-        self._bar.update(1)
-        self._update_postfix()
-
-    def _update_postfix(self):
-        parts: dict[str, int] = {}
-        if self.active:
-            parts["processing"] = self.active
-        if self.dropped:
-            parts["filtered"] = self.dropped
-        self._bar.set_postfix(parts)
-
-    def start_judging(self, n_reports: int):
-        self._bar.close()
-        self._bar = tqdm(total=n_reports, desc="Judging", unit="report", file=sys.stderr)
-
-    def report_judged(self):
-        self._bar.update(1)
-
-    def done(self):
-        self._bar.close()
-
-
-class MatchFailureMode(Enum):
-    NONE = "NONE"  # correct match
-    UNDERGROUP = "UNDERGROUP"  # created new report when should have joined existing
-    OVERGROUP = "OVERGROUP"  # joined a report belonging to a different ground-truth group
-    SPECIFICITY_SPLIT = "SPECIFICITY_SPLIT"  # specificity check split a correct match
-
-
-@dataclass
-class EvalSignalCase:
-    group_index: int
-    signal_index: int
-    actionable: bool
-    safe: bool
-    signal: EvalSignalSpec
-
-
-def get_signals_stream() -> list[EvalSignalCase]:
-    """Interleave signals across groups randomly, preserving within-group order."""
-    rng = random.Random(RNG_SEED)
-    cursors = [0] * len(GROUP_DATA)
-    stream: list[EvalSignalCase] = []
-
-    def get_active():
-        return [i for i, g in enumerate(GROUP_DATA) if cursors[i] < len(g.signals)]
-
-    while active := get_active():
-        k = rng.randint(0, len(active) - 1)
-        group_index = active[k]
-        group = GROUP_DATA[group_index]
-        signal = group.signals[cursors[group_index]]
-        stream.append(
-            EvalSignalCase(
-                group_index=group_index,
-                signal_index=cursors[group_index],
-                safe=group.safe,
-                actionable=group.actionable,
-                signal=signal,
-            )
-        )
-        cursors[group_index] += 1
-
-    return stream
-
-
-class TestGroupingPipeline:
+class EvalGroupingPipeline:
     @pytest.fixture(autouse=True)
     def _setup(self, posthog_client, openai_client, gemini_client, mock_temporal, limit, no_capture, online):
         self.posthog_client = posthog_client
@@ -178,7 +92,7 @@ class TestGroupingPipeline:
         root_logger.setLevel(previous_level)
 
     @pytest.mark.django_db(transaction=True)
-    async def test_grouping_pipeline(self):
+    async def eval_grouping_pipeline(self):
         stream = get_signals_stream()
         if self.limit:
             stream = stream[: self.limit]
@@ -222,16 +136,28 @@ class TestGroupingPipeline:
                 self.progress.signal_dropped()
                 return
 
+            # Prepare queries and embeddings outside the lock — these are
+            # store-independent and can run concurrently across signals.
+            queries, query_embeddings, signal_embedding = await self._prepare(description, case)
+
             async with self._match_lock:
-                match_result, queries = await self._match(record_id, description, case)
-                await self._persist_signal(record_id, description, case, match_result, queries)
+                match_result, specificity_result, candidates = await self._match(
+                    description, case, queries, query_embeddings
+                )
+                self._capture_match_quality(
+                    case, match_result, specificity_result, queries, query_embeddings, candidates
+                )
+                self._persist_signal(record_id, description, case, specificity_result, signal_embedding)
 
             self.progress.signal_done()
-        except Exception:
+        except BaseException:
+            logging.getLogger(__name__).exception("Signal %d (group %d) failed", record_id, case.group_index)
             self.progress.signal_dropped()
 
-    async def _match(self, record_id: int, description: str, case: EvalSignalCase) -> tuple[MatchResult, list[str]]:
-        """Generate queries, embed, search, LLM-match, and verify specificity. No side effects."""
+    async def _prepare(
+        self, description: str, case: EvalSignalCase
+    ) -> tuple[list[str], list[list[float]], list[float]]:
+        """Generate search queries and compute all embeddings. No store mutations."""
 
         queries = await generate_search_queries(
             description=description,
@@ -240,7 +166,24 @@ class TestGroupingPipeline:
             signal_type_examples=self.store.get_type_examples(),
         )
 
-        query_embeddings = [await self.store.embed(q) for q in queries]
+        all_embeddings = await asyncio.gather(
+            *[self.store.embed(q) for q in queries],
+            self.store.embed(description),
+        )
+        query_embeddings = list(all_embeddings[: len(queries)])
+        signal_embedding = all_embeddings[-1]
+
+        return queries, query_embeddings, signal_embedding
+
+    async def _match(
+        self,
+        description: str,
+        case: EvalSignalCase,
+        queries: list[str],
+        query_embeddings: list[list[float]],
+    ) -> tuple[MatchResult, MatchResult, list[list[SignalCandidate]]]:
+        """Search, LLM-match, and verify specificity. Must run under _match_lock."""
+
         candidates = [self.store.search(emb) for emb in query_embeddings]
 
         match_result = await match_signal_to_report(
@@ -251,11 +194,12 @@ class TestGroupingPipeline:
             query_results=candidates,
             report_contexts=self.report_store.get_contexts(),
         )
+        specificity_match_result = match_result
 
-        if isinstance(match_result, ExistingReportMatch):
-            report_ctx = self.report_store.get(match_result.report_id)
+        if isinstance(specificity_match_result, ExistingReportMatch):
+            report_ctx = self.report_store.get(specificity_match_result.report_id)
             report_title = report_ctx.context.title if report_ctx else ""
-            group_signals = self.store.get_signals_for_report(match_result.report_id)
+            group_signals = self.store.get_signals_for_report(specificity_match_result.report_id)
 
             specificity_result = await verify_match_specificity(
                 new_signal_description=description,
@@ -272,9 +216,9 @@ class TestGroupingPipeline:
             )
 
             if specificity_result.specific_enough:
-                match_result.match_metadata.specificity = specificity_meta
+                specificity_match_result.match_metadata.specificity = specificity_meta
             else:
-                match_result = NewReportMatch(
+                specificity_match_result = NewReportMatch(
                     title=description.split("\n")[0],
                     summary=f"Split from group: {report_title}",
                     match_metadata=NoMatchMetadata(
@@ -283,24 +227,22 @@ class TestGroupingPipeline:
                     ),
                 )
 
-        return match_result, queries
+        return match_result, specificity_match_result, candidates
 
-    async def _persist_signal(
+    def _persist_signal(
         self,
         record_id: int,
         description: str,
         case: EvalSignalCase,
         match_result: MatchResult,
-        queries: list[str],
+        signal_embedding: list[float],
     ) -> str:
-        """Write match result to both stores and capture eval metrics."""
+        """Write match result to both stores. Must run under _match_lock."""
 
         report_id = match_result.report_id if isinstance(match_result, ExistingReportMatch) else str(uuid.uuid4())
 
-        self._capture_match_quality(case, report_id, match_result, queries)
         self.report_store.insert(report_id, match_result, case.group_index)
 
-        signal_embedding = await self.store.embed(description)
         self.store.store(
             signal_id=f"sig-{record_id}",
             content=description,
@@ -364,7 +306,7 @@ class TestGroupingPipeline:
     async def _capture_pre_emit_actionability(self, case: EvalSignalCase, thoughts: str | None, outcome: bool):
         passed = outcome == case.actionable
         self._capture(
-            eval_name=f"{case.signal.source.value.lower()}-actionability-check",
+            eval_name=f"{case.signal.config.source_product.lower()}-actionability-check",
             item_name=f"case-{case.group_index}-{case.signal_index}",
             input=case.signal.content.description,
             output="ACTIONABLE" if outcome else "NOT_ACTIONABLE",
@@ -383,47 +325,76 @@ class TestGroupingPipeline:
         )
 
     def _capture_match_quality(
-        self, case: EvalSignalCase, report_id: str, match_result: MatchResult, queries: list[str]
+        self,
+        case: EvalSignalCase,
+        match_result: MatchResult,
+        specificity_match_result: MatchResult,
+        queries: list[str],
+        query_embeddings: list[list[float]],
+        candidates: list[list[SignalCandidate]],
     ):
         """Captures whether the matching decision was correct and classifies the failure mode."""
-        is_existing = isinstance(match_result, ExistingReportMatch)
         expected_report = self.report_store.find_report_by_group_index(case.group_index)
         expected_id = expected_report.context.report_id if expected_report else None
-        has_specificity_rejection = (
-            isinstance(match_result, NewReportMatch) and match_result.match_metadata.specificity_rejection is not None
+        expected = "NEW_REPORT" if expected_report is None else "EXISTING_REPORT"
+
+        def evaluate_match_failure(mr: MatchResult) -> MatchFailureMode:
+            is_existing = isinstance(mr, ExistingReportMatch)
+            if expected_report is None:
+                return MatchFailureMode.OVERGROUP if is_existing else MatchFailureMode.NONE
+            if isinstance(mr, ExistingReportMatch) and mr.report_id == expected_id:
+                return MatchFailureMode.NONE
+            if is_existing:
+                return MatchFailureMode.OVERGROUP
+            return MatchFailureMode.UNDERGROUP
+
+        match_failure_mode = evaluate_match_failure(match_result)
+        specificity_failure_mode = evaluate_match_failure(specificity_match_result)
+        correct = specificity_failure_mode == MatchFailureMode.NONE
+        pre_specificity_correct = match_failure_mode == MatchFailureMode.NONE
+
+        specificity_reasoning = (
+            specificity_match_result.match_metadata.reason
+            if hasattr(specificity_match_result.match_metadata, "reason")
+            else ""
         )
 
-        if expected_report is None:
-            correct = not is_existing
-            expected = "NEW_REPORT"
-            if correct:
-                failure_mode = MatchFailureMode.NONE
-            else:
-                failure_mode = MatchFailureMode.OVERGROUP
+        # Query diversity: average pairwise cosine distance between query embeddings
+        if len(query_embeddings) < 2:
+            query_diversity = 0.0
         else:
-            expected = f"EXISTING_REPORT"
+            distances = [
+                self.store.cosine_distance(query_embeddings[i], query_embeddings[j])
+                for i, j in combinations(range(len(query_embeddings)), 2)
+            ]
+            query_diversity = sum(distances) / len(distances)
 
-            if isinstance(match_result, ExistingReportMatch) and match_result.report_id == expected_id:
-                failure_mode = MatchFailureMode.NONE
-                correct = True
-            elif is_existing:
-                failure_mode = MatchFailureMode.OVERGROUP
-                correct = False
-            elif has_specificity_rejection:
-                failure_mode = MatchFailureMode.SPECIFICITY_SPLIT
-                correct = False
-            else:
-                failure_mode = MatchFailureMode.UNDERGROUP
-                correct = False
+        # Candidate diversity
+        if len(candidates) < 2:
+            candidate_diversity = 0.0
+        else:
+            candidate_sets = [{c.signal_id for c in cands} for cands in candidates]
+            jaccards = []
+            for i, j in combinations(range(len(candidate_sets)), 2):
+                union = candidate_sets[i] | candidate_sets[j]
+                if not union:
+                    jaccards.append(0.0)
+                else:
+                    intersection = candidate_sets[i] & candidate_sets[j]
+                    jaccards.append(1.0 - len(intersection) / len(union))
+            candidate_diversity = sum(jaccards) / len(jaccards)
 
-        reasoning = match_result.match_metadata.reason if hasattr(match_result.match_metadata, "reason") else ""
+        is_existing = isinstance(specificity_match_result, ExistingReportMatch)
+        report_id = (
+            specificity_match_result.report_id if isinstance(specificity_match_result, ExistingReportMatch) else None
+        )
 
         output = {
-            "report": f"EXISTING_REPORT" if is_existing else f"NEW_REPORT",
-            "specificity_reasoning": reasoning,
+            "report": "EXISTING_REPORT" if is_existing else "NEW_REPORT",
+            "specificity_reasoning": specificity_reasoning,
             "queries": queries,
             "report_signals": [sig.content for sig in self.store.get_signals_for_report(report_id)]
-            if is_existing
+            if report_id
             else None,
         }
 
@@ -440,7 +411,27 @@ class TestGroupingPipeline:
                     score=1.0 if correct else 0.0,
                     score_min=0,
                     score_max=1,
-                    reasoning=None if correct else f"Failure mode: {failure_mode.value}",
+                    reasoning=None if correct else f"Failure mode: {specificity_failure_mode.value}",
+                ),
+                EvalMetric(
+                    name="correct_match_pre_specificity",
+                    result_type="binary",
+                    score=1.0 if pre_specificity_correct else 0.0,
+                    score_min=0,
+                    score_max=1,
+                    reasoning=None if pre_specificity_correct else f"Failure mode: {match_failure_mode.value}",
+                ),
+                EvalMetric(
+                    name="query_diversity",
+                    description="Average pairwise cosine distance between query embeddings (0 = identical, 1 = orthogonal)",
+                    result_type="numeric",
+                    score=query_diversity,
+                ),
+                EvalMetric(
+                    name="candidate_diversity",
+                    description="Average (1 - Jaccard similarity) across query pairs' candidate sets (0 = identical, 1 = disjoint)",
+                    result_type="numeric",
+                    score=candidate_diversity,
                 ),
             ],
             passed=correct,
@@ -456,16 +447,9 @@ class TestGroupingPipeline:
             return
 
         try:
-            dominant_group = GROUP_DATA[report.true_group_index]
-            expected_safe = dominant_group.safe
-            expected_actionable = dominant_group.actionable
+            expected_safe = all(GROUP_DATA[g].safe for g in report.true_signal_groups)
 
-            title, summary = await summarize_signals(signals)
-
-            safety_result, actionability_result = await asyncio.gather(
-                judge_report_safety(title=title, summary=summary, signals=signals),
-                judge_report_actionability(title=title, summary=summary, signals=signals),
-            )
+            safety_result = await judge_report_safety(signals=signals)
 
             report.safety_choice = safety_result.choice
             passed = safety_result.choice == expected_safe
@@ -473,7 +457,7 @@ class TestGroupingPipeline:
             self._capture(
                 eval_name="report-safety-check",
                 item_name=f"report-{report_id[:12]}",
-                input=f"{title}\n\n{summary}",
+                input=f"report-{report_id[:12]} ({len(signals)} signals)",
                 output="SAFE" if safety_result.choice else "UNSAFE",
                 expected="SAFE" if expected_safe else "UNSAFE",
                 metrics=[
@@ -486,26 +470,9 @@ class TestGroupingPipeline:
                 ],
                 passed=passed,
             )
-
-            is_actionable = actionability_result.choice == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
-            self._capture(
-                eval_name="report-actionability-check",
-                item_name=f"report-{report_id[:12]}",
-                input=f"{title}\n\n{summary}",
-                output=actionability_result.choice.value.upper(),
-                expected="IMMEDIATELY_ACTIONABLE" if expected_actionable else "NOT_IMMEDIATELY_ACTIONABLE",
-                metrics=[
-                    EvalMetric(
-                        name="correct_classification",
-                        result_type="binary",
-                        score=1.0 if is_actionable == expected_actionable else 0.0,
-                        reasoning=actionability_result.explanation,
-                    ),
-                ],
-                passed=is_actionable == expected_actionable,
-            )
             self.progress.report_judged()
-        except Exception:
+        except BaseException:
+            logging.getLogger(__name__).exception("Judging report %s failed", report_id[:12])
             self.progress.report_judged()
 
     def _capture_grouping_quality(self):

@@ -1,8 +1,9 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
 import type {
     AssigneeFilterValue,
@@ -16,8 +17,15 @@ import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicTyp
 
 export const SUPPORT_TICKETS_PAGE_SIZE = 20
 
+export interface SupportTicketsSceneLogicProps {
+    key?: string
+    distinctIds?: string[]
+}
+
 export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
+    props({} as SupportTicketsSceneLogicProps),
+    key((props: SupportTicketsSceneLogicProps) => props?.key || 'SupportTicketsScene'),
     actions({
         setStatusFilter: (statuses: TicketStatus[]) => ({ statuses }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
@@ -26,6 +34,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setSorting: (sorting: Sorting | null) => ({ sorting }),
         setCurrentPage: (page: number) => ({ page }),
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
@@ -113,14 +122,35 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 setDateRange: (_, { dateTo }) => dateTo,
             },
         ],
+        sorting: [
+            { columnKey: 'updated_at', order: -1 } as Sorting | null,
+            {
+                setSorting: (_, { sorting }) => sorting,
+            },
+        ],
     }),
     selectors({
         filteredTickets: [(s) => [s.tickets], (tickets: Ticket[]) => tickets],
+        orderBy: [
+            (s) => [s.sorting],
+            (sorting: Sorting | null): string => {
+                if (!sorting) {
+                    return '-updated_at'
+                }
+                const prefix = sorting.order === 1 ? '' : '-'
+                return `${prefix}${sorting.columnKey}`
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadTickets: async (_, breakpoint) => {
             await breakpoint(300)
             const params: Record<string, any> = {}
+
+            if (props.distinctIds && props.distinctIds.length > 0) {
+                params.distinct_ids = props.distinctIds.join(',')
+            }
+
             if (values.statusFilter.length > 0) {
                 params.status = values.statusFilter.join(',')
             }
@@ -149,6 +179,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.dateTo) {
                 params.date_to = values.dateTo
             }
+            params.order_by = values.orderBy
             params.limit = SUPPORT_TICKETS_PAGE_SIZE
             params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
 
@@ -183,6 +214,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setCurrentPage(1)
         },
         setDateRange: () => {
+            actions.setCurrentPage(1)
+        },
+        setSorting: () => {
             actions.setCurrentPage(1)
         },
     })),

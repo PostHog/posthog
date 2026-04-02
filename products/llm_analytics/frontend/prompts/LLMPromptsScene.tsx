@@ -13,6 +13,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
+import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
@@ -29,7 +31,7 @@ export const scene: SceneExport = {
 }
 
 export function LLMPromptsScene(): JSX.Element {
-    const { setFilters, deletePrompt } = useActions(llmPromptsLogic)
+    const { setFilters, deletePrompt, duplicatePrompt } = useActions(llmPromptsLogic)
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel } = useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)
     const promptUrl = (name: string): string => combineUrl(urls.llmAnalyticsPrompt(name), searchParams).url
@@ -97,6 +99,46 @@ export function LLMPromptsScene(): JSX.Element {
                                 >
                                     View
                                 </LemonButton>
+
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        onClick={() => {
+                                            LemonDialog.openForm({
+                                                title: 'Duplicate prompt',
+                                                initialValues: {
+                                                    newName: `${prompt.name}-copy`,
+                                                },
+                                                content: (
+                                                    <LemonField name="newName" label="New prompt name">
+                                                        <LemonInput
+                                                            data-attr="llma-prompt-duplicate-name"
+                                                            placeholder="my-prompt-copy"
+                                                            autoFocus
+                                                        />
+                                                    </LemonField>
+                                                ),
+                                                errors: {
+                                                    newName: (name: string) =>
+                                                        !name
+                                                            ? 'You must enter a name'
+                                                            : !/^[a-zA-Z0-9_-]+$/.test(name)
+                                                              ? 'Only letters, numbers, hyphens, and underscores allowed'
+                                                              : undefined,
+                                                },
+                                                onSubmit: async ({ newName }) => {
+                                                    duplicatePrompt(prompt.name, newName)
+                                                },
+                                            })
+                                        }}
+                                        data-attr="llma-prompt-dropdown-duplicate"
+                                        fullWidth
+                                    >
+                                        Duplicate
+                                    </LemonButton>
+                                </AccessControlAction>
 
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmAnalytics}

@@ -19,7 +19,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
@@ -322,7 +322,7 @@ def replay_count_metrics() -> None:
         --group by team_id
         """
 
-        tag_queries(product=Product.REPLAY, name="replay_count_metrics")
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, name="replay_count_metrics")
 
         results = sync_execute(
             query,
@@ -932,7 +932,7 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     from temporalio import common
 
     from posthog.temporal.common.client import async_connect
-    from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithTeamInput
+    from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithTeamInput
 
     config = DeletionConfig(deleted_by=deleted_by, reason="team deletion")
 
@@ -964,15 +964,20 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
     from posthog.models.async_deletion import AsyncDeletion, DeletionType
     from posthog.models.project import Project
     from posthog.models.team import Team
-    from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+    from posthog.models.team.util import (
+        delete_batch_exports,
+        delete_bulky_postgres_data,
+        delete_data_modeling_schedules,
+    )
     from posthog.models.user import User
 
+    # User may have already deleted their account after requesting org deletion,
+    # so we must not block the cleanup on user existence.
     user = User.objects.filter(id=user_id).first()
-    if not user:
-        raise ValueError(f"Cannot delete team data: user {user_id} not found")
 
     try:
-        _queue_delete_team_recordings(team_ids, deleted_by=user.email)
+        deleted_by = user.email if user else f"deleted_user_id:{user_id}"
+        _queue_delete_team_recordings(team_ids, deleted_by=deleted_by)
     except Exception:
         logger.exception("Failed to queue recording deletion workflows", team_ids=team_ids)
         capture_exception()
@@ -982,6 +987,9 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
 
     logger.info("Deleting batch exports", team_ids=team_ids)
     delete_batch_exports(team_ids=team_ids)
+
+    logger.info("Deleting data modeling schedules", team_ids=team_ids)
+    delete_data_modeling_schedules(team_ids=team_ids)
 
     logger.info("Deleting team records", team_ids=team_ids)
     if project_id:
@@ -1173,7 +1181,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
 
     start_time = timezone.now()
 
-    tag_queries(product=Product.FEATURE_FLAGS, name="sync_feature_flag_last_called")
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="sync_feature_flag_last_called")
 
     # Create metrics gauges for this task run
     updated_count_gauge = Gauge(
@@ -1236,11 +1244,12 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 JSONExtractString(properties, '$feature_flag') as flag_key,
                 max(timestamp) as last_called_at,
                 count() as call_count
-            FROM events
+            FROM events_recent
             PREWHERE event = '$feature_flag_called'
-            WHERE timestamp > %(last_sync_timestamp)s
+              AND inserted_at > %(last_sync_timestamp)s
+              AND inserted_at <= %(current_sync_timestamp)s
+            WHERE JSONExtractString(properties, '$feature_flag') != ''
               AND timestamp <= %(current_sync_timestamp)s
-              AND JSONExtractString(properties, '$feature_flag') != ''
             GROUP BY team_id, flag_key
             ORDER BY last_called_at DESC
             LIMIT %(limit)s
@@ -1271,12 +1280,10 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         # Collect flags for bulk update
         flags_to_update = []
 
-        # Get latest timestamp for checkpoint, fallback to current if all None
-        checkpoint_timestamp = max((row[2] for row in result if row[2]), default=current_sync_timestamp)
-        # Ensure timestamp is timezone-aware (ClickHouse returns naive datetimes)
-        checkpoint_timestamp = (
-            checkpoint_timestamp if checkpoint_timestamp.tzinfo else timezone.make_aware(checkpoint_timestamp)
-        )
+        # Use current_sync_timestamp as the checkpoint since the sync window
+        # is defined by inserted_at, not timestamp. Using max(timestamp) would
+        # mix timelines and cause gaps or reprocessing with late-arriving events.
+        checkpoint_timestamp = current_sync_timestamp
 
         # Build lookup map of (team_id, key) -> timestamp from ClickHouse results
         flag_updates = {(row[0], row[1]): row[2] for row in result}

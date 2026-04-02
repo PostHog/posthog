@@ -1,6 +1,8 @@
 import { render } from '@testing-library/react'
 import { useState } from 'react'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
@@ -21,12 +23,18 @@ export function buildTrendsQuery(overrides?: Partial<TrendsQuery>): TrendsQuery 
 }
 
 /** Sets up Kea context, mounts common logics, and configures insight API mocks. */
-function setupTestEnvironment(mocks?: SetupMocksOptions): void {
+function setupTestEnvironment(mocks?: SetupMocksOptions, featureFlags?: Record<string, string | boolean>): void {
     resetCapturedCharts()
 
     initKeaTests()
     actionsModel.mount()
     groupsModel.mount()
+
+    if (featureFlags && Object.keys(featureFlags).length > 0) {
+        const ffLogic = featureFlagLogic()
+        ffLogic.mount()
+        ffLogic.actions.setFeatureFlags(Object.keys(featureFlags), featureFlags)
+    }
 
     setupInsightMocks(mocks)
 }
@@ -34,11 +42,12 @@ function setupTestEnvironment(mocks?: SetupMocksOptions): void {
 export interface RenderWithInsightsProps {
     component: React.ReactElement
     mocks?: SetupMocksOptions
+    featureFlags?: Record<string, string | boolean>
 }
 
 /** Render any component with insight mocks and Kea logics ready. */
 export function renderWithInsights(props: RenderWithInsightsProps): ReturnType<typeof render> {
-    setupTestEnvironment(props.mocks)
+    setupTestEnvironment(props.mocks, props.featureFlags)
     return render(props.component)
 }
 
@@ -46,6 +55,7 @@ export interface RenderInsightPageProps {
     query?: TrendsQuery
     showFilters?: boolean
     mocks?: SetupMocksOptions
+    featureFlags?: Record<string, string | boolean>
 }
 
 function InsightWrapper({ query, showFilters = false }: { query: TrendsQuery; showFilters: boolean }): JSX.Element {
@@ -66,7 +76,7 @@ function InsightWrapper({ query, showFilters = false }: { query: TrendsQuery; sh
 }
 
 export function renderInsightPage(props: RenderInsightPageProps = {}): ReturnType<typeof render> {
-    setupTestEnvironment(props.mocks)
+    setupTestEnvironment(props.mocks, props.featureFlags)
 
     return render(<InsightWrapper query={props.query ?? buildTrendsQuery()} showFilters={props.showFilters ?? true} />)
 }

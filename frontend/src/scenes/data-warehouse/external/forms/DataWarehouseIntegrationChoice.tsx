@@ -1,3 +1,5 @@
+import { useActions } from 'kea'
+
 import {
     IntegrationChoice,
     IntegrationConfigureProps,
@@ -5,6 +7,8 @@ import {
 import { urls } from 'scenes/urls'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
+
+import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 
 export type DataWarehouseIntegrationChoice = IntegrationConfigureProps & {
     sourceConfig: SourceConfig
@@ -15,11 +19,14 @@ export function DataWarehouseIntegrationChoice({
     integration,
     ...props
 }: DataWarehouseIntegrationChoice): JSX.Element {
+    const { saveFormStateBeforeRedirect } = useActions(sourceWizardLogic)
+    const sourceKind = sourceConfig.name.toLowerCase()
     return (
         <IntegrationChoice
             {...props}
-            integration={integration ?? sourceConfig.name.toLowerCase()}
-            redirectUrl={urls.dataWarehouseSourceNew(sourceConfig.name.toLowerCase())}
+            integration={integration ?? sourceKind}
+            redirectUrl={urls.dataWarehouseSourceNew(sourceKind)}
+            beforeRedirect={saveFormStateBeforeRedirect}
         />
     )
 }

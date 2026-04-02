@@ -3,8 +3,7 @@ import { QueryResult } from 'pg'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { KAFKA_PERSON_DISTINCT_ID } from '../../../../config/kafka-topics'
-import { TopicMessage } from '../../../../kafka/producer'
+import { PERSON_DISTINCT_IDS_OUTPUT } from '../../../../ingestion/analytics/outputs'
 import {
     InternalPerson,
     PersonDistinctId,
@@ -32,7 +31,12 @@ import {
 } from '../metrics'
 import { canTrimProperty } from '../person-property-utils'
 import { PersonUpdate } from '../person-update-batch'
-import { InternalPersonWithDistinctId, PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
+import {
+    InternalPersonWithDistinctId,
+    PersonMessage,
+    PersonPropertiesSizeViolationError,
+    PersonRepository,
+} from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
@@ -70,7 +74,7 @@ export class PostgresPersonRepository
         person: InternalPerson,
         update: PersonUpdateFields,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         const currentSize = await this.personPropertiesSize(person.id, person.team_id)
 
         if (currentSize >= this.options.personPropertiesDbConstraintLimitBytes) {
@@ -116,7 +120,7 @@ export class PostgresPersonRepository
         person: InternalPerson,
         update: PersonUpdateFields,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         try {
             const trimmedProperties = this.trimPropertiesToFitSize(
                 // NOTE: we exclude the properties in the update and just try to trim the existing properties for simplicity
@@ -498,22 +502,20 @@ export class PostgresPersonRepository
             )
             const person = this.toPerson(rows[0])
 
-            const kafkaMessages = [generateKafkaPersonUpdateMessage(person)]
+            const kafkaMessages: PersonMessage[] = [generateKafkaPersonUpdateMessage(person)]
 
             for (const distinctId of distinctIds) {
                 kafkaMessages.push({
-                    topic: KAFKA_PERSON_DISTINCT_ID,
-                    messages: [
-                        {
-                            value: JSON.stringify({
-                                person_id: person.uuid,
-                                team_id: teamId,
-                                distinct_id: distinctId.distinctId,
-                                version: distinctId.version,
-                                is_deleted: 0,
-                            }),
-                        },
-                    ],
+                    output: PERSON_DISTINCT_IDS_OUTPUT,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            person_id: person.uuid,
+                            team_id: teamId,
+                            distinct_id: distinctId.distinctId,
+                            version: distinctId.version,
+                            is_deleted: 0,
+                        })
+                    ),
                 })
             }
 
@@ -558,7 +560,7 @@ export class PostgresPersonRepository
         }
     }
 
-    async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
+    async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<PersonMessage[]> {
         let rows: { version: string }[] = []
         try {
             const result = await this.postgres.query<{ version: string }>(
@@ -579,7 +581,7 @@ export class PostgresPersonRepository
             throw error
         }
 
-        let kafkaMessages: TopicMessage[] = []
+        let kafkaMessages: PersonMessage[] = []
 
         if (rows.length > 0) {
             const [row] = rows
@@ -593,7 +595,7 @@ export class PostgresPersonRepository
         distinctId: string,
         version: number,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<PersonMessage[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
@@ -604,23 +606,19 @@ export class PostgresPersonRepository
         )
 
         const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
-        const messages = [
+        return [
             {
-                topic: KAFKA_PERSON_DISTINCT_ID,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            ...personDistinctIdCreated,
-                            version,
-                            person_id: person.uuid,
-                            is_deleted: 0,
-                        }),
-                    },
-                ],
+                output: PERSON_DISTINCT_IDS_OUTPUT,
+                value: Buffer.from(
+                    JSON.stringify({
+                        ...personDistinctIdCreated,
+                        version,
+                        person_id: person.uuid,
+                        is_deleted: 0,
+                    })
+                ),
             },
         ]
-
-        return messages
     }
 
     async moveDistinctIds(
@@ -710,12 +708,10 @@ export class PostgresPersonRepository
             const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
             const version = Number(versionStr || 0)
             kafkaMessages.push({
-                topic: KAFKA_PERSON_DISTINCT_ID,
-                messages: [
-                    {
-                        value: JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 }),
-                    },
-                ],
+                output: PERSON_DISTINCT_IDS_OUTPUT,
+                value: Buffer.from(
+                    JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
+                ),
             })
         }
 
@@ -872,7 +868,7 @@ export class PostgresPersonRepository
         update: PersonUpdateFields,
         tag?: string,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
             versionString = update.version.toString()
@@ -983,7 +979,7 @@ export class PostgresPersonRepository
         }
     }
 
-    async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
+    async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]> {
         try {
             // Calculate final properties by applying set and unset operations
             const finalProperties = { ...personUpdate.properties }
@@ -1064,10 +1060,10 @@ export class PostgresPersonRepository
      */
     async updatePersonsBatch(
         personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>> {
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>> {
         const results = new Map<
             string,
-            { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }
+            { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }
         >()
 
         if (personUpdates.length === 0) {

@@ -226,6 +226,7 @@ export type MinimalAppMetric = {
         | 'billable_invocation'
         | 'dropped'
         | 'email_sent'
+        | 'email_delivered'
         | 'email_failed'
         | 'email_opened'
         | 'email_link_clicked'
@@ -395,6 +396,7 @@ export type HogFunctionType = {
 export type HogFunctionMappingTemplate = HogFunctionMappingType & {
     name: string
     include_by_default?: boolean
+    use_all_events_by_default?: boolean
 }
 
 export type HogFunctionTemplate = {

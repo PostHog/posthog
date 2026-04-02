@@ -70,19 +70,20 @@ task = Task.create_and_run(
 
 ### Parameters
 
-| Parameter              | Required | Description                                                                |
-| ---------------------- | -------- | -------------------------------------------------------------------------- |
-| `team`                 | Yes      | The team this task belongs to                                              |
-| `title`                | Yes      | Human-readable task title                                                  |
-| `description`          | Yes      | Detailed description of what the agent should do                           |
-| `origin_product`       | Yes      | Which product created this task (see `Task.OriginProduct` choices)         |
-| `user_id`              | Yes      | User ID — used for feature flag validation and creating the scoped API key |
-| `repository`           | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
-| `posthog_mcp_scopes`   | No       | Scope preset or explicit scope list (default: `"full"`)                    |
-| `create_pr`            | No       | Whether the agent should create a PR (default: `True`)                     |
-| `mode`                 | No       | Execution mode (default: `"background"`)                                   |
-| `slack_thread_context` | No       | Slack thread context for agents triggered from Slack                       |
-| `start_workflow`       | No       | Whether to start the Temporal workflow immediately (default: `True`)       |
+| Parameter                | Required | Description                                                                |
+| ------------------------ | -------- | -------------------------------------------------------------------------- |
+| `team`                   | Yes      | The team this task belongs to                                              |
+| `title`                  | Yes      | Human-readable task title                                                  |
+| `description`            | Yes      | Detailed description of what the agent should do                           |
+| `origin_product`         | Yes      | Which product created this task (see `Task.OriginProduct` choices)         |
+| `user_id`                | Yes      | User ID — used for feature flag validation and creating the scoped API key |
+| `repository`             | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
+| `posthog_mcp_scopes`     | No       | Scope preset or explicit scope list (default: `"full"`)                    |
+| `create_pr`              | No       | Whether the agent should create a PR (default: `True`)                     |
+| `mode`                   | No       | Execution mode (default: `"background"`)                                   |
+| `slack_thread_context`   | No       | Slack thread context for agents triggered from Slack                       |
+| `start_workflow`         | No       | Whether to start the Temporal workflow immediately (default: `True`)       |
+| `sandbox_environment_id` | No       | ID of a `SandboxEnvironment` to apply network restrictions (see below)     |
 
 ### Adding a new origin product
 
@@ -146,13 +147,17 @@ listing feature flags, running HogQL queries, searching session recordings, etc.
 The MCP server is ready to use today.
 For details on available tools, see [Implementing MCP tools](/handbook/engineering/ai/implementing-mcp-tools).
 
-### Skills (coming soon)
+### Skills
 
 Skills are job-to-be-done templates that teach agents _how_ to compose MCP tools into workflows.
 They provide domain knowledge, query patterns, and step-by-step guidance.
 
-Skills are currently used by PostHog Code and Max.
-Support for sandboxed agents is coming soon.
+Skills are pre-installed in the sandbox base image and available to all sandboxed agents.
+They're copied to three discovery locations during image build:
+
+- `/scripts/plugins/posthog/skills/` – plugin discovery
+- `~/.agents/skills/` – Codex agent discovery
+- `~/.claude/skills/` – Claude Code CLI discovery
 
 For details on writing skills, see [Writing skills](/handbook/engineering/ai/writing-skills).
 
@@ -184,6 +189,42 @@ Network access is configured per-team via `SandboxEnvironment`:
 - **Full** — unrestricted network access
 - **Custom** — explicit allowlist of domains, optionally including the trusted defaults
 
+To apply network restrictions from your product code,
+create a `SandboxEnvironment` and pass its ID to `Task.create_and_run`:
+
+```python
+from products.tasks.backend.models import SandboxEnvironment, Task
+
+# 1. Create an environment (once, or look up an existing one)
+env = SandboxEnvironment.objects.create(
+    team=team,
+    created_by=user,
+    name="Restricted agent env",
+    network_access_level="custom",  # "full" | "trusted" | "custom"
+    allowed_domains=["github.com", "api.example.com"],
+    include_default_domains=True,  # merge GitHub, npm, PyPI defaults
+)
+
+# 2. Pass its ID when creating the task
+task = Task.create_and_run(
+    team=team,
+    title="My restricted task",
+    description="...",
+    origin_product=Task.OriginProduct.YOUR_PRODUCT,
+    user_id=user.id,
+    repository="org/repo",
+    sandbox_environment_id=str(env.id),
+)
+```
+
+The temporal workflow resolves the allowed domains at execution time from the environment,
+so updates to the environment take effect on the next run.
+Domain restrictions are enforced at the syscall level by `agentsh` via ptrace —
+the agent cannot bypass them through proxy settings or DNS tricks.
+
+Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
+or the PostHog Code settings UI.
+
 ## Local development
 
 See the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/temporal/process_task/SETUP_GUIDE.md)
@@ -194,7 +235,7 @@ Key requirements:
 - `DEBUG=1` and `SANDBOX_PROVIDER=docker` in your `.env`
 - A GitHub App with Contents and Pull Requests permissions
 - The `tasks` feature flag enabled at 100%
-- Temporal running (starts automatically via mprocs with `./bin/start`)
+- Temporal running (starts automatically via phrocs with `./bin/start`)
 
 ## Questions?
 

@@ -59,8 +59,8 @@ class TestTemplateMigration(BaseTest):
         integration = Integration.objects.last()
         assert integration is not None
         assert integration.kind == "google-pubsub"
-        assert integration.sensitive_config == {"cloud": "key"}
-        assert integration.config.get("access_token") == "ACCESS_TOKEN"
+        assert integration.sensitive_config["key_info"] == {"cloud": "key"}
+        assert integration.sensitive_config.get("access_token") == "ACCESS_TOKEN"
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
     def test_ignore_events(self, mock_credentials):

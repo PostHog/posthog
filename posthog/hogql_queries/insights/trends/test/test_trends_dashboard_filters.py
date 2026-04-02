@@ -2,6 +2,8 @@ from typing import Optional
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
@@ -263,6 +265,113 @@ class TestTrendsDashboardFilters(BaseTest):
         )
         assert query_runner.query.breakdownFilter is None
         assert query_runner.query.trendsFilter is None
+
+    @parameterized.expand(
+        [
+            (
+                "single_empty_nested_group",
+                PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+                ),
+            ),
+            (
+                "no_values",
+                PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            ),
+            (
+                "deeply_nested_empty",
+                PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+                        ),
+                    ],
+                ),
+            ),
+        ]
+    )
+    def test_empty_property_group_filter_does_not_create_ghost_group(self, _name, properties):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            None,
+            properties=properties,
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(properties=[EventPropertyFilter(key="key", value="value", operator="exact")])
+        )
+
+        assert query_runner.query.properties == [EventPropertyFilter(key="key", value="value", operator="exact")]
+
+    def test_mixed_empty_and_non_empty_groups_still_merges(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            None,
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[]),
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[EventPropertyFilter(key="existing", value="filter", operator="exact")],
+                    ),
+                ],
+            ),
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(properties=[EventPropertyFilter(key="dashboard", value="filter", operator="exact")])
+        )
+
+        assert isinstance(query_runner.query.properties, PropertyGroupFilter)
+        assert len(query_runner.query.properties.values) == 2
+
+    def test_non_empty_property_group_still_merges_with_dashboard_filter(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            None,
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[EventPropertyFilter(key="existing", value="filter", operator="exact")],
+                    ),
+                ],
+            ),
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(properties=[EventPropertyFilter(key="dashboard", value="filter", operator="exact")])
+        )
+
+        assert query_runner.query.properties == PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[EventPropertyFilter(key="existing", value="filter", operator="exact")],
+                        ),
+                    ],
+                ),
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[EventPropertyFilter(key="dashboard", value="filter", operator="exact")],
+                ),
+            ],
+        )
 
     def test_breakdown_limit_is_not_removed_for_dashboard(self):
         query_runner = self._create_query_runner(

@@ -2,10 +2,11 @@ import { actions, afterMount, connect, kea, listeners, path, props, reducers, se
 import posthog from 'posthog-js'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
 import { mergeIssues } from '../utils'
+import { batchSpikeEventsLogic } from './batchSpikeEventsLogic'
 import type { issuesDataNodeLogicType } from './issuesDataNodeLogicType'
 
 export interface IssuesDataNodeLogicProps {
@@ -24,6 +25,8 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             actions: [
                 nodeLogic,
                 ['setResponse', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelQuery'],
+                batchSpikeEventsLogic,
+                ['loadSpikeEventsForIssues'],
                 issueActionsLogic,
                 [
                     'mergeIssues',
@@ -43,14 +46,14 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
 
     actions({
         reloadData: () => ({}),
-        setLoadStartTime: (startTime: number | null) => ({ startTime }),
     }),
 
     reducers({
         loadStartTime: [
             null as number | null,
             {
-                setLoadStartTime: (_, { startTime }) => startTime,
+                loadData: () => performance.now(),
+                loadDataFailure: () => null,
             },
         ],
     }),
@@ -66,13 +69,9 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         reloadData: () => {
             actions.loadData('force_blocking')
         },
-        loadData: () => {
-            actions.setLoadStartTime(performance.now())
-        },
         loadDataSuccess: () => {
             const durationMs =
                 values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
-            actions.setLoadStartTime(null)
 
             const response = values.response as Record<string, any> | null
             const results = response && 'results' in response ? response.results : []
@@ -96,6 +95,12 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                 assignee_filter: !!query?.assignee,
                 status_filter: query?.status ?? null,
             })
+
+            const issueIds = (results as ErrorTrackingIssue[]).map((issue) => issue.id).filter(Boolean)
+            if (issueIds.length > 0) {
+                const dateRange = (props.query as ErrorTrackingQuery).dateRange
+                actions.loadSpikeEventsForIssues(issueIds, dateRange)
+            }
         },
         // optimistically update local results
         mergeIssues: ({ ids }) => {

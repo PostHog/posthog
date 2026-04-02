@@ -309,40 +309,66 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
             <SceneDivider />
             <ActionHogFunctions />
             <SceneDivider />
-            {id && (
-                <>
-                    <SceneSection
-                        className="@container"
-                        title="Matching events"
-                        description={
-                            <>
-                                This is the list of <strong>recent</strong> events that match this action.
-                            </>
-                        }
-                    >
-                        {isComplete ? (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        actionId: id,
-                                        after: '-24h',
-                                    },
-                                    full: true,
-                                    showEventFilter: false,
-                                    showPropertyFilter: false,
-                                }}
-                            />
-                        ) : (
-                            <div className="flex items-center">
-                                <Spinner className="mr-4" />
-                                Calculating action, please hold on...
-                            </div>
-                        )}
-                    </SceneSection>
-                </>
+            {(id || action.steps?.length) && (
+                <SceneSection
+                    className="@container"
+                    title="Matching events"
+                    description={
+                        <>
+                            This is the list of <strong>recent</strong> events that match this action.
+                        </>
+                    }
+                >
+                    {id && !isComplete && !actionChanged ? (
+                        <div className="flex items-center">
+                            <Spinner className="mr-4" />
+                            Calculating action, please hold on...
+                        </div>
+                    ) : (
+                        <Query
+                            query={{
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.EventsQuery,
+                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                    ...(id && !actionChanged
+                                        ? { actionId: id }
+                                        : {
+                                              actionSteps: action.steps?.map(
+                                                  ({
+                                                      event,
+                                                      properties,
+                                                      selector,
+                                                      tag_name,
+                                                      text,
+                                                      text_matching,
+                                                      href,
+                                                      href_matching,
+                                                      url,
+                                                      url_matching,
+                                                  }) => ({
+                                                      event,
+                                                      properties,
+                                                      selector,
+                                                      tag_name,
+                                                      text,
+                                                      text_matching,
+                                                      href,
+                                                      href_matching,
+                                                      url,
+                                                      url_matching,
+                                                  })
+                                              ),
+                                          }),
+                                    after: '-24h',
+                                },
+                                full: true,
+                                showEventFilter: false,
+                                showPropertyFilter: false,
+                            }}
+                        />
+                    )}
+                </SceneSection>
             )}
         </SceneContent>
     )

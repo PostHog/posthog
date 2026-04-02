@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -236,6 +237,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (querySource, aggregationLabel): Noun => {
                 if (!querySource) {
                     return { singular: '', plural: '' }
+                }
+
+                if (querySource.funnelsFilter?.customAggregationTarget) {
+                    return AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE
                 }
 
                 return querySource.funnelsFilter?.funnelAggregateByHogQL

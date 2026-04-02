@@ -44,11 +44,12 @@ def _get_properties_str(
     object_type: str,
     logger: FilteringBoundLogger,
     include_custom_props: bool = True,
+    source_id: str | None = None,
 ) -> str:
     """Builds a string of properties to be requested from the HubSpot API."""
     props = list(props)
     if include_custom_props:
-        all_props = _get_property_names(api_key, refresh_token, object_type)
+        all_props = _get_property_names(api_key, refresh_token, object_type, source_id=source_id)
         custom_props = [prop for prop in all_props if not prop.startswith("hs_")]
         props = props + [c for c in custom_props if c not in props]
 
@@ -75,6 +76,12 @@ def _build_initial_url(path: str, associations: list[str], properties: str, limi
     if associations:
         parts.append(f"associations={','.join(associations)}")
     return f"{BASE_URL.rstrip('/')}{path}?{'&'.join(parts)}"
+
+
+def _backfill_missing_properties(row: dict[str, Any], expected_properties: list[str]) -> None:
+    """HubSpot omits properties with null values; PyArrow drops absent columns during schema inference."""
+    for prop in expected_properties:
+        row.setdefault(prop, None)
 
 
 def _flatten_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -109,19 +116,56 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
     include_custom_props: bool = True,
+    selected_properties: list[str] | None = None,
+    source_id: str | None = None,
 ) -> Iterator[Any]:
     config = HUBSPOT_ENDPOINTS[endpoint]
     object_type = OBJECT_TYPE_SINGULAR[endpoint]
 
     # Build properties string (called once before sync loop)
-    props_str = _get_properties_str(
-        props=DEFAULT_PROPS[endpoint],
-        api_key=api_key,
-        refresh_token=refresh_token,
-        object_type=object_type,
-        include_custom_props=include_custom_props,
-        logger=logger,
-    )
+    # Keep track of the expected properties so we can backfill missing ones with None.
+    # HubSpot omits properties from the response when they have no value for a record,
+    # which causes PyArrow to drop those columns entirely during schema inference.
+    expected_properties: list[str] | None = None
+
+    if selected_properties:
+        # Validate selected properties against what HubSpot actually has
+        available_props = set(_get_property_names(api_key, refresh_token, object_type, source_id=source_id))
+        invalid_props = [p for p in selected_properties if p not in available_props]
+        if invalid_props:
+            logger.warning(
+                f"HubSpot: the following selected properties do not exist for {endpoint} "
+                f"and will be ignored: {invalid_props}"
+            )
+            selected_properties = [p for p in selected_properties if p in available_props]
+
+        if not selected_properties:
+            logger.warning(f"HubSpot: no valid selected properties for {endpoint}, falling back to defaults")
+            selected_properties = None
+
+    if selected_properties:
+        expected_properties = selected_properties
+        # User explicitly selected properties — use exactly those, no custom discovery
+        props_str = _get_properties_str(
+            props=selected_properties,
+            api_key=api_key,
+            refresh_token=refresh_token,
+            object_type=object_type,
+            include_custom_props=False,
+            logger=logger,
+            source_id=source_id,
+        )
+    else:
+        props_str = _get_properties_str(
+            props=DEFAULT_PROPS[endpoint],
+            api_key=api_key,
+            refresh_token=refresh_token,
+            object_type=object_type,
+            include_custom_props=include_custom_props,
+            logger=logger,
+            source_id=source_id,
+        )
+        expected_properties = props_str.split(",") if props_str else []
 
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
@@ -151,7 +195,7 @@ def get_rows(
         response = requests.get(page_url, headers=headers, timeout=60)
 
         if response.status_code == 401:
-            api_key = hubspot_refresh_access_token(refresh_token)
+            api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
             headers = _get_headers(api_key)
             raise HubspotRetryableError(f"Hubspot API 401 - refreshed token, retrying: url={page_url}")
 
@@ -177,7 +221,10 @@ def get_rows(
         next_url = next_page.get("link") if next_page else None
 
         for result in results:
-            batcher.batch(_flatten_result(result))
+            row = _flatten_result(result)
+            if expected_properties:
+                _backfill_missing_properties(row, expected_properties)
+            batcher.batch(row)
 
             if batcher.should_yield():
                 py_table = batcher.get_table()
@@ -203,6 +250,8 @@ def hubspot_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
     include_custom_props: bool = True,
+    selected_properties: list[str] | None = None,
+    source_id: str | None = None,
 ) -> SourceResponse:
     endpoint_config = HUBSPOT_ENDPOINTS[endpoint]
 
@@ -215,6 +264,8 @@ def hubspot_source(
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             include_custom_props=include_custom_props,
+            selected_properties=selected_properties,
+            source_id=source_id,
         ),
         primary_keys=["id"],
         partition_count=1,

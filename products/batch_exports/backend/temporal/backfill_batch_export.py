@@ -32,7 +32,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.service import (
     BackfillBatchExportInputs,
     BackfillDetails,
-    acreate_batch_export_backfill,
+    aget_or_create_batch_export_backfill,
     unpause_batch_export,
     update_batch_export_backfill,
 )
@@ -89,7 +89,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     model instance to represent them in our database.
     """
 
-    backfill = await acreate_batch_export_backfill(
+    backfill = await aget_or_create_batch_export_backfill(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,

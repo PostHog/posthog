@@ -1,6 +1,8 @@
 # Misc stuff, should be categorized/explained in the future
 # This is sorted in ascending order, keep it that way if you wanna please
 # people's OCDs ^_^
+.cache
+.planning
 .pr-review-diff.patch
 __emails__
 __pycache__/
@@ -9,6 +11,7 @@ __pycache__/
 .dmypy.json
 .DS_Store
 .eslintcache
+.hypothesis
 .mypy_cache
 .parcel-cache
 .posthog/
@@ -132,6 +135,8 @@ target/*
 
 # Ignore user's Cursor rules
 .cursor/**/user*.mdc
+# Ignore Cursor plans
+.cursor/**/*.plan.md
 CLAUDE.local.md
 
 # Ignore file for clearing demo data on local
@@ -140,6 +145,7 @@ posthog/management/commands/clear_demo_data.py
 # Ignore Claude Code settings
 .claude/settings.local.json
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
@@ -162,6 +168,7 @@ bin/phrocs
 # Claude Code review outputs
 CODE_DEBUGGING_SESSION.md
 CODE_REVIEW.md
+QAREPORT.md
 
 # SeaweedFS data + migration checkpoint
 .migration-checkpoint.json
@@ -179,7 +186,7 @@ data/seaweedfs/
 agent-os/
 
 # MCP build files
-services/mcp/ui-apps-dist
+services/mcp/public/ui-apps
 
 # Product skills (synced by hogli sync:skill)
 .agents/skills/.gitignore
@@ -189,3 +196,4 @@ junit.xml
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/
+.pnpm-store

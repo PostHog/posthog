@@ -30,7 +30,7 @@ describe('TeamManager()', () => {
 
         postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres)
-        const team = await getFirstTeam(hub)
+        const team = await getFirstTeam(hub.postgres)
         teamId = team.id
         teamToken = team.api_token
         organizationId = team.organization_id

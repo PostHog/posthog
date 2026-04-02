@@ -38,6 +38,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-sonnet-4-5",
                 "claude-sonnet-4-6",
                 "claude-haiku-4-5",
+                "gpt-5.4",
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
@@ -53,6 +54,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-6",
                 "claude-sonnet-4-5",
                 "claude-haiku-4-5",
+                "gpt-5.4",
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
@@ -96,6 +98,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "llma_eval_summary": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-5-mini"}),
+        allow_api_keys=True,
+    ),
+    "customer_archetype_classification": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"gpt-5-mini"}),
         allow_api_keys=True,

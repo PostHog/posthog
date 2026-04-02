@@ -8,8 +8,7 @@ Spin up a full local E2E environment (backend, frontend, docker services, Playwr
 ./bin/e2e-test-runner
 ```
 
-This uses `bin/mprocs-e2e.yaml` under the hood. If you need to reset the E2E database,
-trigger the `reset-db` process in the mprocs UI.
+This uses `bin/phrocs-e2e.yaml` under the hood. If you need to reset the E2E database, trigger the `reset-db` process in the phrocs UI.
 
 To run tests against an already-running PostHog instance:
 
@@ -19,15 +18,29 @@ LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http:/
 
 You might need to install Playwright first: `pnpm --filter=@posthog/playwright exec playwright install`
 
+## Writing tests with Claude Code
+
+Use the `/playwright-test` skill to have Claude Code write and validate end-to-end tests for you.
+It will explore the UI with Playwright MCP tools, plan the tests, implement them, and run them in a loop until they pass reliably (including a flakiness check with `--repeat-each 10`).
+
 ## Writing tests
 
-### Flaky tests are almost always due to not waiting for the right thing
+### Best practices
 
-Consider adding a better selector, an intermediate step like waiting for URL or page title to change, or waiting for a critical network request to complete.
+- Don't use CSS selectors — prefer accessibility roles (`getByRole`) or `getByTestId()` which maps to `data-attr` in our config. Add `data-attr` to components if needed.
+- Write fewer, longer tests that do multiple things. Split logical steps with `test.step()`.
+- Use page object models for common tasks and accessing common elements (see `page-models/`).
+- After UI interactions, assert on UI changes — don't assert on network requests resolving.
+- Never put conditional logic (`if`) in a test.
 
-### Useful output from Playwright
+### Gotchas
 
-If you write a selector that is too loose and matches multiple elements, Playwright will output all the matches. With a better selector for each:
+**Flaky tests are almost always due to not waiting for the right thing.**
+Consider adding a better selector, an intermediate step like waiting for URL or page title to change,
+or waiting for a critical network request to complete.
+
+**Loose selectors cause strict mode violations.**
+If a selector matches multiple elements, Playwright will show all matches — use the output to narrow down:
 
 ```text
 Error: locator.click: Error: strict mode violation: locator('text=Set a billing limit') resolved to 2 elements:

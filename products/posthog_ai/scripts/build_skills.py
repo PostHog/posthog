@@ -181,7 +181,11 @@ class SkillDiscoverer:
                         skills.append(
                             DiscoveredSkill(name=entry.name, source_file=md_file, product_dir=product_dir, depth=1)
                         )
-                elif entry.is_file() and (entry.name.endswith(".md.j2") or entry.name.endswith(".md")):
+                elif (
+                    entry.is_file()
+                    and entry.name != "README.md"
+                    and (entry.name.endswith(".md.j2") or entry.name.endswith(".md"))
+                ):
                     if entry.name.endswith(".md") and (entry.parent / (entry.name + ".j2")).exists():
                         continue
                     skill_name = entry.name.removesuffix(".j2").removesuffix(".md")
@@ -194,6 +198,7 @@ class SkillRenderer:
     """Renders skill source files to final markdown via Jinja2."""
 
     def __init__(self) -> None:
+        from products.posthog_ai.scripts.audit_constants import audit_constants
         from products.posthog_ai.scripts.hogql_example import render_hogql_example
         from products.posthog_ai.scripts.hogql_functions import hogql_functions
         from products.posthog_ai.scripts.pydantic_schema import pydantic_schema
@@ -202,6 +207,7 @@ class SkillRenderer:
             pydantic_schema=pydantic_schema,
             render_hogql_example=render_hogql_example,
             hogql_functions=hogql_functions,
+            audit_constants=audit_constants,
         )
 
     def render(self, source_file: Path) -> str:

@@ -437,6 +437,85 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface ReviewQueueItemApi {
+    readonly id: string
+    /** Review queue ID that currently owns this pending trace. */
+    readonly queue_id: string
+    /** Human-readable name of the queue that currently owns this pending trace. */
+    readonly queue_name: string
+    /** Trace ID currently pending human review. */
+    readonly trace_id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who queued this trace. */
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedReviewQueueItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReviewQueueItemApi[]
+}
+
+export interface ReviewQueueItemCreateApi {
+    /** Review queue ID that should own this pending trace. */
+    queue_id: string
+    /**
+     * Trace ID to add to the selected review queue.
+     * @maxLength 255
+     */
+    trace_id: string
+}
+
+export interface PatchedReviewQueueItemUpdateApi {
+    /** Review queue ID that should own this pending trace. */
+    queue_id?: string
+}
+
+export interface ReviewQueueApi {
+    readonly id: string
+    /** Human-readable queue name. */
+    readonly name: string
+    /** Number of pending traces currently assigned to this queue. */
+    readonly pending_item_count: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who created this review queue. */
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedReviewQueueListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReviewQueueApi[]
+}
+
+export interface ReviewQueueCreateApi {
+    /**
+     * Human-readable queue name.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface PatchedReviewQueueUpdateApi {
+    /**
+     * Human-readable queue name.
+     * @maxLength 255
+     */
+    name?: string
+}
+
 /**
  * * `categorical` - categorical
  * `numeric` - numeric
@@ -659,18 +738,18 @@ export const Mode02aEnumApi = {
 } as const
 
 export interface SummarizeRequestApi {
-    /** Type of entity to summarize
+    /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
 
 * `trace` - trace
 * `event` - event */
-    summarize_type: SummarizeTypeEnumApi
+    summarize_type?: SummarizeTypeEnumApi
     /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
 * `minimal` - minimal
 * `detailed` - detailed */
     mode?: Mode02aEnumApi
-    /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
-    data: unknown
+    /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
+    data?: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
     /**
@@ -678,6 +757,20 @@ export interface SummarizeRequestApi {
      * @nullable
      */
     model?: string | null
+    /** Trace ID to summarize. The backend fetches the trace data automatically. Requires date_from for efficient lookup. */
+    trace_id?: string
+    /** Generation event UUID to summarize. The backend fetches the event data automatically. Requires date_from for efficient lookup. */
+    generation_id?: string
+    /**
+     * Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of date range for ID-based lookup. Defaults to now.
+     * @nullable
+     */
+    date_to?: string | null
 }
 
 export interface SummaryBulletApi {
@@ -909,6 +1002,11 @@ export interface TraceReviewCreateApi {
     comment?: string | null
     /** Full desired score set for this review. Omit scorers you want to leave blank. */
     scores?: TraceReviewScoreWriteApi[]
+    /**
+     * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+     * @nullable
+     */
+    queue_id?: string | null
 }
 
 export interface PatchedTraceReviewUpdateApi {
@@ -924,6 +1022,11 @@ export interface PatchedTraceReviewUpdateApi {
     comment?: string | null
     /** Full desired score set for this review. Omit scorers you want to leave blank. */
     scores?: TraceReviewScoreWriteApi[]
+    /**
+     * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+     * @nullable
+     */
+    queue_id?: string | null
 }
 
 export interface LLMPromptApi {
@@ -977,6 +1080,14 @@ export interface PatchedLLMPromptPublishApi {
      * @minimum 1
      */
     base_version?: number
+}
+
+export interface LLMPromptDuplicateApi {
+    /**
+     * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
+     * @maxLength 255
+     */
+    new_name: string
 }
 
 export interface LLMPromptVersionSummaryApi {
@@ -1159,6 +1270,57 @@ export type LlmAnalyticsProviderKeysListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type LlmAnalyticsReviewQueueItemsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `created_at` or `updated_at`.
+     */
+    order_by?: string
+    /**
+     * Filter by a specific review queue ID.
+     */
+    queue_id?: string
+    /**
+     * Search pending trace IDs.
+     */
+    search?: string
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string
+}
+
+export type LlmAnalyticsReviewQueuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    name?: string
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `name`, `updated_at`, or `created_at`.
+     */
+    order_by?: string
+    /**
+     * Search review queue names.
+     */
+    search?: string
 }
 
 export type LlmAnalyticsScoreDefinitionsListParams = {
