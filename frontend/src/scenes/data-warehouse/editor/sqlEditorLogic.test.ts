@@ -15,7 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { OutputTab } from './outputPaneLogic'
-import { getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -75,6 +75,16 @@ const MOCK_VIEW = {
     status: null,
     last_run_at: null,
     latest_error: null,
+} as any
+
+const MOCK_DRAFT = {
+    id: 'test-draft',
+    name: 'Test draft',
+    query: {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT 2',
+    },
+    saved_query_id: MOCK_VIEW.id,
 } as any
 
 function createMockMonaco(): any {
@@ -295,6 +305,38 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
                 .toNotHaveDispatchedActions(['syncUrlWithQuery'])
+        })
+    })
+
+    describe('activeTabMatchesUrlTarget', () => {
+        it.each([
+            [
+                'insight tab vs matching insight target',
+                { name: 'Insight', insight: MOCK_INSIGHT },
+                { insightShortId: MOCK_INSIGHT_SHORT_ID },
+                true,
+            ],
+            ['view tab vs matching view target', { name: 'View', view: MOCK_VIEW }, { viewId: MOCK_VIEW.id }, true],
+            [
+                'draft tab vs matching draft target',
+                { name: 'Draft', draft: MOCK_DRAFT },
+                { draftId: MOCK_DRAFT.id },
+                true,
+            ],
+            ['plain tab vs empty target', { name: 'Untitled' }, {}, true],
+            ['plain tab vs insight target', { name: 'Untitled' }, { insightShortId: MOCK_INSIGHT_SHORT_ID }, false],
+            ['plain tab vs view target', { name: 'Untitled' }, { viewId: MOCK_VIEW.id }, false],
+            ['plain tab vs draft target', { name: 'Untitled' }, { draftId: MOCK_DRAFT.id }, false],
+        ])('%s', (_, tab, target, expected) => {
+            expect(
+                activeTabMatchesUrlTarget(
+                    {
+                        uri: createMockMonaco().Uri.parse('tab-1'),
+                        ...tab,
+                    },
+                    target
+                )
+            ).toEqual(expected)
         })
     })
 

@@ -263,28 +263,6 @@ def install_geoip() -> None:
     mmdb.symlink_to("/share/GeoLite2-City.mmdb")
 
 
-def ensure_demo_data() -> None:
-    """Generate demo data on first boot; skip if already present."""
-    result = run_quiet(
-        [
-            "psql",
-            "-h",
-            "db",
-            "-U",
-            "posthog",
-            "-d",
-            "posthog",
-            "-tAc",
-            "SELECT 1 FROM posthog_user WHERE email='test@posthog.com' LIMIT 1",
-        ]
-    )
-    if result.stdout.strip() == b"1":
-        info("Demo data already present, skipping generation.")
-    else:
-        info("Generating demo data (first boot)...")
-        run(["python", "manage.py", "generate_demo_data"])
-
-
 def create_kafka_topics() -> None:
     info("Pre-creating Kafka topics...")
     for topic in ("clickhouse_events_json", "exceptions_ingestion"):
@@ -311,12 +289,6 @@ def generate_mprocs_config() -> None:
         lines = ["_posthog:", "  intents:"]
         for intent in intents.split(","):
             lines.append(f"  - {intent.strip()}")
-        # Migrations already ran in the entrypoint; skip autostart to avoid
-        # redundant Django startup overhead in mprocs.
-        lines.append("  skip_autostart:")
-        lines.append("  - migrate-postgres")
-        lines.append("  - migrate-clickhouse")
-        lines.append("  - migrate-persons-db")
         lines.append("procs: {}")
         config_file.write_text("\n".join(lines) + "\n")
 
@@ -456,16 +428,11 @@ def user_phase() -> None:
     install_geoip()
     create_kafka_topics()
 
-    def install_python_and_maybe_migrate() -> None:
-        install_python_deps()
-        run(["python", "manage.py", "sandbox_migrate", "--parallel", "--progress-file", str(PROGRESS_FILE)])
-        ensure_demo_data()
-
-    # Run dependency installs in parallel. Migrations and demo data are chained
-    # after Python deps (uv ~1.5s) so they overlap with the slower pnpm/cargo.
+    # Run dependency installs in parallel.
+    # Migrations run later via phrocs (same as the normal dev stack).
     with ThreadPoolExecutor() as pool:
         futures = {
-            pool.submit(install_python_and_maybe_migrate): "python deps + migrations",
+            pool.submit(install_python_deps): "python deps",
             pool.submit(install_node_deps): "node deps",
             pool.submit(fetch_rust_crates): "rust crates",
         }

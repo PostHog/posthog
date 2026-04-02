@@ -12,6 +12,7 @@ import type {
     CopyDashboardTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardGeneratedMetadataApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardsAnalyzeRefreshResultCreateParams,
@@ -20,6 +21,7 @@ import type {
     DashboardsCreateParams,
     DashboardsCreateUnlistedDashboardCreateParams,
     DashboardsDestroyParams,
+    DashboardsGenerateMetadataCreateParams,
     DashboardsListParams,
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateParams,
@@ -538,6 +540,41 @@ export const dashboardsCopyTileCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(copyDashboardTileRequestApi),
+    })
+}
+
+/**
+ * Generate an AI-suggested name and description from this dashboard's tiles.
+ */
+export const getDashboardsGenerateMetadataCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsGenerateMetadataCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/generate_metadata/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/generate_metadata/`
+}
+
+export const dashboardsGenerateMetadataCreate = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsGenerateMetadataCreateParams,
+    options?: RequestInit
+): Promise<DashboardGeneratedMetadataApi> => {
+    return apiMutator<DashboardGeneratedMetadataApi>(getDashboardsGenerateMetadataCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
     })
 }
 

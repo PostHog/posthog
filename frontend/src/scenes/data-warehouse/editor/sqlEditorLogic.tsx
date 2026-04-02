@@ -207,6 +207,25 @@ export function getDisplayTypeToSaveInsight(
     return effectiveVisualizationType || ChartDisplayType.ActionsLineGraph
 }
 
+export function activeTabMatchesUrlTarget(
+    activeTab: QueryTab | null,
+    target: { draftId?: string; insightShortId?: string; viewId?: string }
+): boolean {
+    if (target.draftId) {
+        return activeTab?.draft?.id === target.draftId
+    }
+
+    if (target.viewId) {
+        return activeTab?.view?.id === target.viewId
+    }
+
+    if (target.insightShortId) {
+        return activeTab?.insight?.short_id === target.insightShortId
+    }
+
+    return !activeTab?.draft && !activeTab?.view && !activeTab?.insight
+}
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
@@ -1662,8 +1681,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
                     actions.setActiveTab(outputTabFromUrl)
                 }
-                if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
-                    const draftId = searchParams.open_draft || hashParams.draft
+                const draftIdFromUrl = searchParams.open_draft || hashParams.draft
+                const viewIdFromUrl = searchParams.open_view || hashParams.view
+                const insightShortIdFromUrl = searchParams.open_insight || hashParams.insight
+
+                if (
+                    draftIdFromUrl &&
+                    (searchParams.open_draft ||
+                        !activeTabMatchesUrlTarget(values.activeTab, {
+                            draftId: draftIdFromUrl,
+                        }))
+                ) {
+                    const draftId = draftIdFromUrl
                     const draft = values.drafts.find((draft) => {
                         return draft.id === draftId
                     })
@@ -1683,9 +1712,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.createTab(draft.query.query, associatedView, undefined, draft)
                     }
                     return
-                } else if (searchParams.open_view || (hashParams.view && values.queryInput === null)) {
+                } else if (
+                    viewIdFromUrl &&
+                    (searchParams.open_view ||
+                        !activeTabMatchesUrlTarget(values.activeTab, {
+                            viewId: viewIdFromUrl,
+                        }))
+                ) {
                     // Open view
-                    const viewId = searchParams.open_view || hashParams.view
+                    const viewId = viewIdFromUrl
 
                     if (!outputTabFromUrl) {
                         actions.setActiveTab(OutputTab.Materialization)
@@ -1724,14 +1759,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setViewLoading(false)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
-                } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {
+                } else if (
+                    insightShortIdFromUrl &&
+                    (searchParams.open_insight ||
+                        !activeTabMatchesUrlTarget(values.activeTab, {
+                            insightShortId: insightShortIdFromUrl,
+                        }))
+                ) {
                     // reset current tab
                     if (values.activeTab) {
                         actions.updateTab({ ...values.activeTab, insight: undefined })
                     }
                     actions._setSuggestionPayload(null)
 
-                    const shortId = searchParams.open_insight || hashParams.insight
+                    const shortId = insightShortIdFromUrl
                     if (shortId === 'new') {
                         // Add new blank tab
                         actions.createTab()
@@ -1794,8 +1835,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
-                } else if (hashParams.q && values.queryInput === null) {
-                    // only when opening the tab
+                } else if (
+                    hashParams.q &&
+                    !draftIdFromUrl &&
+                    !viewIdFromUrl &&
+                    !insightShortIdFromUrl &&
+                    (values.queryInput === null ||
+                        !activeTabMatchesUrlTarget(values.activeTab, {}) ||
+                        values.queryInput !== hashParams.q)
+                ) {
                     actions.createTab(hashParams.q)
                     tabAdded = true
                 } else if (values.queryInput === null) {
