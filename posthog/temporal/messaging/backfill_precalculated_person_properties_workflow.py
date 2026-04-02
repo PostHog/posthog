@@ -24,7 +24,6 @@ from posthog.temporal.messaging.filter_storage import get_filters_and_properties
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import BytecodeResult, execute_bytecode
-from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, Operation
 
 if TYPE_CHECKING:
     pass
@@ -199,32 +198,6 @@ class BackfillPrecalculatedPersonPropertiesInputs:
         }
 
 
-def combine_filter_bytecodes(filters: list[PersonPropertyFilter]) -> list[Any]:
-    """Combine multiple filter bytecodes into a single bytecode returning a dict.
-
-    Strips the header from each filter's bytecode body, interleaves condition_hash
-    keys, and appends a DICT opcode to collect all results into
-    {condition_hash: bool_result, ...}.
-
-    Built once at activity startup and reused for every person.
-    """
-    combined: list[Any] = [HOGQL_BYTECODE_IDENTIFIER, 1]
-
-    valid_count = 0
-    for f in filters:
-        if len(f.bytecode) <= 2:
-            continue
-        combined.append(Operation.STRING)
-        combined.append(f.condition_hash)
-        combined.extend(f.bytecode[2:])
-        valid_count += 1
-
-    combined.append(Operation.DICT)
-    combined.append(valid_count)
-
-    return combined
-
-
 def evaluate_combined_filters_sync(
     combined_bytecode: list[Any],
     hog_globals: dict[str, Any],
@@ -269,7 +242,7 @@ async def backfill_precalculated_person_properties_activity(
         team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=format_cohort_ids_for_logging(cohort_ids)
     )
 
-    # Load filters and person properties from Redis storage without blocking the event loop
+    # Load filters, person properties, and combined bytecode from Redis storage without blocking the event loop
     storage_result = await asyncio.to_thread(get_filters_and_properties, inputs.filter_storage_key)
     if storage_result is None:
         raise temporalio.exceptions.ApplicationError(
@@ -279,7 +252,7 @@ async def backfill_precalculated_person_properties_activity(
             non_retryable=True,
         )
 
-    filters, person_properties = storage_result
+    filters, person_properties, combined_bytecode = storage_result
     logger.info(f"Loaded {len(filters)} filters from storage key: {inputs.filter_storage_key}")
 
     # Early abort if no filters to process
@@ -411,9 +384,6 @@ async def backfill_precalculated_person_properties_activity(
 
         last_person_id = inputs.start_person_id
         batch_count = 0
-
-        # Build combined bytecode once for all filters
-        combined_bytecode = combine_filter_bytecodes(filters)
 
         with tags_context(
             team_id=inputs.team_id,

@@ -6,11 +6,10 @@ import temporalio.exceptions
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     backfill_precalculated_person_properties_activity,
-    combine_filter_bytecodes,
     evaluate_combined_filters_sync,
     flush_kafka_batch_async,
 )
-from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.filter_storage import combine_filter_bytecodes, store_filters
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
