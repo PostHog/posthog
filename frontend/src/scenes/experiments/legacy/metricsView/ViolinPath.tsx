@@ -1,4 +1,4 @@
-import { useChartColors } from '../../MetricsView/shared/colors'
+import { useLegacyChartColors } from './legacyColors'
 import { generateViolinPath } from './violinUtils'
 
 interface ViolinPathProps {
@@ -25,7 +25,7 @@ export function ViolinPath({
     displayOrder,
     isSecondary,
 }: ViolinPathProps): JSX.Element {
-    const colors = useChartColors()
+    const colors = useLegacyChartColors()
     const CONVERSION_RATE_RECT_WIDTH = 2
 
     return (

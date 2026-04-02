@@ -13,10 +13,6 @@ import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_R
 import { experimentLogic } from '../../experimentLogic'
 import { isLaunched } from '../../experimentsLogic'
 import { VariantTag } from '../../ExperimentView/components'
-import { ChartLoadingState } from '../../MetricsView/shared/ChartLoadingState'
-import { useChartColors } from '../../MetricsView/shared/colors'
-import { GridLines } from '../../MetricsView/shared/GridLines'
-import { MetricHeader } from '../../MetricsView/shared/MetricHeader'
 import {
     calculateDelta,
     conversionRateForVariant,
@@ -24,8 +20,12 @@ import {
     credibleIntervalForVariant,
     exposureCountDataForVariant,
 } from '../calculations/legacyExperimentCalculations'
-import { ChartModal } from './ChartModal'
+import { LegacyChartModal } from './ChartModal'
 import { LegacyChartEmptyState } from './LegacyChartEmptyState'
+import { LegacyChartLoadingState } from './LegacyChartLoadingState'
+import { useLegacyChartColors } from './legacyColors'
+import { LegacyGridLines } from './LegacyGridLines'
+import { LegacyMetricHeader } from './LegacyMetricHeader'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
 import { VariantTooltip } from './VariantTooltip'
@@ -85,7 +85,7 @@ type DeltaChartContextType = {
     openVariantDeltaTimeseriesModal: () => void
 
     // Colors
-    colors: ReturnType<typeof useChartColors>
+    colors: ReturnType<typeof useLegacyChartColors>
 
     // Tooltip state
     tooltip: TooltipState
@@ -362,7 +362,7 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
                 {/* Create a group for the background elements */}
                 <g className="grid-lines-layer">
                     {/* Vertical grid lines */}
-                    <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
+                    <LegacyGridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
                 </g>
 
                 {/* Create a group for the variant bars with higher priority */}
@@ -457,7 +457,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
             </div>
         )
     } else if (resultsLoading) {
-        return <ChartLoadingState height={chartHeight} />
+        return <LegacyChartLoadingState height={chartHeight} />
     }
 
     return (
@@ -516,7 +516,7 @@ export function DeltaChart({
     const { viewBoxWidth: VIEW_BOX_WIDTH, horizontalPadding: HORIZONTAL_PADDING } = dimensions
 
     // Colors
-    const colors = useChartColors()
+    const colors = useLegacyChartColors()
 
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false)
@@ -535,7 +535,7 @@ export function DeltaChart({
 
     // Metric title panel
     const metricTitlePanel = (
-        <MetricHeader
+        <LegacyMetricHeader
             displayOrder={displayOrder}
             experiment={experiment}
             metric={metric}
@@ -614,7 +614,7 @@ export function DeltaChart({
             />
 
             {/* Modal for metric details */}
-            <ChartModal
+            <LegacyChartModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 metric={metric}

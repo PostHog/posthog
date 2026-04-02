@@ -1,8 +1,8 @@
 import { ReactNode } from 'react'
 
 import { useSvgResizeObserver } from '~/scenes/experiments/MetricsView/hooks/useSvgResizeObserver'
-import { valueToXCoordinate } from '~/scenes/experiments/MetricsView/shared/utils'
 
+import { legacyValueToXCoordinate } from './legacyUtils'
 import { TickPanel } from './TickPanel'
 
 interface MetricsChartLayoutProps {
@@ -34,7 +34,8 @@ export function MetricsChartLayout({
     // This hook is responsible for the animation effects when metrics are added/removed
     const { ticksSvgRef, chartSvgRef, ticksSvgHeight, chartSvgHeight } = useSvgResizeObserver([tickValues, chartBound])
 
-    const valueToX = (value: number): number => valueToXCoordinate(value, chartBound, viewBoxWidth, horizontalPadding)
+    const valueToX = (value: number): number =>
+        legacyValueToXCoordinate(value, chartBound, viewBoxWidth, horizontalPadding)
 
     // Ensure a minimum height for the title panel even when chart is empty/error state
     const metricTitlePanelHeight = Math.max(chartSvgHeight, 80)

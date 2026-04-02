@@ -6,9 +6,9 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { experimentLogic } from '../../experimentLogic'
-import { getNiceTickValues } from '../../MetricsView/shared/utils'
 import { credibleIntervalForVariant } from '../calculations/legacyExperimentCalculations'
 import { DeltaChart } from './DeltaChart'
+import { legacyGetNiceTickValues } from './legacyUtils'
 
 export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
@@ -62,7 +62,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
     const padding = Math.max(maxAbsValue * 0.05, 0.1)
     const chartBound = maxAbsValue + padding
 
-    const commonTickValues = getNiceTickValues(chartBound)
+    const commonTickValues = legacyGetNiceTickValues(chartBound)
 
     return (
         <div className="mb-4 -mt-2">

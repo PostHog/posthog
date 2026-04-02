@@ -1,5 +1,5 @@
-import { COLORS } from '../../MetricsView/shared/colors'
-import { formatTickValue } from '../../MetricsView/shared/utils'
+import { LEGACY_COLORS } from './legacyColors'
+import { legacyFormatTickValue } from './legacyUtils'
 
 interface TickPanelProps {
     tickValues: number[]
@@ -17,7 +17,7 @@ export function TickPanel({
     svgRef,
 }: TickPanelProps): JSX.Element {
     const TICK_FONT_SIZE = 9
-    const colors = COLORS
+    const colors = LEGACY_COLORS
 
     return (
         <svg
@@ -41,7 +41,7 @@ export function TickPanel({
                             fill={colors.TICK_TEXT_COLOR}
                             fontWeight="600"
                         >
-                            {formatTickValue(value)}
+                            {legacyFormatTickValue(value)}
                         </text>
                     </g>
                 )

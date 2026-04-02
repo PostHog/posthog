@@ -18,13 +18,15 @@ export { LegacySummaryTable } from './components/LegacySummaryTable'
 export { LegacyExperimentDate } from './LegacyExperimentDate'
 export { LegacyExperimentDates } from './LegacyExperimentDates'
 export { LegacyExperimentInfo } from './LegacyExperimentInfo'
+export { LegacyResultsQuery } from './components/LegacyResultsQuery'
+export { LegacyExploreButton } from './components/LegacyExploreButton'
 
 // Calculations
 export * from './calculations/legacyExperimentCalculations'
 
 // Metrics View
 export { MetricsViewLegacy } from './metricsView/MetricsViewLegacy'
-export { ChartModal } from './metricsView/ChartModal'
+export { LegacyChartModal } from './metricsView/ChartModal'
 export { DeltaChart } from './metricsView/DeltaChart'
 export { LegacyChartEmptyState } from './metricsView/LegacyChartEmptyState'
 export { LegacyErrorChecklist } from './metricsView/LegacyErrorChecklist'
@@ -36,3 +38,11 @@ export { VariantTooltip } from './metricsView/VariantTooltip'
 export { ViolinPath } from './metricsView/ViolinPath'
 export { WinningVariantText, SignificanceText } from './metricsView/Overview'
 export * from './metricsView/violinUtils'
+
+// Metrics View - Shared (Legacy)
+export { LegacyChartLoadingState } from './metricsView/LegacyChartLoadingState'
+export { LegacyGridLines } from './metricsView/LegacyGridLines'
+export { LegacyMetricHeader } from './metricsView/LegacyMetricHeader'
+export { LegacyMetricTitle } from './metricsView/LegacyMetricTitle'
+export { useLegacyChartColors, LEGACY_COLORS } from './metricsView/legacyColors'
+export * from './metricsView/legacyUtils'

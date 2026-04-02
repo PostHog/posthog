@@ -13,6 +13,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import {
     LegacyExperimentInfo,
+    LegacyResultsQuery,
+    LegacyExploreButton,
     LegacyExperimentHeader,
     MetricsViewLegacy,
     VariantDeltaTimeseries,
@@ -41,13 +43,7 @@ import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
-import {
-    EditConclusionModal,
-    LegacyExploreButton,
-    LegacyResultsQuery,
-    LoadingState,
-    PageHeaderCustom,
-} from './components'
+import { EditConclusionModal, LoadingState, PageHeaderCustom } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'

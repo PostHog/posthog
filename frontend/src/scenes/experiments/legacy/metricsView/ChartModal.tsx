@@ -13,13 +13,14 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
-import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
 import type { Experiment } from '~/types'
 
+import { LegacyExploreButton } from '../components/LegacyExploreButton'
+import { LegacyResultsQuery } from '../components/LegacyResultsQuery'
 import { LegacySummaryTable } from '../components/LegacySummaryTable'
 import { SignificanceText, WinningVariantText } from './Overview'
 
-interface ChartModalProps {
+interface LegacyChartModalProps {
     isOpen: boolean
     onClose: () => void
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
@@ -29,7 +30,12 @@ interface ChartModalProps {
     experiment: Experiment
 }
 
-export function ChartModal({
+/**
+ * @deprecated
+ * This component supports legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyChartModal({
     isOpen,
     onClose,
     metric,
@@ -37,7 +43,7 @@ export function ChartModal({
     isSecondary,
     result,
     experiment,
-}: ChartModalProps): JSX.Element {
+}: LegacyChartModalProps): JSX.Element {
     const isLegacyResult =
         result && (result.kind === NodeKind.ExperimentTrendsQuery || result.kind === NodeKind.ExperimentFunnelsQuery)
 
