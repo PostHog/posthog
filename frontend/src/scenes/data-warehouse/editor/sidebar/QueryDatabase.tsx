@@ -1,7 +1,7 @@
 import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import {
     IconBrackets,
@@ -43,14 +43,26 @@ import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
-    const { searchTerm, joinsByFieldName, editingDraftId, displayedTreeData, expandedItemIds, connectionId } =
-        useValues(queryDatabaseLogic)
+    const {
+        searchTerm,
+        joinsByFieldName,
+        editingDraftId,
+        displayedTreeData,
+        expandedItemIds,
+        connectionId,
+        activeDraggedViewId,
+        highlightedDropFolderId,
+        highlightViewsSectionDrop,
+    } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
         toggleFolderOpen,
         setTreeRef,
         setExpandedSearchFolders,
-        setPendingViewFolderOverride,
+        startDraggingView,
+        updateDraggedViewDropTarget,
+        clearDraggedViewState,
+        moveDraggedViewToDropTarget,
         selectSourceTable,
         toggleEditJoinModal,
         setEditingDraft,
@@ -61,7 +73,6 @@ export const QueryDatabase = (): JSX.Element => {
     const {
         createDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQueryFolder,
-        updateDataWarehouseSavedQuery,
         updateDataWarehouseSavedQueryFolder,
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
@@ -69,9 +80,6 @@ export const QueryDatabase = (): JSX.Element => {
     const { setActiveTab, setQueryInput, setSourceQuery } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
-    const [activeDraggedViewId, setActiveDraggedViewId] = useState<string | null>(null)
-    const [highlightedDropFolderId, setHighlightedDropFolderId] = useState<string | null>(null)
-    const [highlightViewsSectionDrop, setHighlightViewsSectionDrop] = useState(false)
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -203,59 +211,6 @@ export const QueryDatabase = (): JSX.Element => {
         setTreeRef(treeRef)
     }, [treeRef, setTreeRef])
 
-    const findTreePath = (
-        items: TreeDataItem[],
-        targetId: string,
-        path: TreeDataItem[] = []
-    ): TreeDataItem[] | null => {
-        for (const item of items) {
-            const nextPath = [...path, item]
-
-            if (item.id === targetId) {
-                return nextPath
-            }
-
-            if (item.children) {
-                const foundPath = findTreePath(item.children, targetId, nextPath)
-                if (foundPath) {
-                    return foundPath
-                }
-            }
-        }
-
-        return null
-    }
-
-    const findTreeItem = (items: TreeDataItem[], targetId: string): TreeDataItem | null => {
-        const path = findTreePath(items, targetId)
-        return path ? path[path.length - 1] : null
-    }
-
-    const getFolderIdFromDropTarget = (dropTargetId: string | null): string | null | undefined => {
-        if (dropTargetId === '') {
-            return null
-        }
-
-        const targetPath = dropTargetId ? findTreePath(displayedTreeData, dropTargetId) : null
-        if (!targetPath) {
-            return undefined
-        }
-
-        const enclosingViewFolder = [...targetPath]
-            .reverse()
-            .find((item) => item.record?.type === 'folder' && item.record?.folderType === 'view-folder')
-        if (enclosingViewFolder?.record?.folder?.id) {
-            return enclosingViewFolder.record.folder.id
-        }
-
-        const isInTopLevelViewsSection = targetPath.some((item) => item.record?.type === 'views')
-        if (isInTopLevelViewsSection) {
-            return null
-        }
-
-        return undefined
-    }
-
     return (
         <LemonTree
             ref={treeRef}
@@ -268,38 +223,17 @@ export const QueryDatabase = (): JSX.Element => {
                     item.record?.type === 'views')
             }
             onDragStart={(dragEvent: DragStartEvent) => {
-                setActiveDraggedViewId(String(dragEvent.active.id))
+                startDraggingView(String(dragEvent.active.id))
             }}
             onDragOver={(dragEvent: DragOverEvent) => {
-                const nextFolderId = getFolderIdFromDropTarget(dragEvent.over?.id ? String(dragEvent.over.id) : null)
-                setHighlightedDropFolderId(nextFolderId ?? null)
-                setHighlightViewsSectionDrop(nextFolderId === null)
+                updateDraggedViewDropTarget(dragEvent.over?.id ? String(dragEvent.over.id) : null)
             }}
-            onDragCancel={() => {
-                setActiveDraggedViewId(null)
-                setHighlightedDropFolderId(null)
-                setHighlightViewsSectionDrop(false)
-            }}
+            onDragCancel={clearDraggedViewState}
             onDragEnd={(dragEvent: DragEndEvent) => {
-                const activeItem = findTreeItem(displayedTreeData, String(dragEvent.active.id))
-                setActiveDraggedViewId(null)
-                setHighlightedDropFolderId(null)
-                setHighlightViewsSectionDrop(false)
-                if (activeItem?.record?.type !== 'view' || !activeItem.record?.isSavedQuery) {
-                    return
-                }
-
-                const nextFolderId = getFolderIdFromDropTarget(dragEvent.over?.id ? String(dragEvent.over.id) : null)
-                if (nextFolderId === undefined || activeItem.record.view.folder_id === nextFolderId) {
-                    return
-                }
-
-                setPendingViewFolderOverride(activeItem.record.view.id, nextFolderId)
-                updateDataWarehouseSavedQuery({
-                    id: activeItem.record.view.id,
-                    folder_id: nextFolderId,
-                    soft_update: true,
-                })
+                moveDraggedViewToDropTarget(
+                    String(dragEvent.active.id),
+                    dragEvent.over?.id ? String(dragEvent.over.id) : null
+                )
             }}
             expandedItemIds={expandedItemIds}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}

@@ -1106,6 +1106,55 @@ const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[])
     })
 }
 
+const findTreePath = (items: TreeDataItem[], targetId: string, path: TreeDataItem[] = []): TreeDataItem[] | null => {
+    for (const item of items) {
+        const nextPath = [...path, item]
+
+        if (item.id === targetId) {
+            return nextPath
+        }
+
+        if (item.children) {
+            const foundPath = findTreePath(item.children, targetId, nextPath)
+            if (foundPath) {
+                return foundPath
+            }
+        }
+    }
+
+    return null
+}
+
+const findTreeItem = (items: TreeDataItem[], targetId: string): TreeDataItem | null => {
+    const path = findTreePath(items, targetId)
+    return path ? path[path.length - 1] : null
+}
+
+const getFolderIdFromDropTarget = (items: TreeDataItem[], dropTargetId: string | null): string | null | undefined => {
+    if (dropTargetId === '') {
+        return null
+    }
+
+    const targetPath = dropTargetId ? findTreePath(items, dropTargetId) : null
+    if (!targetPath) {
+        return undefined
+    }
+
+    const enclosingViewFolder = [...targetPath]
+        .reverse()
+        .find((item) => item.record?.type === 'folder' && item.record?.folderType === 'view-folder')
+    if (enclosingViewFolder?.record?.folder?.id) {
+        return enclosingViewFolder.record.folder.id
+    }
+
+    const isInTopLevelViewsSection = targetPath.some((item) => item.record?.type === 'views')
+    if (isInTopLevelViewsSection) {
+        return null
+    }
+
+    return undefined
+}
+
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),
     actions({
@@ -1124,6 +1173,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setPendingViewFolderOverride: (viewId: string, folderId: string | null) => ({ viewId, folderId }),
         clearPendingViewFolderOverride: (viewId: string) => ({ viewId }),
         clearPendingViewFolderOverrides: true,
+        startDraggingView: (viewId: string) => ({ viewId }),
+        setDraggedViewDropState: (folderId: string | null, isViewsSectionDrop: boolean) => ({
+            folderId,
+            isViewsSectionDrop,
+        }),
+        updateDraggedViewDropTarget: (dropTargetId: string | null) => ({ dropTargetId }),
+        clearDraggedViewState: true,
+        moveDraggedViewToDropTarget: (viewId: string, dropTargetId: string | null) => ({ viewId, dropTargetId }),
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
     }),
@@ -1171,6 +1228,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'createDataWarehouseSavedQuerySuccess',
                 'updateDataWarehouseSavedQuerySuccess',
                 'updateDataWarehouseSavedQueryFailure',
+                'updateDataWarehouseSavedQuery',
             ],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
@@ -1243,6 +1301,27 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 clearPendingViewFolderOverrides: () => ({}),
             },
         ],
+        activeDraggedViewId: [
+            null as string | null,
+            {
+                startDraggingView: (_, { viewId }) => viewId,
+                clearDraggedViewState: () => null,
+            },
+        ],
+        highlightedDropFolderId: [
+            null as string | null,
+            {
+                setDraggedViewDropState: (_, { folderId }) => folderId,
+                clearDraggedViewState: () => null,
+            },
+        ],
+        highlightViewsSectionDrop: [
+            false,
+            {
+                setDraggedViewDropState: (_, { isViewsSectionDrop }) => isViewsSectionDrop,
+                clearDraggedViewState: () => false,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         createDataWarehouseSavedQuerySuccess: ({ payload }) => {
@@ -1250,6 +1329,30 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const folderNodeId = `view-folder-${payload.folder_id}`
                 actions.setExpandedFolders(Array.from(new Set([...values.expandedFolders, 'views', folderNodeId])))
             }
+        },
+        updateDraggedViewDropTarget: ({ dropTargetId }) => {
+            const nextFolderId = getFolderIdFromDropTarget(values.displayedTreeData, dropTargetId)
+            actions.setDraggedViewDropState(nextFolderId ?? null, nextFolderId === null)
+        },
+        moveDraggedViewToDropTarget: ({ viewId, dropTargetId }) => {
+            const activeItem = findTreeItem(values.displayedTreeData, viewId)
+            actions.clearDraggedViewState()
+
+            if (activeItem?.record?.type !== 'view' || !activeItem.record.isSavedQuery) {
+                return
+            }
+
+            const nextFolderId = getFolderIdFromDropTarget(values.displayedTreeData, dropTargetId)
+            if (nextFolderId === undefined || activeItem.record.view.folder_id === nextFolderId) {
+                return
+            }
+
+            actions.setPendingViewFolderOverride(activeItem.record.view.id, nextFolderId)
+            actions.updateDataWarehouseSavedQuery({
+                id: activeItem.record.view.id,
+                folder_id: nextFolderId,
+                soft_update: true,
+            })
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             if (payload?.id) {
