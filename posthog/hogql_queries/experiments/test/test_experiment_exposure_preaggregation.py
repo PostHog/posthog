@@ -592,7 +592,11 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         # "switcher" should be counted as control (only saw control during the
         # experiment), not $multiple. So: 2 control + 1 test.
-        self._lazy_computed_and_compare(experiment, feature_flag, metric)
+        direct_result, lazy_result = self._lazy_computed_and_compare(experiment, feature_flag, metric)
+        assert direct_result.baseline is not None
+        assert direct_result.baseline.number_of_samples == 2
+        assert direct_result.variant_results is not None
+        assert direct_result.variant_results[0].number_of_samples == 1
 
     def test_falls_back_to_events_scan_on_lazy_computation_failure(self):
         feature_flag = self.create_feature_flag()
