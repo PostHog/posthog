@@ -121,6 +121,10 @@ class TeamSignalGroupingV2Workflow:
             # Wait for at least one batch key
             await workflow.wait_condition(lambda: len(self._batch_key_buffer) > 0)
 
+            if self._is_paused():
+                self._continue_as_new(input)
+                continue
+
             # Pop the next key
             object_key = self._batch_key_buffer.pop(0)
 
