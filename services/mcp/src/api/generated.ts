@@ -608,6 +608,24 @@ export namespace Schemas {
       actionId: number;
     }
 
+    export interface ActionReference {
+      /** Resource type: insight, experiment, cohort, or hog_function */
+      type: string;
+      /** Resource ID (integer or UUID depending on type) */
+      id: string;
+      /** Resource name */
+      name: string;
+      /** Relative URL to the resource */
+      url: string;
+      /**
+       * When the resource was created
+       * @nullable
+       */
+      created_at: string | null;
+      /** User who created the resource */
+      created_by: UserBasic | null;
+    }
+
     export type ActionsNodeKind = typeof ActionsNodeKind[keyof typeof ActionsNodeKind];
 
 
@@ -32663,6 +32681,18 @@ export namespace Schemas {
 
 
     export const ActionsDestroyFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type ActionsReferencesListParams = {
+    format?: ActionsReferencesListFormat;
+    };
+
+    export type ActionsReferencesListFormat = typeof ActionsReferencesListFormat[keyof typeof ActionsReferencesListFormat];
+
+
+    export const ActionsReferencesListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

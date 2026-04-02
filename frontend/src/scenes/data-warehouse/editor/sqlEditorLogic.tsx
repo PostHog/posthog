@@ -158,6 +158,20 @@ function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizat
     }
 }
 
+function getCurrentVisualizationQuery(
+    dataLogicKey: string,
+    fallbackQuery: DataVisualizationNode
+): DataVisualizationNode {
+    // This reads the mounted visualization state so save/update actions can include in-flight
+    // axis/display edits. Those edits are also synced back through props.setQuery -> setSourceQuery,
+    // so sourceQuery remains the durable fallback when the visualization logic is unmounted.
+    const mountedVisualizationLogic = dataVisualizationLogic.findMounted({
+        key: dataLogicKey,
+    } as any)
+
+    return mountedVisualizationLogic?.values.query ?? fallbackQuery
+}
+
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
@@ -312,6 +326,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         saveAsEndpoint: true,
         saveAsEndpointSubmit: (name: string, description?: string) => ({ name, description }),
         updateInsight: true,
+        closeEditingObject: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
         setDataError: (error: string | null) => ({ error }),
@@ -758,6 +773,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     draft: draft,
                 })
             }
+            if (insight?.query?.kind === NodeKind.DataVisualizationNode) {
+                actions.setLastRunQuery(sanitizeSourceQuery(insight.query as DataVisualizationNode))
+            }
             if (query) {
                 actions.setQueryInput(query)
             } else if (draft) {
@@ -1020,16 +1038,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         saveAsInsight: async () => {
+            const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
             const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                 key: values.dataLogicKey,
-                query: values.sourceQuery,
+                query: currentVisualizationQuery,
                 dataNodeCollectionId: values.dataLogicKey,
                 editMode: true,
             })?.values.effectiveVisualizationType
 
             const defaultDisplay = getDisplayTypeToSaveInsight(
                 values.outputActiveTab,
-                values.sourceQuery.display,
+                currentVisualizationQuery.display,
                 effectiveVisualizationType
             )
 
@@ -1050,7 +1069,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     readOnly
                                     embedded
                                     query={{
-                                        ...values.sourceQuery,
+                                        ...currentVisualizationQuery,
                                         display: defaultDisplay,
                                     }}
                                 />
@@ -1065,23 +1084,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             })
         },
         saveAsInsightSubmit: async ({ name }) => {
+            const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
             const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                 key: values.dataLogicKey,
-                query: values.sourceQuery,
+                query: currentVisualizationQuery,
                 dataNodeCollectionId: values.dataLogicKey,
                 editMode: true,
             })?.values.effectiveVisualizationType
 
             const display = getDisplayTypeToSaveInsight(
                 values.outputActiveTab,
-                values.sourceQuery.display,
+                currentVisualizationQuery.display,
                 effectiveVisualizationType
             )
 
             const dashboardId = values.dashboardId
             const insight = await insightsApi.create({
                 name,
-                query: { ...values.sourceQuery, display } as DataVisualizationNode,
+                query: { ...currentVisualizationQuery, display } as DataVisualizationNode,
                 saved: true,
                 ...(dashboardId ? { dashboards: [dashboardId] } : {}),
             })
@@ -1166,10 +1186,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const insightName = values.activeTab?.name
+            const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
             const insightRequest: Partial<QueryBasedInsightModel> = {
                 name: insightName ?? values.editingInsight.name,
-                query: values.sourceQuery,
+                query: currentVisualizationQuery,
             }
 
             const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
@@ -1207,6 +1228,38 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
                 )
                 router.actions.push(urls.insightView(savedInsight.short_id))
+            }
+        },
+        closeEditingObject: () => {
+            actions.setInsightLoading(false)
+            actions.setViewLoading(false)
+
+            if (!values.activeTab) {
+                actions.createTab(values.queryInput ?? '')
+                return
+            }
+
+            const nextActiveTab = {
+                ...values.activeTab,
+                name: NEW_QUERY,
+                view: undefined,
+                insight: undefined,
+                draft: undefined,
+            }
+
+            actions.updateTab(nextActiveTab)
+
+            if (!values.isEmbeddedMode) {
+                const nextHash = encodeURIComponent(JSON.stringify(getTabHash({ ...values, activeTab: nextActiveTab })))
+                const currentUrl = new URL(window.location.href)
+                currentUrl.searchParams.delete('open_insight')
+                currentUrl.searchParams.delete('open_view')
+                currentUrl.searchParams.delete('open_draft')
+                window.history.replaceState(
+                    {},
+                    '',
+                    `${urls.sqlEditor()}${currentUrl.searchParams.toString() ? `?${currentUrl.searchParams.toString()}` : ''}#${nextHash}`
+                )
             }
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
@@ -1435,25 +1488,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         isSourceQueryLastRun: [
-            (s) => [s.queryInput, s.lastRunQuery],
-            (queryInput, lastRunQuery) => {
-                return queryInput === lastRunQuery?.source.query
+            (s) => [s.queryInput, s.lastRunQuery, s.sourceQuery],
+            (queryInput, lastRunQuery, sourceQuery) => {
+                const lastRunQueryText = lastRunQuery?.source.query ?? sourceQuery.source.query
+                return queryInput === lastRunQueryText
             },
         ],
         updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeTab],
-            (sourceQuery, activeTab) => {
-                if (!activeTab?.insight?.query || !activeTab.sourceQuery) {
+            (s) => [s.sourceQuery, s.activeTab, s.editingInsight, s.dataLogicKey],
+            (sourceQuery, activeTab, editingInsight, dataLogicKey) => {
+                if (!editingInsight?.query) {
                     return false
                 }
 
-                const updatedName = activeTab.name !== activeTab.insight.name
+                const updatedName = activeTab?.name !== editingInsight.name
+                const currentVisualizationQuery = getCurrentVisualizationQuery(dataLogicKey, sourceQuery)
 
-                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
+                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(currentVisualizationQuery)
 
                 return (
                     updatedName ||
-                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(activeTab.insight.query))
+                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsight.query))
                 )
             },
         ],
@@ -1515,8 +1570,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         titleSectionProps: [
-            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editorSource, s.dashboardId],
-            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId) => {
+            (s) => [
+                s.editingInsight,
+                s.insightLoading,
+                s.editingView,
+                s.viewLoading,
+                s.editorSource,
+                s.dashboardId,
+                s.activeTab,
+            ],
+            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId, activeTab) => {
                 if (editingInsight) {
                     const forceBackTo: Breadcrumb = dashboardId
                         ? {
@@ -1560,19 +1623,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
 
-                const searchParams = new URLSearchParams(window.location.search)
-                const hashParams = new URLSearchParams(window.location.hash.slice(1))
-                if (searchParams.get('open_view') || hashParams.get('view')) {
-                    return {
-                        name: 'Loading view...',
-                        resourceType: { type: 'view' },
+                if (!activeTab) {
+                    const searchParams = new URLSearchParams(window.location.search)
+                    const hashParams = new URLSearchParams(window.location.hash.slice(1))
+                    if (searchParams.get('open_view') || hashParams.get('view')) {
+                        return {
+                            name: 'Loading view...',
+                            resourceType: { type: 'view' },
+                        }
                     }
-                }
 
-                if (searchParams.get('open_insight') || hashParams.get('insight')) {
-                    return {
-                        name: 'Loading insight...',
-                        resourceType: { type: 'insight/hog' },
+                    if (searchParams.get('open_insight') || hashParams.get('insight')) {
+                        return {
+                            name: 'Loading insight...',
+                            resourceType: { type: 'insight/hog' },
+                        }
                     }
                 }
 

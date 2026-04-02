@@ -223,10 +223,10 @@ export class PluginServer implements NodeServer {
         }
 
         if (capabilities.cdpHogflowScheduler) {
-            serviceLoaders.push(async () => {
+            serviceLoaders.push(() => {
                 const scheduler = new HogFlowScheduleService(this.config)
-                await scheduler.start()
-                return scheduler.service
+                scheduler.start()
+                return Promise.resolve(scheduler.service)
             })
         }
 

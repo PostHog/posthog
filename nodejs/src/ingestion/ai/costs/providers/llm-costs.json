@@ -1606,16 +1606,6 @@
                 "audio": 3e-7,
                 "internal_reasoning": 4e-7
             },
-            "google-ai-studio": {
-                "prompt_token": 1e-7,
-                "completion_token": 4e-7,
-                "cache_read_token": 1e-8,
-                "cache_write_token": 8.333333333e-8,
-                "image": 1e-7,
-                "audio": 3e-7,
-                "input_audio_cache": 3e-8,
-                "internal_reasoning": 4e-7
-            },
             "google-vertex": {
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
@@ -2842,9 +2832,9 @@
         "model": "minimax/minimax-m2.5",
         "cost": {
             "default": {
-                "prompt_token": 1.2e-7,
-                "completion_token": 0.000001,
-                "cache_read_token": 6e-8
+                "prompt_token": 1.18e-7,
+                "completion_token": 0.00000125,
+                "cache_read_token": 1e-7
             },
             "akashml-fp8": {
                 "prompt_token": 3e-7,
@@ -2876,9 +2866,9 @@
                 "cache_read_token": 1e-7
             },
             "io-net-fp8": {
-                "prompt_token": 1.56e-7,
-                "completion_token": 0.000001,
-                "cache_read_token": 8e-8
+                "prompt_token": 1.18e-7,
+                "completion_token": 0.00000125,
+                "cache_read_token": 1e-7
             },
             "ionstream-fp8": {
                 "prompt_token": 2e-7,
@@ -2900,7 +2890,7 @@
                 "completion_token": 0.0000012
             },
             "nextbit-fp8": {
-                "prompt_token": 2.5e-7,
+                "prompt_token": 3e-7,
                 "completion_token": 0.0000012
             },
             "novita-fp8": {
@@ -3233,10 +3223,6 @@
             "deepinfra-fp8": {
                 "prompt_token": 5e-8,
                 "completion_token": 8e-8
-            },
-            "together": {
-                "prompt_token": 1e-7,
-                "completion_token": 3e-7
             }
         }
     },
@@ -3467,9 +3453,9 @@
         "model": "moonshotai/kimi-k2.5",
         "cost": {
             "default": {
-                "prompt_token": 4e-7,
-                "completion_token": 0.00000199,
-                "cache_read_token": 2e-7
+                "prompt_token": 3.827e-7,
+                "completion_token": 0.0000019092,
+                "cache_read_token": 1.935e-7
             },
             "atlas-cloud-int4": {
                 "prompt_token": 5e-7,
@@ -3501,9 +3487,9 @@
                 "cache_read_token": 2.2e-7
             },
             "io-net-int4": {
-                "prompt_token": 4.005e-7,
-                "completion_token": 0.000001998,
-                "cache_read_token": 2.025e-7
+                "prompt_token": 3.827e-7,
+                "completion_token": 0.0000019092,
+                "cache_read_token": 1.935e-7
             },
             "modelrun-fp4": {
                 "prompt_token": 5.5e-7,
@@ -4723,9 +4709,9 @@
                 "cache_read_token": 7.5e-8
             },
             "io-net-fp16": {
-                "prompt_token": 1.7e-7,
-                "completion_token": 6.2e-7,
-                "cache_read_token": 8.5e-8
+                "prompt_token": 1.496e-7,
+                "completion_token": 6.6e-7,
+                "cache_read_token": 7.48e-8
             },
             "novita-fp4": {
                 "prompt_token": 5e-8,
@@ -5976,6 +5962,10 @@
             "siliconflow-fp8": {
                 "prompt_token": 2.9e-7,
                 "completion_token": 0.000001
+            },
+            "venice": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 9e-7
             }
         }
     },
@@ -7010,10 +7000,6 @@
                 "prompt_token": 4.5e-7,
                 "completion_token": 0.0000022,
                 "cache_read_token": 1.1e-7
-            },
-            "together": {
-                "prompt_token": 4.5e-7,
-                "completion_token": 0.000002
             },
             "venice-fp4": {
                 "prompt_token": 5.5e-7,
