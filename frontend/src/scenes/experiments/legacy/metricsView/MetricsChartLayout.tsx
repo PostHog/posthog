@@ -2,8 +2,8 @@ import { ReactNode } from 'react'
 
 import { useSvgResizeObserver } from '~/scenes/experiments/MetricsView/hooks/useSvgResizeObserver'
 
+import { TickPanel } from './LegacyTickPanel'
 import { legacyValueToXCoordinate } from './legacyUtils'
-import { TickPanel } from './TickPanel'
 
 interface MetricsChartLayoutProps {
     isFirstMetric: boolean
