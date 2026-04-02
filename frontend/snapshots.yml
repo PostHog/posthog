@@ -5404,6 +5404,22 @@ snapshots:
         hash: v1.k794b7964.ada552ba964609f63aedc8507676421b08a157f848e1a1e96f3bd9c46ccc6e30.oWuJSqs7ReLqDxL0bN0haKgaPhrZxd5htMavMKSDy5g
     scenes-app-sessionattributionexplorer--session-attribution-explorer--light:
         hash: v1.k794b7964.99a9f99f00266acb13b5da59f671f05f98ca137b6ca92f32c070df34d4996639.dbgTYNPT9jWdOHdIOVJyEK0HpWeO0YYsx7VcTmYkanc
+    scenes-app-settings-authentication-domains--boost-needs-upgrade--dark:
+        hash: v1.k794b7964.89282b98207e349b0eb3bb6d408d79348d545aa6fec71d312be8b68b0adbd25c.7GEuAVWLB4E_k4W4PSbe6c4zk7_FdT7hnXf2CyY8D7E
+    scenes-app-settings-authentication-domains--boost-needs-upgrade--light:
+        hash: v1.k794b7964.d0dd883639f2b781f5201734e2c2bd931ed9d7d08fb3e0a8ed022d101f70bc3c.3pkn6M4f6pEOq8Z5gtDyfZBOSj8foXzZwvVY8mDtTCs
+    scenes-app-settings-authentication-domains--enterprise-mixed--dark:
+        hash: v1.k794b7964.8fbed9c134d7619e9c5ceb170686236ed0f49556df1d820469ef5325453b055b.kdS0Lz-VRpR_Nb1Zc66y9lrnk1IcAExOZa2dlnjPMts
+    scenes-app-settings-authentication-domains--enterprise-mixed--light:
+        hash: v1.k794b7964.1d22ac29fcc8115429a2017b921e6ac9715eed9d7a48b191b53f60555d89e516.59vfD-ZJcW06lE1esd2kNhDfy76xx_wP03tMxSLA0Zg
+    scenes-app-settings-authentication-domains--no-domains--dark:
+        hash: v1.k794b7964.de068094e50f90a8882945632bf70c3b08d19a1b731de3d5393300ab8d1a91fd.5CLJEuJVWZLPm9loKI9KcH_dI8cXzVFqoMFkUsdfiVk
+    scenes-app-settings-authentication-domains--no-domains--light:
+        hash: v1.k794b7964.33d98d3d774e09d35fec0ea8f1358b93cb8f1e046dffb0e1ea6f906a76312298.b7LY2GSiXROWv6EJ_AymQfVggQ5pD499zauMU44tE5M
+    scenes-app-settings-authentication-domains--one-unverified-domain--dark:
+        hash: v1.k794b7964.4cb5027c7b3a2a828839b31f9b63382b4dac7cb4e53a3f0f01d85f606a914ff1.TK9t3Dkl0yf9ej1VeDw_vMreFO2yMHQO6N9_jTDMVyg
+    scenes-app-settings-authentication-domains--one-unverified-domain--light:
+        hash: v1.k794b7964.96bb187bb414b64cd26319503db831d501bd7e09d31d73a0d08943cfce70ba17.2JSJtqHd42mujkuVIEVU3_HEixyNOazUWex3x9sOi44
     scenes-app-settings-environment--settings-environment-access-control--dark:
         hash: v1.k794b7964.f86be99707e307ec64f495f17928cbe1f6c41f61f50419a2d276e7792165bd2a.3qB2TYXR_m4kmG8YBemMAeWGiZZi--IdmO09HhAjr9w
     scenes-app-settings-environment--settings-environment-access-control--light:
