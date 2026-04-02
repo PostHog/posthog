@@ -18,14 +18,13 @@ def get_or_create_signals_sandbox_env(
     network_access_level: SandboxEnvironment.NetworkAccessLevel,
 ) -> str:
     """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string."""
-    env = SandboxEnvironment.objects.filter(team_id=team_id, name=name).first()
-    if env is not None:
-        return str(env.id)
-    env = SandboxEnvironment.objects.create(
+    env, _ = SandboxEnvironment.objects.get_or_create(
         team_id=team_id,
         name=name,
-        network_access_level=network_access_level,
-        private=False,
+        defaults={
+            "network_access_level": network_access_level,
+            "private": False,
+        },
     )
     return str(env.id)
 
