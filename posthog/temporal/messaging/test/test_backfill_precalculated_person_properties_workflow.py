@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 import temporalio.exceptions
+from parameterized import parameterized
 
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
@@ -234,7 +235,13 @@ class TestCombineFilterBytecodes:
         result = execute_bytecode(combined, {})
         assert result.result == {"h1": True, "h2": False}
 
-    def test_executes_with_person_properties(self):
+    @parameterized.expand(
+        [
+            ({"person": {"properties": {"$browser": "Chrome"}}}, {"browser_set": True}),
+            ({"person": {"properties": {}}}, {"browser_set": False}),
+        ]
+    )
+    def test_executes_with_person_properties(self, globals_input, expected_result):
         # Bytecode for: person.properties.$browser != NULL (is_set check)
         browser_bytecode = ["_H", 1, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
         filters = [
@@ -247,13 +254,19 @@ class TestCombineFilterBytecodes:
         ]
         combined = combine_filter_bytecodes(filters)
 
-        result = execute_bytecode(combined, {"person": {"properties": {"$browser": "Chrome"}}})
-        assert result.result == {"browser_set": True}
+        result = execute_bytecode(combined, globals_input)
+        assert result.result == expected_result
 
-        result = execute_bytecode(combined, {"person": {"properties": {}}})
-        assert result.result == {"browser_set": False}
-
-    def test_executes_multiple_property_filters(self):
+    @parameterized.expand(
+        [
+            ({"person": {"properties": {"$browser": "Chrome"}}}, {"browser_set": True, "host_set": False}),
+            (
+                {"person": {"properties": {"$browser": "Chrome", "$host": "example.com"}}},
+                {"browser_set": True, "host_set": True},
+            ),
+        ]
+    )
+    def test_executes_multiple_property_filters(self, globals_input, expected_result):
         browser_bytecode = ["_H", 1, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
         host_bytecode = ["_H", 1, 31, 32, "$host", 32, "properties", 32, "person", 1, 3, 12]
         filters = [
@@ -266,11 +279,8 @@ class TestCombineFilterBytecodes:
         ]
         combined = combine_filter_bytecodes(filters)
 
-        result = execute_bytecode(combined, {"person": {"properties": {"$browser": "Chrome"}}})
-        assert result.result == {"browser_set": True, "host_set": False}
-
-        result = execute_bytecode(combined, {"person": {"properties": {"$browser": "Chrome", "$host": "example.com"}}})
-        assert result.result == {"browser_set": True, "host_set": True}
+        result = execute_bytecode(combined, globals_input)
+        assert result.result == expected_result
 
 
 class TestEvaluateCombinedFiltersSync:

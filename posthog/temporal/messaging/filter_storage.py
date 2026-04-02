@@ -45,6 +45,11 @@ def combine_filter_bytecodes(filters: list[PersonPropertyFilter]) -> list[Any]:
     valid_count = 0
     for f in filters:
         if len(f.bytecode) <= 2:
+            logger.warning(
+                "Skipping malformed bytecode for filter",
+                condition_hash=f.condition_hash,
+                bytecode_length=len(f.bytecode),
+            )
             continue
         combined.append(Operation.STRING)
         combined.append(f.condition_hash)
