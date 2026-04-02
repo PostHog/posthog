@@ -76,6 +76,7 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     dateRange?: DateRange | null
     /** Show hint about holding shift to highlight individual bars in stacked charts */
     showShiftKeyHint?: boolean
+    showTotal?: boolean
     formatCompareLabel?: (label: string, dateLabel?: string) => string
     /** Callback to close/unpin the tooltip. When provided, a close button is rendered. */
     onClose?: () => void

@@ -111,6 +111,7 @@ export function InsightTooltip({
     interval,
     dateRange,
     showShiftKeyHint,
+    showTotal,
     formatCompareLabel,
     onClose,
     onRowClick,
@@ -229,15 +230,41 @@ export function InsightTooltip({
             columns.push(closeColumn(onClose))
         }
 
+        const hasComparison = seriesData.some((s) => s.compare_label !== undefined)
+        const shouldShowTotal = showTotal === true && !hasComparison
+
+        const displaySource = dataSource.slice(0, rowCutoff)
+        if (shouldShowTotal) {
+            const columnTotals: Record<number, number> = {}
+            displaySource.forEach((row) => {
+                row.seriesData.forEach((s) => {
+                    columnTotals[s.order] = (columnTotals[s.order] || 0) + s.count
+                })
+            })
+            displaySource.push({
+                id: 'total',
+                datasetIndex: -1,
+                datumTitle: 'Total',
+                seriesData: Object.entries(columnTotals).map(([order, count]) => ({
+                    id: -1,
+                    dataIndex: -1,
+                    datasetIndex: -1,
+                    order: Number(order),
+                    count,
+                })),
+            })
+        }
+
         return (
             <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
                 <div className="InsightTooltip__scrollable">
                     <LemonTable
-                        dataSource={rowCutoff !== undefined ? dataSource.slice(0, rowCutoff) : dataSource}
+                        dataSource={displaySource}
                         columns={columns}
                         rowKey="id"
                         uppercaseHeader={false}
                         rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
+                        rowClassName={(datum) => (datum.id === 'total' ? 'InsightTooltip__total-row' : undefined)}
                         showHeader={showHeader}
                         onRow={
                             onRowClick && numDataPoints === 1
