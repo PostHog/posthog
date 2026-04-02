@@ -90,7 +90,7 @@ test.describe('SQL Editor direct Postgres queries', () => {
                                     prefix: name,
                                     payload: {
                                         source_type: 'Postgres',
-                                        host: '127.0.0.1',
+                                        host: 'localhost',
                                         port: '5432',
                                         database: 'posthog',
                                         user: 'posthog',
