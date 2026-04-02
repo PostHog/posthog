@@ -1,6 +1,7 @@
 """Salesforce usage enrichment workflow - enriches accounts with PostHog usage signals."""
 
 import json
+import time
 import asyncio
 import datetime as dt
 import dataclasses
@@ -17,6 +18,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 from ee.billing.salesforce_enrichment.constants import (
+    POSTHOG_FETCH_MAPPINGS_PAGE_SIZE,
     POSTHOG_ORG_ID_FIELD,
     POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE,
     POSTHOG_USAGE_FIELD_MAPPINGS,
@@ -24,7 +26,7 @@ from ee.billing.salesforce_enrichment.constants import (
 )
 from ee.billing.salesforce_enrichment.redis_cache import (
     get_cached_org_mappings_count,
-    get_org_mappings_from_redis,
+    get_org_mappings_page_from_redis,
     store_org_mappings_in_redis,
 )
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
@@ -37,19 +39,14 @@ _SPECIAL_FIELDS = frozenset({"products_activated_7d", "products_activated_30d"})
 
 
 @dataclasses.dataclass
-class SalesforceOrgMapping:
-    """Mapping between Salesforce account and PostHog organization."""
+class UsageEnrichmentState:
+    """Continue-As-New state carried across workflow executions."""
 
-    salesforce_account_id: str
-    posthog_org_id: str
-
-
-@dataclasses.dataclass
-class SalesforceUsageUpdate:
-    """Update to apply to a Salesforce account."""
-
-    salesforce_account_id: str
-    signals: UsageSignals
+    page_offset: int = 0
+    total_processed: int = 0
+    total_updated: int = 0
+    error_count: int = 0
+    errors: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -59,6 +56,7 @@ class UsageEnrichmentInputs:
     batch_size: int = POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE
     max_orgs: int | None = None  # Optional limit for testing
     specific_org_id: str | None = None  # Debug mode: enrich single org
+    state: UsageEnrichmentState | None = None  # Continue-As-New state
 
 
 @dataclasses.dataclass
@@ -120,28 +118,108 @@ async def cache_org_mappings_activity() -> dict[str, Any]:
     return {"success": True, "total_mappings": len(mappings)}
 
 
+@dataclasses.dataclass
+class EnrichPageResult:
+    """Result of enriching one page of org mappings."""
+
+    page_size: int
+    processed: int
+    updated: int
+    errors: list[str]
+
+
 @activity.defn
-async def fetch_salesforce_org_ids_activity() -> list[SalesforceOrgMapping]:
-    """Retrieve org mappings from Redis cache."""
-    close_old_connections()
-    logger = LOGGER.bind()
+async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> EnrichPageResult:
+    """Read a page of org mappings from Redis, aggregate signals, and update Salesforce.
 
-    cached_mappings = await get_org_mappings_from_redis()
+    All heavy data stays in Redis and within the activity — only small counts
+    pass through Temporal's gRPC layer.
+    """
+    async with Heartbeater() as heartbeater:
+        close_old_connections()
+        logger = LOGGER.bind()
 
-    if cached_mappings is None:
-        logger.warning("org_mappings_cache_miss", reason="cache_expired_or_missing")
-        return []
+        # Read mappings directly from Redis
+        redis_start = time.monotonic()
+        cached_mappings = await get_org_mappings_page_from_redis(offset, limit)
+        redis_duration_ms = (time.monotonic() - redis_start) * 1000
 
-    mappings = [
-        SalesforceOrgMapping(
-            salesforce_account_id=m["salesforce_account_id"],
-            posthog_org_id=m["posthog_org_id"],
+        if cached_mappings is None:
+            logger.warning(
+                "org_mappings_cache_miss",
+                reason="cache_expired_or_missing",
+                redis_duration_ms=round(redis_duration_ms, 1),
+            )
+            return EnrichPageResult(page_size=0, processed=0, updated=0, errors=[])
+
+        if not cached_mappings:
+            return EnrichPageResult(page_size=0, processed=0, updated=0, errors=[])
+
+        org_to_sf = {m["posthog_org_id"]: m["salesforce_account_id"] for m in cached_mappings}
+        all_org_ids = list(org_to_sf.keys())
+        total_orgs = len(all_org_ids)
+
+        logger.info(
+            "enrich_page_started",
+            offset=offset,
+            page_size=total_orgs,
+            redis_duration_ms=round(redis_duration_ms, 1),
         )
-        for m in cached_mappings
-    ]
 
-    logger.info("org_mappings_fetched_from_cache", total_mappings=len(mappings))
-    return mappings
+        total_processed = 0
+        total_updated = 0
+        errors: list[str] = []
+        sf = get_salesforce_client()
+
+        for batch_tuple in batched(all_org_ids, batch_size):
+            batch_org_ids = list(batch_tuple)
+            try:
+                # Aggregate usage signals
+                signals = await asyncio.to_thread(aggregate_usage_signals_for_orgs, batch_org_ids)
+
+                # Prepare and send Salesforce updates
+                update_records = [
+                    prepare_salesforce_update_record(org_to_sf[org_id], org_signals)
+                    for org_id, org_signals in signals.items()
+                    if org_id in org_to_sf
+                ]
+
+                if update_records:
+                    for sf_batch in batched(update_records, SALESFORCE_UPDATE_BATCH_SIZE):
+                        response = await asyncio.to_thread(sf.bulk.Account.update, list(sf_batch))  # type: ignore[union-attr,arg-type]
+                        for result in response:
+                            if result.get("success"):
+                                total_updated += 1
+                            else:
+                                logger.warning(
+                                    "salesforce_account_update_failed",
+                                    account_id=result.get("id"),
+                                    errors=result.get("errors"),
+                                )
+
+                total_processed += len(batch_org_ids)
+                heartbeater.details = (total_processed, total_orgs, total_updated)
+
+            except Exception as e:
+                error_msg = f"Failed to process batch at offset {offset}: {e!s}"
+                logger.exception(error_msg)
+                errors.append(error_msg)
+
+        logger.info(
+            "enrich_page_completed",
+            offset=offset,
+            page_size=len(all_org_ids),
+            processed=total_processed,
+            updated=total_updated,
+            error_count=len(errors),
+        )
+
+        return EnrichPageResult(
+            page_size=len(cached_mappings),
+            processed=total_processed,
+            updated=total_updated,
+            errors=errors,
+        )
 
 
 @activity.defn
@@ -155,48 +233,6 @@ async def aggregate_usage_signals_activity(org_ids: list[str]) -> dict[str, Usag
         signals = await asyncio.to_thread(aggregate_usage_signals_for_orgs, org_ids)
         logger.info("usage_signals_aggregated", org_count=len(org_ids), signals_count=len(signals))
         return signals
-
-
-@activity.defn
-async def update_salesforce_usage_activity(updates: list[SalesforceUsageUpdate]) -> int:
-    """Bulk update Salesforce accounts with usage signals."""
-    async with Heartbeater():
-        close_old_connections()
-        logger = LOGGER.bind()
-
-        if not updates:
-            return 0
-
-        sf = get_salesforce_client()
-        update_records = [prepare_salesforce_update_record(u.salesforce_account_id, u.signals) for u in updates]
-
-        success_count = 0
-        error_count = 0
-
-        for batch in batched(update_records, SALESFORCE_UPDATE_BATCH_SIZE):
-            try:
-                response = await asyncio.to_thread(sf.bulk.Account.update, list(batch))  # type: ignore[union-attr,arg-type]
-                for result in response:
-                    if result.get("success"):
-                        success_count += 1
-                    else:
-                        error_count += 1
-                        logger.warning(
-                            "salesforce_account_update_failed",
-                            account_id=result.get("id"),
-                            errors=result.get("errors"),
-                        )
-            except Exception:
-                logger.exception("salesforce_batch_update_failed", batch_size=len(batch))
-                error_count += len(batch)
-
-        logger.info(
-            "salesforce_updates_completed",
-            success_count=success_count,
-            error_count=error_count,
-            total_updates=len(updates),
-        )
-        return success_count
 
 
 @workflow.defn(name="salesforce-usage-enrichment")
@@ -242,85 +278,76 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
         return {"mode": "debug", "org_id": org_id, "signals": dataclasses.asdict(signals[org_id])}
 
     async def _run_production_mode(self, inputs: UsageEnrichmentInputs) -> dict[str, Any]:
-        """Run in production mode, processing all mapped organizations."""
+        """Run in production mode, processing mapped organizations one page at a time.
+
+        Uses Continue-As-New to keep event history bounded. Each execution processes
+        one page of org mappings via a single activity that reads from Redis internally,
+        so no large data passes through Temporal's gRPC layer.
+        """
         logger = LOGGER.bind()
+        state = inputs.state or UsageEnrichmentState()
+        page_size = POSTHOG_FETCH_MAPPINGS_PAGE_SIZE
 
-        # Cache org mappings in Redis (if not already cached)
-        await workflow.execute_activity(
-            cache_org_mappings_activity,
-            start_to_close_timeout=dt.timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        # Apply max_orgs limit
+        if inputs.max_orgs:
+            remaining = inputs.max_orgs - state.total_processed
+            if remaining <= 0:
+                return self._build_result(state)
+            page_size = min(page_size, remaining)
 
-        # Fetch mappings from cache
-        mappings = await workflow.execute_activity(
-            fetch_salesforce_org_ids_activity,
-            start_to_close_timeout=dt.timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        if not mappings:
-            logger.info("no_salesforce_accounts_found")
-            return dataclasses.asdict(
-                UsageEnrichmentResult(total_orgs_processed=0, total_orgs_updated=0, error_count=0, errors=[])
+        # Cache org mappings in Redis on the first execution only
+        if state.page_offset == 0:
+            await workflow.execute_activity(
+                cache_org_mappings_activity,
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
-        if inputs.max_orgs and len(mappings) > inputs.max_orgs:
-            logger.info("limiting_to_max_orgs", original_count=len(mappings), max_orgs=inputs.max_orgs)
-            # Sort by org_id for deterministic behavior in testing
-            mappings = sorted(mappings, key=lambda m: m.posthog_org_id)[: inputs.max_orgs]
+        # Enrich one page: reads from Redis, aggregates signals, updates Salesforce
+        page_result = await workflow.execute_activity(
+            enrich_org_page_activity,
+            args=[state.page_offset, page_size, inputs.batch_size],
+            start_to_close_timeout=dt.timedelta(minutes=30),
+            retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3),
+            heartbeat_timeout=dt.timedelta(minutes=5),
+        )
 
-        logger.info("salesforce_accounts_to_enrich", count=len(mappings))
+        state.total_processed += page_result.processed
+        state.total_updated += page_result.updated
+        state.error_count += len(page_result.errors)
+        # Cap stored errors to avoid unbounded growth across Continue-As-New executions
+        if len(state.errors) < 10:
+            state.errors.extend(page_result.errors[: 10 - len(state.errors)])
 
-        total_processed = 0
-        total_updated = 0
-        all_errors: list[str] = []
+        # No data or last page — return final result
+        if page_result.page_size == 0 or page_result.page_size < page_size:
+            if state.page_offset == 0 and page_result.page_size == 0:
+                logger.info("no_salesforce_accounts_found")
+            return self._build_result(state)
 
-        org_to_sf = {m.posthog_org_id: m.salesforce_account_id for m in mappings}
-        all_org_ids = list(org_to_sf.keys())
+        # More pages to process — continue as new execution
+        state.page_offset += page_result.page_size
+        logger.info(
+            "continuing_as_new",
+            page_offset=state.page_offset,
+            total_processed=state.total_processed,
+            total_updated=state.total_updated,
+        )
+        workflow.continue_as_new(
+            UsageEnrichmentInputs(
+                batch_size=inputs.batch_size,
+                max_orgs=inputs.max_orgs,
+                state=state,
+            )
+        )
 
-        for batch_tuple in batched(all_org_ids, inputs.batch_size):
-            batch_org_ids = list(batch_tuple)
-            try:
-                signals = await workflow.execute_activity(
-                    aggregate_usage_signals_activity,
-                    batch_org_ids,
-                    start_to_close_timeout=dt.timedelta(minutes=10),
-                    retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3),
-                    heartbeat_timeout=dt.timedelta(minutes=5),
-                )
-
-                updates = [
-                    SalesforceUsageUpdate(salesforce_account_id=org_to_sf[org_id], signals=org_signals)
-                    for org_id, org_signals in signals.items()
-                    if org_id in org_to_sf
-                ]
-
-                if updates:
-                    updated_count = await workflow.execute_activity(
-                        update_salesforce_usage_activity,
-                        updates,
-                        start_to_close_timeout=dt.timedelta(minutes=10),
-                        retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3),
-                        heartbeat_timeout=dt.timedelta(minutes=5),
-                    )
-                    total_updated += updated_count
-
-                total_processed += len(batch_org_ids)
-
-            except Exception as e:
-                error_msg = f"Failed to process batch: {e!s}"
-                logger.exception(error_msg)
-                all_errors.append(error_msg)
-
-        if len(all_errors) > 10:
-            logger.warning("error_list_truncated", total_errors=len(all_errors), shown_errors=10)
-
+    @staticmethod
+    def _build_result(state: UsageEnrichmentState) -> dict[str, Any]:
         return dataclasses.asdict(
             UsageEnrichmentResult(
-                total_orgs_processed=total_processed,
-                total_orgs_updated=total_updated,
-                error_count=len(all_errors),
-                errors=all_errors[:10],
+                total_orgs_processed=state.total_processed,
+                total_orgs_updated=state.total_updated,
+                error_count=state.error_count,
+                errors=state.errors[:10],
             )
         )
