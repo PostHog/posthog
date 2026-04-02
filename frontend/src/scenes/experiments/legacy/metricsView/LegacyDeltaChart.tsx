@@ -9,7 +9,6 @@ import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { isLaunched } from '~/scenes/experiments/experimentsLogic'
-import { VariantTag } from '~/scenes/experiments/ExperimentView/components'
 import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
@@ -20,6 +19,7 @@ import {
     legacyCredibleIntervalForVariant,
     legacyExposureCountDataForVariant,
 } from '../calculations/legacyExperimentCalculations'
+import { LegacyVariantTag } from '../components/LegacyVariantTag'
 import { LegacyChartEmptyState } from './LegacyChartEmptyState'
 import { LegacyChartLoadingState } from './LegacyChartLoadingState'
 import { LegacyChartModal } from './LegacyChartModal'
@@ -228,7 +228,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
             {/* Conditional rendering based on hasEnoughData */}
             {hasEnoughData ? (
                 <>
-                    {/* Add variant name using VariantTag */}
+                    {/* Add variant name using LegacyVariantTag */}
                     <foreignObject
                         x={x1 - 8} // Keep same positioning as the text element
                         y={y + barHeight / 2 - 10}
@@ -236,7 +236,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         height="16"
                         transform="translate(-90, 0)" // Move left to accommodate tag width
                     >
-                        <VariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
+                        <LegacyVariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
                     </foreignObject>
                     {variant.key === 'control' ? (
                         <path
@@ -307,7 +307,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                 <>
                     {/* Move foreignObject for variant tag to left of 0 point */}
                     <foreignObject x={valueToX(0) - 150} y={y + barHeight / 2 - 10} width="90" height="16">
-                        <VariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
+                        <LegacyVariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
                     </foreignObject>
 
                     {/* First draw a solid background to cover grid lines */}

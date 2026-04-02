@@ -24,7 +24,6 @@ import {
 } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
-import { VariantTag } from '../../ExperimentView/components'
 import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../../utils'
 import {
     legacyCalculateDelta,
@@ -34,6 +33,7 @@ import {
     legacyExposureCountDataForVariant,
     legacyGetHighestProbabilityVariant,
 } from '../calculations/legacyExperimentCalculations'
+import { LegacyVariantTag } from './LegacyVariantTag'
 
 /**
  * @deprecated
@@ -74,7 +74,7 @@ export function LegacySummaryTable({
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="flex items-center">
-                        <VariantTag variantKey={item.key} />
+                        <LegacyVariantTag variantKey={item.key} />
                     </div>
                 )
             },
