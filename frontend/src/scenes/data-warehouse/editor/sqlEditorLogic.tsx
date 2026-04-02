@@ -92,8 +92,6 @@ export interface SqlEditorLogicProps {
 }
 
 export const NEW_QUERY = 'Untitled'
-const VALID_OUTPUT_TABS = new Set<string>(Object.values(OutputTab))
-
 export interface QueryTab {
     uri: Uri
     view?: DataWarehouseSavedQuery

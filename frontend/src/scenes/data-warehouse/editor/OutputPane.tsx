@@ -17,17 +17,15 @@ import {
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
-import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -36,19 +34,12 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
-import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
-import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
-import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
-import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { type DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
-import { ChartDisplayType, ExporterFormat } from '~/types'
+import { ExporterFormat } from '~/types'
 
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
@@ -307,8 +298,6 @@ export function OutputPane(): JSX.Element {
     const response = dataNodeResponse as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
-
-    const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
 
@@ -614,9 +603,6 @@ export function OutputPane(): JSX.Element {
                     columns={columns}
                     rows={rows}
                     isDarkModeOn={isDarkModeOn}
-                    vizKey={vizKey}
-                    setSourceQuery={setSourceQuery}
-                    exportContext={exportContext}
                     queryId={queryId}
                     pollResponse={pollResponse}
                     setProgress={setProgress}
@@ -637,86 +623,6 @@ export function OutputPane(): JSX.Element {
                 columns={response?.columns || []}
                 columnKeys={response?.columns?.map((column: string, index: number) => `${column}_${index}`) || []}
             />
-        </div>
-    )
-}
-
-function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element | null {
-    const {
-        query,
-        effectiveVisualizationType,
-        response,
-        responseLoading,
-        isChartSettingsPanelOpen,
-        xData,
-        yData,
-        chartSettings,
-        dashboardId,
-        dataVisualizationProps,
-        presetChartHeight,
-    } = useValues(dataVisualizationLogic)
-
-    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
-    const { goalLines } = useValues(displayLogic)
-
-    let component: JSX.Element | null = null
-
-    // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-    if (!response || responseLoading) {
-        component = (
-            <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
-                <LoadingBar />
-            </div>
-        )
-    } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
-        component = (
-            <Table
-                uniqueKey={props.uniqueKey}
-                query={query}
-                context={props.context}
-                cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
-                embedded
-            />
-        )
-    } else if (
-        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
-        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    ) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
-        component = (
-            <LineGraph
-                className="p-2"
-                xData={_xData}
-                yData={_yData}
-                visualizationType={effectiveVisualizationType}
-                chartSettings={chartSettings}
-                dashboardId={dashboardId}
-                goalLines={goalLines}
-                presetChartHeight={presetChartHeight}
-            />
-        )
-    } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
-        component = <TwoDimensionalHeatmap />
-    } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
-        component = <HogQLBoldNumber />
-    }
-
-    return (
-        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
-            <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row overflow-auto hide-scrollbar">
-                    {isChartSettingsPanelOpen && (
-                        <>
-                            <SideBar />
-                            <LemonDivider vertical className="h-full" />
-                        </>
-                    )}
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
-                </div>
-            </div>
         </div>
     )
 }
@@ -757,9 +663,6 @@ const Content = ({
     columns,
     rows,
     isDarkModeOn,
-    vizKey,
-    setSourceQuery,
-    exportContext,
     queryId,
     pollResponse,
     setProgress,
