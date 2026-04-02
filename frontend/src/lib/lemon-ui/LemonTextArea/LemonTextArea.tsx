@@ -1,15 +1,16 @@
 import './LemonTextArea.scss'
 
-import React, { ReactElement, useEffect, useRef, useState } from 'react'
+import React, { ReactElement, useRef } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
 import { cn } from 'lib/utils/css-classes'
 
-interface LemonTextAreaPropsBase
-    extends Pick<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'> {
+interface LemonTextAreaPropsBase extends Pick<
+    React.TextareaHTMLAttributes<HTMLTextAreaElement>,
+    'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'
+> {
     id?: string
     value?: string
-    defaultValue?: string
     placeholder?: string
     className?: string
     /** Whether input field is disabled */
@@ -36,13 +37,13 @@ interface LemonTextAreaPropsBase
     rightFooter?: ReactElement
 }
 
-interface LemonTextAreaWithCmdEnterProps extends LemonTextAreaPropsBase {
+export interface LemonTextAreaWithCmdEnterProps extends LemonTextAreaPropsBase {
     /** Callback for when Cmd/Ctrl + Enter is pressed. In this case, the user adds new lines with Enter like always. */
     onPressCmdEnter?: (currentValue: string) => void
     onPressEnter?: never
 }
 
-interface LemonTextAreaWithEnterProps extends LemonTextAreaPropsBase {
+export interface LemonTextAreaWithEnterProps extends LemonTextAreaPropsBase {
     /** Callback for when Enter is pressed. In this case, to add a new line the user must press Cmd + Enter. */
     onPressEnter: (currentValue: string) => void
     onPressCmdEnter?: never
@@ -72,22 +73,19 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
 
     const hasFooter = (actions || []).length || textProps.maxLength || rightFooter
 
-    const [textLength, setTextLength] = useState(textProps.value?.length || textProps.defaultValue?.length || 0)
-    useEffect(() => {
-        setTextLength(textProps.value?.length || 0)
-    }, [textProps.value])
+    const textLength = textProps.value?.length ?? 0
 
     return (
         <div className={cn('flex flex-col rounded', !hideFocus && 'input-like', className)}>
             <TextareaAutosize
                 minRows={minRows}
                 ref={textRef}
-                className={cn('LemonTextArea border w-full', hasFooter ? 'rounded-t' : 'rounded', className)}
+                className={cn('LemonTextArea w-full', hasFooter ? 'rounded-t' : 'rounded', className)}
                 onKeyDown={(e) => {
                     if (stopPropagation) {
                         e.stopPropagation()
                     }
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                         const target = e.currentTarget
                         // When shift is pressed, we always just want to add a new line
                         if (!e.shiftKey) {
@@ -106,7 +104,6 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     if (stopPropagation) {
                         event.stopPropagation()
                     }
-                    setTextLength((event.currentTarget.value ?? '').length)
                     return onChange?.(event.currentTarget.value ?? '')
                 }}
                 autoFocus={!!autoFocus}

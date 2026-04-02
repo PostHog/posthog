@@ -1,4 +1,12 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
+
+import posthoganalytics
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -9,7 +17,14 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.base import (
+    ExternalWebhookInfo,
+    FieldType,
+    ResumableSource,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+)
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -19,15 +34,19 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    RESOURCE_TO_STRIPE_OBJECT_TYPE,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.settings import (
+    APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     ENDPOINTS as STRIPE_ENDPOINTS,
-    INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
     StripeResumeConfig,
+    create_webhook,
+    delete_webhook,
+    get_external_webhook_info,
     stripe_source,
     validate_credentials as validate_stripe_credentials,
 )
@@ -57,11 +76,51 @@ PERMISSIONS = [
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
 
 
+def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
+    from posthog.models import Team
+
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            WAREHOUSE_WEBHOOK_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        return bool(enabled)
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
 @SourceRegistry.register
-class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig]):
+class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig], WebhookSource[StripeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from posthog.temporal.data_imports.sources.stripe.webhook_template import template
+
+        return template
+
+    @property
+    def webhook_resource_map(self) -> dict[str, str]:
+        return RESOURCE_TO_STRIPE_OBJECT_TYPE
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -123,6 +182,27 @@ These permissions are automatically pre-filled in the API key creation form if y
                 ),
             ],
             featured=True,
+            webhookSetupCaption="""To set up the webhook manually:
+
+1. Go to your [Stripe Dashboard > Developers > Webhooks](https://dashboard.stripe.com/webhooks)
+2. Click **Add endpoint**
+3. Paste the webhook URL shown below into the **Endpoint URL** field
+4. Under **Events to send**, select **All events** (or choose specific events matching your synced tables)
+5. Click **Add endpoint**
+
+Once created, copy the **Signing secret** from the webhook details page and add it to your source configuration for signature verification.""",
+            webhookFields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="signing_secret",
+                        label="Signing secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="whsec_...",
+                    ),
+                ],
+            ),
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -134,17 +214,25 @@ These permissions are automatically pre-filled in the API key creation form if y
             "PermissionError": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
         }
 
-    def get_schemas(self, config: StripeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: StripeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
-                # nested resources are only full refresh and are not in STRIPE_INCREMENTAL_FIELDS
-                supports_append=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=STRIPE_INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_webhooks=_is_webhook_feature_flag_enabled(team_id)
+                and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
+                supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in STRIPE_ENDPOINTS
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: StripeSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -163,12 +251,26 @@ These permissions are automatically pre-filled in the API key creation form if y
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
         return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)
 
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
+    def create_webhook(self, config: StripeSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+        return create_webhook(config, webhook_url)
+
+    def get_external_webhook_info(self, config: StripeSourceConfig, webhook_url: str) -> ExternalWebhookInfo:
+        return get_external_webhook_info(config, webhook_url)
+
+    def delete_webhook(self, config: StripeSourceConfig, webhook_url: str) -> WebhookDeletionResult:
+        return delete_webhook(config, webhook_url)
+
     def source_for_pipeline(
         self,
         config: StripeSourceConfig,
         resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        webhook_source_manager = self.get_webhook_source_manager(inputs)
+
         return stripe_source(
             api_key=config.stripe_secret_key,
             account_id=config.stripe_account_id,
@@ -178,4 +280,5 @@ These permissions are automatically pre-filled in the API key creation form if y
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            webhook_source_manager=webhook_source_manager,
         )

@@ -26,15 +26,17 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { SessionBlockMetadata } from '../../session-replay/shared/metadata/session-block-metadata'
+import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
+import { createMockEncryptor, createMockKeyStore } from '../../session-replay/shared/test-helpers'
+import { KeyStore, RecordingEncryptor } from '../../session-replay/shared/types'
 import { parseJSON } from '../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionData } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
-import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFilter } from './session-filter'
-import { SessionMetadataStore } from './session-metadata-store'
 import { SessionTracker } from './session-tracker'
 
 const enum EventType {
@@ -52,6 +54,8 @@ describe('session recording integration', () => {
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let mockSessionFilter: jest.Mocked<SessionFilter>
+    let mockKeyStore: jest.Mocked<KeyStore>
+    let mockEncryptor: jest.Mocked<RecordingEncryptor>
     let batchBuffer: Uint8Array
     let currentOffset: number
 
@@ -106,13 +110,18 @@ describe('session recording integration', () => {
             handleNewSession: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFilter>
 
+        mockKeyStore = createMockKeyStore()
+        mockEncryptor = createMockEncryptor()
+
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
             mockSessionTracker,
-            mockSessionFilter
+            mockSessionFilter,
+            mockKeyStore,
+            mockEncryptor
         )
     })
 

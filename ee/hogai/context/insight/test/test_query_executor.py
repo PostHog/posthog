@@ -36,6 +36,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError
@@ -570,6 +571,14 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
         self.assertIsInstance(result, str)
         self.assertFalse(used_fallback)
 
+    async def test_sql_query_default_limit_is_applied(self):
+        query = AssistantHogQLQuery(query="SELECT arrayJoin(range(1, 100001))")
+        result, used_fallback = await self.query_runner.arun_and_format_query(query)
+        self.assertFalse(used_fallback)
+        lines = result.strip().split("\n")
+        data_rows = len(lines) - 1  # subtract header
+        self.assertEqual(data_rows, DEFAULT_POSTHOG_AI_RETURNED_ROWS)
+
 
 class TestExecuteAndFormatQuery(NonAtomicBaseTest):
     """Tests for the execute_and_format_query function"""
@@ -632,15 +641,18 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         # The schema should not be present
         self.assertNotIn("SELECT 1", result)
 
-    async def test_compress_results_raises_for_unsupported_paths_query(self):
-        """Test that _compress_results raises NotImplementedError for PathsQuery."""
+    async def test_compress_results_formats_paths_query(self):
         paths_query = PathsQuery(pathsFilter=PathsFilter(includeEventTypes=["$pageview"]))
-        response = {"results": [{"path": "data"}]}
+        response = {
+            "results": [
+                {"source": "1_/home", "target": "2_/pricing", "value": 150, "average_conversion_time": 150.0},
+                {"source": "1_/home", "target": "2_/docs", "value": 80, "average_conversion_time": 75.5},
+            ]
+        }
 
-        with self.assertRaises(NotImplementedError) as context:
-            await self.query_runner._compress_results(paths_query, response)
-
-        self.assertIn("PathsQuery", str(context.exception))
+        result = await self.query_runner._compress_results(paths_query, response)
+        self.assertIn("Source|Target|Users|Avg. conversion time", result)
+        self.assertIn("1_/home|2_/pricing|150|2m 30s", result)
 
 
 class TestValidateAssistantQuery(NonAtomicBaseTest):

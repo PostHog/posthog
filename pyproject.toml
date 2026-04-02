@@ -13,7 +13,7 @@ dependencies = [
     "aioboto3==15.4.0",
     "aiohttp==3.13.3",
     "aiokafka~=0.12.0",
-    "anthropic==0.69.0",
+    "anthropic==0.80.0",
     "antlr4-python3-runtime==4.13.1",
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
@@ -25,8 +25,8 @@ dependencies = [
     "clickhouse-connect==0.8.17",
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
-    "conditional-cache==1.2",
-    "cryptography==46.0.3",
+    "circular-dict==1.9",
+    "cryptography==46.0.5",
     "dagster==1.10.18",
     "dagster-cloud==1.10.18",
     "dagster-aws==0.26.18",
@@ -37,9 +37,9 @@ dependencies = [
     "dagster-postgres==0.26.18",
     "dagster-slack==0.26.18",
     "dagster-webserver==1.10.18",
-    "deltalake==0.25.2",
+    "deltalake[pyarrow]==1.4.0",
     "dj-database-url==0.5.0",
-    "django~=4.2.28",
+    "django~=4.2.29",
     "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
@@ -60,15 +60,17 @@ dependencies = [
     "drf-exceptions-hog==0.4.0",
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.28.0",
-    "emoji==2.14.1",
     "geoip2==4.6.0",
-    "google-ads==26.1.0",
+    "google-ads==29.2.0",
     "google-cloud-bigquery==3.26",
+    "google-cloud-bigquery-storage==2.32.0",
+    "google-cloud-iam==2.21",
     "google-genai==1.46.0",
     "granian[uvloop,reload,pname]==2.5.5",
     "grimp==3.13",
+    "grpcio~=1.71.0",
     "gspread==6.2.1",
-    "hogql-parser==1.3.10",
+    "hogql-parser==1.3.35",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
     "kafka-python==2.3.0",
@@ -82,6 +84,7 @@ dependencies = [
     "lxml==6.0.2",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
+    "mcp~=1.26.0",
     "mimesis==5.2.1",
     "mistralai==1.6.0",
     "more-itertools==9.0.0",
@@ -91,25 +94,24 @@ dependencies = [
     "numpy~=2.1.0",
     "openai==1.109.1",
     "openpyxl==3.1.2",
-    "orjson==3.11.5",
+    "orjson==3.11.6",
     "pandas~=2.2.2",
-    "paramiko==3.4.0",
-    "phonenumberslite==8.13.6",
-    "pillow==12.1.0",
-    "posthoganalytics==7.4.3",
+    "paramiko==3.4.1",
+    "pillow==12.1.1",
+    "protobuf~=5.29.6",
+    "posthoganalytics==7.9.12",
     "polars==1.37.1",
-    "psutil==6.0.0",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
     "pyarrow==18.1.0",
     "pydantic~=2.12.0",
+    "pyod==2.0.7",
     "pyjwt~=2.10.0",
-    "pympler==1.1",
     "pymssql==2.3.5",
     "pymysql==1.1.1",
     "pymongo==4.13.2",
-    "pyodbc==5.1.0",
     "pyroscope-io~=0.8.8",
+    "croniter~=6.0.0",
     "python-dateutil~=2.9.0",
     "python-snappy~=0.7.3",
     "python3-saml==1.16.0",
@@ -121,15 +123,12 @@ dependencies = [
     "scikit-learn~=1.5.0",
     "selenium==4.28.1",
     "semantic-version==2.8.5",
-    "simple-salesforce~=1.12.6",
-    "slack-sdk==3.17.1",
-    "snowflake-connector-python==4.1.1",
-    "snowflake-sqlalchemy==1.8.2",
+    "simple-salesforce~=1.12.9",
+    "slack-sdk==3.39.0",
+    "snowflake-connector-python==4.3.0",
     "social-auth-app-django~=5.4.3",
     "social-auth-core~=4.8.3",
     "django-scim2==0.19.0",
-    "sqlalchemy==2.0.38",
-    "sqlalchemy-bigquery[bqstorage]==1.12.1",
     "sqlparse==0.5.0",
     "sshtunnel==0.4.0",
     "statshog==1.0.6",
@@ -138,18 +137,10 @@ dependencies = [
     "temporalio==1.14.1",
     "tenacity==9.1.2",
     "tiktoken==0.9.*",
-    "token-bucket==0.3.0",
-    "css-inline==0.18.0",
-    "tree-sitter==0.24.0",
-    "click~=8.0",
-    "tree-sitter-bash==0.23.3",
-    "tree-sitter-go==0.23.4",
-    "tree-sitter-javascript==0.23.1",
-    "tree-sitter-python==0.23.6",
-    "tree-sitter-rust==0.23.2",
-    "tree-sitter-typescript==0.23.2",
+    "tldextract~=5.1",
     "types-cachetools==5.5.0.20240820",
-    "tzlocal~=5.1",
+    "css-inline==0.18.0",
+    "click~=8.0",
     "umap-learn~=0.5.0",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "webdriver-manager==4.0.2",
@@ -161,7 +152,6 @@ dependencies = [
     "chdb==3.3.0",
     "elevenlabs~=2.1.0",
     "django-oauth-toolkit==3.1.0",
-    "langchain-perplexity~=0.1.1",
     "azure-ai-projects~=1.0.0b11",
     "azure-ai-inference~=1.0.0b9",
     "azure-storage-blob~=12.27.0",
@@ -174,7 +164,6 @@ dependencies = [
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
     "asgiref==3.11.0",
-    "claude-code-sdk~=0.0.14",
     "user-agents~=2.2.0",
     "django-admin-inline-paginator===0.4.0",
     "fastavro~=1.12.0",
@@ -183,21 +172,23 @@ dependencies = [
     "linkedin-api-client~=0.3.0",
     "glom~=24.11.0",
     "modal~=1.2.1",
-    "databricks-sql-connector~=4.1.3",
-    "databricks-sdk~=0.67.0",
+    "databricks-sql-connector~=4.2.5",
+    "databricks-sdk~=0.102.0",
     "free-email-domains~=1.0.1",
     "disposable-email-domains~=0.0.140",
     "pymediainfo~=7.0.1",
     "cachetools~=5.5.2",
-    "textcase~=0.4.5",
     "gitpython~=3.1.44",
-    "duckdb~=1.4.2",
+    "duckdb~=1.5.1",
     "bingads~=13.0.26",
     "markdown-to-mrkdwn~=0.2.0",
     "webauthn>=2.1.0,<2.3.0",
     "botocore[crt]~=1.40.49",
     "defusedxml>=0.7.1",
     "confluent-kafka>=2.13.0",
+    "blake3>=1.0.8",
+    "pixelmatch>=0.3.1",
+    "google-re2>=1.1.20251105",
 ]
 
 [dependency-groups]
@@ -216,8 +207,11 @@ dev = [
     "djangorestframework-stubs~=3.16.0",
     "faker==17.5.0",
     "fakeredis[lua]==2.23.3",
+    "hypothesis~=6.151.9",
     "pytest-rerunfailures~=16.1",
     "freezegun==1.2.2",
+    "grpcio-tools~=1.71.0",
+    "protoletariat~=3.3.10",
     "ipython~=9.3.0",
     "mypy~=1.19.1",
     "mypy-baseline~=0.7.3",
@@ -225,7 +219,7 @@ dev = [
     "ty==0.0.4",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
-    "orjson==3.11.5",
+    "orjson==3.11.6",
     "packaging==24.1",
     "parameterized==0.9.0",
     "prance==23.6.21.0",
@@ -233,6 +227,7 @@ dev = [
     "pyarrow-stubs==17.16",
     "pytest~=8.4.2",
     "pytest-asyncio~=1.3.0",
+    "pytest-aiohttp~=1.1.0",
     "pytest-cov~=7.0.0",
     "pytest-django~=4.11.1",
     "pytest-env~=1.2.0",
@@ -246,7 +241,6 @@ dev = [
     "requests-mock~=1.12.1",
     "responses==0.23.1",
     "ruff~=0.14.11",
-    "sqlalchemy==2.0.38",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
     "tach~=0.20.0",
@@ -268,12 +262,18 @@ dev = [
     "pywatchman>=2.0.0",
     "watchdog==5.0.3",
 ]
+sentiment = [
+    "optimum[onnxruntime]~=1.25.0",
+    "torch~=2.7.0",
+]
 
 [tool.uv]
-required-version = ">=0.7.0"
+required-version = "~=0.10.2"
+exclude-newer = "7 days"
+exclude-newer-package = { hogql-parser = false }
 
 [tool.uv.sources]
-infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
+infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 
 
 [tool.isort]
@@ -326,6 +326,14 @@ select = [
     "UP",
     "W",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# protoletariat generates .pyi stubs with re-exports (e.g. `from . import person_pb2`)
+# that type checkers need to resolve the package structure.
+# protobuf 5.x _pb2.py files have side-effect-only imports that load dependency
+# descriptors into the pool before AddSerializedFile() — ruff must not strip them.
+"posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
+"posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -381,7 +389,7 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
-exclude = ["^(bin/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|gunicorn\\.config\\.py|manage\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -402,6 +410,11 @@ django_settings_module = "posthog.settings"
 [tool.mypy-baseline]
 sort_baseline = true
 ignore_categories = ["note"]
+
+[tool.pyright]
+venvPath = ".flox/cache"
+venv = "venv"
+pythonVersion = "3.12"
 
 [tool.ty.environment]
 python-version = "3.12"

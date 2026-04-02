@@ -2,11 +2,10 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { processAllSnapshots, SourceKey, ViewportResolution } from '@posthog/replay-shared'
+
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
-import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
-import { processAllSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -231,7 +230,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             href: '',
         })
 
-        const callProcessing = (snapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
+        const callProcessing = (snapshots: RecordingSnapshot[]): Promise<RecordingSnapshot[]> => {
             return processAllSnapshots(
                 sources,
                 {
@@ -246,7 +245,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             )
         }
 
-        it('should remove duplicate snapshots and sort by timestamp', () => {
+        it('should remove duplicate snapshots and sort by timestamp', async () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
             const snapshotsWithDuplicates = snapshots
                 .slice(0, 2)
@@ -255,10 +254,10 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
             expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
 
-            expect(callProcessing(snapshots)).toEqual(callProcessing(snapshotsWithDuplicates))
+            expect(await callProcessing(snapshots)).toEqual(await callProcessing(snapshotsWithDuplicates))
         })
 
-        it('should cope with two not duplicate snapshots with the same timestamp and delay', () => {
+        it('should cope with two not duplicate snapshots with the same timestamp and delay', async () => {
             // these two snapshots are not duplicates but have the same timestamp and delay
             // this regression test proves that we deduplicate them against themselves
             // prior to https://github.com/PostHog/posthog/pull/20019
@@ -279,13 +278,15 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 },
             ]
             // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(verySimilarSnapshots)
+            expect(await callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
+                verySimilarSnapshots
+            )
         })
 
-        it('should match snapshot', () => {
+        it('should match snapshot', async () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
 
-            expect(callProcessing(snapshots)).toMatchSnapshot()
+            expect(await callProcessing(snapshots)).toMatchSnapshot()
         })
     })
 })

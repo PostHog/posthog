@@ -60,7 +60,7 @@ class TrendsPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
         return query
 
     def _get_table_name(self) -> str:
-        return "web_bounces_combined"
+        return "web_pre_aggregated_bounces"
 
     def _get_interval_function(self) -> str:
         interval_function_map = {

@@ -33,7 +33,7 @@ async def create_video_segment_clustering_coordinator_schedule(client: Client):
                 lookback_hours=int(DEFAULT_LOOKBACK_WINDOW.total_seconds() / 3600),
             ),
             id="video-segment-clustering-coordinator-schedule",
-            task_queue=settings.MAX_AI_TASK_QUEUE,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=PROACTIVE_TASKS_SCHEDULE_INTERVAL)]),
         policy=SchedulePolicy(

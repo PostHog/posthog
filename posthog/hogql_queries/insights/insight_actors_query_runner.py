@@ -1,9 +1,11 @@
 from typing import Any, Optional, cast
 
 from posthog.schema import (
+    FunnelAggregateByHogQL,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
+    FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
@@ -163,13 +165,21 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         return None
 
+    @property
+    def is_session_aggregation(self) -> bool:
+        if isinstance(self.source_runner, FunnelsQueryRunner):
+            assert isinstance(self.query.source, FunnelsQuery)
+            funnels_filter = self.query.source.funnelsFilter or FunnelsFilter()
+            return funnels_filter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID.value
+        return False
+
     def _calculate(self) -> HogQLQueryResponse:
         settings = None
 
         # Funnel queries require the experimental analyzer to run correctly
         # Can remove once clickhouse moves to version 24.3 or above
         if isinstance(self.source_runner, FunnelsQueryRunner):
-            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
+            settings = HogQLGlobalSettings(enable_analyzer=True)
 
         return execute_hogql_query(
             query_type="InsightActorsQuery",

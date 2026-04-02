@@ -122,7 +122,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             hogFlowEditorLogic,
             ['selectedNodeId'],
         ],
-        actions: [hogFlowEditorLogic, ['setSelectedNodeId']],
+        actions: [hogFlowEditorLogic, ['setSelectedNodeId', 'setAnimatingEdgePair']],
     })),
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
@@ -531,6 +531,11 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         },
     })),
     listeners(({ values, actions }) => ({
+        setTestResult: ({ testResult }) => {
+            if (testResult?.nextActionId && values.selectedNodeId) {
+                actions.setAnimatingEdgePair(values.selectedNodeId, testResult.nextActionId)
+            }
+        },
         loadSampleGlobalsSuccess: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },

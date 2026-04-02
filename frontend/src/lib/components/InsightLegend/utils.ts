@@ -10,4 +10,5 @@ export const DISPLAY_TYPES_WITHOUT_LEGEND = [
 export const DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS = [
     ChartDisplayType.ActionsTable, // The table is already loaded as the main component (in `Trends.tsx`)
     ChartDisplayType.ActionsBarValue, // This view displays data in completely different dimensions
+    ChartDisplayType.BoxPlot, // Box plot has its own results table
 ]

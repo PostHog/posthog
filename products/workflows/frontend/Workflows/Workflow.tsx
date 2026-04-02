@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -10,9 +10,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
 
     return (
         <div className="flex flex-col grow relative border rounded-md">
-            <BindLogic logic={workflowLogic} props={props}>
-                {!originalWorkflow && workflowLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
-            </BindLogic>
+            {!originalWorkflow && workflowLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
         </div>
     )
 }

@@ -2,7 +2,7 @@ import json
 import time
 import asyncio
 from datetime import UTC, datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -16,12 +16,14 @@ from rest_framework.exceptions import APIException
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     CurrencyCode,
     FunnelsQuery,
     FunnelVizType,
     HogQLQuery,
+    PathsQuery,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMetricsQuery,
@@ -48,6 +50,7 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.context.insight.format import (
     TRUNCATED_MARKER,
     FunnelResultsFormatter,
+    PathsResultsFormatter,
     RetentionResultsFormatter,
     RevenueAnalyticsGrossRevenueResultsFormatter,
     RevenueAnalyticsMetricsResultsFormatter,
@@ -61,11 +64,15 @@ from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
 
+if TYPE_CHECKING:
+    from posthog.models import User
+
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,
     FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
     FUNNEL_TRENDS_EXAMPLE_PROMPT,
+    PATHS_EXAMPLE_PROMPT,
     QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
     REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT,
@@ -88,6 +95,8 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | TrendsQuery
         | AssistantFunnelsQuery
         | FunnelsQuery
+        | AssistantPathsQuery
+        | PathsQuery
         | AssistantRetentionQuery
         | RetentionQuery
         | AssistantHogQLQuery
@@ -119,9 +128,10 @@ class AssistantQueryExecutor:
 
     WAIT_TIME_S = 0.5
 
-    def __init__(self, team: Team, utc_now_datetime: datetime):
+    def __init__(self, team: Team, utc_now_datetime: datetime, user: Optional["User"] = None):
         self._team = team
         self._utc_now_datetime = utc_now_datetime
+        self._user = user
 
     async def arun_and_format_query(
         self,
@@ -129,6 +139,7 @@ class AssistantQueryExecutor:
         execution_mode: Optional[ExecutionMode] = None,
         insight_id=None,
         debug_timing=False,
+        truncate_results: bool = True,
     ) -> tuple[str, bool]:
         """
         Run a query and format the results with detailed fallback information.
@@ -166,7 +177,9 @@ class AssistantQueryExecutor:
             try:
                 # Attempt to format results using query-specific formatters
                 format_start = time.time()
-                formatted_results = await self._compress_results(query, response_dict, debug_timing=debug_timing)
+                formatted_results = await self._compress_results(
+                    query, response_dict, debug_timing=debug_timing, truncate_results=truncate_results
+                )
                 format_elapsed = time.time() - format_start
                 total_elapsed = time.time() - start_time
                 if debug_timing:
@@ -293,6 +306,7 @@ class AssistantQueryExecutor:
                 query.model_dump(mode="json"),
                 execution_mode=execution_mode,
                 limit_context=LimitContext.POSTHOG_AI,
+                user=self._user,
             )
 
             process_elapsed = time.time() - process_start
@@ -402,7 +416,11 @@ class AssistantQueryExecutor:
         return response_dict
 
     async def _compress_results(
-        self, query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery, response: dict, debug_timing=False
+        self,
+        query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+        response: dict,
+        debug_timing=False,
+        truncate_results: bool = True,
     ) -> str:
         """
         Format query results using appropriate formatter based on query type.
@@ -434,12 +452,18 @@ class AssistantQueryExecutor:
                 formatter = FunnelResultsFormatter(query, response["results"], self._team, self._utc_now_datetime)
                 # Contains a nested ClickHouse query in the date ranges
                 result = await database_sync_to_async(formatter.format, thread_sensitive=False)()
+            elif isinstance(query, AssistantPathsQuery | PathsQuery):
+                formatter_name = "PathsResultsFormatter"
+                result = PathsResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
-                result = SQLResultsFormatter(query, response["results"], response["columns"]).format()
+                max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
+                result = SQLResultsFormatter(
+                    query, response["results"], response["columns"], max_cell_length=max_cell_length
+                ).format()
             elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
                 formatter_name = "RevenueAnalyticsGrossRevenueResultsFormatter"
                 result = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
@@ -491,6 +515,8 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         if query.funnelsFilter.funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT
         return FUNNEL_TRENDS_EXAMPLE_PROMPT
+    if isinstance(query, AssistantPathsQuery | PathsQuery):
+        return PATHS_EXAMPLE_PROMPT
     if isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RETENTION_EXAMPLE_PROMPT
     if isinstance(query, AssistantHogQLQuery | HogQLQuery):
@@ -511,6 +537,8 @@ async def execute_and_format_query(
     query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
     execution_mode: Optional[ExecutionMode] = None,
     insight_id: Optional[int] = None,
+    truncate_results: bool = True,
+    user: Optional["User"] = None,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -531,8 +559,11 @@ async def execute_and_format_query(
     """
     query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
-    query_runner = AssistantQueryExecutor(team, utc_now_datetime)
-    results, used_fallback = await query_runner.arun_and_format_query(query, execution_mode, insight_id)
+    query_runner = AssistantQueryExecutor(team, utc_now_datetime, user=user)
+
+    results, used_fallback = await query_runner.arun_and_format_query(
+        query, execution_mode, insight_id, truncate_results=truncate_results
+    )
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
     currency = team.base_currency or CurrencyCode.USD.value
 

@@ -1,6 +1,7 @@
 import { useMountedLogic, useValues } from 'kea'
 
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
+import { isKeyOf } from 'lib/utils'
 import { cleanedInsightActorsQueryOptions } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -28,14 +29,14 @@ export function InsightActorsQueryOptions({ setQuery, query }: InsightActorsQuer
                         fullWidth
                         className="min-w-32"
                         placeholder={key}
-                        value={query?.[key] ?? null}
+                        value={isKeyOf(key, query) && !Array.isArray(query[key]) ? query[key] : null}
                         onChange={(v) =>
                             setQuery?.({
                                 ...query,
                                 [key]: v,
                             })
                         }
-                        options={options}
+                        options={options as LemonSelectOptions<any>}
                     />
                 </div>
             ))}

@@ -22,6 +22,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import WidgetAuthentication
+from posthog.event_usage import report_team_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
@@ -37,11 +39,14 @@ from products.conversations.backend.api.serializers import (
 from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
+    invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
     set_cached_tickets,
 )
+from products.conversations.backend.events import capture_ticket_created
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import ChannelDetail
 
 logger = logging.getLogger(__name__)
 
@@ -134,26 +139,40 @@ class WidgetMessageView(APIView):
                     ]
                 )
                 ticket.refresh_from_db()
-                # Invalidate unread count cache - customer message increases count
-                invalidate_unread_count_cache(team.id)
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # No ticket_id provided - always create a new ticket
+            conversations_settings = team.conversations_settings or {}
+            widget_channel_detail = (
+                ChannelDetail.WIDGET_EMBEDDED
+                if conversations_settings.get("widget_enabled")
+                else ChannelDetail.WIDGET_API
+            )
             ticket = Ticket.objects.create_with_number(
                 team=team,
                 widget_session_id=widget_session_id,
                 distinct_id=distinct_id,
                 channel_source="widget",
+                channel_detail=widget_channel_detail,
                 status="new",
                 anonymous_traits=traits,
                 unread_team_count=1,
                 session_id=session_id,
                 session_context=session_context,
             )
-            # Invalidate unread count cache - new ticket with unread message
-            invalidate_unread_count_cache(team.id)
+
+            try:
+                capture_ticket_created(ticket)
+            except Exception as e:
+                # Don't let analytics failures break the widget
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+
+            try:
+                report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
 
         # Create message
         comment = Comment.objects.create(
@@ -163,6 +182,11 @@ class WidgetMessageView(APIView):
             content=message_content,
             item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
+
+        # tickets + messages caches are invalidated by the post_save signal
+        # via transaction.on_commit (see signals.py). Only unread_count needs
+        # explicit invalidation here since the signal doesn't cover it.
+        invalidate_unread_count_cache(team.id)
 
         # Send email notification for new tickets
         if not ticket_id:
@@ -360,6 +384,7 @@ class WidgetTicketsView(APIView):
             ticket_list.append(
                 {
                     "id": str(ticket.id),
+                    "ticket_number": ticket.ticket_number,
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
                     "last_message": ticket.last_message_text,  # Now from denormalized field
@@ -371,8 +396,8 @@ class WidgetTicketsView(APIView):
 
         response_data = {"count": total_count, "results": ticket_list}
 
-        # Cache first page
-        if offset == 0:
+        # Cache first page (skip empty results to avoid stale cache after restore/migration)
+        if offset == 0 and total_count > 0:
             set_cached_tickets(team.id, widget_session_id, response_data, status_filter)
 
         return Response(response_data)
@@ -426,5 +451,6 @@ class WidgetMarkReadView(APIView):
         if ticket.unread_customer_count > 0:
             ticket.unread_customer_count = 0
             ticket.save(update_fields=["unread_customer_count", "updated_at"])
+            invalidate_tickets_cache(team.id, widget_session_id)
 
         return Response({"success": True, "unread_count": 0})

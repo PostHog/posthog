@@ -290,6 +290,12 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "medianTDigestWeightedIf": HogQLFunctionMeta("medianTDigestWeightedIf", 2, 2, aggregate=True),
     "medianBFloat16": HogQLFunctionMeta("medianBFloat16", 1, 1, aggregate=True),
     "medianBFloat16If": HogQLFunctionMeta("medianBFloat16If", 2, 2, aggregate=True),
+    "percentile_cont": HogQLFunctionMeta(
+        "percentile_cont", 0, 0, min_params=1, max_params=1, aggregate=True, requires_within_group=True
+    ),
+    "percentile_disc": HogQLFunctionMeta(
+        "percentile_disc", 0, 0, min_params=1, max_params=1, aggregate=True, requires_within_group=True
+    ),
     "quantile": HogQLFunctionMeta("quantile", 1, 1, min_params=1, max_params=1, aggregate=True),
     "quantileIf": HogQLFunctionMeta("quantileIf", 2, 2, min_params=1, max_params=1, aggregate=True),
     "quantiles": HogQLFunctionMeta("quantiles", 1, None, aggregate=True),

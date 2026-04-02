@@ -18,7 +18,13 @@ export function OpenQuestionViz({ question, questionIndex, responseData, totalRe
                 questionIndex={questionIndex}
                 totalResponses={totalResponses}
             />
-            <VirtualizedResponseList responses={responseData} />
+            <div className="space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">Responses</h4>
+                <VirtualizedResponseList
+                    responses={responseData}
+                    className="rounded-md border bg-surface-secondary/60 p-2"
+                />
+            </div>
         </div>
     )
 }

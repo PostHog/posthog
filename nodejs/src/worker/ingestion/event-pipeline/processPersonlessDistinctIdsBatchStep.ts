@@ -2,12 +2,12 @@ import { LRUCache } from 'lru-cache'
 import { Counter } from 'prom-client'
 
 import { PipelineResult, ok } from '~/ingestion/pipelines/results'
-import { IncomingEventWithTeam } from '~/types'
+import { PipelineEvent, Team } from '~/types'
 
 import { ONE_HOUR } from '../../../config/constants'
 import { PersonsStore } from '../persons/persons-store'
 
-type ProcessPersonlessDistinctIdsBatchStepInput = { eventWithTeam: IncomingEventWithTeam }
+type ProcessPersonlessDistinctIdsBatchStepInput = { event: PipelineEvent; team: Team }
 
 export const personlessDistinctIdCacheOperationsCounter = new Counter({
     name: 'personless_distinct_id_cache_operations_total',
@@ -43,10 +43,10 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
             const personlessEntries: { teamId: number; distinctId: string }[] = []
 
             for (const e of events) {
-                if (e.eventWithTeam.event.properties?.$process_person_profile !== false) {
+                if (e.event.properties?.$process_person_profile !== false) {
                     continue
                 }
-                const cacheKey = `${e.eventWithTeam.team.id}|${e.eventWithTeam.event.distinct_id}`
+                const cacheKey = `${e.team.id}|${e.event.distinct_id}`
 
                 // Skip if already seen in this batch
                 if (seenInBatch.has(cacheKey)) {
@@ -58,8 +58,8 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
                     cacheHits++
                 } else {
                     personlessEntries.push({
-                        teamId: e.eventWithTeam.team.id,
-                        distinctId: e.eventWithTeam.event.distinct_id,
+                        teamId: e.team.id,
+                        distinctId: e.event.distinct_id,
                     })
                 }
             }

@@ -44,6 +44,11 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
 
 export type DashboardFuse = Fuse<DashboardBasicType> // This is exported for kea-typegen
 
+/** Router may coerce numeric-looking query values to numbers; search text must stay a string. */
+function urlSearchParamToString(value: unknown): string {
+    return `${value ?? ''}`
+}
+
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
     tabAwareScene(),
@@ -52,6 +57,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     })),
     actions({
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
+        setSearch: (search: string) => ({ search }),
         setFilters: (filters: Partial<DashboardsFilters>) => ({
             filters,
         }),
@@ -154,6 +160,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 return new Fuse<DashboardBasicType>(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
                     threshold: 0.3,
+                    // Without this, Fuse favors matches near the start of each field; tail tokens on long titles often miss `threshold`.
+                    ignoreLocation: true,
                 })
             },
         ],
@@ -184,11 +192,32 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
+        setSearch: ({ search }) => {
+            const nextSearch = search ?? ''
+            const currentSearch = urlSearchParamToString(router.values.searchParams['search'])
+
+            if (nextSearch === currentSearch) {
+                return
+            }
+
+            const searchParams: Record<string, any> = { ...router.values.searchParams }
+
+            if (nextSearch) {
+                searchParams['search'] = nextSearch
+            } else {
+                delete searchParams['search']
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
     })),
     tabAwareUrlToAction(({ actions }) => ({
         '/dashboard': (_, searchParams) => {
-            const tab = searchParams['tab'] || DashboardsTab.All
+            const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
             actions.setCurrentTab(tab)
+
+            const search = urlSearchParamToString(searchParams['search'])
+            actions.setFilters({ search })
         },
     })),
 ])

@@ -97,8 +97,7 @@ impl CheckpointExporter {
                     error!(
                         remote_path = plan.info.get_metadata_key(),
                         elapsed_seconds = upload_duration.as_secs_f64(),
-                        "Export failed: uploading checkpoint: {}",
-                        e
+                        "Export failed: uploading checkpoint: {e:#}"
                     );
                 }
                 Err(e)
@@ -177,7 +176,7 @@ mod tests {
         let timestamp = Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap();
         let metadata =
             CheckpointMetadata::new("test-topic".to_string(), 0, timestamp, 12345, 100, 50);
-        let info = CheckpointInfo::new(metadata, "checkpoints".to_string());
+        let info = CheckpointInfo::new(metadata, "checkpoints".to_string(), None);
         CheckpointPlan {
             info,
             files_to_upload: vec![],

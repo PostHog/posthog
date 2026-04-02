@@ -1,0 +1,219 @@
+{
+    "flags": [
+        {
+            "id": 1,
+            "team_id": 99,
+            "name": "Full feature flag with all optional fields",
+            "key": "full-flag",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "test@example.com",
+                                "type": "person",
+                                "operator": "exact"
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                        "variant": null
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50}
+                    ]
+                },
+                "payloads": {"control": "payload-value"},
+                "super_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$feature_enrollment/full-flag",
+                                "type": "person",
+                                "value": ["true"],
+                                "operator": "exact"
+                            }
+                        ],
+                        "rollout_percentage": null,
+                        "variant": null
+                    }
+                ],
+                "feature_enrollment": true,
+                "holdout": {
+                    "id": 42,
+                    "exclusion_percentage": 10.0
+                },
+                "aggregation_group_type_index": null
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": true,
+            "has_encrypted_payloads": false,
+            "version": 3,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": "device_id",
+            "evaluation_contexts": ["docs-page", "marketing-site"]
+        },
+        {
+            "id": 2,
+            "team_id": 99,
+            "name": "",
+            "key": "minimal-flag",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "multivariate": null,
+                "payloads": {}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "has_encrypted_payloads": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": []
+        },
+        {
+            "id": 3,
+            "team_id": 99,
+            "name": "Cohort flag",
+            "key": "cohort-flag",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": 100,
+                                "type": "cohort",
+                                "operator": "in"
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "multivariate": null,
+                "payloads": {}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "has_encrypted_payloads": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": []
+        },
+        {
+            "id": 4,
+            "team_id": 99,
+            "name": "Flag with dependency",
+            "key": "dependent-flag",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "2",
+                                "label": "minimal-flag",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": true
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "multivariate": null,
+                "payloads": {}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "has_encrypted_payloads": false,
+            "version": 2,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": []
+        },
+        {
+            "id": 5,
+            "team_id": 99,
+            "name": "Flag with missing dependency",
+            "key": "missing-dep-flag",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "99999",
+                                "label": "nonexistent-flag",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": true
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "multivariate": null,
+                "payloads": {}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "has_encrypted_payloads": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": []
+        }
+    ],
+    "evaluation_metadata": {
+        "dependency_stages": [
+            [1, 2, 3, 5],
+            [4]
+        ],
+        "flags_with_missing_deps": [5],
+        "transitive_deps": {
+            "1": [],
+            "2": [],
+            "3": [],
+            "4": [2],
+            "5": []
+        }
+    },
+    "cohorts": [
+        {
+            "id": 100,
+            "name": "Test Cohort",
+            "description": "A test cohort for the contract fixture",
+            "team_id": 99,
+            "deleted": false,
+            "filters": {"properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "email", "value": "test@example.com", "type": "person", "operator": "exact"}]}]}},
+            "query": null,
+            "version": 1,
+            "pending_version": null,
+            "count": 42,
+            "is_calculating": false,
+            "is_static": false,
+            "errors_calculating": 0,
+            "groups": [],
+            "created_by_id": 1,
+            "cohort_type": null,
+            "last_backfill_person_properties_at": "2024-01-15T12:00:00+00:00"
+        }
+    ]
+}

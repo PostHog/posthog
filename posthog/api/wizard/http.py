@@ -337,6 +337,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
 
         try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check after lookup)
             project = Project.objects.get(id=project_id)
 
             # Verify user has access to this project

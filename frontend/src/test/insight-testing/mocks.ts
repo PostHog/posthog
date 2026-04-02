@@ -1,0 +1,132 @@
+import { RestRequest } from 'msw'
+
+import { useMocks } from '~/mocks/jest'
+import { NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
+import { EventDefinition, PropertyDefinition } from '~/types'
+
+import {
+    actionDefinitions,
+    eventDefinitions as defaultEventDefs,
+    lookupSeries,
+    personProperties,
+    propertyDefinitions as defaultPropDefs,
+    propertyValues as defaultPropValues,
+    sessionPropertyDefinitions,
+    type SeriesData,
+} from './test-data'
+
+export interface QueryBody {
+    kind?: string
+    series?: Array<{ event?: string; name?: string }>
+    breakdownFilter?: {
+        breakdowns?: Array<{ property?: string }>
+        breakdown?: string
+    }
+    [key: string]: unknown
+}
+
+export interface MockResponse {
+    match: (query: QueryBody) => boolean
+    response: TrendsQueryResponse | ((query: QueryBody) => TrendsQueryResponse)
+}
+
+function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
+    return {
+        results: series.map((s) => ({
+            action: {
+                id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
+                type: 'events',
+                name: s.label,
+            },
+            label: s.label,
+            count: s.data.reduce((a, b) => a + b, 0),
+            data: s.data,
+            labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
+            days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
+            breakdown_value: s.breakdown_value,
+        })),
+    } as TrendsQueryResponse
+}
+
+function resolveSeriesData(query: QueryBody): SeriesData[] {
+    const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown ?? null
+
+    return (query.series ?? []).flatMap((s) => {
+        return lookupSeries(s.event ?? s.name ?? 'Unknown', breakdownProp ?? undefined)
+    })
+}
+
+function filterBySearch<T extends { name: string }>(items: T[], search: string): T[] {
+    return search ? items.filter((item) => item.name.includes(search)) : items
+}
+
+function extractQueryBody(body: unknown): QueryBody {
+    if (body && typeof body === 'object' && 'query' in body) {
+        return (body as { query: QueryBody }).query
+    }
+    return (body as QueryBody) ?? {}
+}
+
+export interface SetupMocksOptions {
+    eventDefinitions?: EventDefinition[]
+    propertyDefinitions?: PropertyDefinition[]
+    propertyValues?: Record<string, string[]>
+    mockResponses?: MockResponse[]
+}
+
+// eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW helper, not a React hook
+export function setupInsightMocks({
+    eventDefinitions: eventDefs = defaultEventDefs,
+    propertyDefinitions: propDefs = defaultPropDefs,
+    propertyValues: propValues = defaultPropValues,
+    mockResponses,
+}: SetupMocksOptions = {}): void {
+    const responses: MockResponse[] = mockResponses ?? [
+        {
+            match: (query) => query.kind === NodeKind.TrendsQuery,
+            response: (query) => buildTrendsResponse(resolveSeriesData(query)),
+        },
+        // TODO: Add mock responses for other query types
+    ]
+
+    useMocks({
+        get: {
+            '/api/projects/:team/event_definitions': (req: RestRequest) => {
+                const search = req.url.searchParams.get('search') ?? ''
+                const results = filterBySearch(eventDefs, search)
+                return [200, { results, count: results.length }]
+            },
+            '/api/projects/:team/property_definitions': (req: RestRequest) => {
+                const search = req.url.searchParams.get('search') ?? ''
+                const results = filterBySearch(propDefs, search)
+                return [200, { results, count: results.length }]
+            },
+            '/api/projects/:team/actions': { results: actionDefinitions },
+            '/api/environments/:team/persons/properties': personProperties,
+            '/api/environments/:team/sessions/property_definitions': { results: sessionPropertyDefinitions },
+            '/api/environments/:team/events/values': (req: RestRequest) => {
+                const key = req.url.searchParams.get('key') ?? ''
+                const values = (propValues[key] ?? []).map((name) => ({ name }))
+                return [200, values]
+            },
+            // TODO: support loading saved insights — accept a savedInsights option in SetupMocksOptions
+            // and return them here, enabling tests that load insights by short ID
+            '/api/environments/:team_id/insights/': { results: [] },
+            '/api/environments/:team_id/insights/trend': [],
+        },
+        post: {
+            '/api/environments/:team_id/query': (req: RestRequest) => {
+                const queryBody = extractQueryBody(req.body)
+
+                for (const mock of responses) {
+                    if (mock.match(queryBody)) {
+                        const response = typeof mock.response === 'function' ? mock.response(queryBody) : mock.response
+                        return [200, response]
+                    }
+                }
+
+                return [200, { results: [] }]
+            },
+        },
+    })
+}

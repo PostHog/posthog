@@ -8,7 +8,7 @@ import { TimeLineView, convertForTimelineView } from 'scenes/session-recordings/
 import { PerformanceEvent } from '~/types'
 
 const TableView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element => {
-    const timingProperties = Object.entries(performanceEvent).reduce((acc, [key, val]) => {
+    const timingProperties = Object.entries(performanceEvent).reduce<Record<string, unknown>>((acc, [key, val]) => {
         if (key.includes('time') || key.includes('end') || key.includes('start')) {
             acc[key] = val
         }
@@ -17,11 +17,11 @@ const TableView = ({ performanceEvent }: { performanceEvent: PerformanceEvent })
     return <SimpleKeyValueList item={timingProperties} />
 }
 
-export const NetworkRequestTiming = ({
-    performanceEvent,
-}: {
+export interface NetworkRequestTimingProps {
     performanceEvent: PerformanceEvent
-}): JSX.Element | null => {
+}
+
+export const NetworkRequestTiming = ({ performanceEvent }: NetworkRequestTimingProps): JSX.Element | null => {
     const [timelineMode, setTimelineMode] = useState<boolean>(true)
 
     const { isValid: isValidForTimelineView } = convertForTimelineView(performanceEvent)

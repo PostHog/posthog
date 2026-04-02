@@ -635,6 +635,10 @@
         "chromium": 7.1,
         "webkit": 2.6
     },
+    "frontend/src/scenes/data-pipelines/batch-exports/BatchExportScene.stories.tsx": {
+        "chromium": 45.0,
+        "webkit": 14.0
+    },
     "frontend/src/scenes/data-warehouse/settings/source/Schemas.stories.tsx": {
         "chromium": 6.9,
         "webkit": 2.6
@@ -698,6 +702,30 @@
     "frontend/src/scenes/feature-flags/NewFeatureFlagMenu.stories.tsx": {
         "chromium": 6.4,
         "webkit": 2.5
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/BuilderPathFlowNode.stories.tsx": {
+        "chromium": 8.0,
+        "webkit": 3.0
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/BuilderStepNode.stories.tsx": {
+        "chromium": 8.0,
+        "webkit": 3.0
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/FunnelFlowGraph.stories.tsx": {
+        "chromium": 30.0,
+        "webkit": 8.0
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/JourneyFlowNode.stories.tsx": {
+        "chromium": 8.0,
+        "webkit": 3.0
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/PathFlowNode.stories.tsx": {
+        "chromium": 10.0,
+        "webkit": 3.5
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/ProfileFlowNode.stories.tsx": {
+        "chromium": 8.0,
+        "webkit": 3.0
     },
     "frontend/src/scenes/funnels/FunnelTooltip.stories.tsx": {
         "chromium": 8.9,
@@ -790,6 +818,10 @@
     "frontend/src/scenes/max/Max.stories.tsx": {
         "chromium": 176.6,
         "webkit": 13.5
+    },
+    "frontend/src/scenes/notebooks/Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney.stories.tsx": {
+        "chromium": 40.0,
+        "webkit": 10.0
     },
     "frontend/src/scenes/notebooks/Notebook/Notebook.stories.tsx": {
         "chromium": 49.1,
@@ -986,6 +1018,10 @@
         "chromium": 26.4,
         "webkit": 3.4
     },
+    "products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneys.stories.tsx": {
+        "chromium": 25.0,
+        "webkit": 7.0
+    },
     "products/early_access_features/frontend/EarlyAccessFeatures.stories.tsx": {
         "chromium": 17.0,
         "webkit": 3.3
@@ -1009,10 +1045,6 @@
     "products/error_tracking/frontend/components/ExceptionCard/Tabs/StackTraceTab/StackTraceDisplay.stories.tsx": {
         "chromium": 37.9,
         "webkit": 4.2
-    },
-    "products/error_tracking/frontend/components/SparklineChart/SparklineChart.stories.tsx": {
-        "chromium": 17.7,
-        "webkit": 2.8
     },
     "products/links/frontend/LinksScene.stories.tsx": {
         "chromium": 16.3,

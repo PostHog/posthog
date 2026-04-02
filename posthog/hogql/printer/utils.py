@@ -18,7 +18,9 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import clone_expr
+from posthog.hogql.workload import WorkloadCollector
 
+from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
 
@@ -74,8 +76,11 @@ def prepare_ast_for_printing(
                 context.team_id,
                 modifiers=context.modifiers,
                 team=context.team,
+                user=context.user,
                 timings=context.timings,
             )
+    if context.direct_postgres_connection_metadata is None and context.database is not None:
+        context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
@@ -90,6 +95,12 @@ def prepare_ast_for_printing(
             dialect=dialect,
             scopes=[node.type for node in stack if node.type is not None] if stack else None,
         )
+
+    # Detect workload from resolved table types and store on context
+    with context.timings.measure("workload_detection"):
+        collector = WorkloadCollector(default_workload=Workload.DEFAULT)
+        collector.visit(node)
+        context.workload = collector.get_workload()
 
     if context.modifiers.optimizeProjections:
         with context.timings.measure("projection_pushdown"):

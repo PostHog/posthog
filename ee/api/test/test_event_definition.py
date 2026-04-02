@@ -7,14 +7,16 @@ from posthog.test.base import APIBaseTest
 from django.utils import timezone
 
 import dateutil.parser
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_event_definition import EventData, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import ActivityLog, Tag, Team, User
-from posthog.models.event_definition import EventDefinition
+from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedMedia, User
+
+from products.event_definitions.backend.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
@@ -148,10 +150,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             ["entered_free_trial", "enterprise event"],
         )
 
-        self.assertEqual(response_data["results"][1]["name"], "enterprise event")
-        self.assertEqual(response_data["results"][1]["description"], "")
-        self.assertEqual(response_data["results"][1]["tags"], ["deprecated"])
-        self.assertEqual(response_data["results"][1]["owner"]["id"], self.user.id)
+        enterprise_event = next((r for r in response_data["results"] if r["name"] == "enterprise event"), None)
+        assert enterprise_event is not None
+        assert enterprise_event["description"] == ""
+        assert enterprise_event["tags"] == ["deprecated"]
+        assert enterprise_event["owner"]["id"] == self.user.id
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enterprise")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -170,6 +173,34 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 0)
+
+    @parameterized.expand(
+        [
+            ("verified_only", "true", ["entered_free_trial", "watched_movie"]),
+            ("unverified_only", "false", ["$pageview", "purchase"]),
+            ("all_when_not_specified", None, ["$pageview", "entered_free_trial", "purchase", "watched_movie"]),
+        ]
+    )
+    def test_filter_event_definitions_by_verified(
+        self, _name: str, verified_param: Optional[str], expected_names: list[str]
+    ):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
+            EnterpriseEventDefinition.objects.filter(name=event_definition["name"], team=self.demo_team).update(
+                verified=event_definition["verified"] or False
+            )
+
+        url = "/api/projects/@current/event_definitions/"
+        if verified_param is not None:
+            url += f"?verified={verified_param}"
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted([r["name"] for r in response.json()["results"]]) == expected_names
 
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -384,9 +415,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         EnterpriseEventDefinition.objects.create(team=self.demo_team, name="installed_app")
 
         response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
+        assert [row["name"] for row in response.json()["results"]] == ["rated_app", "installed_app"]
 
     def test_create_event_definition_with_description(self):
         """Test creating an event definition with enterprise fields"""
@@ -504,3 +535,75 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_list_media_preview_urls_no_n_plus_one(self):
+        """List endpoint batch-fetches media preview URLs instead of querying per event."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        # Create 5 events with media previews
+        for i in range(5):
+            event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name=f"media_event_{i}")
+            media = UploadedMedia.objects.create(
+                team=self.demo_team, file_name=f"screenshot_{i}.png", content_type="image/png"
+            )
+            ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, uploaded_media=media)
+
+        with CaptureQueriesContext(connection) as ctx_baseline:
+            response = self.client.get("/api/projects/@current/event_definitions/")
+            assert response.status_code == status.HTTP_200_OK
+
+        baseline_queries = len(ctx_baseline)
+
+        # Add 10 more events with media previews
+        for i in range(10):
+            event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name=f"extra_media_event_{i}")
+            media = UploadedMedia.objects.create(
+                team=self.demo_team, file_name=f"extra_{i}.png", content_type="image/png"
+            )
+            ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, uploaded_media=media)
+
+        with CaptureQueriesContext(connection) as ctx_more:
+            response = self.client.get("/api/projects/@current/event_definitions/")
+            assert response.status_code == status.HTTP_200_OK
+
+        more_queries = len(ctx_more)
+
+        # If N+1 exists, adding 10 events would add ~10 queries.
+        # With batch fetching, query count should stay roughly constant.
+        assert more_queries <= baseline_queries + 3, (
+            f"Possible N+1: {baseline_queries} queries with 5 media events, {more_queries} queries with 15 media events"
+        )
+
+    def test_list_includes_media_preview_urls(self):
+        """List endpoint returns media_preview_urls for each event definition."""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="event_with_media")
+        media = UploadedMedia.objects.create(team=self.demo_team, file_name="screenshot.png", content_type="image/png")
+        ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, uploaded_media=media)
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+        assert response.status_code == status.HTTP_200_OK
+
+        event_data = next(r for r in response.json()["results"] if r["name"] == "event_with_media")
+        assert len(event_data["media_preview_urls"]) == 1
+        assert "uploaded_media" in event_data["media_preview_urls"][0]
+
+    def test_list_media_preview_urls_empty_when_no_media(self):
+        """Events without media previews return empty media_preview_urls."""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+        assert response.status_code == status.HTTP_200_OK
+
+        for result in response.json()["results"]:
+            assert result["media_preview_urls"] == []

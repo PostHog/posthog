@@ -6,10 +6,12 @@ use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 
 use kafka_deduplicator::checkpoint::{
-    CheckpointConfig, CheckpointDownloader, CheckpointExporter, CheckpointImporter,
-    CheckpointMetadata, CheckpointWorker, S3Downloader, S3Uploader,
+    hash_prefix_for_partition, CheckpointConfig, CheckpointDownloader, CheckpointExporter,
+    CheckpointImporter, CheckpointMetadata, CheckpointWorker, S3Downloader, S3Uploader,
+    METADATA_FILENAME,
 };
 use kafka_deduplicator::kafka::types::Partition;
+use kafka_deduplicator::rocksdb::store::RocksDbConfig;
 use kafka_deduplicator::store::{
     DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
 };
@@ -54,8 +56,9 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     let minio_client = create_minio_client().await;
     ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
-    // Clean up any previous test data
-    let test_prefix = format!("checkpoints/{test_topic}/{test_partition}");
+    // Clean up any previous test data (all under hashed prefix)
+    let hash = hash_prefix_for_partition(test_topic, test_partition);
+    let test_prefix = format!("{hash}/checkpoints/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     // Create temp directories
@@ -125,14 +128,13 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         "Uploaded checkpoint"
     );
 
-    // Verify checkpoint was uploaded by listing objects
+    // Verify checkpoint was uploaded by listing objects (all under hashed prefix)
     let list_result = minio_client
         .list_objects_v2()
         .bucket(TEST_BUCKET)
         .prefix(&test_prefix)
         .send()
         .await?;
-
     let uploaded_keys: Vec<String> = list_result
         .contents()
         .iter()
@@ -148,6 +150,13 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         !uploaded_keys.is_empty(),
         "Should have uploaded files to MinIO"
     );
+    // All keys (metadata and objects) should be under the hashed prefix
+    for k in &uploaded_keys {
+        assert!(
+            k.starts_with(&hash),
+            "all keys should be under hash prefix, got: {k}"
+        );
+    }
     assert!(
         uploaded_keys.iter().any(|k| k.ends_with("metadata.json")),
         "Should have uploaded metadata.json"
@@ -204,6 +213,14 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         downloaded_metadata.files.len(),
         uploaded_info.metadata.files.len()
     );
+    // Object file paths in metadata must contain hash prefix (round-trip: export wrote hashed paths)
+    for f in &downloaded_metadata.files {
+        assert!(
+            f.remote_filepath.contains(&hash),
+            "metadata.files[].remote_filepath should contain hash prefix, got: {}",
+            f.remote_filepath
+        );
+    }
 
     // Test full import via CheckpointImporter - downloads directly to store directory
     let importer = CheckpointImporter::new(
@@ -233,24 +250,30 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
 
-    // Separate marker file from checkpoint files
-    let marker_files: Vec<_> = all_imported_files
-        .iter()
-        .filter(|f| f.starts_with(".imported_"))
-        .collect();
+    // Separate metadata.json (written by importer) from S3-downloaded checkpoint files
     let imported_files: Vec<_> = all_imported_files
         .iter()
-        .filter(|f| !f.starts_with(".imported_"))
+        .filter(|f| *f != METADATA_FILENAME)
         .cloned()
         .collect();
 
-    // Verify marker file exists (created by import to identify imported stores)
-    assert_eq!(
-        marker_files.len(),
-        1,
-        "Should have exactly one .imported_* marker file, found: {marker_files:?}"
+    assert!(
+        all_imported_files.contains(&METADATA_FILENAME.to_string()),
+        "metadata.json should exist in import dir, got: {all_imported_files:?}"
     );
-    info!(marker_file = ?marker_files[0], "Verified import marker file exists");
+
+    // Verify metadata.json written by importer round-trips and has correct topic/partition/updated_at
+    let loaded_metadata = CheckpointMetadata::load_from_dir(&import_result)
+        .await
+        .expect("metadata.json in import dir should deserialize");
+    assert_eq!(loaded_metadata.topic, test_topic);
+    assert_eq!(loaded_metadata.partition, test_partition);
+    assert!(
+        loaded_metadata.updated_at >= downloaded_metadata.attempt_timestamp,
+        "updated_at should be more recent than attempt_timestamp (stamped at import write), got updated_at {:?} attempt_timestamp {:?}",
+        loaded_metadata.updated_at,
+        downloaded_metadata.attempt_timestamp
+    );
 
     info!(
         imported = imported_files.len(),
@@ -307,6 +330,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         // Checkpoint files are imported directly to the store directory
         path: import_result.clone(),
         max_capacity: 1_000_000,
+        rocksdb: RocksDbConfig::default(),
     };
     let restored_store = DeduplicationStore::new(
         restored_store_config,
@@ -359,7 +383,8 @@ async fn test_sibling_cancellation_on_file_error() -> Result<()> {
     let minio_client = create_minio_client().await;
     ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
-    let test_prefix = format!("{s3_key_prefix}/{test_topic}/{test_partition}");
+    let hash = hash_prefix_for_partition(test_topic, test_partition);
+    let test_prefix = format!("{hash}/{s3_key_prefix}/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     // Upload a checkpoint with multiple files
@@ -438,7 +463,8 @@ async fn test_fallback_after_failed_attempt() -> Result<()> {
     let minio_client = create_minio_client().await;
     ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
-    let test_prefix = format!("{s3_key_prefix}/{test_topic}/{test_partition}");
+    let hash = hash_prefix_for_partition(test_topic, test_partition);
+    let test_prefix = format!("{hash}/{s3_key_prefix}/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     // Upload TWO checkpoints with different timestamps
@@ -507,23 +533,12 @@ async fn test_fallback_after_failed_attempt() -> Result<()> {
     let import_path = result.unwrap();
 
     // Verify the imported checkpoint is from the OLDER (successful) checkpoint
-    // by checking the marker file contains the older checkpoint's metadata
-    let marker_files: Vec<_> = std::fs::read_dir(&import_path)
-        .expect("Should be able to read import path")
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().starts_with(".imported_"))
-        .collect();
-    assert_eq!(marker_files.len(), 1, "Should have exactly one marker file");
-
-    let marker_content = std::fs::read_to_string(marker_files[0].path())
-        .expect("Should be able to read marker file");
-    let marker_metadata: serde_json::Value =
-        serde_json::from_str(&marker_content).expect("Marker should contain valid JSON");
-
-    // The marker should contain the OLDER checkpoint's ID, not the newer (failed) one
+    // by checking metadata.json contains the older checkpoint's ID
+    let loaded_metadata = CheckpointMetadata::load_from_dir(&import_path)
+        .await
+        .expect("metadata.json should exist and deserialize");
     assert_eq!(
-        marker_metadata["id"].as_str().unwrap(),
-        older_metadata.id,
+        loaded_metadata.id, older_metadata.id,
         "Imported checkpoint should be from older checkpoint (fallback)"
     );
 
@@ -551,7 +566,8 @@ async fn test_parent_cancellation_stops_all_attempts() -> Result<()> {
     let minio_client = create_minio_client().await;
     ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
-    let test_prefix = format!("{s3_key_prefix}/{test_topic}/{test_partition}");
+    let hash = hash_prefix_for_partition(test_topic, test_partition);
+    let test_prefix = format!("{hash}/{s3_key_prefix}/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     // Upload a checkpoint with many files (to give time to cancel mid-download)
@@ -658,9 +674,9 @@ async fn test_parent_cancellation_stops_all_attempts() -> Result<()> {
 ///
 /// Tests:
 /// 1. Pre-cancelled token prevents upload from starting
-/// 2. Cancellation returns appropriate error with "cancelled" message
+/// 2. Pre-cancelled export is cooperatively skipped rather than treated as an error
 /// 3. No files are uploaded when pre-cancelled
-/// 4. Verifies the cancellation flows through exporter → uploader correctly
+/// 4. Verifies the cancellation flows through worker → planner/uploader correctly
 #[tokio::test]
 async fn test_export_cancellation_via_minio() -> Result<()> {
     let test_topic = "test_export_cancellation";
@@ -670,8 +686,9 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
     let minio_client = create_minio_client().await;
     ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
-    // Clean up any previous test data
-    let test_prefix = format!("checkpoints/{test_topic}/{test_partition}");
+    // Clean up any previous test data (all under hashed prefix)
+    let hash = hash_prefix_for_partition(test_topic, test_partition);
+    let test_prefix = format!("{hash}/checkpoints/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     // Create temp directory for store (shared across test cases)
@@ -694,9 +711,9 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
     let partition = Partition::new(test_topic.to_string(), test_partition);
 
     // ============================================================
-    // Test 1: Pre-cancelled token should fail immediately
+    // Test 1: Pre-cancelled token should skip immediately
     // ============================================================
-    info!("Test 1: Pre-cancelled token should fail immediately");
+    info!("Test 1: Pre-cancelled token should skip immediately");
 
     // Each test case gets its own TempDir to avoid directory collision
     let tmp_checkpoint_dir_1 = TempDir::new()?;
@@ -722,18 +739,14 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
         .await;
     let elapsed = start.elapsed();
 
-    assert!(result.is_err(), "Checkpoint should fail when pre-cancelled");
-    let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.to_lowercase().contains("cancelled"),
-        "Error should mention cancellation: {}",
-        err_msg
+        matches!(result, Ok(None)),
+        "Checkpoint should be skipped when pre-cancelled, got: {result:?}"
     );
 
     info!(
         elapsed_ms = elapsed.as_millis(),
-        error = err_msg,
-        "Pre-cancelled export failed as expected"
+        "Pre-cancelled export skipped as expected"
     );
 
     // Verify: No objects should have been uploaded to MinIO
@@ -793,14 +806,13 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
         "Normal export succeeded"
     );
 
-    // Verify files were uploaded
+    // Verify files were uploaded (all under hashed prefix)
     let list_result = minio_client
         .list_objects_v2()
         .bucket(TEST_BUCKET)
         .prefix(&test_prefix)
         .send()
         .await?;
-
     let uploaded_keys: Vec<String> = list_result
         .contents()
         .iter()
@@ -811,6 +823,13 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
         !uploaded_keys.is_empty(),
         "Files should be uploaded for normal export"
     );
+    // All keys should be under the hashed prefix
+    for k in &uploaded_keys {
+        assert!(
+            k.starts_with(&hash),
+            "all keys should be under hash prefix, got: {k}"
+        );
+    }
     assert!(
         uploaded_keys.iter().any(|k| k.ends_with("metadata.json")),
         "Should have uploaded metadata.json"
@@ -859,14 +878,13 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
 
     let checkpoint_info = result.unwrap();
 
-    // Verify files were uploaded
+    // Verify files were uploaded (all under hashed prefix)
     let list_result = minio_client
         .list_objects_v2()
         .bucket(TEST_BUCKET)
         .prefix(&test_prefix)
         .send()
         .await?;
-
     let uploaded_keys: Vec<String> = list_result
         .contents()
         .iter()
@@ -906,7 +924,8 @@ async fn test_export_mid_upload_cancellation() -> Result<()> {
     ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
     // Clean up any previous test data
-    let test_prefix = format!("checkpoints/{test_topic}/{test_partition}");
+    let hash = hash_prefix_for_partition(test_topic, test_partition);
+    let test_prefix = format!("{hash}/checkpoints/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     // Create temp directories
@@ -965,8 +984,11 @@ async fn test_export_mid_upload_cancellation() -> Result<()> {
         .await;
     let elapsed = start.elapsed();
 
-    // The result depends on timing - it may succeed if upload completed before cancellation,
-    // or fail with cancellation error if caught mid-upload
+    // The result depends on timing:
+    // - Ok(Some(info)): upload completed before cancellation
+    // - Ok(None): cancellation caught at any gate (pre-plan, during-plan,
+    //   post-plan, or during-upload — all return Ok(None) now)
+    // - Err: genuine non-cancellation failure (unexpected here)
     match &result {
         Ok(Some(info)) => {
             info!(
@@ -978,40 +1000,11 @@ async fn test_export_mid_upload_cancellation() -> Result<()> {
         Ok(None) => {
             info!(
                 elapsed_ms = elapsed.as_millis(),
-                "Export was skipped (no exporter configured - unexpected)"
+                "Export skipped due to cancellation"
             );
         }
         Err(e) => {
-            let err_msg = e.to_string();
-            info!(
-                elapsed_ms = elapsed.as_millis(),
-                error = err_msg,
-                "Upload cancelled mid-stream as expected"
-            );
-
-            // If cancelled, verify no metadata.json was uploaded (all-or-nothing)
-            let list_result = minio_client
-                .list_objects_v2()
-                .bucket(TEST_BUCKET)
-                .prefix(&test_prefix)
-                .send()
-                .await?;
-
-            let uploaded_keys: Vec<String> = list_result
-                .contents()
-                .iter()
-                .filter_map(|obj| obj.key().map(String::from))
-                .collect();
-
-            // metadata.json should NOT exist if cancelled mid-upload
-            // (it's uploaded last, after all files succeed)
-            let has_metadata = uploaded_keys.iter().any(|k| k.ends_with("metadata.json"));
-            if !has_metadata && !uploaded_keys.is_empty() {
-                info!(
-                    partial_files = uploaded_keys.len(),
-                    "Verified: No metadata.json uploaded (all-or-nothing semantics preserved)"
-                );
-            }
+            panic!("Unexpected error during mid-upload cancellation test: {e:#}");
         }
     }
 
@@ -1021,6 +1014,113 @@ async fn test_export_mid_upload_cancellation() -> Result<()> {
     );
 
     // Cleanup
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+
+    Ok(())
+}
+
+/// Verify that list_recent_checkpoints uses shallow listing (delimiter="/")
+/// and returns only metadata.json keys, not individual checkpoint files.
+#[tokio::test]
+async fn test_list_recent_checkpoints_returns_only_metadata_keys() -> Result<()> {
+    let test_topic = "test_shallow_list";
+    let test_partition = 0;
+    let s3_key_prefix = "checkpoints";
+
+    let minio_client = create_minio_client().await;
+    ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
+
+    let hash = hash_prefix_for_partition(test_topic, test_partition);
+    let test_prefix = format!("{hash}/{s3_key_prefix}/{test_topic}/{test_partition}");
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+
+    // Upload two checkpoints with multiple files each
+    let older_timestamp = Utc::now() - chrono::Duration::seconds(10);
+    let older_metadata = upload_test_checkpoint(
+        &minio_client,
+        TEST_BUCKET,
+        s3_key_prefix,
+        test_topic,
+        test_partition,
+        older_timestamp,
+        5,
+    )
+    .await;
+
+    let newer_timestamp = Utc::now();
+    let newer_metadata = upload_test_checkpoint(
+        &minio_client,
+        TEST_BUCKET,
+        s3_key_prefix,
+        test_topic,
+        test_partition,
+        newer_timestamp,
+        8,
+    )
+    .await;
+
+    // Count total objects in S3 (all files across both checkpoints)
+    let all_objects = minio_client
+        .list_objects_v2()
+        .bucket(TEST_BUCKET)
+        .prefix(&test_prefix)
+        .send()
+        .await?;
+    let total_object_count = all_objects.contents().len();
+
+    // 5 SST + 1 metadata + 8 SST + 1 metadata = 15 objects
+    assert_eq!(
+        total_object_count,
+        5 + 1 + 8 + 1,
+        "Expected 15 total objects across both checkpoints"
+    );
+
+    // Now list via S3Downloader — should return exactly 2 metadata.json keys
+    let tmp_checkpoint_dir = TempDir::new()?;
+    let config = create_test_checkpoint_config(&tmp_checkpoint_dir);
+    let downloader = S3Downloader::new(&config).await?;
+
+    let metadata_keys = downloader
+        .list_recent_checkpoints(test_topic, test_partition)
+        .await?;
+
+    // Should return exactly 2 entries (one per checkpoint), not 15
+    assert_eq!(
+        metadata_keys.len(),
+        2,
+        "Should return exactly 2 metadata keys (one per checkpoint folder), got: {metadata_keys:?}"
+    );
+
+    // Every returned key must end with metadata.json
+    for key in &metadata_keys {
+        assert!(
+            key.ends_with(METADATA_FILENAME),
+            "Listed key should be a metadata.json path, got: {key}"
+        );
+    }
+
+    // Keys should be newest first
+    assert!(
+        metadata_keys[0].contains(&newer_metadata.id),
+        "First key should be from newer checkpoint ({}), got: {}",
+        newer_metadata.id,
+        metadata_keys[0]
+    );
+    assert!(
+        metadata_keys[1].contains(&older_metadata.id),
+        "Second key should be from older checkpoint ({}), got: {}",
+        older_metadata.id,
+        metadata_keys[1]
+    );
+
+    info!(
+        total_objects = total_object_count,
+        metadata_keys_returned = metadata_keys.len(),
+        "Shallow listing returned {} metadata keys out of {} total objects",
+        metadata_keys.len(),
+        total_object_count
+    );
+
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     Ok(())

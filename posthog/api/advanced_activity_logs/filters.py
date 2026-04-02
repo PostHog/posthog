@@ -4,6 +4,8 @@ from django.db.models import Q, QuerySet
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+_ALLOWED_DETAIL_FILTER_OPERATIONS = {"exact", "contains", "in"}
+
 
 class AdvancedActivityLogFilterManager:
     def apply_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
@@ -59,6 +61,11 @@ class AdvancedActivityLogFilterManager:
             if value is None:
                 continue
 
+            # Block Django ORM relationship traversal (e.g. "user__password") and
+            # restrict operations to a safe allowlist to prevent injection via arbitrary lookups.
+            if "__" in field_path or operation not in _ALLOWED_DETAIL_FILTER_OPERATIONS:
+                continue
+
             if "[]" in field_path:
                 # Array fields like changes[].type need special handling
                 queryset = self._apply_array_field_filter(queryset, field_path, operation, value)
@@ -82,6 +89,7 @@ class AdvancedActivityLogFilterManager:
         self, queryset: QuerySet[ActivityLog], field_path: str, value: Any
     ) -> QuerySet[ActivityLog]:
         base_array_path = field_path.split("[]")[0]
+        # nosemgrep: orm-field-injection -- field_path validated (__ rejected) and prefixed by detail__ JSONField
         return queryset.filter(**{f"detail__{base_array_path}__icontains": value})
 
     def _apply_array_exact_filter(
@@ -266,8 +274,10 @@ class AdvancedActivityLogFilterManager:
             return combined_condition
         elif operation == "in":
             unique_values = self._expand_values_with_type_variants(value)
+            # nosemgrep: orm-field-injection -- field_path validated (__ rejected) and prefixed by detail__ JSONField
             return Q(**{f"{field_path}__in": unique_values})
         elif operation == "contains":
+            # nosemgrep: orm-field-injection -- field_path validated (__ rejected) and prefixed by detail__ JSONField
             return Q(**{f"{field_path}__icontains": value})
         else:
             return Q(**{field_path: value})

@@ -5,6 +5,7 @@ from uuid import uuid4
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
+from unittest.mock import MagicMock, patch
 
 from django.db import transaction
 
@@ -16,9 +17,8 @@ from rest_framework import status
 from posthog import redis
 from posthog.models import Organization, PersonalAPIKey, SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
@@ -70,7 +70,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         return post_response
 
-    def _get_non_synthetic_playlists(self, query_params: str = "", expected_synthetic_count: int = 6) -> list[dict]:
+    def _get_non_synthetic_playlists(self, query_params: str = "", expected_synthetic_count: int = 7) -> list[dict]:
         url = f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
@@ -111,7 +111,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        assert response_data["count"] == 8
+        assert response_data["count"] == 9
         assert response_data["next"] is None
         assert response_data["previous"] is None
         assert [x for x in response_data["results"] if not x["is_synthetic"]] == [
@@ -581,7 +581,11 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         """
         # Create a playlist explicitly marked as filters type
         response = self._create_playlist(
-            {"name": "test filters only", "type": "filters", "filters": {"wat": "am filter"}}
+            {
+                "name": "test filters only",
+                "type": "filters",
+                "filters": {"wat": "am filter"},
+            }
         )
         playlist_id = response.json()["id"]
         playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
@@ -786,6 +790,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             == 0
         )
 
+    @patch(
+        "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+        new=MagicMock(return_value=False),
+    )
     @snapshot_postgres_queries
     @freeze_time("2025-01-01T12:00:00Z")
     def test_filters_playlist_by_type(self):
@@ -835,9 +843,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ["no_filter", "", 6, 2],
+            ["no_filter", "", 7, 2],
             ["custom_only", "?collection_type=custom", 0, 2],
-            ["synthetic_only", "?collection_type=synthetic", 6, 0],
+            ["synthetic_only", "?collection_type=synthetic", 7, 0],
         ]
     )
     def test_filters_playlist_by_collection_type(
@@ -869,7 +877,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert len(custom_results) == expected_custom_count
 
         if expected_custom_count > 0:
-            assert {p["id"] for p in custom_results} == {p_collection_one.id, p_collection_two.id}
+            assert {p["id"] for p in custom_results} == {
+                p_collection_one.id,
+                p_collection_two.id,
+            }
 
     def test_create_playlist_in_specific_folder(self):
         response = self._create_playlist(
@@ -955,7 +966,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_bulk_add_validation_errors(
-        self, _name: str, session_recording_ids: list | str, expected_error_substring: str | None
+        self,
+        _name: str,
+        session_recording_ids: list | str,
+        expected_error_substring: str | None,
     ) -> None:
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -1088,10 +1102,16 @@ class TestSessionRecordingPlaylistTeamIsolation(APIBaseTest):
     def test_list_only_returns_own_team_playlists(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
         SessionRecordingPlaylist.objects.create(
-            team=other_team, name="other team playlist", created_by=self.user, type="collection"
+            team=other_team,
+            name="other team playlist",
+            created_by=self.user,
+            type="collection",
         )
         SessionRecordingPlaylist.objects.create(
-            team=self.team, name="my team playlist", created_by=self.user, type="collection"
+            team=self.team,
+            name="my team playlist",
+            created_by=self.user,
+            type="collection",
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/session_recording_playlists")
@@ -1114,7 +1134,10 @@ class TestSessionRecordingPlaylistTeamIsolation(APIBaseTest):
     ) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
         playlist = SessionRecordingPlaylist.objects.create(
-            team=other_team, name="other team playlist", created_by=self.user, type="collection"
+            team=other_team,
+            name="other team playlist",
+            created_by=self.user,
+            type="collection",
         )
         url = (
             f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"

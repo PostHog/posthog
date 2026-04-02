@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -10,10 +10,11 @@ import {
     LemonInput,
     LemonSelect,
     LemonSwitch,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -23,104 +24,16 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
+import { AuthorizedDomains } from './AuthorizedDomains'
 import { BrowserNotificationsSection } from './BrowserNotificationsSection'
+import { EmailSection } from './EmailSection'
+import { SecretApiKeySection } from './SecretApiKeySection'
+import { SlackSection } from './SlackSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export const scene: SceneExport = {
     component: SupportSettingsScene,
     productKey: ProductKey.CONVERSATIONS,
-}
-
-function AuthorizedDomains(): JSX.Element {
-    const { conversationsDomains, isAddingDomain, editingDomainIndex, domainInputValue } =
-        useValues(supportSettingsLogic)
-    const { setDomainInputValue, saveDomain, removeDomain, startEditDomain, cancelDomainEdit } =
-        useActions(supportSettingsLogic)
-
-    return (
-        <div className="flex flex-col gap-2">
-            {conversationsDomains.length === 0 && !isAddingDomain && (
-                <div className="border rounded p-4 text-secondary">
-                    <p className="mb-0">
-                        <span className="font-bold">No domains configured.</span>
-                        <br />
-                        The widget will show on all domains. Add domains to limit where it appears.
-                    </p>
-                </div>
-            )}
-
-            {(isAddingDomain || editingDomainIndex !== null) && (
-                <div className="border rounded p-2 bg-surface-primary">
-                    <div className="gap-2">
-                        <LemonInput
-                            autoFocus
-                            value={domainInputValue}
-                            onChange={setDomainInputValue}
-                            placeholder="https://example.com or https://*.example.com"
-                            fullWidth
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    saveDomain(domainInputValue, editingDomainIndex)
-                                } else if (e.key === 'Escape') {
-                                    cancelDomainEdit()
-                                }
-                            }}
-                        />
-                        <div className="flex gap-2 mt-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => saveDomain(domainInputValue, editingDomainIndex)}
-                                disabledReason={!domainInputValue.trim() ? 'Enter a domain' : undefined}
-                            >
-                                Save
-                            </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={cancelDomainEdit}>
-                                Cancel
-                            </LemonButton>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {conversationsDomains.map((domain: string, index: number) =>
-                editingDomainIndex === index ? null : (
-                    <div key={index} className="border rounded flex items-center p-2 pl-4 bg-surface-primary">
-                        <span title={domain} className="flex-1 truncate">
-                            {domain}
-                        </span>
-                        <div className="flex gap-1 shrink-0">
-                            <LemonButton
-                                icon={<IconPencil />}
-                                onClick={() => startEditDomain(index)}
-                                tooltip="Edit"
-                                size="small"
-                            />
-                            <LemonButton
-                                icon={<IconTrash />}
-                                tooltip="Remove domain"
-                                size="small"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: <>Remove {domain}?</>,
-                                        description: 'Are you sure you want to remove this domain?',
-                                        primaryButton: {
-                                            status: 'danger',
-                                            children: 'Remove',
-                                            onClick: () => removeDomain(index),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                }}
-                            />
-                        </div>
-                    </div>
-                )
-            )}
-        </div>
-    )
 }
 
 export function SupportSettingsScene(): JSX.Element {
@@ -152,6 +65,7 @@ export function SupportSettingsScene(): JSX.Element {
         placeholderTextValue,
         notificationRecipients,
     } = useValues(supportSettingsLogic)
+    const emailChannelEnabled = useFeatureFlag('PRODUCT_SUPPORT_EMAIL_CHANNEL')
 
     return (
         <SceneContent>
@@ -165,7 +79,14 @@ export function SupportSettingsScene(): JSX.Element {
             <ScenesTabs />
             <SceneSection
                 title="Conversations API"
-                description="Turn on conversations API to enable access for tickets and messages."
+                description={
+                    <>
+                        Turn on conversations API to enable access for tickets and messages.{' '}
+                        <Link to="https://posthog.com/docs/support/javascript-api" target="_blank">
+                            Docs
+                        </Link>
+                    </>
+                }
             >
                 <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                     <div className="flex items-center gap-4 justify-between">
@@ -193,7 +114,11 @@ export function SupportSettingsScene(): JSX.Element {
             </SceneSection>
             {currentTeam?.conversations_enabled && (
                 <>
-                    <SceneSection title="Notifications" className="mt-4">
+                    <SceneSection
+                        title="Notifications"
+                        className="mt-4"
+                        description="We recommend using workflows to set custom notifications, e.g. when a new ticket is created or a new message is received."
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>
@@ -212,7 +137,20 @@ export function SupportSettingsScene(): JSX.Element {
                             <BrowserNotificationsSection />
                         </LemonCard>
                     </SceneSection>
-                    <SceneSection title="In-app widget" className="mt-4">
+                    <SlackSection />
+                    {emailChannelEnabled && <EmailSection />}
+                    <SceneSection
+                        title="In-app widget"
+                        description={
+                            <>
+                                Add a chat widget to your website for customers to reach you.{' '}
+                                <Link to="https://posthog.com/docs/support/widget" target="_blank">
+                                    Docs
+                                </Link>
+                            </>
+                        }
+                        className="mt-4"
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>
@@ -517,6 +455,100 @@ export function SupportSettingsScene(): JSX.Element {
                             )}
                         </LemonCard>
                     </SceneSection>
+                    <SceneSection
+                        title="Workflows"
+                        description={
+                            <>
+                                Use these events as triggers in <Link to="/workflows">Workflows</Link> to automate
+                                ticket actions.{' '}
+                                <Link to="https://posthog.com/docs/support/workflows" target="_blank">
+                                    Docs
+                                </Link>
+                            </>
+                        }
+                        className="mt-4"
+                    >
+                        <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
+                            <div className="flex flex-col gap-4">
+                                <div>
+                                    <h4 className="font-semibold mb-1">Trigger events</h4>
+                                    <p className="text-xs text-muted-alt mb-2">
+                                        These events are automatically captured when ticket or message state changes.
+                                        Use them as workflow triggers.
+                                    </p>
+                                    <table className="w-full text-sm">
+                                        <thead>
+                                            <tr className="border-b">
+                                                <th className="text-left py-1.5 pr-4 font-medium">Event</th>
+                                                <th className="text-left py-1.5 font-medium">When</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_ticket_created</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    A customer opens a new ticket
+                                                </td>
+                                            </tr>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_ticket_status_changed</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    Ticket status changes (e.g. new → pending → resolved)
+                                                </td>
+                                            </tr>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">
+                                                        $conversation_ticket_priority_changed
+                                                    </code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    Ticket priority is set or changed
+                                                </td>
+                                            </tr>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_ticket_assigned</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    Ticket is assigned to a team member
+                                                </td>
+                                            </tr>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_message_sent</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    A team member sends a reply on a ticket
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_message_received</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    A customer sends a message on a ticket
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold mb-1">Workflow actions</h4>
+                                    <p className="text-xs text-muted-alt">
+                                        Use <strong>Get ticket</strong> to fetch current ticket data into workflow
+                                        variables (ticket_status, ticket_priority, ticket_number, etc.) and{' '}
+                                        <strong>Update ticket</strong> to change a ticket's status or priority.
+                                    </p>
+                                </div>
+                            </div>
+                        </LemonCard>
+                    </SceneSection>
+                    <SecretApiKeySection />
                 </>
             )}
         </SceneContent>

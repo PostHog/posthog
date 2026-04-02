@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique value identifying this person. Accepts both numeric ID and UUID.",
+            "type": "string"
+        },
+        "unset": {
+            "description": "The property key to remove from this person.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "unset"],
+    "type": "object"
+}

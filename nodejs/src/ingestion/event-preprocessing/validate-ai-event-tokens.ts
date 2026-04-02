@@ -1,4 +1,4 @@
-import { IncomingEvent } from '../../types'
+import { PipelineEvent } from '../../types'
 import { AI_EVENT_TYPES } from '../ai'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -38,15 +38,15 @@ function isValidBigDecimalInput(value: unknown): boolean {
     return false
 }
 
-export function createValidateAiEventTokensStep<T extends { event: IncomingEvent }>(): ProcessingStep<T, T> {
+export function createValidateAiEventTokensStep<T extends { event: PipelineEvent }>(): ProcessingStep<T, T> {
     return async function validateAiEventTokensStep(input) {
         const { event } = input
 
-        if (!AI_EVENT_TYPES.has(event.event.event)) {
+        if (!AI_EVENT_TYPES.has(event.event)) {
             return Promise.resolve(ok(input))
         }
 
-        const properties = event.event.properties
+        const properties = event.properties
 
         if (!properties) {
             return Promise.resolve(ok(input))

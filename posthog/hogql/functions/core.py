@@ -11,6 +11,7 @@ from posthog.hogql.ast import (
     FloatType,
     IntegerType,
     IntervalType,
+    StringLiteralType,
     StringType,
     TupleType,
     UUIDType,
@@ -47,6 +48,7 @@ def validate_function_args(
 Overload = tuple[tuple[type[ConstantType], ...] | type[ConstantType], str]
 AnyConstantType = (
     StringType
+    | StringLiteralType
     | BooleanType
     | DateType
     | DateTimeType
@@ -84,13 +86,34 @@ class HogQLFunctionMeta:
     using_positional_arguments: bool = False
     parametric_first_arg: bool = False
     """Some ClickHouse functions take a constant string function name as the first argument. Check that it's one of our allowed function names."""
+    requires_within_group: bool = False
+    """Whether the aggregation requires WITHIN GROUP syntax."""
 
 
-def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantType, ...]):
+def compare_types(
+    arg_types: list[ConstantType],
+    sig_arg_types: tuple[ConstantType, ...],
+    args: Optional[list[ast.Expr]] = None,
+):
     if len(arg_types) != len(sig_arg_types):
         return False
 
-    return all(
-        isinstance(sig_arg_type, UnknownType) or isinstance(arg_type, sig_arg_type.__class__)
-        for arg_type, sig_arg_type in zip(arg_types, sig_arg_types)
-    )
+    for i, (arg_type, sig_arg_type) in enumerate(zip(arg_types, sig_arg_types)):
+        if isinstance(sig_arg_type, UnknownType):
+            continue
+        if isinstance(sig_arg_type, StringLiteralType):
+            if not isinstance(arg_type, StringType):
+                return False
+            if args is not None and i < len(args):
+                arg_node = args[i]
+                if isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, str):
+                    if arg_node.value.lower() not in sig_arg_type.values:
+                        return False
+                else:
+                    return False
+            else:
+                return False
+            continue
+        if not isinstance(arg_type, sig_arg_type.__class__):
+            return False
+    return True

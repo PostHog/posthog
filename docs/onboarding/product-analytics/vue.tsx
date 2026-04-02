@@ -63,7 +63,7 @@ export const getVueSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     import posthog from 'posthog-js'
 
                                     export function usePostHog() {
-                                      posthog.init('<ph_project_api_key>', {
+                                      posthog.init('<ph_project_token>', {
                                         api_host: '<ph_client_api_host>',
                                         defaults: '2026-01-30'
                                       })

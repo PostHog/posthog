@@ -1,0 +1,25 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}Your reverse proxy for {{ domain }} is ready to use{% endblock %}
+{% block heading %}Your reverse proxy is ready{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    Hey{% if user_name %} {{ user_name }}{% endif %},
+</p>
+<p>
+    Great news! Your reverse proxy for <strong>{{ domain }}</strong> has been successfully provisioned and is ready to use.
+</p>
+<p>
+    You can now update your PostHog SDK configuration to send events through <strong>{{ domain }}</strong> instead of
+    directly to PostHog. This helps improve data collection reliability by routing traffic through your own domain.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ settings_url }}">View proxy settings</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ settings_url }}">{{ settings_url }}</a>
+    </p>
+</div>
+{% endblock %}

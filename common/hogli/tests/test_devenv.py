@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from hogli.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
+from hogli.devenv.generator import (
+    DevenvConfig,
+    MprocsGenerator,
+    get_effective_docker_profiles,
+    load_devenv_config,
+    should_skip_native_process,
+)
 from hogli.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
 from parameterized import parameterized
@@ -345,6 +351,26 @@ class TestDockerProfiles:
         result = resolver.resolve(["session_replay"])
         assert "replay" in result.docker_profiles
 
+        # feature_flags needs etcd (coordination)
+        result = resolver.resolve(["feature_flags"])
+        assert "etcd" in result.docker_profiles
+
+    def test_codespace_effective_profiles_include_containerized_services(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Codespaces add compose profiles for services replaced by containers."""
+        monkeypatch.setenv("POSTHOG_DEVBOX", "1")
+
+        profiles = get_effective_docker_profiles(["temporal"], {"capture", "capture-ai", "feature-flags"})
+
+        assert profiles == ["capture", "capture_ai", "temporal"]
+
+    def test_non_codespace_effective_profiles_are_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Non-codespace environments keep the resolved profile list unchanged."""
+        monkeypatch.delenv("POSTHOG_DEVBOX", raising=False)
+
+        profiles = get_effective_docker_profiles(["temporal"], {"capture", "capture-ai"})
+
+        assert profiles == ["temporal"]
+
 
 class TestIntentMapLoading:
     """Test intent map loading from YAML."""
@@ -385,6 +411,7 @@ class TestIntentMapLoading:
         assert intent_map.capabilities["replay_storage"].docker_profiles == ["replay"]
         assert intent_map.capabilities["observability"].docker_profiles == ["observability"]
         assert intent_map.capabilities["dev_tools"].docker_profiles == ["dev_tools"]
+        assert intent_map.capabilities["coordination"].docker_profiles == ["etcd"]
 
 
 class TestMprocsRegistry:
@@ -484,3 +511,223 @@ class TestConfigPersistence:
             loaded = load_devenv_config(output_path)
 
             assert loaded is None
+
+
+class TestInfoProcess:
+    """Test info process generation."""
+
+    def _generate_with_intents(self, intents: list[str]) -> dict[str, dict]:
+        """Helper to generate mprocs config and return the procs dict."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(intents)
+        generator = MprocsGenerator(registry)
+        config = generator.generate(resolved)
+        return config.procs
+
+    def test_info_process_always_present(self) -> None:
+        """Generated config always contains info process regardless of intents."""
+        procs = self._generate_with_intents(["feature_flags"])
+        assert "info" in procs
+
+    def test_info_process_is_first(self) -> None:
+        """Info process is the first entry in the procs dict."""
+        procs = self._generate_with_intents(["error_tracking"])
+        assert next(iter(procs.keys())) == "info"
+
+    @parameterized.expand(
+        [
+            (["error_tracking"], {"error_tracking"}),
+            (["error_tracking", "session_replay"], {"error_tracking", "session_replay"}),
+            (["feature_flags"], {"feature_flags"}),
+        ]
+    )
+    def test_info_process_includes_product_names(self, intents: list[str], expected_products: set[str]) -> None:
+        """Info process shell includes product names."""
+        procs = self._generate_with_intents(intents)
+        shell = procs["info"]["shell"]
+        for product in expected_products:
+            assert product in shell
+
+    def test_info_process_includes_process_count(self) -> None:
+        """Info process shell includes the active process count."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["error_tracking"])
+        expected_count = len(resolved.units)
+
+        generator = MprocsGenerator(registry)
+        config = generator.generate(resolved)
+
+        shell = config.procs["info"]["shell"]
+        assert f"{expected_count} active" in shell
+
+    def test_info_process_reads_news_at_runtime(self) -> None:
+        """Info process shell reads news.txt at runtime, not at generation time."""
+        procs = self._generate_with_intents(["feature_flags"])
+        shell = procs["info"]["shell"]
+
+        assert "devenv/news.txt" in shell
+        assert "News:" in shell
+
+    def test_info_process_includes_commands(self) -> None:
+        """Info process shell includes useful commands."""
+        procs = self._generate_with_intents(["feature_flags"])
+        shell = procs["info"]["shell"]
+
+        assert "hogli dev:setup" in shell
+        assert "hogli dev:explain" in shell
+
+
+class TestCodespaceProcessHandling:
+    """Test codespace-specific process suppression and docker wiring."""
+
+    def test_should_skip_native_process_only_for_containerized_services(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only services with codespace compose replacements are skipped."""
+        monkeypatch.setenv("POSTHOG_DEVBOX", "1")
+
+        assert should_skip_native_process("capture", {"capture"}) is True
+        assert should_skip_native_process("cymbal", {"cymbal"}) is False
+
+    def test_generator_skips_containerized_processes_but_keeps_native_only_ones(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Codespaces omit replaced native processes from mprocs without dropping others."""
+        monkeypatch.setenv("POSTHOG_DEVBOX", "1")
+
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["error_tracking"])
+
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert "capture" not in config.procs
+        assert "cymbal" in config.procs
+        assert "docker-compose" in config.procs
+
+        docker_shell = config.procs["docker-compose"]["shell"]
+        assert "docker-compose.codespace.yml" in docker_shell
+        assert "--profile capture" in docker_shell
+
+
+class TestMprocsGeneratorRegression:
+    """Regression tests for generator behavior with the real intent map."""
+
+    def _generate_real_config(
+        self, intents: list[str], monkeypatch: pytest.MonkeyPatch, *, codespace: bool
+    ) -> tuple[set[str], dict[str, dict[str, object]]]:
+        if codespace:
+            monkeypatch.setenv("POSTHOG_DEVBOX", "1")
+        else:
+            monkeypatch.delenv("POSTHOG_DEVBOX", raising=False)
+
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(intents)
+        config = MprocsGenerator(registry).generate(resolved)
+        return resolved.units, config.procs
+
+    def test_non_codespace_product_analytics_keeps_native_core_services(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Default environments keep native core Rust services in mprocs."""
+        resolved_units, procs = self._generate_real_config(["product_analytics"], monkeypatch, codespace=False)
+
+        assert "capture" in resolved_units
+        assert "capture" in procs
+        assert "feature-flags" in procs
+        assert "property-defs-rs" in procs
+        assert "docker-compose" in procs
+
+        docker_shell = str(procs["docker-compose"]["shell"])
+        assert "docker-compose.codespace.yml" not in docker_shell
+        assert "--profile capture" not in docker_shell
+
+    def test_codespace_product_analytics_moves_core_services_to_docker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Codespaces suppress replaced native services and inject their compose wiring."""
+        resolved_units, procs = self._generate_real_config(["product_analytics"], monkeypatch, codespace=True)
+
+        assert "capture" in resolved_units
+        assert "capture" not in procs
+        assert "feature-flags" not in procs
+        assert "property-defs-rs" not in procs
+        assert "backend" in procs
+        assert "nodejs" in procs
+
+        docker_shell = str(procs["docker-compose"]["shell"])
+        assert "docker-compose.codespace.yml" in docker_shell
+        assert "--profile capture" in docker_shell
+
+    def test_codespace_error_tracking_keeps_native_only_services(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Codespaces should not suppress services that lack compose replacements."""
+        _, procs = self._generate_real_config(["error_tracking"], monkeypatch, codespace=True)
+
+        assert "cymbal" in procs
+        assert "embedding-worker" in procs
+        assert "capture" not in procs
+
+    def test_codespace_session_replay_injects_replay_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Codespaces add replay-capture via docker-compose profile instead of mprocs."""
+        _, procs = self._generate_real_config(["session_replay"], monkeypatch, codespace=True)
+
+        assert "capture-replay" not in procs
+        docker_shell = str(procs["docker-compose"]["shell"])
+        assert "--profile capture_replay" in docker_shell
+        assert "--profile temporal" in docker_shell
+
+
+class TestPersonhogEnvInjection:
+    """Test that personhog env vars are injected into backend when capability is active."""
+
+    def _make_fixtures(self, *, with_personhog: bool):
+        capabilities = {
+            "core_infra": Capability(name="core_infra", description="Core", requires=[]),
+            "flag_evaluation": Capability(name="flag_evaluation", description="Flags", requires=["core_infra"]),
+        }
+        intents = {
+            "feature_flags": Intent(name="feature_flags", description="Flags", capabilities=["flag_evaluation"]),
+        }
+        capability_units = {
+            "core_infra": ["docker-compose"],
+            "flag_evaluation": ["feature-flags"],
+        }
+
+        if with_personhog:
+            capabilities["personhog"] = Capability(name="personhog", description="PersonHog", requires=["core_infra"])
+            intents["personhog"] = Intent(name="personhog", description="PersonHog", capabilities=["personhog"])
+            capability_units["personhog"] = ["personhog-replica", "personhog-router"]
+
+        intent_map = IntentMap(
+            version="1.0",
+            capabilities=capabilities,
+            intents=intents,
+            always_required=["backend", "nodejs"],
+        )
+        registry = MockRegistry(capability_units)
+        registry._processes["backend"] = {"shell": "./bin/start-backend", "capability": ""}
+        registry._processes["nodejs"] = {"shell": "./bin/posthog-node", "capability": "event_ingestion"}
+        return intent_map, registry
+
+    @parameterized.expand(
+        [
+            (True, ["personhog"], True),
+            (False, ["feature_flags"], False),
+        ]
+    )
+    def test_personhog_env_injection(self, with_personhog: bool, intents: list[str], should_inject: bool) -> None:
+        intent_map, registry = self._make_fixtures(with_personhog=with_personhog)
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(intents)
+        config = MprocsGenerator(registry).generate(resolved)
+
+        for proc_name in ["backend", "nodejs"]:
+            if proc_name not in config.procs:
+                continue
+            shell = config.procs[proc_name]["shell"]
+            for var in ["PERSONHOG_ADDR", "PERSONHOG_ENABLED", "PERSONHOG_ROLLOUT_PERCENTAGE"]:
+                if should_inject:
+                    assert var in shell, f"{var} should be in {proc_name} shell"
+                else:
+                    assert var not in shell, f"{var} should not be in {proc_name} shell"

@@ -4,9 +4,9 @@ WorkOS Radar integration for bot/fraud detection during authentication flows.
 This module provides a client for the WorkOS Radar Attempts API to evaluate
 signup and signin attempts for potential fraud or bot activity.
 
-The integration operates in LOG-ONLY mode - it records the Radar decision as
-a PostHog event but does not actually block or challenge users based on the verdict.
-This allows evaluation of the potential impact before enabling enforcement.
+When bypass=False and Radar returns a BLOCK verdict, the attempt is rejected
+with a SuspiciousAttemptBlocked exception unless the email is on the Redis
+bypass list managed via the admin tool.
 """
 
 import time
@@ -20,13 +20,40 @@ from django.http import HttpRequest
 import requests
 import structlog
 import posthoganalytics
+from rest_framework.exceptions import APIException
 
+from posthog.redis import get_client
+from posthog.turnstile import create_challenge_nonce, validate_and_consume_nonce, verify_turnstile_token
 from posthog.utils import get_ip_address, get_short_user_agent
 
 logger = structlog.get_logger(__name__)
 
 WORKOS_RADAR_API_URL = "https://api.workos.com/radar/attempts"
 WORKOS_RADAR_TIMEOUT = 5.0
+WORKOS_RADAR_BYPASS_REDIS_KEY = "workos_radar_bypass_emails"
+
+
+class SuspiciousAttemptBlocked(APIException):
+    status_code = 403
+    default_detail = (
+        "Your account has been flagged for suspicious activity. Please contact support@posthog.com to resolve this."
+    )
+    default_code = "suspicious_attempt_blocked"
+    default_type = "authentication_error"
+
+
+class ChallengeRequired(APIException):
+    status_code = 428
+    default_detail = "Additional verification is required to complete signup."
+    default_code = "challenge_required"
+    default_type = "authentication_error"
+
+    def __init__(self, challenge_nonce: str, turnstile_site_key: str):
+        super().__init__()
+        self.extra = {
+            "challenge_nonce": challenge_nonce,
+            "turnstile_site_key": turnstile_site_key,
+        }
 
 
 class RadarAction(StrEnum):
@@ -57,18 +84,30 @@ def _get_raw_user_agent(request: HttpRequest) -> str:
     return request.headers.get("user-agent", "")
 
 
+def is_radar_bypass_email(email: str) -> bool:
+    return bool(get_client().sismember(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower()))
+
+
+def add_radar_bypass_email(email: str) -> None:
+    get_client().sadd(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
+
+
+def remove_radar_bypass_email(email: str) -> None:
+    get_client().srem(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
+
+
 def evaluate_auth_attempt(
     request: HttpRequest,
     email: str,
     action: RadarAction,
     auth_method: RadarAuthMethod,
     user_id: Optional[str] = None,
+    bypass: bool = False,
+    turnstile_token: str = "",
+    challenge_nonce: str = "",
 ) -> Optional[RadarVerdict]:
     """
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
-
-    This function operates in LOG-ONLY mode - it logs the Radar decision as a
-    PostHog event but always returns the verdict without blocking.
 
     Args:
         request: The Django/DRF request object
@@ -76,11 +115,28 @@ def evaluate_auth_attempt(
         action: Whether this is a signup or signin attempt
         auth_method: The authentication method (password or passkey)
         user_id: Optional user ID if the user already exists (for signin)
+        bypass: When True, blocking is skipped (log-only mode).
+            When False (default), and verdict is BLOCK, raises
+            SuspiciousAttemptBlocked (unless the email is in the Redis
+            bypass list).
+        turnstile_token: Cloudflare Turnstile response token (from a
+            previously issued challenge).
+        challenge_nonce: Single-use nonce from a previous ChallengeRequired
+            response.
 
     Returns:
         The Radar verdict (allow, challenge, block, error, or disabled)
+
+    Raises:
+        SuspiciousAttemptBlocked: When bypass=False and verdict is BLOCK and
+            the email is not in the bypass list.
+        ChallengeRequired: When verdict is CHALLENGE and no valid Turnstile
+            token was provided.
     """
     if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
+        return None
+
+    if action != RadarAction.SIGNUP:
         return None
 
     ip_address = get_ip_address(request)
@@ -97,6 +153,30 @@ def evaluate_auth_attempt(
     )
     duration_ms = (time.perf_counter() - start_time) * 1000
 
+    will_block = False
+    will_challenge = False
+    was_bypassed = False
+    was_challenge_completed = False
+
+    if not bypass and verdict == RadarVerdict.BLOCK:
+        if is_radar_bypass_email(email):
+            was_bypassed = True
+        else:
+            will_block = True
+
+    if not bypass and verdict == RadarVerdict.CHALLENGE:
+        if is_radar_bypass_email(email):
+            was_bypassed = True
+        elif turnstile_token and challenge_nonce:
+            if validate_and_consume_nonce(challenge_nonce, email, ip_address) and verify_turnstile_token(
+                turnstile_token, ip_address
+            ):
+                was_challenge_completed = True
+            else:
+                will_block = True
+        else:
+            will_challenge = True
+
     _log_radar_event(
         email=email,
         user_id=user_id,
@@ -106,7 +186,39 @@ def evaluate_auth_attempt(
         ip_address=ip_address,
         user_agent=short_user_agent,
         duration_ms=duration_ms,
+        was_blocked=will_block,
+        was_bypassed=was_bypassed,
+        was_challenged=will_challenge,
+        was_challenge_completed=was_challenge_completed,
     )
+
+    if will_block:
+        logger.warning(
+            "workos_radar_attempt_blocked",
+            action=action.value,
+            email_hash=_hash_email(email),
+        )
+        raise SuspiciousAttemptBlocked()
+
+    if will_challenge:
+        if not settings.CLOUDFLARE_TURNSTILE_SITE_KEY:
+            logger.error(
+                "workos_radar_challenge_no_site_key",
+                action=action.value,
+                email_hash=_hash_email(email),
+            )
+            raise SuspiciousAttemptBlocked()
+
+        nonce = create_challenge_nonce(email, ip_address)
+        logger.info(
+            "workos_radar_challenge_issued",
+            action=action.value,
+            email_hash=_hash_email(email),
+        )
+        raise ChallengeRequired(
+            challenge_nonce=nonce,
+            turnstile_site_key=settings.CLOUDFLARE_TURNSTILE_SITE_KEY,
+        )
 
     return verdict
 
@@ -188,6 +300,10 @@ def _log_radar_event(
     ip_address: str,
     user_agent: str,
     duration_ms: float,
+    was_blocked: bool = False,
+    was_bypassed: bool = False,
+    was_challenged: bool = False,
+    was_challenge_completed: bool = False,
 ) -> None:
     """
     Log the Radar decision as a PostHog event for analysis.
@@ -200,6 +316,10 @@ def _log_radar_event(
         "verdict": verdict.value,
         "would_challenge": verdict == RadarVerdict.CHALLENGE,
         "would_block": verdict == RadarVerdict.BLOCK,
+        "was_blocked": was_blocked,
+        "was_bypassed": was_bypassed,
+        "was_challenged": was_challenged,
+        "was_challenge_completed": was_challenge_completed,
         "is_error": verdict == RadarVerdict.ERROR,
         "ip_address_hash": hashlib.sha256(ip_address.encode()).hexdigest()[:16],
         "user_agent": user_agent,

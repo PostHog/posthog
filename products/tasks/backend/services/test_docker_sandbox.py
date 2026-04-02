@@ -5,7 +5,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.tasks.backend.services.docker_sandbox import DockerSandbox
-from products.tasks.backend.services.sandbox import SandboxConfig, SandboxStatus, SandboxTemplate, get_sandbox_class
+from products.tasks.backend.services.sandbox import (
+    ExecutionResult,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    get_sandbox_class,
+)
 
 
 def docker_available() -> bool:
@@ -144,6 +150,129 @@ class TestDockerSandboxUnit:
         assert result.exit_code == 0
         assert result.stdout == "hello world"
         assert result.stderr == ""
+
+    @pytest.mark.parametrize(
+        "repository",
+        [
+            "PostHog/posthog",
+            "org/repo-name",
+            "org/repo; echo hacked",
+            "org/repo$(whoami)",
+            "org'/repo",
+            "org/repo`id`",
+        ],
+    )
+    def test_clone_repository_command_escaping(self, repository):
+        import shlex
+
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository(repository, github_token="test-token")
+                command = mock_execute.call_args[0][0]
+
+                org, repo = repository.lower().split("/")
+                target_path = f"/tmp/workspace/repos/{org}/{repo}"
+                org_path = f"/tmp/workspace/repos/{org}"
+
+                assert shlex.quote(target_path) in command
+                assert shlex.quote(org_path) in command
+                assert shlex.quote(repo) in command
+
+    @pytest.mark.parametrize(
+        "repository,task_id,run_id,mode",
+        [
+            ("PostHog/posthog", "task-123", "run-456", "background"),
+            ("org/repo; echo hacked", "task-123", "run-456", "background"),
+            ("PostHog/posthog", "task; echo hacked", "run-456", "background"),
+            ("PostHog/posthog", "task-123", "run$(whoami)", "background"),
+            ("PostHog/posthog", "task-123", "run-456", "mode`id`"),
+        ],
+    )
+    def test_start_agent_server_command_escaping(self, repository, task_id, run_id, mode):
+        import shlex
+
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "_setup_agentsh"):
+                with patch.object(sandbox, "execute") as mock_execute:
+                    mock_execute.return_value = MagicMock(exit_code=0)
+                    with patch.object(sandbox, "_wait_for_health_check", return_value=True):
+                        sandbox.start_agent_server(repository, task_id, run_id, mode)
+
+                    command = mock_execute.call_args_list[0][0][0]
+
+                org, repo = repository.lower().split("/")
+                repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+                assert shlex.quote(repo_path) in command
+                assert shlex.quote(task_id) in command
+                assert shlex.quote(run_id) in command
+                assert shlex.quote(mode) in command
+
+    def test_start_agent_server_without_domains_skips_agentsh(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.side_effect = [
+                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+                ]
+                with patch.object(sandbox, "_setup_agentsh") as mock_setup_agentsh:
+                    sandbox.start_agent_server(
+                        "posthog/posthog",
+                        "task-123",
+                        "run-456",
+                        "background",
+                    )
+
+        mock_setup_agentsh.assert_not_called()
+        command = mock_execute.call_args_list[0][0][0]
+        assert "agentsh exec" not in command
+        assert "nohup" in command
+        assert "./node_modules/.bin/agent-server" in command
+
+    def test_start_agent_server_passes_allowed_domains(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.side_effect = [
+                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+                ]
+                with patch.object(sandbox, "_setup_agentsh") as mock_setup_agentsh:
+                    sandbox.start_agent_server(
+                        "posthog/posthog",
+                        "task-123",
+                        "run-456",
+                        "background",
+                        allowed_domains=["example.com"],
+                    )
+
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
+        command = mock_execute.call_args_list[0][0][0]
+        assert "--allowedDomains" in command
+        assert "agentsh exec" in command
+        assert "env -0 > /tmp/agent-env" in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

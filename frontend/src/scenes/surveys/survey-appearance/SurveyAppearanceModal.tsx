@@ -146,6 +146,7 @@ export function SurveyAppearanceModal({
     survey,
     selectedPageIndex,
     setSelectedPageIndex,
+    disabledReason,
 }: CommonProps): JSX.Element | null {
     const { setIsAppearanceModalOpen } = useActions(surveysLogic)
     const { surveysStylingAvailable, isAppearanceModalOpen } = useValues(surveysLogic)
@@ -167,6 +168,7 @@ export function SurveyAppearanceModal({
                 onClick={() => {
                     setIsAppearanceModalOpen(true)
                 }}
+                disabledReason={disabledReason || undefined}
             >
                 Full-screen survey editor
             </LemonButton>
@@ -184,6 +186,7 @@ export function SurveyAppearanceModal({
                             onAppearanceChange={onAppearanceChange}
                             validationErrors={validationErrors}
                             surveyType={survey.type}
+                            disabledReason={disabledReason}
                         />
                         <LemonDivider />
                         <SurveyColorsAppearance
@@ -192,6 +195,7 @@ export function SurveyAppearanceModal({
                             validationErrors={validationErrors}
                             customizeRatingButtons={hasRatingButtons}
                             customizePlaceholderText={hasPlaceholderText}
+                            disabledReason={disabledReason}
                         />
                     </div>
                     <SurveyPreview

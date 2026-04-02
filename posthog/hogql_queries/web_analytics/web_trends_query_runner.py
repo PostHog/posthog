@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 from posthog.schema import CachedWebTrendsQueryResponse, WebTrendsItem, WebTrendsQuery, WebTrendsQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.trends_pre_aggregated_query_builder import TrendsPreAggregatedQueryBuilder
@@ -68,8 +70,13 @@ class WebTrendsQueryRunner(WebAnalyticsQueryRunner[WebTrendsQueryResponse]):
     def run_query(self, query: ast.SelectQuery) -> Any:
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
+        hogql_query, _ = prepare_and_print_ast(
+            query,
+            context=HogQLContext(team=self.team, timings=self.timings, modifiers=self.modifiers),
+            dialect="hogql",
+        )
         hogql_runner = HogQLQueryRunner(
-            query={"kind": "HogQLASTQuery", "query": query},
+            query={"kind": "HogQLQuery", "query": hogql_query},
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,

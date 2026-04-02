@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
 
 import { App } from 'scenes/App'
@@ -203,7 +203,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const RecentRecordings: Story = {
     parameters: { pageUrl: sceneUrl(urls.replay()) },
 }
@@ -276,38 +276,45 @@ const manyRecordingsMock: MockSignature = (req) => {
     return [200, { has_next: false, results: generateManyRecordings(25), version }]
 }
 
-const filtersExpandedStory = (extraMocks: Record<string, any> = {}): StoryFn => {
-    const Story: StoryFn = () => {
-        useStorybookMocks({
-            get: {
-                '/api/users/@me/': userSeenReplayIntroMock,
-                ...extraMocks,
-            },
-        })
-        router.actions.push(sceneUrl(urls.replay(), { showFilters: true }))
-        return <App />
+const filtersExpandedStory = (extraMocks: Record<string, any> = {}): Story => {
+    return {
+        render: () => {
+            useStorybookMocks({
+                get: {
+                    '/api/users/@me/': userSeenReplayIntroMock,
+                    ...extraMocks,
+                },
+            })
+            router.actions.push(sceneUrl(urls.replay(), { showFilters: true }))
+            return <App />
+        },
     }
-    return Story
 }
 
-export const FiltersExpanded: StoryFn = filtersExpandedStory()
-FiltersExpanded.parameters = {
-    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+export const FiltersExpanded: Story = {
+    ...filtersExpandedStory(),
+    parameters: {
+        waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+    },
 }
 
-export const FiltersExpandedLotsOfResults: StoryFn = filtersExpandedStory({
-    '/api/environments/:team_id/session_recordings': manyRecordingsMock,
-})
-FiltersExpandedLotsOfResults.parameters = {
-    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+export const FiltersExpandedLotsOfResults: Story = {
+    ...filtersExpandedStory({
+        '/api/environments/:team_id/session_recordings': manyRecordingsMock,
+    }),
+    parameters: {
+        waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+    },
 }
 
-export const FiltersExpandedLotsOfResultsNarrow: StoryFn = filtersExpandedStory({
-    '/api/environments/:team_id/session_recordings': manyRecordingsMock,
-})
-FiltersExpandedLotsOfResultsNarrow.parameters = {
-    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
-    testOptions: {
-        viewport: { width: 568, height: 1024 },
+export const FiltersExpandedLotsOfResultsNarrow: Story = {
+    ...filtersExpandedStory({
+        '/api/environments/:team_id/session_recordings': manyRecordingsMock,
+    }),
+    parameters: {
+        waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+        testOptions: {
+            viewport: { width: 568, height: 1024 },
+        },
     },
 }

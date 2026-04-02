@@ -12,19 +12,17 @@ import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateMappingOption, OrganizationType } from '~/types'
 
-import type { BillingPeriodMarker } from './BillingLineGraph'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
-    canAccessBilling,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
+import type { BillingPeriodMarker } from './BillingLineGraph'
 import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
 import type { BillingFilters } from './types'
@@ -78,10 +76,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     key(({ dashboardItemId }) => dashboardItemId || 'global'),
     connect(() => ({
         values: [
-            organizationLogic,
-            ['currentOrganization'],
             billingLogic,
-            ['billing', 'billingPeriodUTC'],
+            ['billing', 'billingPeriodUTC', 'canAccessBilling', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
         ],
@@ -108,7 +104,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    if (!canAccessBilling(values.currentOrganization) || values.isHobby) {
+                    if (!values.canAccessBilling || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters

@@ -1,5 +1,6 @@
+export const PAGE_SIZE = 100
 export const NODE_WIDTH = 180
-export const NODE_HEIGHT = 70
+export const NODE_HEIGHT = 120
 
 export const TOP_HANDLE_POSITION = {
     x: NODE_WIDTH / 2,

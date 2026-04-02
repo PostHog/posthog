@@ -15,21 +15,27 @@ class InsightVariableSerializer(serializers.ModelSerializer):
 
         read_only_fields = ["id", "code_name", "created_by", "created_at"]
 
+    def validate(self, attrs):
+        variable_type = attrs.get("type", getattr(self.instance, "type", None))
+        if variable_type == InsightVariable.Type.LIST:
+            values = attrs.get("values", getattr(self.instance, "values", None))
+            if values is None:
+                attrs["values"] = []
+
+        return attrs
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
-        # Strips non alphanumeric values from name (other than spaces and underscores)
         validated_data["code_name"] = (
-            "".join(n for n in validated_data["name"] if n.isalnum() or n == " " or n == "_").replace(" ", "_").lower()
+            "".join(c for c in validated_data["name"] if c.isalnum() or c == " " or c == "_").replace(" ", "_").lower()
         )
 
-        count = InsightVariable.objects.filter(
-            team_id=self.context["team_id"], code_name=validated_data["code_name"]
-        ).count()
-
-        if count > 0:
-            raise ValidationError("Variable with name already exists")
+        if InsightVariable.objects.filter(
+            team_id=validated_data["team_id"], code_name=validated_data["code_name"]
+        ).exists():
+            raise ValidationError("Variable with this code name already exists")
 
         return InsightVariable.objects.create(**validated_data)
 

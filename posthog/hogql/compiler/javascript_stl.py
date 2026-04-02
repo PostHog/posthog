@@ -226,6 +226,10 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function decodeURLComponent (str) { return decodeURIComponent(str) }",
         [],
     ],
+    "tryDecodeURLComponent": [
+        "function tryDecodeURLComponent (str) { try { return decodeURIComponent(str) } catch { return null } }",
+        [],
+    ],
     "replaceOne": [
         "function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }",
         [],
@@ -1031,6 +1035,17 @@ function __setProperty(objectOrArray, key, value) {
     }
 }""",
         ["__isHogDate", "__isHogDateTime", "__toHogDate", "__toHogDateTime"],
+    ],
+    "JSONExtract": [
+        """function JSONExtract(obj, ...args) {
+    if (args.length < 1) { return null; }
+    try {
+        if (typeof obj === 'string') { obj = JSON.parse(obj); }
+    } catch (e) { return null; }
+    const path = args.length > 1 ? args.slice(0, -1) : [];
+    return __getNestedValue(obj, path, true) ?? null;
+}""",
+        ["__getNestedValue"],
     ],
     "JSONExtractArrayRaw": [
         """function JSONExtractArrayRaw(obj, ...path) {

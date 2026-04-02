@@ -1,5 +1,7 @@
 import { type ReactElement, useState } from 'react'
 
+import { EmptyState } from '@posthog/mosaic'
+
 import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
@@ -20,7 +22,7 @@ function prepareChartData(results: TrendsResultItem[]): {
         return { series: [], labels: [], maxValue: 0 }
     }
 
-    const labels = results[0]?.labels || results[0]?.days || []
+    const labels = results[0]?.days || results[0]?.labels || []
     let maxValue = 0
 
     const series = results.map((item, seriesIndex) => {
@@ -60,17 +62,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     const { series, labels, maxValue } = prepareChartData(results)
 
     if (!results || results.length === 0 || series.length === 0) {
-        return (
-            <div
-                style={{
-                    padding: '2rem',
-                    textAlign: 'center',
-                    color: 'var(--color-text-secondary, #6b7280)',
-                }}
-            >
-                No data available
-            </div>
-        )
+        return <EmptyState icon="chart" description="No data available" />
     }
 
     if (displayType === 'BoldNumber') {
@@ -81,14 +73,30 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+            <div
+                style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    marginBottom: '0.5rem',
+                }}
+            >
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
             {chartMode === 'bar' ? (
-                <BarChart series={series} labels={labels} maxValue={maxValue} />
+                <BarChart
+                    series={series}
+                    labels={labels}
+                    maxValue={maxValue}
+                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
+                />
             ) : (
-                <LineChart series={series} labels={labels} maxValue={maxValue} />
+                <LineChart
+                    series={series}
+                    labels={labels}
+                    maxValue={maxValue}
+                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
+                />
             )}
         </div>
     )

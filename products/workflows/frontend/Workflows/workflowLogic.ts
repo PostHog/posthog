@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -20,8 +20,15 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionTemplateType } from '~/types'
 
+import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
-import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
+import {
+    type HogFlow,
+    type HogFlowAction,
+    HogFlowActionValidationResult,
+    type HogFlowEdge,
+    type HogFlowSchedule,
+} from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
@@ -73,7 +80,7 @@ export const NEW_WORKFLOW: HogFlow = {
             type: 'continue',
         },
     ],
-    conversion: { window_minutes: 0, filters: [] },
+    conversion: { window_minutes: null, filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status: 'draft',
@@ -113,9 +120,12 @@ export function sanitizeWorkflow(
 }
 
 export const workflowLogic = kea<workflowLogicType>([
-    path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
+    path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
-    key((props) => `workflow-${props.id || 'new'}-${props.tabId}`),
+    key(
+        (props) =>
+            `workflow-${props.id || 'new'}-${props.tabId || 'default'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
+    ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
         actions: [workflowsLogic, ['archiveWorkflow']],
@@ -130,6 +140,10 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
+        setPendingSchedule: (schedule: { rrule: string; starts_at: string; timezone?: string } | null) => ({
+            schedule,
+        }),
+        setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
         triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string | null) => ({
             variables,
@@ -228,12 +242,14 @@ export const workflowLogic = kea<workflowLogicType>([
     forms(({ actions, values }) => ({
         workflow: {
             defaults: NEW_WORKFLOW,
-            errors: ({ name, actions }) => {
+            errors: ({ name, actions, status }) => {
                 const errors = {
                     name: !name ? 'Name is required' : undefined,
-                    actions: actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
-                        ? 'Some fields need work'
-                        : undefined,
+                    actions:
+                        status === 'active' &&
+                        actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
+                            ? 'Some fields need work'
+                            : undefined,
                 } as DeepPartialMap<HogFlow, ValidationErrorType>
 
                 return errors
@@ -247,8 +263,29 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         },
     })),
+    reducers({
+        schedules: [
+            [] as HogFlowSchedule[],
+            {
+                setSchedules: (_, { schedules }) => schedules,
+            },
+        ],
+        pendingSchedule: [
+            false as { rrule: string; starts_at: string; timezone?: string } | null | false,
+            {
+                setPendingSchedule: (_, { schedule }) => schedule,
+                setSchedules: () => false,
+                resetWorkflow: () => false,
+            },
+        ],
+    }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
+        currentSchedule: [(s) => [s.schedules], (schedules): HogFlowSchedule | null => schedules[0] ?? null],
+        hasUnsavedChanges: [
+            (s) => [s.workflowChanged, s.pendingSchedule],
+            (formChanged, pendingSchedule): boolean => formChanged || pendingSchedule !== false,
+        ],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
         edgesByActionId: [
             (s) => [s.workflow],
@@ -352,9 +389,17 @@ export const workflowLogic = kea<workflowLogicType>([
                         }
 
                         if (action.type === 'trigger') {
-                            // custom validation here that we can't easily express in the schema
-                            if (action.config.type === 'event') {
-                                if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
+                            const registeredTypes = getRegisteredTriggerTypes()
+                            const matchingType = registeredTypes.find((t) => t.matchConfig?.(action.config))
+
+                            if (matchingType?.validate) {
+                                const triggerValidation = matchingType.validate(action.config)
+                                if (triggerValidation && !triggerValidation.valid) {
+                                    result.valid = false
+                                    result.errors = { ...result.errors, ...triggerValidation.errors }
+                                }
+                            } else if (action.config.type === 'event') {
+                                if (!action.config.filters?.events?.length && !action.config.filters?.actions?.length) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one event or action is required',
@@ -385,6 +430,16 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
+        workflowHasActionErrors: [
+            (s) => [s.workflow, s.actionValidationErrorsById],
+            (
+                workflow: HogFlow,
+                actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+            ): boolean => {
+                return workflow.actions.some((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
+            },
+        ],
+
         triggerAction: [
             (s) => [s.workflow],
             (workflow): TriggerAction | null => {
@@ -401,15 +456,49 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         saveWorkflowPartial: async ({ workflow }) => {
-            actions.saveWorkflow({
-                ...values.workflow,
-                ...workflow,
-            })
+            const merged = { ...values.workflow, ...workflow }
+            if (merged.status === 'active' && values.workflowHasActionErrors) {
+                lemonToast.error('Fix all errors before enabling')
+                return
+            }
+            actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)
+            if (originalWorkflow.id && originalWorkflow.trigger?.type === 'batch') {
+                try {
+                    const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
+                    actions.setSchedules(schedules)
+                } catch {
+                    // Schedules are non-critical, don't block workflow loading
+                }
+            }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            // Save pending schedule changes
+            const workflowId = originalWorkflow.id
+            const pendingSchedule = values.pendingSchedule
+            const existingScheduleId = values.currentSchedule?.id
+            const hasScheduleChanges = pendingSchedule !== false && !!workflowId
+
+            if (hasScheduleChanges) {
+                try {
+                    if (pendingSchedule === null && existingScheduleId) {
+                        await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+                    } else if (pendingSchedule !== null && existingScheduleId) {
+                        await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
+                    } else if (pendingSchedule !== null) {
+                        await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                    }
+
+                    const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
+                    actions.setSchedules(schedules)
+                } catch (e) {
+                    console.error('Failed to save schedule', e)
+                    lemonToast.error('Workflow saved, but schedule could not be updated')
+                }
+            }
+
             const tasksToMarkAsCompleted: SetupTaskId[] = []
             lemonToast.success('Workflow saved')
             if (props.id === 'new' && originalWorkflow.id) {

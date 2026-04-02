@@ -15,10 +15,39 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.utils import ilike_matches, like_matches
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import GetFieldsTraverser, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.utils import UUIDT
+
+# Compare operators that require enable_analyzer=1 for JOIN ON conditions
+_NON_EQUALITY_JOIN_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+        ast.CompareOperationOp.NotEq,
+    }
+)
+
+
+class _HasNonEqualityComparison(TraversingVisitor):
+    """Traverses an expression tree to detect non-equality comparisons (>, >=, <, <=, !=)."""
+
+    found: bool = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op in _NON_EQUALITY_JOIN_OPS:
+            self.found = True
+            return  # no need to keep traversing
+        super().visit_compare_operation(node)
+
+
+def _join_constraint_has_non_equality(expr: ast.Expr) -> bool:
+    checker = _HasNonEqualityComparison()
+    checker.visit(expr)
+    return checker.found
 
 
 def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLContext) -> ast.Expr:
@@ -67,9 +96,10 @@ class ClickHousePrinter(HogQLPrinter):
         if len(self.stack) == 0 and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
-            settings = self._print_settings(self.settings)
-            if settings is not None:
-                response += " " + settings
+            merged = self._merge_table_top_level_settings(self.settings)
+            printed = self._print_settings(merged)
+            if printed is not None:
+                response += " " + printed
 
         return response
 
@@ -84,7 +114,23 @@ class ClickHousePrinter(HogQLPrinter):
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
             raise InternalHogQLError("Printing queries with a FROM clause is not permitted before type resolution")
+
+        # ClickHouse requires enable_analyzer=1 for non-equality JOIN ON conditions (e.g. >=, <=, >, <, !=).
+        # Without it, queries with such conditions fail with INVALID_JOIN_ON_EXPRESSION.
+        if (
+            node.constraint is not None
+            and node.constraint.constraint_type == "ON"
+            and _join_constraint_has_non_equality(node.constraint.expr)
+        ):
+            if self.settings is None:
+                self.settings = HogQLGlobalSettings(enable_analyzer=True)
+            elif self.settings.enable_analyzer is None:
+                self.settings = self.settings.model_copy(update={"enable_analyzer": True})
+
         return super().visit_join_expr(node)
+
+    def visit_values_query(self, node: ast.ValuesQuery):
+        raise QueryError("VALUES clause is not supported in ClickHouse dialect")
 
     def visit_and(self, node: ast.And):
         """
@@ -684,6 +730,39 @@ class ClickHousePrinter(HogQLPrinter):
 
         return None  # nothing to optimize
 
+    def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
+        traverser = GetFieldsTraverser(node)
+
+        for field in traverser.fields:
+            if isinstance(field.type, ast.FieldType):
+                field_name = str(field.chain[-1]) if field.chain else ""
+
+                # Check if field name is timestamp-like
+                if not (field_name == "timestamp" or field_name.endswith("_timestamp")):
+                    continue
+
+                table_type = field.type.table_type
+                while True:
+                    if isinstance(table_type, ast.TableType):
+                        table_name = table_type.table.to_printed_hogql()
+                        if table_name in (
+                            "events",
+                            "raw_sessions",
+                            "raw_sessions_v3",
+                            "session_replay_events",
+                            "raw_session_replay_events",
+                        ):
+                            return True
+                        break
+                    elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
+                        table_type = table_type.table_type
+                    elif isinstance(table_type, ast.TableAliasType):
+                        table_type = table_type.table_type
+                    else:
+                        break
+
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
@@ -702,6 +781,9 @@ class ClickHousePrinter(HogQLPrinter):
             return optimized_materialized_in
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
+        # indexHint() is purely an optimizer directive — its result is always true,
+        # so ifNull wrapping inside it is unnecessary and prevents index usage.
+        in_index_hint = any(isinstance(item, ast.Call) and item.name == "indexHint" for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
         nullable_left = self._is_nullable(node.left)
@@ -710,10 +792,10 @@ class ClickHousePrinter(HogQLPrinter):
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
         # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
-            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
-        ):
+        # Only apply this optimization to actual table timestamp fields, not CTE fields.
+        if self._is_events_table_timestamp_field(node.left) or self._is_events_table_timestamp_field(node.right):
             not_nullable = True
+
         hack_sessions_timestamp = (
             "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
             "raw_sessions_v3.session_timestamp",
@@ -789,7 +871,7 @@ class ClickHousePrinter(HogQLPrinter):
             return "1" if constant_lambda(node.left.value, node.right.value) else "0"
 
         # Special cases when we should not add any null checks
-        if in_join_constraint or self.dialect == "hogql" or not_nullable:
+        if in_join_constraint or self.dialect == "hogql" or not_nullable or in_index_hint:
             return op
 
         # Special optimization for "Eq" operator
@@ -858,6 +940,16 @@ class ClickHousePrinter(HogQLPrinter):
 
         return super().visit_call(node)
 
+    def visit_array_slice(self, node: ast.ArraySlice):
+        array_str = self.visit(node.array)
+        start_str = self.visit(node.start_expr) if node.start_expr is not None else "1"
+        if node.end_expr is None:
+            return f"arraySlice({array_str}, {start_str})"
+
+        end_str = self.visit(node.end_expr)
+        length_str = f"plus(minus({end_str}, {start_str}), 1)"
+        return f"arraySlice({array_str}, {start_str}, {length_str})"
+
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
 
@@ -905,6 +997,16 @@ class ClickHousePrinter(HogQLPrinter):
         return sql
 
     def _print_select_columns(self, columns):
+        def _alias_from_column_type(column: ast.Expr) -> str | None:
+            column_type = getattr(column, "type", None)
+            if isinstance(column_type, ast.FieldAliasType):
+                return column_type.alias
+            if isinstance(column_type, ast.FieldType):
+                return column_type.name
+            if isinstance(column_type, ast.ExpressionFieldType):
+                return column_type.name
+            return None
+
         # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
         found_aliases: dict[str, ast.Alias] = {}
         for alias in reversed(columns):
@@ -913,7 +1015,10 @@ class ClickHousePrinter(HogQLPrinter):
                     found_aliases[alias.alias] = alias
 
         columns_sql = []
+        used_aliases: set[str] = set()
         for column in columns:
+            printed_alias: str | None = None
+            dropped_hidden_alias = False
             if isinstance(column, ast.Alias):
                 # It's either a visible alias, or the last hidden alias with this name.
                 if found_aliases.get(column.alias) == column:
@@ -924,10 +1029,16 @@ class ClickHousePrinter(HogQLPrinter):
                     else:
                         # Always print visible aliases.
                         pass
+                    printed_alias = column.alias
                 else:
                     # Non-unique hidden alias. Skip.
+                    dropped_hidden_alias = True
                     column = column.expr
-            elif isinstance(column, ast.Call):
+
+            if printed_alias is None:
+                printed_alias = _alias_from_column_type(column)
+
+            if isinstance(column, ast.Call) and not dropped_hidden_alias:
                 with self.context.timings.measure("printer"):
                     column_alias = safe_identifier(
                         HogQLPrinter(
@@ -935,8 +1046,17 @@ class ClickHousePrinter(HogQLPrinter):
                             dialect="hogql",
                         ).visit(column)
                     )
-                column = ast.Alias(alias=column_alias, expr=column)
+                # ClickHouse rejects duplicate aliases for different expressions in the
+                # same SELECT. This can happen after "*" expansion if a subquery already
+                # exposes a generated expression name like `toDate(period_end)`.
+                if column_alias not in used_aliases:
+                    column = ast.Alias(alias=column_alias, expr=column)
+                    printed_alias = column_alias
+                else:
+                    printed_alias = None
             columns_sql.append(self.visit(column))
+            if printed_alias is not None:
+                used_aliases.add(printed_alias)
 
         return columns_sql
 
@@ -953,10 +1073,16 @@ class ClickHousePrinter(HogQLPrinter):
         if self.context.output_format and is_top_level_query and (not part_of_select_union or is_last_query_in_union):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
-        if node.settings is not None:
-            settings = self._print_settings(node.settings)
-            if settings is not None:
-                clauses.append(settings)
+        # When self.settings exists, table-level settings are merged in visit() instead
+        merged = (
+            self._merge_table_top_level_settings(node.settings)
+            if is_top_level_query and not self.settings
+            else node.settings
+        )
+        if merged is not None:
+            printed = self._print_settings(merged)
+            if printed is not None:
+                clauses.append(printed)
 
         return clauses
 

@@ -120,7 +120,7 @@ impl RawJavaFrame {
         self.get_ref().ok().map(|r| r.to_string())
     }
 
-    fn get_ref(&self) -> Result<OrChunkId<ProguardRef>, ProguardError> {
+    pub fn get_ref(&self) -> Result<OrChunkId<ProguardRef>, ProguardError> {
         self.map_id
             .as_ref()
             .map(|id| OrChunkId::chunk_id(id.clone()))
@@ -157,6 +157,7 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
             lang: "java".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             release: None,
@@ -184,7 +185,7 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             resolved_name: None,
             lang: "java".to_string(),
             resolved: false,
-            resolve_failure: Some(error.to_string()),
+            resolve_failure: Some(FrameError::from(error)),
             junk_drawer: None,
             code_variables: None,
             release: None,

@@ -4,11 +4,30 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import type { Context } from '@/tools/types'
 
-// Import bundled HTML at build time (wrangler Text rule)
-// Each UI app has its own HTML file in ui-apps-dist/src/ui-apps/apps/<name>/
-import demoHtml from '../../ui-apps-dist/src/ui-apps/apps/demo/index.html'
-import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
-import { DEMO_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constants'
+import { type UiAppKey, UI_APPS, URI_MAP } from './ui-apps.generated'
+
+/**
+ * Wrap a tool definition with UI app metadata.
+ * Works with both ToolBase and Tool (full definition with scopes/annotations).
+ */
+export function withUiApp<T extends { _meta?: unknown }>(appKey: UiAppKey, config: Omit<T, '_meta'>): T {
+    return { ...config, _meta: { ui: { resourceUri: URI_MAP[appKey] } } } as T
+}
+
+/**
+ * Build a minimal HTML stub that loads app JS+CSS from static assets.
+ */
+export function buildAppStubHtml(appDir: string, baseUrl: string): string {
+    return `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="${baseUrl}/ui-apps/${appDir}/styles.css">
+</head><body>
+<div id="root"></div>
+<script src="${baseUrl}/ui-apps/${appDir}/main.js"></script>
+</body></html>`
+}
 
 /**
  * Registers UI app resources with the MCP server.
@@ -18,46 +37,49 @@ import { DEMO_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constan
  * Each tool type can have its own visualization registered here.
  */
 export async function registerUiAppResources(server: McpServer, context: Context): Promise<void> {
-    registerDemoApp(server, context) // Demo app - used by demo-mcp-ui-apps tool for testing
-    registerQueryResultsApp(server, context) // Query Results - used by query-run and insight-query tools
-}
+    const baseUrl = context.env.MCP_APPS_BASE_URL
+    if (!baseUrl) {
+        console.warn('MCP_APPS_BASE_URL is not set — UI app resources will not be registered')
+        return
+    }
 
-function registerDemoApp(server: McpServer, context: Context): void {
-    registerApp(server, context, {
-        name: 'MCP Apps Demo',
-        uri: DEMO_RESOURCE_URI,
-        description: 'Demo app for testing MCP Apps SDK integration - displays SDK events and tool data',
-        html: demoHtml,
-    })
-}
-
-function registerQueryResultsApp(server: McpServer, context: Context): void {
-    registerApp(server, context, {
-        name: 'Query Results',
-        uri: QUERY_RESULTS_RESOURCE_URI,
-        description: 'Interactive visualization for PostHog query results (trends, funnels, tables)',
-        html: queryResultsHtml,
-    })
+    for (const app of UI_APPS) {
+        registerApp(server, context, app, baseUrl)
+    }
 }
 
 interface RegisterAppParams {
     name: string
     uri: string
     description: string
-    html: string
+    appDir: string
 }
 
-function registerApp(server: McpServer, context: Context, { name, uri, description, html }: RegisterAppParams): void {
+function registerApp(
+    server: McpServer,
+    context: Context,
+    { name, uri, description, appDir }: RegisterAppParams,
+    baseUrl: string
+): void {
     const analyticsBaseUrl = context.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
     const uiMetadata: McpUiResourceMeta = {}
+
+    const resourceDomains: string[] = [baseUrl]
+    const connectDomains: string[] = []
+
     if (analyticsBaseUrl) {
-        uiMetadata.csp = {
-            connectDomains: [analyticsBaseUrl],
-            resourceDomains: [analyticsBaseUrl],
-        }
+        connectDomains.push(analyticsBaseUrl)
+        resourceDomains.push(analyticsBaseUrl)
     }
 
-    server.registerResource(name, uri, { description: description }, async (uri) => {
+    uiMetadata.csp = {
+        connectDomains,
+        resourceDomains,
+    }
+
+    const html = buildAppStubHtml(appDir, baseUrl)
+
+    server.registerResource(name, uri, { mimeType: RESOURCE_MIME_TYPE, description }, async (uri) => {
         return {
             contents: [
                 {
@@ -70,6 +92,3 @@ function registerApp(server: McpServer, context: Context, { name, uri, descripti
         }
     })
 }
-
-// Re-export for tools to import
-export { QUERY_RESULTS_RESOURCE_URI, DEMO_RESOURCE_URI }

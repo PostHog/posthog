@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,21 +8,33 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    CodeInviteRedeemRequestApi,
+    ConnectionTokenResponseApi,
+    PaginatedSandboxEnvironmentListListApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
     PatchedTaskRunUpdateApi,
+    RepositoryReadinessResponseApi,
+    SandboxEnvironmentApi,
+    SandboxListParams,
     TaskApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
+    TaskRunCommandRequestApi,
+    TaskRunCommandResponseApi,
+    TaskRunCreateRequestApi,
     TaskRunDetailApi,
+    TaskRunRelayMessageRequestApi,
+    TaskRunRelayMessageResponseApi,
     TasksListParams,
+    TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
+    TasksRunsSessionLogsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -40,6 +53,91 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Check whether the authenticated user has access to PostHog Code.
+ * @summary Check access
+ */
+export const getCodeInvitesCheckAccessRetrieveUrl = () => {
+    return `/api/code/invites/check-access/`
+}
+
+export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Redeem a PostHog Code invite code to enable access.
+ * @summary Redeem invite code
+ */
+export const getCodeInvitesRedeemCreateUrl = () => {
+    return `/api/code/invites/redeem/`
+}
+
+export const codeInvitesRedeemCreate = async (
+    codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCodeInvitesRedeemCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const getSandboxListUrl = (projectId: string, params?: SandboxListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sandbox_environments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sandbox_environments/`
+}
+
+export const sandboxList = async (
+    projectId: string,
+    params?: SandboxListParams,
+    options?: RequestInit
+): Promise<PaginatedSandboxEnvironmentListListApi> => {
+    return apiMutator<PaginatedSandboxEnvironmentListListApi>(getSandboxListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const getSandboxCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/`
+}
+
+export const sandboxCreate = async (
+    projectId: string,
+    sandboxEnvironmentApi: NonReadonly<SandboxEnvironmentApi>,
+    options?: RequestInit
+): Promise<SandboxEnvironmentApi> => {
+    return apiMutator<SandboxEnvironmentApi>(getSandboxCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxEnvironmentApi),
+    })
+}
 
 /**
  * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
@@ -166,10 +264,17 @@ export const getTasksRunCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/run/`
 }
 
-export const tasksRunCreate = async (projectId: string, id: string, options?: RequestInit): Promise<TaskApi> => {
+export const tasksRunCreate = async (
+    projectId: string,
+    id: string,
+    taskRunCreateRequestApi: TaskRunCreateRequestApi,
+    options?: RequestInit
+): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCreateRequestApi),
     })
 }
 
@@ -336,6 +441,110 @@ export const tasksRunsArtifactsPresignCreate = async (
 }
 
 /**
+ * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, and close commands.
+ * @summary Send command to agent server
+ */
+export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/command/`
+}
+
+export const tasksRunsCommandCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunCommandRequestApi: TaskRunCommandRequestApi,
+    options?: RequestInit
+): Promise<TaskRunCommandResponseApi> => {
+    return apiMutator<TaskRunCommandResponseApi>(getTasksRunsCommandCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCommandRequestApi),
+    })
+}
+
+/**
+ * Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.
+ * @summary Get sandbox connection token
+ */
+export const getTasksRunsConnectionTokenRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/connection_token/`
+}
+
+export const tasksRunsConnectionTokenRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ConnectionTokenResponseApi> => {
+    return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
+ * @summary Relay run message to Slack
+ */
+export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/relay_message/`
+}
+
+export const tasksRunsRelayMessageCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunRelayMessageRequestApi: TaskRunRelayMessageRequestApi,
+    options?: RequestInit
+): Promise<TaskRunRelayMessageResponseApi> => {
+    return apiMutator<TaskRunRelayMessageResponseApi>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunRelayMessageRequestApi),
+    })
+}
+
+/**
+ * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
+ * @summary Get filtered task run session logs
+ */
+export const getTasksRunsSessionLogsRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/`
+}
+
+export const tasksRunsSessionLogsRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsSessionLogsRetrieveUrl(projectId, taskId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Update the output field for a task run (e.g., PR URL, commit SHA, etc.)
  * @summary Set run output
  */
@@ -356,16 +565,54 @@ export const tasksRunsSetOutputPartialUpdate = async (
 }
 
 /**
- * Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.
- * @summary Run video segment clustering
+ * API for managing task runs. Each run represents an execution of a task.
  */
-export const getTasksClusterVideoSegmentsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tasks/cluster_video_segments/`
+export const getTasksRunsStreamRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream/`
 }
 
-export const tasksClusterVideoSegmentsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getTasksClusterVideoSegmentsCreateUrl(projectId), {
+export const tasksRunsStreamRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
         ...options,
-        method: 'POST',
+        method: 'GET',
+    })
+}
+
+/**
+ * Get autonomy readiness details for a specific repository in the current project.
+ * @summary Get repository readiness
+ */
+export const getTasksRepositoryReadinessRetrieveUrl = (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/repository_readiness/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/repository_readiness/`
+}
+
+export const tasksRepositoryReadinessRetrieve = async (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams,
+    options?: RequestInit
+): Promise<RepositoryReadinessResponseApi> => {
+    return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

@@ -104,7 +104,7 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
                     unused time to your next invoice(s).
                 </p>
 
-                <AddonFeatureLossNotice product={currentPlatformAddon} />
+                <AddonFeatureLossNotice product={currentPlatformAddon} targetProduct={product} />
 
                 <LemonTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
 

@@ -36,7 +36,14 @@ describe('toolbar featureFlagsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        toolbarConfigLogic.build({ apiURL: 'http://localhost' }).mount()
+        toolbarConfigLogic
+            .build({
+                apiURL: 'http://localhost',
+                accessToken: 'test-token',
+                refreshToken: 'test-refresh',
+                clientId: 'test-client',
+            })
+            .mount()
         logic = flagsToolbarLogic()
         logic.mount()
         logic.actions.getUserFlags()
@@ -94,13 +101,16 @@ describe('toolbar featureFlagsLogic', () => {
     })
 
     it('expires the token if request failed', async () => {
-        global.fetch = jest.fn(() =>
-            Promise.resolve({
+        global.fetch = jest.fn((url: RequestInfo | URL) => {
+            if (typeof url === 'string' && url.includes('toolbar_oauth_refresh')) {
+                return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({}) } as any as Response)
+            }
+            return Promise.resolve({
                 ok: false,
                 status: 401,
                 json: () => Promise.resolve(featureFlags),
             } as any as Response)
-        )
+        })
         await expectLogic(logic, () => {
             logic.actions.getUserFlags()
         }).toDispatchActions([toolbarConfigLogic.actionTypes.tokenExpired])

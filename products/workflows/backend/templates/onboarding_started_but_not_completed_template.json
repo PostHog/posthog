@@ -93,7 +93,7 @@
     },
     "conversion": {
         "filters": [],
-        "window_minutes": 0
+        "window_minutes": null
     },
     "exit_condition": "exit_only_at_end",
     "edges": [

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
@@ -88,7 +90,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Ideally we would not need to store this separately, as the ID *is* the timestamp
     -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
     -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
-    session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+    session_timestamp DateTime64 {session_timestamp_modifier} fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
 
     -- ClickHouse will pick the latest value of distinct_id for the session
     -- this is fine since even if the distinct_id changes during a session
@@ -166,6 +168,12 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Event names - store unique event names seen in this session
     event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
 
+    -- Hosts - store unique hostnames seen in this session (extracted from $host property)
+    hosts SimpleAggregateFunction(groupUniqArrayArray({max_hosts}), Array(String)),
+
+    -- Emails - store unique emails seen in this session (extracted from person_properties.email)
+    emails SimpleAggregateFunction(groupUniqArrayArray({max_emails}), Array(String)),
+
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean)
 ) ENGINE = {engine}
@@ -190,7 +198,9 @@ def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
 
     -- Indexes
     INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-    INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
+    INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+    INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
+    INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
 ) ENGINE = {engine}""",
     )
 
@@ -209,7 +219,14 @@ SETTINGS {settings}
         table_name=SHARDED_RAW_SESSIONS_TABLE_V3(),
         engine=SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
         settings=SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3(),
+        session_timestamp_modifier="DEFAULT",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
+
+
+SESSION_V3_MAX_HOSTS_PER_SESSION = 100
+SESSION_V3_MAX_EMAILS_PER_SESSION = 10
 
 
 def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
@@ -265,8 +282,10 @@ PROPERTIES = f"""
             `gclid` Nullable(String),
             `gad_source` Nullable(String),
             `fbclid` Nullable(String),
+            `$host` Nullable(String),
 {f",{new_line}".join([f"            `{ad_id}` Nullable(String)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         )') as p,
+        JSONExtractString(person_properties, 'email') as _person_email,
         tupleElement(p, '$current_url') as _current_url,
         tupleElement(p, '$external_click_url') as _external_click_url,
         tupleElement(p, '$browser') as _browser,
@@ -296,10 +315,11 @@ PROPERTIES = f"""
         )) AS Map(String, String)) as ad_ids_map,
         CAST(arrayFilter(x -> x IS NOT NULL, [
 {f",{new_line}".join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
-        ]) AS Array(String)) as ad_ids_set"""
+        ]) AS Array(String)) as ad_ids_set,
+        tupleElement(p, '$host') as _host"""
 
 
-def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE"):
+def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
     return """
 WITH
     {PROPERTIES},
@@ -309,6 +329,7 @@ WITH
 SELECT
     team_id,
     `$session_id_uuid` AS session_id_v7,
+    {session_timestamp}
 
     initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
     initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
@@ -378,6 +399,12 @@ SELECT
     -- event names
     [event] as event_names,
 
+    -- hosts
+    if(_host IS NOT NULL AND _host != '', [_host], []) AS hosts,
+
+    -- emails
+    if(_person_email IS NOT NULL AND _person_email != '', [_person_email], []) AS emails,
+
     false as has_replay_events
 FROM {source_table} AS source_table
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
@@ -386,6 +413,9 @@ AND {where}
         source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
+        session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS session_timestamp,"
+        if include_session_timestamp
+        else "",
     )
 
 
@@ -420,7 +450,7 @@ MODIFY QUERY
     )
 
 
-def RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(source_table, where="TRUE"):
+def RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
     return """
 WITH
     min_first_timestamp as timestamp,
@@ -432,7 +462,7 @@ WITH
 SELECT
     team_id,
     toUInt128(accurateCast(session_id, 'UUID')) AS session_id_v7,
-
+    {session_timestamp}
     initializeAggregation('argMaxState', source_table.distinct_id, min_ts_64) as distinct_id,
     initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
 
@@ -500,6 +530,12 @@ SELECT
     -- event names
     CAST([], 'Array(String)') as event_names,
 
+    -- hosts
+    CAST([], 'Array(String)') as hosts,
+
+    -- emails
+    CAST([], 'Array(String)') as emails,
+
     -- replay
     true as has_replay_events
 FROM {source_table} AS source_table
@@ -508,6 +544,9 @@ AND {where}
     """.format(
         source_table=source_table,
         where=where,
+        session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))) AS session_timestamp,"
+        if include_session_timestamp
+        else "",
     )
 
 
@@ -525,52 +564,83 @@ AS
             where=where,
             # use sharded_session_replay_events, this means that the mv MUST be created on every data node
             source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_session_replay_events",
+            include_session_timestamp=True,
         ),
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where: str, shard_index: int, num_shards: int):
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(
+    where: str,
+    shard_index: Optional[int] = None,
+    num_shards: Optional[int] = None,
+    target_table: Optional[str] = None,
+    include_session_timestamp: bool = True,
+):
     """
     Generates SQL to backfill sessions from events.
 
     Each shard should call this with its own shard_index to only SELECT events
     that will end up on that shard, then INSERT directly to the local sharded table.
+
+    include_session_timestamp must be True when the target table has session_timestamp
+    as DEFAULT (sharded/writable tables), and False when it is MATERIALIZED (distributed).
     """
-    shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
-    combined_where = f"({where}) AND {shard_filter}"
+    if not target_table:
+        target_table = SHARDED_RAW_SESSIONS_TABLE_V3()
+    if shard_index is not None and num_shards is not None:
+        shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
+        combined_where = f"({where}) AND {shard_filter}"
+    else:
+        combined_where = where
 
     return """
 INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
+        target_table=target_table,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=combined_where,
             source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
+            include_session_timestamp=include_session_timestamp,
         ),
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where: str, shard_index: int, num_shards: int):
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
+    where: str,
+    shard_index: Optional[int] = None,
+    num_shards: Optional[int] = None,
+    target_table: Optional[str] = None,
+    include_session_timestamp: bool = True,
+):
     """
     Generates SQL to backfill sessions from session replay events.
 
     Each shard should call this with its own shard_index to only SELECT recordings
     that will end up on that shard, then INSERT directly to the local sharded table.
+
+    include_session_timestamp must be True when the target table has session_timestamp
+    as DEFAULT (sharded/writable tables), and False when it is MATERIALIZED (distributed).
     """
-    shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
-    combined_where = f"({where}) AND {shard_filter}"
+    if not target_table:
+        target_table = SHARDED_RAW_SESSIONS_TABLE_V3()
+    if shard_index is not None and num_shards is not None:
+        shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
+        combined_where = f"({where}) AND {shard_filter}"
+    else:
+        combined_where = where
 
     return """
 INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
+        target_table=target_table,
         select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
             where=combined_where,
             source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
+            include_session_timestamp=include_session_timestamp,
         ),
     )
 
@@ -588,6 +658,9 @@ def WRITABLE_RAW_SESSIONS_TABLE_SQL_V3():
             # shard via session_id so that all events for a session are on the same shard
             sharding_key="cityHash64(session_id_v7)",
         ),
+        session_timestamp_modifier="DEFAULT",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
 
 
@@ -601,6 +674,9 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3():
             data_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
             sharding_key="cityHash64(session_id_v7)",
         ),
+        session_timestamp_modifier="MATERIALIZED",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
 
 
@@ -679,6 +755,12 @@ SELECT
     -- event names
     groupUniqArrayArray(2000)(event_names) as event_names,
 
+    -- hosts
+    groupUniqArrayArray({SESSION_V3_MAX_HOSTS_PER_SESSION})(hosts) as hosts,
+
+    -- emails
+    groupUniqArrayArray({SESSION_V3_MAX_EMAILS_PER_SESSION})(emails) as emails,
+
     -- replay
     max(has_replay_events) as has_replay_events
 FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
@@ -728,24 +810,39 @@ LIMIT 20
 """
 
 
-def GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions: list[str]) -> str:
-    """Get the maximum number of active parts across specified partitions and all nodes.
+def GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(
+    partitions: list[str],
+    *,
+    table: str | None = None,
+    use_cluster: bool = True,
+) -> str:
+    """Get the maximum number of active parts across specified partitions.
+
+    ClickHouse's parts_to_throw_insert is per-partition, so this checks the max
+    active parts in any single (host, partition) combination.
 
     Args:
         partitions: List of partition names in YYYYMM format (e.g., ['202501', '202412'])
+        table: Table name to check. Defaults to the sharded raw sessions table.
+        use_cluster: If True, query across all cluster replicas. If False, query
+            only the local node's system.parts (useful for standalone/experimental nodes).
     """
     if not partitions:
         raise ValueError("partitions list cannot be empty")
     # Format partitions for SQL IN clause: ('202501', '202412')
     partitions_sql = ", ".join(f"'{p}'" for p in partitions)
+    table = table or SHARDED_RAW_SESSIONS_TABLE_V3()
+    parts_table = (
+        f"clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)" if use_cluster else "system.parts"
+    )
 
     return f"""
         SELECT coalesce(max(parts_count), 0), argMax(partition, parts_count), argMax(host, parts_count)
         FROM (
             SELECT hostName() as host, count() as parts_count, partition
-            FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
-            WHERE database = '{settings.CLICKHOUSE_DATABASE}'
-              AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
+            FROM {parts_table}
+            WHERE database = currentDatabase()
+              AND table = '{table}'
               AND partition IN ({partitions_sql})
               AND active = 1
             GROUP BY host, partition

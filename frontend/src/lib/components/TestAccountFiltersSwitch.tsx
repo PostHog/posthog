@@ -36,7 +36,12 @@ export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAcc
                         size="small"
                         noPadding
                         className="ml-1"
-                        onClick={() => openSettingsPanel({ settingId: 'internal-user-filtering' })}
+                        onClick={() =>
+                            openSettingsPanel({
+                                sectionId: 'project-product-analytics',
+                                settingId: 'internal-user-filtering',
+                            })
+                        }
                     />
                 </div>
             }

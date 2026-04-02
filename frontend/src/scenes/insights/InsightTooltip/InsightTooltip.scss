@@ -1,15 +1,12 @@
 .InsightTooltipWrapper {
     position: absolute;
     z-index: var(--z-graph-tooltip);
+    max-width: calc(100vw - 2rem);
     pointer-events: none;
-    transition: all 0.4s;
-
-    &:has(.ScrollableShadows--left),
-    &:has(.ScrollableShadows--right),
-    &:has(.ScrollableShadows--top),
-    &:has(.ScrollableShadows--bottom) {
-        pointer-events: auto;
-    }
+    transition:
+        left 0.05s linear,
+        top 0.05s linear,
+        opacity 0.2s;
 }
 
 .InsightTooltip {
@@ -64,7 +61,9 @@
             .datum-label-column {
                 display: flex;
                 align-items: center;
+                min-width: 0;
                 font-weight: 600;
+                overflow-wrap: anywhere;
             }
 
             .series-data-cell {

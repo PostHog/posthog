@@ -5,8 +5,8 @@ import uuid
 import inspect
 import datetime as dt
 import resource
-import threading
 from collections.abc import Callable, Generator, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
@@ -17,6 +17,7 @@ import freezegun
 from unittest.mock import patch
 
 from django.apps import apps
+from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections
@@ -28,6 +29,7 @@ from django.test.utils import CaptureQueriesContext
 # freezegun.FakeDateTime and pendulum don't play nicely otherwise
 import pendulum  # noqa F401
 import sqlparse
+from clickhouse_pool.pool import TooManyConnections
 from rest_framework.test import APITestCase as DRFTestCase
 from syrupy.extensions.amber import AmberSnapshotExtension
 
@@ -73,7 +75,7 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Action, Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models import Action, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -120,7 +122,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_MV_SQL,
@@ -132,7 +134,6 @@ from posthog.models.precalculated_events.sql import (
     PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
 )
 from posthog.models.project import Project
-from posthog.models.property_definition import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
 from posthog.models.raw_sessions.sessions_v2 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL,
@@ -168,22 +169,13 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.web_preaggregated.sql import (
-    DROP_WEB_BOUNCES_DAILY_SQL,
-    DROP_WEB_BOUNCES_HOURLY_SQL,
     DROP_WEB_BOUNCES_SQL,
     DROP_WEB_BOUNCES_STAGING_SQL,
-    DROP_WEB_STATS_DAILY_SQL,
-    DROP_WEB_STATS_HOURLY_SQL,
     DROP_WEB_STATS_SQL,
     DROP_WEB_STATS_STAGING_SQL,
-    WEB_BOUNCES_DAILY_SQL,
-    WEB_BOUNCES_HOURLY_SQL,
     WEB_BOUNCES_SQL,
-    WEB_STATS_COMBINED_VIEW_SQL,
-    WEB_STATS_DAILY_SQL,
-    WEB_STATS_HOURLY_SQL,
     WEB_STATS_SQL,
 )
 from posthog.models.web_preaggregated.team_selection import (
@@ -195,10 +187,19 @@ from posthog.models.web_preaggregated.team_selection import (
 )
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.models.property_definition import (
+    DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
+    PROPERTY_DEFINITIONS_TABLE_SQL,
+)
 
 # Make sure freezegun ignores our utils class that times functions
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
@@ -254,6 +255,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+
+    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    query = re.sub(
+        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
+        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        query,
+    )
 
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
@@ -679,6 +687,19 @@ class PostHogTestCase(SimpleTestCase):
         if preheader:
             self.assertIn(preheader, html_message)
 
+    @staticmethod
+    def ensure_url_patterns_loaded():
+        """Force Django's lazy URL pattern loading with current (default) settings.
+
+        Call this before any @override_settings that changes values used at
+        class-definition time in view modules (e.g. E2E_TESTING). Otherwise,
+        the first HTTP request under the override will import those modules
+        with the wrong settings values baked into class attributes.
+        """
+        from django.urls import get_resolver
+
+        _ = get_resolver().url_patterns
+
     @contextmanager
     def is_cloud(self, value: bool):
         with self.settings(CLOUD_DEPLOYMENT="US" if value else None):
@@ -830,6 +851,42 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
                 call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
+class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
+    """
+    Like NonAtomicBaseTest but uses TRUNCATE without RESTART IDENTITY, so PG
+    sequences keep incrementing across tests. Useful when ClickHouse data from
+    earlier tests is scoped by auto-incrementing IDs (e.g. team_id) and you
+    need later tests to get fresh, non-overlapping values.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
+
+    def _fixture_teardown(self):
+        for db_name in self._databases_names(include_mirrors=False):
+            conn = connections[db_name]
+            with conn.cursor() as cursor:
+                if db_name in ("persons_db_writer", "persons_db_reader"):
+                    cursor.execute("""
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                        AND tablename NOT LIKE 'pg_%'
+                        AND tablename NOT LIKE '_sqlx_%'
+                        AND tablename NOT LIKE '_persons_migrations'
+                    """)
+                else:
+                    cursor.execute("""
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                        AND tablename NOT LIKE 'pg_%'
+                        AND tablename NOT LIKE 'django_%'
+                    """)
+                tables = [row[0] for row in cursor.fetchall()]
+                if tables:
+                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
+
+
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
@@ -954,7 +1011,9 @@ def cleanup_materialized_columns():
     optionally_drop("groups")
 
 
-def get_index_from_explain(query: str, index_name: str) -> dict | None:
+def get_index_from_explain(
+    query: str, index_name: str, *, placeholder_values: dict[str, str] | None = None
+) -> dict | None:
     """
     Run EXPLAIN PLAN on a query and extract info for the given index name.
 
@@ -967,8 +1026,9 @@ def get_index_from_explain(query: str, index_name: str) -> dict | None:
     * It does not go anywhere near real users or their inputs
     """
     # Substitute HogQL placeholders with dummy values for EXPLAIN
-    query = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", query)
-    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}")
+    if not placeholder_values:
+        query = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", query)
+    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}", placeholder_values)
     plan_json = json.loads(explain_result[0][0])
 
     # Uncomment this to debug whether your expected index actually exists
@@ -1269,6 +1329,17 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
 
 
 def flush_persons_and_events():
+    """
+    Flush any created persons and events to Clickhouse
+
+    In general, you do not need to call this function directly in tests, as you are most likely interacting with
+    clickhouse via sync_execute or execute_hogql_query. Both of these call flush_persons_and_events() internally in TEST
+    environments.
+
+    LLMs especially love to add this to test files that don't need it. If you are an LLM, do not add this on your first
+    pass of writing a test. Only consider adding it after the test has failed, and you think that lack of flushing is
+    the cause.
+    """
     person_mapping = {}
     if len(persons_cache_tests) > 0:
         person_mapping = bulk_create_persons(persons_cache_tests)
@@ -1403,48 +1474,32 @@ class ClickhouseTestMixin(QueryMatchingTest):
             yield queries
 
 
-@contextmanager
-def failhard_threadhook_context():
-    """
-    Context manager to ensure that exceptions raised by threads are treated as a
-    test failure.
-    """
-
-    def raise_hook(args: threading.ExceptHookArgs):
-        """Capture exceptions from threads and raise them as AssertionError"""
-        exc = args.exc_value
-        if exc is None:
-            return
-
-        # Filter out expected Kafka table errors during test setup
-        if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
-            return  # Silently ignore expected Kafka table errors
-
-        # For other exceptions, raise as AssertionError to fail tests
-        raise AssertionError from exc  # Must be an AssertionError to fail tests
-
-    old_hook, threading.excepthook = threading.excepthook, raise_hook
-    try:
-        yield old_hook
-    finally:
-        assert threading.excepthook is raise_hook
-        threading.excepthook = old_hook
-
-
 def run_clickhouse_statement_in_parallel(statements: list[str]):
-    jobs = []
-    with failhard_threadhook_context():
-        for item in statements:
-            thread = threading.Thread(target=sync_execute, args=(item,))
-            jobs.append(thread)
+    def _execute_with_retry(stmt: str) -> None:
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                sync_execute(stmt)
+                return
+            except TooManyConnections:
+                if attempt + 1 == max_attempts:
+                    raise
+                time.sleep(0.1 * (2**attempt))
 
-        # Start the threads (i.e. calculate the random number lists)
-        for j in jobs:
-            j.start()
+    with ThreadPoolExecutor(max_workers=settings.CLICKHOUSE_CONN_POOL_MAX) as pool:
+        futures = [pool.submit(_execute_with_retry, stmt) for stmt in statements]
 
-        # Ensure all of the threads have finished
-        for j in jobs:
-            j.join()
+        exceptions: list[BaseException] = []
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as exc:
+                if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
+                    continue
+                exceptions.append(exc)
+
+        if exceptions:
+            raise exceptions[0]
 
 
 def reset_clickhouse_database() -> None:
@@ -1479,13 +1534,10 @@ def reset_clickhouse_database() -> None:
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
             DROP_WEB_STATS_SQL(),
             DROP_WEB_BOUNCES_SQL(),
-            DROP_WEB_STATS_DAILY_SQL(),
-            DROP_WEB_BOUNCES_DAILY_SQL(),
-            DROP_WEB_STATS_HOURLY_SQL(),
-            DROP_WEB_BOUNCES_HOURLY_SQL(),
             DROP_WEB_STATS_STAGING_SQL(),
             DROP_WEB_BOUNCES_STAGING_SQL(),
             DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
@@ -1523,10 +1575,6 @@ def reset_clickhouse_database() -> None:
             SESSIONS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-            WEB_BOUNCES_DAILY_SQL(),
-            WEB_BOUNCES_HOURLY_SQL(),
-            WEB_STATS_DAILY_SQL(),
-            WEB_STATS_HOURLY_SQL(),
             WEB_STATS_SQL(),
             WEB_BOUNCES_SQL(),
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
@@ -1550,6 +1598,7 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),
@@ -1575,7 +1624,6 @@ def reset_clickhouse_database() -> None:
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
             CUSTOM_METRICS_VIEW(include_counters=True),
-            WEB_STATS_COMBINED_VIEW_SQL(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),

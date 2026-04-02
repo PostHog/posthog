@@ -6,8 +6,8 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -54,7 +54,11 @@ export function DestinationsScene(): JSX.Element {
             key: 'all',
             label: 'All destinations',
             content: (
-                <DataPipelinesHogFunctions kind="destination" additionalKinds={['site_destination']} action={action} />
+                <DataPipelinesHogFunctions
+                    kind="destination"
+                    additionalKinds={['site_destination', 'internal_destination']}
+                    action={action}
+                />
             ),
         },
         {

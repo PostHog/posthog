@@ -1,20 +1,52 @@
 import { Message } from 'node-rdkafka'
 
+import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { Team } from '../../types'
-import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
-import { PipelineConfig } from '../pipelines/result-handling-pipeline'
+import { TeamManager } from '../../utils/team-manager'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
+import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { AI_EVENT_TYPES } from '../ai'
+import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
+import { IngestionWarningsOutput } from '../common/outputs'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
+import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import {
-    PerEventProcessingConfig,
-    PerEventProcessingInput,
-    createPerEventProcessingSubpipeline,
-} from './per-event-processing-subpipeline'
+    ClientIngestionWarningSubpipelineInput,
+    createClientIngestionWarningSubpipeline,
+} from './client-ingestion-warning-subpipeline'
+import { EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
+import { HeatmapSubpipelineInput, createHeatmapSubpipeline } from './heatmap-subpipeline'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    HeatmapsOutput,
+    PersonDistinctIdsOutput,
+    PersonsOutput,
+} from './outputs'
 
-export type PerDistinctIdPipelineInput = PerEventProcessingInput
+export type PerDistinctIdPipelineInput = EventSubpipelineInput &
+    HeatmapSubpipelineInput &
+    ClientIngestionWarningSubpipelineInput &
+    AiEventSubpipelineInput
 
-export interface PerDistinctIdPipelineConfig extends PerEventProcessingConfig {
-    dlqTopic: string
-    promiseScheduler: PromiseScheduler
+export interface PerDistinctIdPipelineConfig {
+    options: EventPipelineRunnerOptions
+    outputs: IngestionOutputs<
+        EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+    >
+    splitAiEventsConfig: SplitAiEventsStepConfig
+    teamManager: TeamManager
+    groupTypeManager: GroupTypeManager
+    hogTransformer: HogTransformerService
+    personsStore: PersonsStore
+    groupStore: BatchWritingGroupStore
+    groupId: string
+    topHog: TopHogWrapper
 }
 
 export interface PerDistinctIdPipelineContext {
@@ -22,28 +54,77 @@ export interface PerDistinctIdPipelineContext {
     team: Team
 }
 
-export function createPerDistinctIdPipeline<
-    TInput extends PerDistinctIdPipelineInput,
-    TContext extends PerDistinctIdPipelineContext,
->(builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>, config: PerDistinctIdPipelineConfig) {
-    const { kafkaProducer, dlqTopic, promiseScheduler } = config
+type EventBranch = 'client_ingestion_warning' | 'heatmap' | 'ai' | 'event'
 
-    const pipelineConfig: PipelineConfig = {
-        kafkaProducer,
-        dlqTopic,
-        promiseScheduler,
-    }
+const EVENT_BRANCH_MAP = new Map<string, EventBranch>([
+    ['$$client_ingestion_warning', 'client_ingestion_warning'],
+    ['$$heatmap', 'heatmap'],
+    ...[...AI_EVENT_TYPES].map((t): [string, EventBranch] => [t, 'ai']),
+])
 
-    return (
-        builder
-            .messageAware((b) =>
-                b
-                    .teamAware((b) => b.sequentially((e) => createPerEventProcessingSubpipeline(e, config)))
-                    .handleIngestionWarnings(kafkaProducer)
-            )
-            .handleResults(pipelineConfig)
-            .handleSideEffects(promiseScheduler, { await: false })
-            // We synchronize once again to ensure we return all events in one batch.
-            .gather()
+function classifyEvent(input: PerDistinctIdPipelineInput): EventBranch {
+    return EVENT_BRANCH_MAP.get(input.event.event) ?? 'event'
+}
+
+export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput, TContext>(
+    builder: StartPipelineBuilder<TInput, TContext>,
+    config: PerDistinctIdPipelineConfig
+): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
+    const {
+        options,
+        outputs,
+        splitAiEventsConfig,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        personsStore,
+        groupStore,
+        groupId,
+        topHog,
+    } = config
+
+    return builder.retry(
+        (e) =>
+            e.branching(classifyEvent, (branches) =>
+                branches
+                    .branch('client_ingestion_warning', (b) => createClientIngestionWarningSubpipeline(b))
+                    .branch('heatmap', (b) =>
+                        createHeatmapSubpipeline(b, {
+                            options,
+                            outputs,
+                            teamManager,
+                            groupTypeManager,
+                            groupStore,
+                        })
+                    )
+                    .branch('ai', (b) =>
+                        createAiEventSubpipeline(b, {
+                            options,
+                            outputs,
+                            teamManager,
+                            groupTypeManager,
+                            hogTransformer,
+                            personsStore,
+                            groupStore,
+                            splitAiEventsConfig,
+                            groupId,
+                            topHog,
+                        })
+                    )
+                    .branch('event', (b) =>
+                        createEventSubpipeline(b, {
+                            options,
+                            outputs,
+                            teamManager,
+                            groupTypeManager,
+                            hogTransformer,
+                            personsStore,
+                            groupStore,
+                            groupId,
+                            topHog,
+                        })
+                    )
+            ),
+        { tries: 3, sleepMs: 100 }
     )
 }

@@ -4,18 +4,18 @@ import { Form } from 'kea-forms'
 import { useState } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import {
     CohortCriteriaRowBuilder,
     CohortCriteriaRowBuilderProps,
 } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { BehavioralEventType } from '~/types'
 
-const meta: Meta<typeof CohortCriteriaRowBuilder> = {
+const meta: Meta<CohortCriteriaRowBuilderProps> = {
     title: 'Filters/Cohort Filters/Row Builder',
     component: CohortCriteriaRowBuilder,
     decorators: [taxonomicFilterMocksDecorator],

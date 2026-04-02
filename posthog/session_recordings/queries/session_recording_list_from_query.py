@@ -119,6 +119,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         query: RecordingsQuery,
         hogql_query_modifiers: HogQLQueryModifiers | None = None,
         allow_event_property_expansion: bool = False,
+        max_execution_time: int | None = None,
         **_,
     ):
         # TRICKY: we need to make sure we init test account filters only once,
@@ -173,6 +174,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
+        self._max_execution_time = max_execution_time
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -185,7 +187,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 team=self._team,
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
-                settings=HogQLGlobalSettings(allow_experimental_analyzer=None),  # Using global ClickHouse setting
+                settings=HogQLGlobalSettings(
+                    enable_analyzer=None,
+                    **(
+                        {"max_execution_time": self._max_execution_time} if self._max_execution_time is not None else {}
+                    ),
+                ),
             )
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
@@ -294,9 +301,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_queries = ReplayFiltersEventsSubQuery(
+        events_sub_query_builder = ReplayFiltersEventsSubQuery(
             self._team, self._query, self._allow_event_property_expansion
-        ).get_queries_for_session_id_matching()
+        )
+        events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
             optional_exprs.append(
                 ast.CompareOperation(
@@ -306,6 +314,19 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     op=ast.CompareOperationOp.GlobalIn,
                     left=ast.Field(chain=["s", "session_id"]),
                     right=events_sub_query,
+                )
+            )
+
+        # Negative property filters (NOT_ICONTAINS, IS_NOT, etc.) are handled via a blocklist:
+        # find the small set of sessions that MATCH the positive form, then exclude them.
+        # This avoids scanning all event-sessions which can exceed the LIMIT on high-traffic teams.
+        negative_blocklist = events_sub_query_builder.get_negative_blocklist_query()
+        if negative_blocklist:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GlobalNotIn,
+                    left=ast.Field(chain=["s", "session_id"]),
+                    right=negative_blocklist,
                 )
             )
 

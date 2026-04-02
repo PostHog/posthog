@@ -20,7 +20,7 @@ from posthog.schema import (
     RecordingsQuery,
 )
 
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -277,7 +277,7 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             elif f.get("key") == "snapshot_source" and f.get("value"):
                 having_predicates.append(f)
             else:
-                properties.append(f)
+                having_predicates.append(asRecordingPropertyFilter(f))
         else:
             # For any other property filter
             properties.append(f)
@@ -401,10 +401,13 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     query: RecordingsQuery | None = None
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
+            # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
             redis_client = get_client()
 
-            tag_queries(product=Product.REPLAY, team_id=playlist.team.pk, replay_playlist_id=playlist_id)
+            tag_queries(
+                product=Product.REPLAY, feature=Feature.QUERY, team_id=playlist.team.pk, replay_playlist_id=playlist_id
+            )
 
             existing_value = redis_client.getex(
                 name=f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", ex=THIRTY_SIX_HOURS_IN_SECONDS

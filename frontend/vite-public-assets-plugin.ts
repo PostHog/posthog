@@ -103,6 +103,16 @@ function copyPublicAssets(): void {
     } else {
         console.warn('⚠️ Public directory does not exist')
     }
+
+    // Copy hedgehog-mode assets to dist
+    const hedgehogModeSrc = resolve('.', 'node_modules', '@posthog', 'hedgehog-mode', 'assets')
+    const hedgehogModeDest = resolve('.', 'dist', 'hedgehog-mode')
+    if (existsSync(hedgehogModeSrc)) {
+        copyDirectory(hedgehogModeSrc, hedgehogModeDest)
+        console.info('✅ Copied hedgehog-mode assets to dist/hedgehog-mode')
+    } else {
+        console.warn('⚠️ Hedgehog-mode assets directory does not exist')
+    }
 }
 
 export function publicAssetsPlugin(): Plugin {

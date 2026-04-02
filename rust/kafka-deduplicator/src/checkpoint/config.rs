@@ -1,14 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Default maximum age (seconds) of a local metadata.json before the local store
+/// is considered stale and the service falls back to S3 import. 2 hours.
+pub const DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS: u64 = 7200;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointConfig {
     /// How often to trigger a checkpoint attempt for all locally-hosted partition stores
     pub checkpoint_interval: Duration,
 
     /// How many incremental checkpoint attempts to perform between full
-    /// uploads of all checkpoint files. If 0, we allways perform a
-    /// full upload on every attempt
+    /// uploads of all checkpoint files. If 0, we always perform a full upload on every attempt.
     pub checkpoint_full_upload_interval: u32,
 
     /// Base directory for local checkpoints
@@ -81,6 +84,12 @@ pub struct CheckpointConfig {
     /// This includes listing checkpoints, downloading metadata, and downloading all files.
     /// Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
     pub checkpoint_partition_import_timeout: Duration,
+
+    /// Maximum age of a local metadata.json before the local store is considered stale
+    /// and the service falls back to S3 import. Separate from checkpoint_import_window_hours
+    /// (the S3 listing window): local staleness must be tighter because if a pod was down
+    /// for longer than this, another pod likely consumed the partition and local data is behind.
+    pub local_checkpoint_max_staleness: Duration,
 }
 
 impl Default for CheckpointConfig {
@@ -106,9 +115,12 @@ impl Default for CheckpointConfig {
             s3_attempt_timeout: Duration::from_secs(20),
             s3_max_retries: 3,
             checkpoint_import_attempt_depth: 10,
-            max_concurrent_checkpoint_file_downloads: 25,
-            max_concurrent_checkpoint_file_uploads: 25,
+            max_concurrent_checkpoint_file_downloads: 1000,
+            max_concurrent_checkpoint_file_uploads: 1000,
             checkpoint_partition_import_timeout: Duration::from_secs(240),
+            local_checkpoint_max_staleness: Duration::from_secs(
+                DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
+            ),
         }
     }
 }

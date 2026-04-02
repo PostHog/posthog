@@ -318,7 +318,12 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         organization = self.create_organization("Logo Test Org")
         org = Organization.objects.get(id=organization["id"])
 
-        media = UploadedMedia.objects.create(media_location="test-logo.png", team_id=self.team.id, created_by=self.user)
+        from posthog.models.team.team import Team
+
+        team_in_org = Team.objects.create(organization=org, name="Logo Test Team")
+        media = UploadedMedia.objects.create(
+            media_location="test-logo.png", team_id=team_in_org.id, created_by=self.user
+        )
 
         response = self.client.patch(
             f"/api/organizations/{org.id}/",

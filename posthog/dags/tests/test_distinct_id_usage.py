@@ -14,6 +14,7 @@ from posthog.dags.distinct_id_usage import (
     generate_csv_report,
     get_last_successful_run_time,
     query_distinct_id_usage,
+    send_alerts,
     truncate_distinct_id,
 )
 from posthog.models.distinct_id_usage.sql import DATA_TABLE_NAME
@@ -168,6 +169,26 @@ class TestMonitoringResultsDataclasses:
         assert item.event_count == 15000
 
 
+class TestSendAlerts:
+    def test_skips_alert_when_all_results_empty(self):
+        """Verify that no Slack message is sent when all results are empty."""
+        empty_results = MonitoringResults(
+            high_usage=[],
+            high_cardinality=[],
+            bursts=[],
+            lookback_start=datetime(2025, 1, 15, tzinfo=UTC),
+        )
+
+        context = dagster.build_op_context()
+        mock_slack = mock.MagicMock()
+
+        # Call send_alerts with empty results
+        send_alerts(context, empty_results, mock_slack)
+
+        # Verify that get_client was never called (no Slack message sent)
+        mock_slack.get_client.assert_not_called()
+
+
 def test_query_distinct_id_usage(cluster: ClickhouseCluster) -> None:
     """Integration test for the query_distinct_id_usage op."""
     now = datetime.now(tz=UTC).replace(second=0, microsecond=0)
@@ -177,14 +198,14 @@ def test_query_distinct_id_usage(cluster: ClickhouseCluster) -> None:
         Query(
             f"INSERT INTO {DATA_TABLE_NAME} (team_id, distinct_id, minute, event_count) VALUES",
             [
-                # High usage: one distinct_id with 80% of team's events
-                (1, "high_usage_user", now, 800),
-                (1, "normal_user_1", now, 100),
-                (1, "normal_user_2", now, 100),
+                # High usage: one distinct_id with 80% of team's events (120k events)
+                (1, "high_usage_user", now, 120000),
+                (1, "normal_user_1", now, 15000),
+                (1, "normal_user_2", now, 15000),
                 # High cardinality team: many unique distinct_ids
                 *[(2, f"user_{i}", now, 1) for i in range(100)],
-                # Burst event: high events in single minute
-                (3, "burst_user", now, 15000),
+                # Burst event: high events in single minute (150k events)
+                (3, "burst_user", now, 150000),
             ],
         )
     ).result()
@@ -192,9 +213,10 @@ def test_query_distinct_id_usage(cluster: ClickhouseCluster) -> None:
     # Create config with thresholds that will match our test data
     config = DistinctIdUsageMonitoringConfig(
         high_usage_percentage_threshold=70,  # 80% > 70%
-        high_usage_min_events_threshold=500,  # 1000 total events > 500
+        high_usage_min_events_threshold=50000,  # 150k total events > 50k
+        high_usage_distinct_id_min_events=100000,  # 120k events > 100k
         high_cardinality_threshold=50,  # 100 > 50
-        burst_threshold=10000,  # 15000 > 10000
+        burst_threshold=100000,  # 150k > 100k
         default_lookback_hours=2,
     )
 
@@ -222,4 +244,4 @@ def test_query_distinct_id_usage(cluster: ClickhouseCluster) -> None:
     burst = next((b for b in results.bursts if b.distinct_id == "burst_user"), None)
     assert burst is not None
     assert burst.team_id == 3
-    assert burst.event_count >= 10000
+    assert burst.event_count >= 100000

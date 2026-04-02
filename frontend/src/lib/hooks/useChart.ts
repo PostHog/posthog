@@ -43,22 +43,38 @@ export function useChart<TType extends ChartType = ChartType>({
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart<TType> | null>(null)
 
+    // Keep getConfig in a ref so the effect always calls the latest version
+    // without needing it (or its closed-over values) in the dependency array.
+    const getConfigRef = useRef(getConfig)
+    getConfigRef.current = getConfig
+
+    // Callers pass objects/arrays/functions that get new references every render
+    // (e.g. datasets, labels, callbacks). Reference-equality deps cause the
+    // effect to fire every render, destroying and recreating the chart — which
+    // is extremely expensive because Chart.js constructor synchronously triggers
+    // bindResponsiveEvents → _resize → update → _updateDatasets.
+    //
+    // JSON.stringify gives value-equality semantics. Functions serialize as
+    // undefined and are ignored, which is correct: function identity changes
+    // don't mean chart data changed.
+    const depsKey = JSON.stringify(deps)
+
     useEffect(() => {
         if (!canvasRef.current) {
             return
         }
 
-        const config = getConfig()
+        const config = getConfigRef.current()
         if (!config) {
             return
         }
 
-        const ctx = canvasRef.current
+        const canvas = canvasRef.current
 
         // Guard: destroy any existing chart on this canvas
         // This handles cases where React strict mode or fast refresh
         // might create multiple chart instances
-        const existingChart = Chart.getChart(ctx)
+        const existingChart = Chart.getChart(canvas)
         if (existingChart) {
             existingChart.destroy()
         }
@@ -70,7 +86,7 @@ export function useChart<TType extends ChartType = ChartType>({
             chartRef.current = null
         }
 
-        chartRef.current = new Chart(ctx, config) as Chart<TType>
+        chartRef.current = new Chart(canvas, config) as Chart<TType>
 
         return () => {
             // Two different charts can exist:
@@ -81,17 +97,14 @@ export function useChart<TType extends ChartType = ChartType>({
             //
             // Usually these are the same instance. But in edge cases they differ, and we must
             // destroy both to prevent memory leaks. The identity check avoids double-destroying.
-            if (canvasRef.current) {
-                const orphanedChart = Chart.getChart(canvasRef.current)
-                if (orphanedChart && orphanedChart !== chartRef.current) {
-                    orphanedChart.destroy()
-                }
+            const orphanedChart = Chart.getChart(canvas)
+            if (orphanedChart && orphanedChart !== chartRef.current) {
+                orphanedChart.destroy()
             }
             chartRef.current?.destroy()
             chartRef.current = null
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, deps)
+    }, [depsKey])
 
     return { canvasRef, chartRef }
 }

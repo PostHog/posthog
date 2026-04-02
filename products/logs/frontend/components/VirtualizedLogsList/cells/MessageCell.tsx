@@ -17,8 +17,8 @@ export interface MessageCellProps {
 }
 
 export function MessageCell({ message, wrapBody, prettifyJson, parsedBody, style }: MessageCellProps): JSX.Element {
-    const { tabId } = useValues(logsViewerLogic)
-    const { scrollRef, handleScroll } = useCellScrollRef({ tabId, cellKey: 'message', enabled: !wrapBody })
+    const { id } = useValues(logsViewerLogic)
+    const { scrollRef, handleScroll } = useCellScrollRef({ id, cellKey: 'message', enabled: !wrapBody })
 
     const displayValue = prettifyJson && parsedBody ? JSON.stringify(parsedBody, null, 2) : message
 

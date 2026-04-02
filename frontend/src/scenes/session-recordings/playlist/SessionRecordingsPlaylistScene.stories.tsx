@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
@@ -191,29 +191,39 @@ const meta: Meta = {
 }
 export default meta
 
-export const PlaylistWide: StoryFn = () => {
-    router.actions.push(sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id }))
+type Story = StoryObj<{}>
 
-    return <App />
-}
-PlaylistWide.parameters = {
-    testOptions: {
-        viewport: { width: 1300, height: 720 },
+export const PlaylistWide: Story = {
+    render: () => {
+        router.actions.push(
+            sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id })
+        )
+
+        return <App />
     },
-}
-PlaylistWide.tags = ['test-skip']
-
-export const PlaylistNarrow: StoryFn = () => {
-    router.actions.push(sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id }))
-
-    return <App />
-}
-PlaylistNarrow.parameters = {
-    testOptions: {
-        viewport: { width: 568, height: 1024 },
+    parameters: {
+        testOptions: {
+            viewport: { width: 1300, height: 720 },
+        },
     },
+    tags: ['test-skip'],
 }
-PlaylistNarrow.tags = ['test-skip']
+
+export const PlaylistNarrow: Story = {
+    render: () => {
+        router.actions.push(
+            sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id })
+        )
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            viewport: { width: 568, height: 1024 },
+        },
+    },
+    tags: ['test-skip'],
+}
 
 const PlaylistCollapsedInner = (): JSX.Element => {
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
@@ -226,14 +236,18 @@ const PlaylistCollapsedInner = (): JSX.Element => {
     return <App />
 }
 
-export const PlaylistCollapsed: StoryFn = () => {
-    router.actions.push(sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id }))
+export const PlaylistCollapsed: Story = {
+    render: () => {
+        router.actions.push(
+            sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id })
+        )
 
-    return <PlaylistCollapsedInner />
-}
-PlaylistCollapsed.parameters = {
-    testOptions: {
-        viewport: { width: 1300, height: 720 },
+        return <PlaylistCollapsedInner />
     },
+    parameters: {
+        testOptions: {
+            viewport: { width: 1300, height: 720 },
+        },
+    },
+    tags: ['test-skip'],
 }
-PlaylistCollapsed.tags = ['test-skip']

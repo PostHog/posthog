@@ -92,6 +92,7 @@ export const actionFilterGroupLogic = kea<actionFilterGroupLogicType>([
                 nestedFilters,
                 name: nestedFilters.map((v) => v.name).join(', '),
                 index: props.groupIndex,
+                ...(groupFilter.custom_name !== undefined && { custom_name: groupFilter.custom_name }),
                 ...getMathProps(groupFilter),
                 ...extras,
             } as any)
@@ -137,7 +138,7 @@ export const actionFilterGroupLogic = kea<actionFilterGroupLogicType>([
 
                 let mathProps: Record<string, any>
                 if (selectedMath) {
-                    const mathDef = (values.mathDefinitions as Record<string, any>)[selectedMath]
+                    const mathDef = values.mathDefinitions[selectedMath]
                     const apiValues = mathTypeToApiValues(selectedMath)
                     mathProps = {
                         ...apiValues,

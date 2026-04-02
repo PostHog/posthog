@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
 
 import { getColorVar } from 'lib/colors'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
-import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
+import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
 export const BATCH_EXPORT_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {

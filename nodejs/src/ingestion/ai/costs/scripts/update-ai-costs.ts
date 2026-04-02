@@ -45,7 +45,9 @@ const parsePricingNumber = (value: unknown): number | undefined => {
             return 0
         }
 
-        return parsed
+        // Round to 10 significant digits to eliminate IEEE 754 floating-point
+        // representation artifacts (e.g. 1.0000000000000001e-7 → 1e-7)
+        return parseFloat(parsed.toPrecision(10))
     } catch (error) {
         console.warn('Failed to parse pricing value:', value, error)
         return undefined

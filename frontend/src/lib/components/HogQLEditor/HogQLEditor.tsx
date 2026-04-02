@@ -13,6 +13,7 @@ export interface HogQLEditorProps {
     onChange: (value: string) => void
     value: string | undefined | null
     metadataSource?: AnyDataNode
+    globals?: Record<string, any>
     disablePersonProperties?: boolean
     disableAutoFocus?: boolean
     disableCmdEnter?: boolean
@@ -24,6 +25,7 @@ export function HogQLEditor({
     onChange,
     value,
     metadataSource,
+    globals,
     disableAutoFocus,
     disableCmdEnter,
     submitText,
@@ -47,6 +49,7 @@ export function HogQLEditor({
                 minHeight="78px"
                 autoFocus={!disableAutoFocus}
                 sourceQuery={metadataSource}
+                globals={globals}
                 onPressCmdEnter={
                     disableCmdEnter
                         ? undefined

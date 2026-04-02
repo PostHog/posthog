@@ -1,11 +1,127 @@
+use serde::de::{self, Deserializer};
+use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
+use crate::cohorts::cohort_models::Cohort;
 use crate::properties::property_models::PropertyFilter;
 
-/// Wrapper struct for deserializing hypercache format: {"flags": [...]}
+// NOTE: The `evaluation_tags` field was renamed to `evaluation_contexts` in the Python
+// serializer (PR #52186). The Rust field keeps the old name for internal compatibility,
+// but uses `#[serde(rename = "evaluation_contexts")]` to match the JSON key.
+
+/// Deserializes a JSON object with string keys into `HashMap<i32, HashSet<i32>>`.
+/// JSON only supports string keys, so Python serializes `{1: [2, 3]}` as `{"1": [2, 3]}`.
+fn deserialize_string_keyed_i32_map<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<i32, HashSet<i32>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: HashMap<String, Vec<i32>> = HashMap::deserialize(deserializer)?;
+    raw.into_iter()
+        .map(|(k, v)| {
+            let id = k.parse::<i32>().map_err(de::Error::custom)?;
+            Ok((id, v.into_iter().collect()))
+        })
+        .collect()
+}
+
+/// Serializes `HashMap<i32, HashSet<i32>>` back to JSON with string keys.
+fn serialize_string_keyed_i32_map<S>(
+    map: &HashMap<i32, HashSet<i32>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut ser_map = serializer.serialize_map(Some(map.len()))?;
+    let mut keys: Vec<&i32> = map.keys().collect();
+    keys.sort_unstable();
+    for k in keys {
+        let v = &map[k];
+        let sorted: Vec<i32> = {
+            let mut s: Vec<i32> = v.iter().copied().collect();
+            s.sort_unstable();
+            s
+        };
+        ser_map.serialize_entry(&k.to_string(), &sorted)?;
+    }
+    ser_map.end()
+}
+
+/// Deserializes a field into `Option<Option<T>>` to distinguish "absent" from "null":
+/// - Field absent → `None` (outer)
+/// - Field present, value `null` → `Some(None)`
+/// - Field present, value `v` → `Some(Some(v))`
+fn deserialize_double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    // When serde calls this, the field was present in JSON. Absent fields
+    // never reach the deserializer — #[serde(default)] yields None instead.
+    Ok(Some(Option::deserialize(deserializer)?))
+}
+
+/// Pre-computed dependency metadata, built by Django at cache-write time.
+/// Shipped as a top-level field alongside the flags array in the hypercache.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+pub struct EvaluationMetadata {
+    /// Flag IDs grouped by evaluation stage. Stage 0 (no deps) first.
+    pub dependency_stages: Vec<Vec<i32>>,
+    /// Flag IDs with missing, cyclic, or transitively broken dependencies.
+    pub flags_with_missing_deps: Vec<i32>,
+    /// Flag ID → transitive dependency flag IDs.
+    #[serde(
+        deserialize_with = "deserialize_string_keyed_i32_map",
+        serialize_with = "serialize_string_keyed_i32_map"
+    )]
+    pub transitive_deps: HashMap<i32, HashSet<i32>>,
+}
+
+impl EvaluationMetadata {
+    /// Builds metadata that places all flags in a single evaluation stage
+    /// with no dependency ordering. Used by the PG fallback path.
+    pub fn single_stage(flags: &[FeatureFlag]) -> Self {
+        Self {
+            dependency_stages: vec![flags.iter().map(|f| f.id).collect()],
+            transitive_deps: flags.iter().map(|f| (f.id, HashSet::new())).collect(),
+            ..Default::default()
+        }
+    }
+}
+
+/// Wrapper struct for deserializing hypercache format:
+/// `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...] | null}`.
+///
+/// `evaluation_metadata` is always present in cache entries (written by Django).
+/// The PG fallback path constructs this struct with `EvaluationMetadata::single_stage()`,
+/// which places all flags in one evaluation stage with empty transitive deps.
+///
+/// HYPERCACHE CONTRACT: These fields must match the top-level keys returned by
+/// `_get_feature_flags_for_service()` in posthog/models/feature_flag/flags_cache.py.
+/// Field changes must follow the expand-and-contract pattern — see contract tests in
+/// posthog/models/feature_flag/test/test_flags_cache.py.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
+    pub evaluation_metadata: EvaluationMetadata,
+    /// Cohort definitions referenced by flags (including transitive deps).
+    /// Precomputed by Django at cache-write time so the Rust service can skip
+    /// the separate CohortCacheManager PG query.
+    #[serde(default)]
+    pub cohorts: Option<Vec<Cohort>>,
+}
+
+/// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
+/// Replaces the legacy `holdout_groups` array which reused `FlagPropertyGroup` with
+/// confusing semantics (rollout_percentage meant exclusion, variant was just "holdout-{id}").
+/// See holdout-migration-plan.md for the full migration plan.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Holdout {
+    pub id: i64,
+    pub exclusion_percentage: f64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -16,9 +132,15 @@ pub struct FlagPropertyGroup {
     pub rollout_percentage: Option<f64>,
     #[serde(default)]
     pub variant: Option<String>,
+    /// Per-condition-set aggregation group type index. The outer Option distinguishes
+    /// "field absent" (legacy flags, should fall back to flag-level) from "field
+    /// present but null" (explicit person aggregation). When the inner Option holds
+    /// a value, the condition uses that group type for hashing and property evaluation.
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub aggregation_group_type_index: Option<Option<i32>>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MultivariateFlagVariant {
     pub key: String,
     pub name: Option<String>,
@@ -63,19 +185,15 @@ pub struct FlagFilters {
     /// fallback to regular conditions.
     #[serde(default)]
     pub super_groups: Option<Vec<FlagPropertyGroup>>,
-    /// The holdout group (though the type can hold multiple, we only evaluate the first one)
-    /// is a condition that defines a set of users intentionally excluded from a test or
-    /// experiment to serve as a baseline or control group. The group is defined as a percentage
-    /// which is held back by hashing the distinct identifier of the user. Here's an example:
-    /// "holdout_groups": [
-    /// {
-    ///     "variant": "holdout-1",
-    ///     "properties": [],
-    ///     "rollout_percentage": 10
-    ///   }
-    /// ]
+    /// New format for early access feature enrollment. When `true`, the flag is evaluated
+    /// against the person property `$feature_enrollment/{flag_key}`. Takes precedence over
+    /// `super_groups` when both are present.
     #[serde(default)]
-    pub holdout_groups: Option<Vec<FlagPropertyGroup>>,
+    pub feature_enrollment: Option<bool>,
+    /// Holdout format: `{"id": 42, "exclusion_percentage": 10}`.
+    /// Defines a set of users intentionally excluded from a test or experiment.
+    #[serde(default)]
+    pub holdout: Option<Holdout>,
 }
 
 pub type FeatureFlagId = i32;
@@ -90,7 +208,15 @@ pub enum BucketingIdentifier {
 // TODO: see if you can combine these two structs, like we do with cohort models
 // this will require not deserializing on read and instead doing it lazily, on-demand
 // (which, tbh, is probably a better idea)
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// HYPERCACHE CONTRACT: These fields are deserialized from JSON written by Python's
+/// MinimalFeatureFlagSerializer (posthog/api/feature_flag.py). Field changes must
+/// follow the expand-and-contract pattern. Golden fixture contract test:
+///   cargo test -p feature-flags test_hypercache_contract
+///
+/// Note: Python also emits `has_encrypted_payloads`, which Rust intentionally
+/// ignores (serde drops unknown fields).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct FeatureFlag {
     pub id: FeatureFlagId,
     pub team_id: i32,
@@ -107,7 +233,9 @@ pub struct FeatureFlag {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
-    #[serde(default)]
+    /// Evaluation context tags for this flag. JSON key is `evaluation_contexts`,
+    /// but Rust field remains `evaluation_tags` for internal compatibility.
+    #[serde(default, rename = "evaluation_contexts")]
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
@@ -124,7 +252,9 @@ impl FeatureFlag {
     }
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+/// Row struct for PostgreSQL queries via sqlx. The `evaluation_tags` column is
+/// always named `evaluation_tags` in the SQL query, so no alias is needed.
+#[derive(Debug, Default, Serialize, sqlx::FromRow)]
 pub struct FeatureFlagRow {
     pub id: i32,
     pub team_id: i32,
@@ -146,4 +276,194 @@ pub struct FeatureFlagRow {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
+    /// Runtime-only set of flag IDs that should be skipped during evaluation.
+    /// Includes inactive, deleted, survey-excluded, runtime-mismatched, and tag-filtered flags.
+    /// Not serialized — this is a request-scoped concern, not a cache concern.
+    #[serde(skip)]
+    pub filtered_out_flag_ids: HashSet<i32>,
+    /// Pre-computed dependency metadata from Django's hypercache.
+    #[serde(skip)]
+    pub evaluation_metadata: EvaluationMetadata,
+    /// Cohort definitions referenced by flags (including transitive deps),
+    /// precomputed by Django at cache-write time.
+    /// When present, the matcher uses these instead of querying CohortCacheManager.
+    #[serde(skip)]
+    pub cohorts: Option<Vec<Cohort>>,
+}
+
+#[cfg(test)]
+#[allow(clippy::needless_update)]
+mod mock_impls {
+    use super::*;
+    use crate::utils::mock::{Mock, MockFrom};
+
+    impl Mock for FeatureFlag {
+        fn mock() -> Self {
+            FeatureFlag {
+                id: 1,
+                team_id: 1,
+                name: Some("Test Flag".to_string()),
+                key: "test_flag".to_string(),
+                filters: Mock::mock(),
+                active: true,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for FeatureFlagRow {
+        fn mock() -> Self {
+            FeatureFlagRow {
+                team_id: 1,
+                name: Some("Test Flag".to_string()),
+                key: "test_flag".to_string(),
+                filters: serde_json::json!({
+                    "groups": [{
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }]
+                }),
+                active: true,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for FlagFilters {
+        fn mock() -> Self {
+            FlagFilters {
+                groups: vec![Mock::mock()],
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for FlagPropertyGroup {
+        fn mock() -> Self {
+            FlagPropertyGroup {
+                properties: Some(vec![]),
+                rollout_percentage: Some(100.0),
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for Holdout {
+        fn mock() -> Self {
+            Holdout {
+                id: 1,
+                exclusion_percentage: 10.0,
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for MultivariateFlagVariant {
+        fn mock() -> Self {
+            MultivariateFlagVariant {
+                key: "control".to_string(),
+                name: Some("Control".to_string()),
+                rollout_percentage: 100.0,
+                ..Default::default()
+            }
+        }
+    }
+
+    impl MockFrom<FeatureFlag> for FeatureFlagRow {
+        fn mock_from(flag: FeatureFlag) -> Self {
+            let filters = serde_json::to_value(&flag.filters)
+                .expect("Mock: failed to serialize FeatureFlag.filters to JSON");
+            FeatureFlagRow {
+                id: flag.id,
+                team_id: flag.team_id,
+                name: flag.name,
+                key: flag.key,
+                filters,
+                deleted: flag.deleted,
+                active: flag.active,
+                ensure_experience_continuity: flag.ensure_experience_continuity,
+                version: flag.version,
+                evaluation_runtime: flag.evaluation_runtime,
+                evaluation_tags: flag.evaluation_tags,
+                bucketing_identifier: flag.bucketing_identifier,
+                ..Default::default()
+            }
+        }
+    }
+
+    impl MockFrom<PropertyFilter> for FlagFilters {
+        fn mock_from(property: PropertyFilter) -> Self {
+            MockFrom::mock_from(vec![property])
+        }
+    }
+
+    impl MockFrom<Vec<PropertyFilter>> for FlagFilters {
+        fn mock_from(properties: Vec<PropertyFilter>) -> Self {
+            FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(properties),
+                    rollout_percentage: Some(100.0),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for FeatureFlagList {
+        fn mock() -> Self {
+            FeatureFlagList {
+                flags: vec![Mock::mock()],
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Mock for MultivariateFlagOptions {
+        fn mock() -> Self {
+            MultivariateFlagOptions {
+                variants: vec![
+                    MultivariateFlagVariant {
+                        key: "control".to_string(),
+                        name: Some("Control".to_string()),
+                        rollout_percentage: 50.0,
+                        ..Default::default()
+                    },
+                    MultivariateFlagVariant {
+                        key: "test".to_string(),
+                        name: Some("Test".to_string()),
+                        rollout_percentage: 50.0,
+                        ..Default::default()
+                    },
+                ],
+            }
+        }
+    }
+
+    impl Mock for EvaluationMetadata {
+        fn mock() -> Self {
+            EvaluationMetadata {
+                dependency_stages: vec![],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::new(),
+            }
+        }
+    }
+
+    impl MockFrom<Vec<FeatureFlag>> for FeatureFlagList {
+        fn mock_from(flags: Vec<FeatureFlag>) -> Self {
+            let evaluation_metadata = EvaluationMetadata::single_stage(&flags);
+            FeatureFlagList {
+                flags,
+                evaluation_metadata,
+                ..Default::default()
+            }
+        }
+    }
 }

@@ -331,6 +331,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Modifying our underyling permissions system too much.
             try:
                 lookup_value = self.kwargs.get(self.lookup_field)
+                # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check only; returns NotFound for non-global plugins)
                 obj = Plugin.objects.get(pk=lookup_value)
                 if obj.is_global:
                     return [IsAuthenticated(), APIScopePermission(), PluginsAccessLevelPermission()]
@@ -712,6 +713,8 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                     "plugin_id": validated_data["plugin"].id,
                     "team_id": self.context["team_id"],
                 },
+                team=hog_function.team,
+                request=self.context["request"],
             )
             # Return plugin config without saving if hog function was created successfully
             return PluginConfig(**validated_data)

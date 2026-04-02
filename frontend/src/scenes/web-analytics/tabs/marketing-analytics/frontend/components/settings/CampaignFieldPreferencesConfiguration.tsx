@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { CampaignFieldPreference, MatchField } from '~/queries/schema/schema-general'
@@ -21,6 +23,10 @@ export function CampaignFieldPreferencesConfiguration({
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCampaignFieldPreferences } = useActions(marketingAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const preferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
 
@@ -80,6 +86,7 @@ export function CampaignFieldPreferencesConfiguration({
                                             { value: MatchField.CAMPAIGN_NAME, label: 'Campaign name' },
                                             { value: MatchField.CAMPAIGN_ID, label: 'Campaign ID' },
                                         ]}
+                                        disabledReason={restrictedReason ?? undefined}
                                     />
                                 </td>
                             </tr>

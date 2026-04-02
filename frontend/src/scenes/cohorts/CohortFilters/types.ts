@@ -44,6 +44,7 @@ export enum FieldOptionsType {
     DateOperators = 'dateOperators',
     SingleFieldDateOperators = 'singleFieldDateOperators',
     MathOperators = 'mathOperators',
+    CohortMathOperators = 'cohortMathOperators',
     ValueOptions = 'valueOptions',
     EventsAndActionsMathOperators = 'eventsAndActionsMathOperators',
 }
@@ -159,4 +160,5 @@ export enum CohortClientErrors {
     EmptyBehavioral = 'Behavioral selector cannot be empty.',
     BetweenMinGreaterThanMax = 'Minimum value must be less than maximum value',
     EmptyBetweenValues = 'Both minimum and maximum values are required',
+    InvalidNumericPersonPropertyValue = 'Please enter valid numeric values only',
 }

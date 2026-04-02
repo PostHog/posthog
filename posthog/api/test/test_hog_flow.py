@@ -3,11 +3,13 @@ from typing import Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.models import Organization, Team, User
 from posthog.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -77,6 +79,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow",
+            "status": "active",
             "actions": [trigger_action],
         }
 
@@ -114,6 +117,7 @@ class TestHogFlowAPI(APIBaseTest):
                 "inputs": {},
             }
         )
+        hog_flow["status"] = "active"
 
         # Check that the template is found but missing required inputs
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -132,6 +136,7 @@ class TestHogFlowAPI(APIBaseTest):
                 "inputs": {},
             }
         )
+        hog_flow["status"] = "active"
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 400, response.json()
         assert response.json() == {
@@ -148,6 +153,7 @@ class TestHogFlowAPI(APIBaseTest):
                 "inputs": {"url": {"value": "https://example.com"}},
             }
         )
+        hog_flow["status"] = "active"
 
         action["filters"] = {
             "properties": [{"key": "event", "type": "event_metadata", "value": ["custom_event"], "operator": "exact"}]
@@ -165,6 +171,134 @@ class TestHogFlowAPI(APIBaseTest):
         assert hog_flow.actions[1]["config"]["inputs"] == {
             "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
         }
+
+    def test_hog_flow_conversion_filters_compiles_bytecode_on_create(self):
+        expected_conversion_bytecode = [
+            "_H",
+            1,
+            32,
+            "Chrome",
+            32,
+            "$browser",
+            32,
+            "properties",
+            32,
+            "person",
+            1,
+            3,
+            11,
+        ]
+
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {
+            "filters": [
+                {
+                    "key": "$browser",
+                    "type": "person",
+                    "value": ["Chrome"],
+                    "operator": "exact",
+                }
+            ],
+            "window_minutes": None,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        conversion = response.json()["conversion"]
+        assert conversion["filters"][0] == {
+            "key": "$browser",
+            "type": "person",
+            "value": ["Chrome"],
+            "operator": "exact",
+        }
+        assert conversion["bytecode"] == expected_conversion_bytecode
+
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+        flow_conversion = flow.conversion
+        assert flow_conversion is not None
+        assert flow_conversion["window_minutes"] is None
+        assert flow_conversion["filters"][0] == {
+            "key": "$browser",
+            "type": "person",
+            "value": ["Chrome"],
+            "operator": "exact",
+        }
+        assert flow_conversion["bytecode"] == expected_conversion_bytecode
+
+    def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
+        expected_conversion_bytecode = [
+            "_H",
+            1,
+            32,
+            "Chrome",
+            32,
+            "$browser",
+            32,
+            "properties",
+            32,
+            "person",
+            1,
+            3,
+            11,
+        ]
+
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "active"
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "conversion": {
+                    "filters": [
+                        {
+                            "key": "$browser",
+                            "type": "person",
+                            "value": ["Chrome"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "window_minutes": None,
+                }
+            },
+        )
+
+        assert update_response.status_code == 200, update_response.json()
+        conversion = update_response.json()["conversion"]
+        assert conversion["filters"][0] == {
+            "key": "$browser",
+            "type": "person",
+            "value": ["Chrome"],
+            "operator": "exact",
+        }
+        assert conversion["bytecode"] == expected_conversion_bytecode
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        flow_conversion = flow.conversion
+        assert flow_conversion is not None
+        assert flow_conversion["window_minutes"] is None
+        assert flow_conversion["filters"][0] == {
+            "key": "$browser",
+            "type": "person",
+            "value": ["Chrome"],
+            "operator": "exact",
+        }
+        assert flow_conversion["bytecode"] == expected_conversion_bytecode
 
     def test_hog_flow_conditional_branch_filters_bytecode(self):
         conditional_action = {
@@ -205,6 +339,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow",
+            "status": "active",
             "actions": [trigger_action, conditional_action],
         }
 
@@ -253,6 +388,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow Single Condition",
+            "status": "active",
             "actions": [trigger_action, wait_action],
         }
 
@@ -315,6 +451,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow Mutually Exclusive",
+            "status": "active",
             "actions": [trigger_action, wait_action],
         }
 
@@ -380,6 +517,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow",
+            "status": "active",
             "actions": [trigger_action, conditional_action],
         }
 
@@ -427,6 +565,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Batch Flow",
+            "status": "active",
             "actions": [trigger_action],
         }
 
@@ -446,6 +585,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Batch Flow",
+            "status": "active",
             "actions": [trigger_action],
         }
 
@@ -473,6 +613,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Batch Flow",
+            "status": "active",
             "actions": [trigger_action],
         }
 
@@ -756,6 +897,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow_without = {
             "name": "Test Flow Without Filter",
+            "status": "active",
             "actions": [trigger_action_without_filter],
         }
 
@@ -782,6 +924,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow_with = {
             "name": "Test Flow With Filter",
+            "status": "active",
             "actions": [trigger_action_with_filter],
         }
 
@@ -800,6 +943,79 @@ class TestHogFlowAPI(APIBaseTest):
         assert "%@posthog.com%" in bytecode_with, "Bytecode should include test account filter value"
         assert "email" in bytecode_with, "Bytecode should include email property check"
         assert "person" in bytecode_with, "Bytecode should include person property type"
+
+    def test_hog_flow_draft_compiles_bytecode_for_complete_actions(self):
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "draft"
+
+        action["filters"] = {
+            "properties": [{"key": "event", "type": "event_metadata", "value": ["custom_event"], "operator": "exact"}]
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+
+        assert flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+
+        assert flow.actions[1]["filters"].get("bytecode") == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
+
+        assert flow.actions[1]["config"]["inputs"] == {
+            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+        }
+
+    def test_hog_flow_draft_to_active_compiles_bytecode(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "draft"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        # Activate the draft — re-validation should compile bytecodes
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "active"},
+        )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+        assert flow.actions[1]["config"]["inputs"] == {
+            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+        }
+
+    def test_hog_flow_draft_partial_inputs_skips_input_bytecode(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {},
+            }
+        )
+        hog_flow["status"] = "draft"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+
+        # Trigger filter bytecode should still compile even though action inputs are incomplete
+        assert flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+
+        # Action inputs should NOT have bytecode since required 'url' is missing
+        # (is_valid() fails on the whole inputs serializer)
+        assert flow.actions[1]["config"]["inputs"] == {}
 
     def _get_hog_flow_activity(self, flow_id: Optional[str] = None) -> list:
         params: dict = {"scope": "HogFlow", "page": 1, "limit": 20}
@@ -860,3 +1076,318 @@ class TestHogFlowAPI(APIBaseTest):
         assert name_change is not None
         assert name_change["before"] == original_name
         assert name_change["after"] == new_name
+
+    def test_hog_flow_draft_allows_incomplete_actions(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        incomplete_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {},
+        }
+
+        hog_flow = {
+            "name": "Draft Flow",
+            "status": "draft",
+            "actions": [trigger_action, incomplete_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["status"] == "draft"
+
+    def test_hog_flow_active_rejects_incomplete_actions(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        incomplete_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {},
+        }
+
+        hog_flow = {
+            "name": "Active Flow",
+            "status": "active",
+            "actions": [trigger_action, incomplete_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+
+    def test_hog_flow_retrieve_does_not_leak_between_teams(self):
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
+        another_user = User.objects.create_and_join(another_org, "other-hog-flow@example.com", password="")
+
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+
+        self.client.force_login(another_user)
+        create_response = self.client.post(f"/api/projects/{another_team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        self.client.force_login(self.user)
+        response = self.client.get(f"/api/projects/{another_team.id}/hog_flows/{flow_id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_hog_flow_create_does_not_leak_between_teams(self):
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
+
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+
+        self.client.force_login(self.user)
+        response = self.client.post(f"/api/projects/{another_team.id}/hog_flows", hog_flow)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_hog_flow_update_does_not_leak_between_teams(self):
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
+        another_user = User.objects.create_and_join(another_org, "other-hog-flow-update@example.com", password="")
+
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+
+        self.client.force_login(another_user)
+        create_response = self.client.post(f"/api/projects/{another_team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            f"/api/projects/{another_team.id}/hog_flows/{flow_id}",
+            {"name": "updated by unauthorized user"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_hog_flow_delete_does_not_leak_between_teams(self):
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
+        another_user = User.objects.create_and_join(another_org, "other-hog-flow-delete@example.com", password="")
+
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+
+        self.client.force_login(another_user)
+        create_response = self.client.post(f"/api/projects/{another_team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        self.client.force_login(self.user)
+        response = self.client.delete(f"/api/projects/{another_team.id}/hog_flows/{flow_id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_hog_flow_draft_invalid_can_be_archived(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        incomplete_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {},
+        }
+
+        hog_flow = {
+            "name": "Draft to Archive Flow",
+            "status": "draft",
+            "actions": [trigger_action, incomplete_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        assert response.json()["status"] == "draft"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "archived"},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "archived"
+
+    def test_hog_flow_draft_to_active_rejects_incomplete(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        incomplete_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {},
+        }
+
+        hog_flow = {
+            "name": "Draft to Active Flow",
+            "status": "draft",
+            "actions": [trigger_action, incomplete_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "active"},
+        )
+        assert response.status_code == 400, response.json()
+
+    def _create_flow(self, name: str = "Test Flow", flow_status: str = "draft") -> str:
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        )
+        hog_flow["name"] = name
+        hog_flow["status"] = flow_status
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        return response.json()["id"]
+
+    def _archive_flow(self, flow_id: str) -> None:
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "archived"},
+        )
+        assert response.status_code == 200, response.json()
+
+    def test_bulk_delete_archived_workflows(self):
+        ids = [self._create_flow(name=f"Flow {i}") for i in range(3)]
+        for fid in ids:
+            self._archive_flow(fid)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": ids},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted"] == 3
+        assert HogFlow.objects.filter(id__in=ids).count() == 0
+
+    @parameterized.expand(
+        [
+            ("draft",),
+            ("active",),
+        ]
+    )
+    def test_bulk_delete_skips_non_archived_workflows(self, flow_status):
+        flow_id = self._create_flow(flow_status=flow_status)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": [flow_id]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted"] == 0
+        assert HogFlow.objects.filter(id=flow_id).exists()
+
+    def test_bulk_delete_mixed_statuses_only_deletes_archived(self):
+        draft_id = self._create_flow(name="Draft", flow_status="draft")
+        archived_id = self._create_flow(name="Archived", flow_status="draft")
+        self._archive_flow(archived_id)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": [draft_id, archived_id]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted"] == 1
+        assert HogFlow.objects.filter(id=draft_id).exists()
+        assert not HogFlow.objects.filter(id=archived_id).exists()
+
+    def test_bulk_delete_rejects_empty_ids(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": []},
+        )
+        assert response.status_code == 400
+
+    def test_bulk_delete_rejects_missing_ids(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {},
+        )
+        assert response.status_code == 400
+
+    def test_bulk_delete_rejects_invalid_uuids(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": ["not-a-uuid", "also-bad"]},
+        )
+        assert response.status_code == 400
+
+    def test_bulk_delete_does_not_leak_between_teams(self):
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
+        another_user = User.objects.create_and_join(another_org, "other-bulk-delete@example.com", password="")
+
+        self.client.force_login(another_user)
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        )
+        create_response = self.client.post(f"/api/projects/{another_team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201
+        flow_id = create_response.json()["id"]
+        self.client.patch(f"/api/projects/{another_team.id}/hog_flows/{flow_id}", {"status": "archived"})
+
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": [flow_id]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted"] == 0
+        assert HogFlow.objects.filter(id=flow_id).exists()

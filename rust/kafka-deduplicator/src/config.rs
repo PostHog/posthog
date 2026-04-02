@@ -5,10 +5,30 @@ use bytesize::ByteSize;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
+use crate::rocksdb::store::{parse_compression_per_level, parse_compression_type, RocksDbConfig};
+
+/// Pipeline type for the deduplicator service.
+///
+/// Each pipeline type handles a different event format:
+/// - `IngestionEvents`: Events from capture (CapturedEvent/RawEvent format)
+/// - `ClickhouseEvents`: Events from ingestion pipeline (ClickhouseEvent format)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum_macros::EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum PipelineType {
+    #[default]
+    IngestionEvents,
+    ClickhouseEvents,
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Pipeline type determines the event format and processing logic.
+    /// Valid values: "ingestion_events" (default), "clickhouse_events"
+    #[envconfig(default = "ingestion_events")]
+    pub pipeline_type: PipelineType,
 
     // Kafka configuration
     #[envconfig(default = "localhost:9092")]
@@ -80,6 +100,25 @@ pub struct Config {
     #[envconfig(default = "/tmp/deduplication-store")]
     pub store_path: String,
 
+    // RocksDB tuning (optional — omit to use compiled-in defaults from RocksDbConfig)
+    pub rocksdb_shared_cache_size_bytes: Option<usize>,
+    pub rocksdb_total_write_buffer_size_bytes: Option<usize>,
+    pub rocksdb_max_background_jobs: Option<i32>,
+    pub rocksdb_write_buffer_size_bytes: Option<usize>,
+    pub rocksdb_target_file_size_base_bytes: Option<u64>,
+    pub rocksdb_max_open_files: Option<i32>,
+    pub rocksdb_l0_compaction_trigger: Option<i32>,
+    pub rocksdb_l0_slowdown_writes_trigger: Option<i32>,
+    pub rocksdb_l0_stop_writes_trigger: Option<i32>,
+    pub rocksdb_write_buffer_manager_allow_stall: Option<bool>,
+
+    // RocksDB compression (optional — omit to keep LZ4 everywhere, matching compiled-in defaults)
+    #[envconfig(default = "lz4")]
+    pub rocksdb_compression_type: String,
+    pub rocksdb_compression_per_level: Option<String>,
+    pub rocksdb_bottommost_compression_type: Option<String>,
+    pub rocksdb_universal_compression_size_percent: Option<i32>,
+
     #[envconfig(default = "1073741824")]
     // 1GB default, supports: raw bytes, scientific notation (9.663676416e+09), or units (9Gi, 1GB)
     pub max_store_capacity: String,
@@ -123,6 +162,10 @@ pub struct Config {
 
     #[envconfig(default = "200")] // 200ms (reduced from 500ms for lower latency)
     pub kafka_consumer_batch_timeout_ms: u64,
+
+    // Timeout for consumer.seek_partitions() after checkpoint import (seconds)
+    #[envconfig(default = "5")]
+    pub kafka_consumer_seek_timeout_secs: u64,
 
     // Kafka consumer fetch settings for throughput optimization
     #[envconfig(default = "1048576")] // 1MB minimum fetch size
@@ -245,12 +288,12 @@ pub struct Config {
     // Limits memory usage by bounding the number of in-flight HTTP connections
     // Critical during rebalance when many partitions are assigned simultaneously
     // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
-    #[envconfig(default = "25")]
+    #[envconfig(default = "200")]
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     // Maximum concurrent S3 file uploads during checkpoint export
     // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
-    #[envconfig(default = "25")]
+    #[envconfig(default = "200")]
     pub max_concurrent_checkpoint_file_uploads: usize,
 
     // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
@@ -259,7 +302,31 @@ pub struct Config {
     #[envconfig(default = "240")]
     pub checkpoint_partition_import_timeout_secs: u64,
 
+    // Maximum age of a local metadata.json before we consider the local store stale
+    // and fall back to S3 import. Separate from checkpoint_import_window_hours which
+    // controls the S3 listing window.
+    #[envconfig(default = "7200")] // 2 hours
+    pub local_checkpoint_max_staleness_secs: u64,
+
     //// End checkpoint configuration ////
+    //// Kafka-assigner mode configuration ////
+    /// gRPC endpoint for the kafka-assigner service (e.g. "http://kafka-assigner:50051").
+    /// When set, the consumer uses externally-driven partition assignment instead of
+    /// Kafka's consumer group protocol.
+    pub kafka_assigner_endpoint: Option<String>,
+
+    /// Consumer name for registration with the kafka-assigner.
+    /// Defaults to HOSTNAME (pod name) if not set.
+    pub consumer_name: Option<String>,
+
+    //// End kafka-assigner mode configuration ////
+    /// Fail-open mode: bypass all deduplication and forward events directly to output topic.
+    /// When enabled, the deduplicator skips store operations, checkpoint import/export,
+    /// and treats all events as unique. Use as an emergency kill switch when the
+    /// deduplication store is causing issues.
+    #[envconfig(default = "false")]
+    pub fail_open: bool,
+
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 
@@ -285,38 +352,29 @@ impl Config {
 
     /// Validate configuration settings
     pub fn validate(&self) -> Result<()> {
-        // Check store path is writable
-        if let Err(e) = fs::create_dir_all(&self.store_path) {
-            return Err(anyhow::anyhow!(
-                "Cannot create RocksDB store directory '{}' for consumer group '{}': {}",
-                self.store_path,
-                self.kafka_consumer_group,
-                e
-            ));
-        }
+        fs::create_dir_all(&self.store_path).with_context(|| {
+            format!(
+                "Cannot create RocksDB store directory '{}' for consumer group '{}'",
+                self.store_path, self.kafka_consumer_group
+            )
+        })?;
 
-        // Check if we can write to the directory
         let test_file = self.store_path_buf().join(".write_test");
-        if let Err(e) = fs::write(&test_file, b"test") {
-            return Err(anyhow::anyhow!(
-                "RocksDB store path '{}' is not writable for consumer group '{}': {}",
-                self.store_path,
-                self.kafka_consumer_group,
-                e
-            ));
-        }
+        fs::write(&test_file, b"test").with_context(|| {
+            format!(
+                "RocksDB store path '{}' is not writable for consumer group '{}'",
+                self.store_path, self.kafka_consumer_group
+            )
+        })?;
         fs::remove_file(test_file).ok();
 
-        // Validate checkpoint path if S3 is configured
         if let Some(ref bucket) = self.s3_bucket {
-            if let Err(e) = fs::create_dir_all(&self.local_checkpoint_dir) {
-                return Err(anyhow::anyhow!(
-                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}': {}",
-                    self.local_checkpoint_dir,
-                    bucket,
-                    e
-                ));
-            }
+            fs::create_dir_all(&self.local_checkpoint_dir).with_context(|| {
+                format!(
+                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}'",
+                    self.local_checkpoint_dir, bucket
+                )
+            })?;
         }
 
         Ok(())
@@ -350,6 +408,11 @@ impl Config {
     /// Get kafka consumer batch timeout as Duration
     pub fn kafka_consumer_batch_timeout(&self) -> Duration {
         Duration::from_millis(self.kafka_consumer_batch_timeout_ms)
+    }
+
+    /// Get kafka consumer seek timeout as Duration (for seek_partitions after checkpoint import)
+    pub fn kafka_consumer_seek_timeout(&self) -> Duration {
+        Duration::from_secs(self.kafka_consumer_seek_timeout_secs)
     }
 
     /// Get flush interval as Duration
@@ -406,6 +469,106 @@ impl Config {
             .with_context(|| format!("Failed to parse storage capacity: '{s}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)"))
     }
 
+    /// Build a RocksDbConfig from env-configured overrides, falling back to defaults.
+    /// Validates max_background_jobs >= 1, clamping with a warning if invalid.
+    pub fn build_rocksdb_config(&self) -> RocksDbConfig {
+        let defaults = RocksDbConfig::default();
+        let max_background_jobs = match self.rocksdb_max_background_jobs {
+            Some(v) if v >= 1 => v,
+            Some(v) => {
+                tracing::warn!(
+                    value = v,
+                    default = defaults.max_background_jobs,
+                    "ROCKSDB_MAX_BACKGROUND_JOBS must be >= 1, using default"
+                );
+                defaults.max_background_jobs
+            }
+            None => defaults.max_background_jobs,
+        };
+        let config = RocksDbConfig {
+            shared_cache_size_bytes: self
+                .rocksdb_shared_cache_size_bytes
+                .unwrap_or(defaults.shared_cache_size_bytes),
+            total_write_buffer_size_bytes: self
+                .rocksdb_total_write_buffer_size_bytes
+                .unwrap_or(defaults.total_write_buffer_size_bytes),
+            max_background_jobs,
+            write_buffer_size_bytes: self
+                .rocksdb_write_buffer_size_bytes
+                .unwrap_or(defaults.write_buffer_size_bytes),
+            target_file_size_base_bytes: self
+                .rocksdb_target_file_size_base_bytes
+                .unwrap_or(defaults.target_file_size_base_bytes),
+            max_open_files: self
+                .rocksdb_max_open_files
+                .unwrap_or(defaults.max_open_files),
+            l0_compaction_trigger: self
+                .rocksdb_l0_compaction_trigger
+                .unwrap_or(defaults.l0_compaction_trigger),
+            l0_slowdown_writes_trigger: self
+                .rocksdb_l0_slowdown_writes_trigger
+                .unwrap_or(defaults.l0_slowdown_writes_trigger),
+            l0_stop_writes_trigger: self
+                .rocksdb_l0_stop_writes_trigger
+                .unwrap_or(defaults.l0_stop_writes_trigger),
+            write_buffer_manager_allow_stall: self
+                .rocksdb_write_buffer_manager_allow_stall
+                .unwrap_or(defaults.write_buffer_manager_allow_stall),
+            compression_type: parse_compression_type(&self.rocksdb_compression_type)
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        value = self.rocksdb_compression_type,
+                        error = %e,
+                        "invalid ROCKSDB_COMPRESSION_TYPE, using default (lz4)"
+                    );
+                    defaults.compression_type
+                }),
+            compression_per_level: self
+                .rocksdb_compression_per_level
+                .as_deref()
+                .map(|s| {
+                    parse_compression_per_level(s).unwrap_or_else(|e| {
+                        tracing::warn!(
+                            value = s,
+                            error = %e,
+                            "invalid ROCKSDB_COMPRESSION_PER_LEVEL, ignoring"
+                        );
+                        defaults.compression_per_level.clone().unwrap_or_default()
+                    })
+                })
+                .filter(|v| !v.is_empty()),
+            bottommost_compression_type: self
+                .rocksdb_bottommost_compression_type
+                .as_deref()
+                .and_then(|s| {
+                    parse_compression_type(s)
+                        .map_err(|e| {
+                            tracing::warn!(
+                                value = s,
+                                error = %e,
+                                "invalid ROCKSDB_BOTTOMMOST_COMPRESSION_TYPE, ignoring"
+                            );
+                            e
+                        })
+                        .ok()
+                }),
+            universal_compression_size_percent: self
+                .rocksdb_universal_compression_size_percent
+                .unwrap_or(defaults.universal_compression_size_percent),
+        };
+
+        if config.compression_per_level.is_some() && config.universal_compression_size_percent < 0 {
+            tracing::warn!(
+                "ROCKSDB_COMPRESSION_PER_LEVEL is set but ROCKSDB_UNIVERSAL_COMPRESSION_SIZE_PERCENT \
+                 is < 0 (compress-all). Per-level settings will be IGNORED by RocksDB in Universal \
+                 compaction mode. Set ROCKSDB_UNIVERSAL_COMPRESSION_SIZE_PERCENT=0 to enable \
+                 per-level compression."
+            );
+        }
+
+        config
+    }
+
     // Check multiple conditions for safe checkpoint export enablement
     pub fn checkpoint_export_enabled(&self) -> bool {
         self.checkpoint_export_enabled
@@ -446,6 +609,74 @@ impl Config {
     /// Get checkpoint partition import timeout as Duration
     pub fn checkpoint_partition_import_timeout(&self) -> Duration {
         Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
+    }
+
+    /// Get max staleness for local checkpoint data as Duration
+    pub fn local_checkpoint_max_staleness(&self) -> Duration {
+        Duration::from_secs(self.local_checkpoint_max_staleness_secs)
+    }
+
+    /// Build Kafka consumer configuration for the group-based batch consumer.
+    /// Applies all relevant env-configured settings (connection, TLS, fetch/queued,
+    /// group membership, sticky assignment, offset reset).
+    pub fn build_batch_consumer_config(&self) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_batch_consumer(&self.kafka_hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+            .with_offset_reset(&self.kafka_consumer_offset_reset)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .with_max_poll_interval_ms(self.kafka_max_poll_interval_ms)
+            .with_session_timeout_ms(self.kafka_session_timeout_ms)
+            .with_heartbeat_interval_ms(self.kafka_heartbeat_interval_ms)
+            .build()
+    }
+
+    /// Build Kafka consumer configuration for the assigner-driven consumer.
+    /// Uses manual `assign()` with offset commits via the consumer group, but no
+    /// group-coordination settings (session, heartbeat, max.poll, sticky assignment).
+    pub fn build_assigner_consumer_config(&self) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_assigner_consumer(&self.kafka_hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_offset_reset(&self.kafka_consumer_offset_reset)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .build()
+    }
+
+    /// Build Kafka consumer configuration for the assign-only watermark consumer.
+    /// Applies only connection, TLS, and fetch/queued settings — no group-coordination
+    /// options (session, heartbeat, max.poll, sticky, offset reset).
+    pub fn build_watermark_consumer_config(&self, group_id: &str) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_watermark_consumer(&self.kafka_hosts, group_id)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .build()
     }
 
     /// Build Kafka producer configuration
@@ -680,5 +911,73 @@ mod tests {
         config.s3_endpoint = None;
         config.aws_region = None;
         assert!(!config.checkpoint_import_enabled());
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_default_compression() {
+        let config = Config::init_with_defaults().unwrap();
+        let rocksdb = config.build_rocksdb_config();
+
+        assert_eq!(rocksdb.compression_type, rocksdb::DBCompressionType::Lz4);
+        assert!(rocksdb.compression_per_level.is_none());
+        assert!(rocksdb.bottommost_compression_type.is_none());
+        assert_eq!(rocksdb.universal_compression_size_percent, -1);
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_compression_per_level() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_compression_per_level = Some("none,none,lz4,lz4,lz4".to_string());
+        config.rocksdb_universal_compression_size_percent = Some(0);
+        let rocksdb = config.build_rocksdb_config();
+
+        let expected = vec![
+            rocksdb::DBCompressionType::None,
+            rocksdb::DBCompressionType::None,
+            rocksdb::DBCompressionType::Lz4,
+            rocksdb::DBCompressionType::Lz4,
+            rocksdb::DBCompressionType::Lz4,
+        ];
+        assert_eq!(rocksdb.compression_per_level.unwrap(), expected);
+        assert_eq!(rocksdb.universal_compression_size_percent, 0);
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_bottommost_compression() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_bottommost_compression_type = Some("zstd".to_string());
+        let rocksdb = config.build_rocksdb_config();
+
+        assert_eq!(
+            rocksdb.bottommost_compression_type.unwrap(),
+            rocksdb::DBCompressionType::Zstd
+        );
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_invalid_compression_type_falls_back() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_compression_type = "brotli".to_string();
+        let rocksdb = config.build_rocksdb_config();
+
+        assert_eq!(rocksdb.compression_type, rocksdb::DBCompressionType::Lz4);
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_invalid_per_level_ignored() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_compression_per_level = Some("none,invalid,lz4".to_string());
+        let rocksdb = config.build_rocksdb_config();
+
+        assert!(rocksdb.compression_per_level.is_none());
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_invalid_bottommost_ignored() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_bottommost_compression_type = Some("invalid".to_string());
+        let rocksdb = config.build_rocksdb_config();
+
+        assert!(rocksdb.bottommost_compression_type.is_none());
     }
 }

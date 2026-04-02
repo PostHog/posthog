@@ -4,8 +4,8 @@ from ..core import HogQLFunctionMeta
 
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
-    "left": HogQLFunctionMeta("left", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
-    "right": HogQLFunctionMeta("right", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
+    "left": HogQLFunctionMeta("leftUTF8", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
+    "right": HogQLFunctionMeta("rightUTF8", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
     "lengthUTF8": HogQLFunctionMeta("lengthUTF8", 1, 1),
     "leftPad": HogQLFunctionMeta("leftPad", 2, 3),
     "rightPad": HogQLFunctionMeta("rightPad", 2, 3),
@@ -163,7 +163,7 @@ POSTGRESQL_STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "split_part": HogQLFunctionMeta(
         # We need to repeat each argument in the format string since we use each one multiple times
-        "if(empty(splitByString({1}, {0})), '', if(length(splitByString({1}, {0})) >= {2}, arrayElement(splitByString({1}, {0}), {2}), ''))",
+        "arrayElement(arrayMap((parts, idx) -> if(empty(parts), '', if(length(parts) >= idx, arrayElement(parts, idx), '')), [splitByString({1}, {0})], [{2}]), 1)",
         3,
         3,
         signatures=[((StringType(), StringType(), IntegerType()), StringType())],

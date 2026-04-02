@@ -48,12 +48,17 @@ class SQLSyntaxCorrectness(Scorer):
 SQL_SEMANTICS_CORRECTNESS_PROMPT = """
 <system>
 You are an expert ClickHouse SQL auditor.
-Your job is to decide whether two ClickHouse SQL queries are **semantically equivalent for every possible valid database state**, given the same task description and schema.
+Your job is to decide whether two ClickHouse SQL queries are **semantically equivalent for every possible valid database state**, given the same task description.
+
+HogQL is an SQL flavor derived from ClickHouse SQL, with some PostHog-specific syntax:
+- Easy access to JSON properties using `.`, like: `SELECT properties.$browser FROM events`
+- Access to nested tables: `SELECT person.properties.foo FROM events`
+- The `sessions` table contains session data related to events
 
 When you respond, think step-by-step **internally**, but reveal **nothing** except the final verdict:
-• Output **Pass** if the candidate query would always return the same result set (ignoring column aliases, ordering, or trivial formatting) as the reference query.
-• Output **Fail** otherwise, or if you are uncertain.
-Respond with a single word—**Pass** or **Fail**—and no additional text.
+- Output **Pass** if the candidate query would always return the same result set (ignoring column aliases, ordering, or trivial formatting) as the reference query.
+- Output **Fail** otherwise, or if you are uncertain.
+Respond with a single word — **Pass** or **Fail** — and no additional text.
 </system>
 
 <input>
@@ -81,9 +86,11 @@ Candidate (generated) SQL:
 <reminder>
 Think through edge cases: NULL handling, grouping, filters, joins, HAVING clauses, aggregations, sub-queries, limits, and data-type quirks.
 If any logical difference could yield different outputs under some data scenario, the queries are *not* equivalent.
+Important: The generated query should use `person_id` or `person.id` for any aggregation on unique users, not `distinct_id`.
+For session duration, `session.$session_duration` should be used instead of `properties.$session_duration`.
 </reminder>
 
-When ready, output your verdict—**Pass** or **Fail**—with absolutely no extra characters.
+When ready, output your verdict — **Pass** or **Fail** — with absolutely no extra characters.
 """.strip()
 
 
@@ -98,7 +105,7 @@ class SQLSemanticsCorrectness(LLMClassifier):
                 "Pass": 1.0,
                 "Fail": 0.0,
             },
-            model="gpt-4.1",
+            model="gpt-5.2",
             **kwargs,
         )
 

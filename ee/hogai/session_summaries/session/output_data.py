@@ -29,7 +29,7 @@ class SessionSummaryExceptionTypes(str, Enum):
 
 
 class RawKeyActionSerializer(serializers.Serializer):
-    description = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    description = serializers.CharField(min_length=1, max_length=10_000, required=False, allow_null=True)
     abandonment = serializers.BooleanField(required=False, default=False, allow_null=True)
     confusion = serializers.BooleanField(required=False, default=False, allow_null=True)
     exception = serializers.ChoiceField(
@@ -132,7 +132,7 @@ class OutcomeSerializer(serializers.Serializer):
     Initial goal and session outcome coming from LLM.
     """
 
-    description = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    description = serializers.CharField(min_length=1, max_length=10_000, required=False, allow_null=True)
     success = serializers.BooleanField(required=False, allow_null=True)
 
 
@@ -142,7 +142,7 @@ class SegmentOutcomeSerializer(serializers.Serializer):
     """
 
     segment_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
-    summary = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    summary = serializers.CharField(min_length=1, max_length=10_000, required=False, allow_null=True)
     success = serializers.BooleanField(required=False, allow_null=True)
 
 

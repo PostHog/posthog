@@ -12,7 +12,7 @@ from posthog.schema import AssistantHogQLQuery, HumanMessage
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ArtifactManager
@@ -39,9 +39,9 @@ class EvalMetadata(TypedDict):
     team_id: int
 
 
-async def serialize_database(team: Team):
-    database = await database_sync_to_async(Database.create_for)(team=team)
-    context = HogQLContext(team=team, database=database, enable_select_queries=True)
+async def serialize_database(team: Team, user: User):
+    database = await database_sync_to_async(Database.create_for)(team=team, user=user)
+    context = HogQLContext(team=team, user=user, database=database, enable_select_queries=True)
     return await serialize_database_schema(database, context)
 
 
@@ -50,7 +50,7 @@ async def call_graph(entry: DatasetInput, *args):
     team = await Team.objects.aget(id=entry.team_id)
     conversation, database_schema = await asyncio.gather(
         Conversation.objects.acreate(team=team, user=eval_ctx.user),
-        serialize_database(team),
+        serialize_database(team=team, user=eval_ctx.user),
     )
     graph = AssistantGraph(team, eval_ctx.user).compile_full_graph()
 

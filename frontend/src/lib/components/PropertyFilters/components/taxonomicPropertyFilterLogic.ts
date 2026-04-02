@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import {
     createDefaultPropertyFilter,
     isAnyPropertyfilter,
@@ -11,17 +12,23 @@ import {
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    isQuickFilterItem,
+    quickFilterToPropertyFilter,
 } from 'lib/components/TaxonomicFilter/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     EventMetadataPropertyFilter,
+    EventPropertyFilter,
     FlagPropertyFilter,
     PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
@@ -51,14 +58,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey?: TaxonomicFilterValue,
             itemPropertyFilterType?: PropertyFilterType,
-            item?: any,
-            originalQuery?: string
+            item?: any
         ) => ({
             taxonomicGroup,
             propertyKey,
             itemPropertyFilterType,
             item,
-            originalQuery,
         }),
         openDropdown: true,
         closeDropdown: true,
@@ -89,7 +94,69 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType, item, originalQuery }) => {
+        openDropdown: () => {
+            const existingFilter = props.filters[props.filterIndex]
+            if (!existingFilter || !isValidPropertyFilter(existingFilter)) {
+                if (eventUsageLogic.isMounted()) {
+                    eventUsageLogic.actions.reportTaxonomicFilterAddFilterClicked(props.eventNames?.[0])
+                }
+            }
+        },
+        selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType, item }) => {
+            if (item?._recentContext?.propertyFilter) {
+                props.setFilter(props.filterIndex, item._recentContext.propertyFilter)
+                actions.closeDropdown()
+                return
+            }
+
+            if (isQuickFilterItem(item)) {
+                props.setFilter(props.filterIndex, quickFilterToPropertyFilter(item))
+                actions.closeDropdown()
+                return
+            }
+
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewUrls
+            ) {
+                const filter: EventPropertyFilter = {
+                    key: '$current_url',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.IContains,
+                    type: PropertyFilterType.Event,
+                }
+                props.setFilter(props.filterIndex, filter)
+                actions.closeDropdown()
+                return
+            }
+
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.Screens
+            ) {
+                const filter: EventPropertyFilter = {
+                    key: '$screen_name',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+                props.setFilter(props.filterIndex, filter)
+                actions.closeDropdown()
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.EmailAddresses) {
+                const filter: AnyPropertyFilter = {
+                    key: 'email',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Person,
+                }
+                props.setFilter(props.filterIndex, filter)
+                actions.closeDropdown()
+                return
+            }
+
             const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 const filter = createDefaultPropertyFilter(
@@ -97,8 +164,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     propertyKey,
                     propertyType,
                     taxonomicGroup,
-                    values.describeProperty,
-                    originalQuery
+                    values.describeProperty
                 )
 
                 // Add cohort name if this is a cohort filter

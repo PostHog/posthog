@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { debounce } from 'lib/utils'
@@ -32,6 +34,10 @@ export function AttributionSettings(): JSX.Element {
         updateAttributionMode: updateAttributionModeAction,
     } = useActions(marketingAnalyticsSettingsLogic)
     const { currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     // Get attribution settings from config with defaults
     const attribution_window_days = marketingAnalyticsConfig?.attribution_window_days ?? DEFAULT_ATTRIBUTION_WINDOW_DAYS
@@ -126,7 +132,10 @@ export function AttributionSettings(): JSX.Element {
                 <div>
                     <label className="text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Window
-                        <Tooltip title="The attribution window determines how far back in time to look for marketing touchpoints when attributing conversions. Example: With a 30-day window, if someone converts today, we'll look back 30 days for any UTM campaigns they interacted with. Recommendation: Use 30-60 days for short sales cycles, 90+ days for longer consideration periods.">
+                        <Tooltip
+                            delayMs={0}
+                            title="The attribution window determines how far back in time to look for marketing touchpoints when attributing conversions. Example: With a 30-day window, if someone converts today, we'll look back 30 days for any UTM campaigns they interacted with. Recommendation: Use 30-60 days for short sales cycles, 90+ days for longer consideration periods."
+                        >
                             <IconInfo className="text-muted-alt hover:text-default cursor-help" />
                         </Tooltip>
                     </label>
@@ -137,6 +146,7 @@ export function AttributionSettings(): JSX.Element {
                             options={ATTRIBUTION_WINDOW_OPTIONS}
                             data-attr="attribution-window-select"
                             className="w-50"
+                            disabledReason={restrictedReason}
                         />
                         <LemonInput
                             type="number"
@@ -149,6 +159,7 @@ export function AttributionSettings(): JSX.Element {
                             className="w-32"
                             status={hasError ? 'danger' : undefined}
                             data-attr="attribution-window-custom-input"
+                            disabledReason={restrictedReason}
                         />
                         <LemonButton
                             type="primary"
@@ -159,7 +170,7 @@ export function AttributionSettings(): JSX.Element {
                                     ? `Please enter a valid value between ${MIN_ATTRIBUTION_WINDOW_DAYS} and ${MAX_ATTRIBUTION_WINDOW_DAYS} days`
                                     : localDays === attribution_window_days
                                       ? 'No changes to save'
-                                      : undefined
+                                      : restrictedReason
                             }
                             data-attr="attribution-window-save-button"
                         >
@@ -176,7 +187,10 @@ export function AttributionSettings(): JSX.Element {
                 <div>
                     <label className="block text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Mode
-                        <Tooltip title="Attribution mode determines which marketing touchpoint gets credit for a conversion when multiple touchpoints exist. First Touch: Credits the first marketing touchpoint in the customer journey. Best for measuring brand awareness and top-of-funnel campaigns. Last Touch: Credits the last marketing touchpoint before conversion. Best for measuring bottom-of-funnel effectiveness and direct conversion drivers.">
+                        <Tooltip
+                            delayMs={0}
+                            title="Attribution mode determines which marketing touchpoint gets credit for a conversion when multiple touchpoints exist. First Touch: Credits the first marketing touchpoint in the customer journey. Best for measuring brand awareness and top-of-funnel campaigns. Last Touch: Credits the last marketing touchpoint before conversion. Best for measuring bottom-of-funnel effectiveness and direct conversion drivers."
+                        >
                             <IconInfo className="text-muted-alt hover:text-default cursor-help" />
                         </Tooltip>
                     </label>
@@ -190,6 +204,7 @@ export function AttributionSettings(): JSX.Element {
                                     onClick={() => handleAttributionModeChange(option.value)}
                                     data-attr={`attribution-mode-${option.value.toLowerCase().replace('_', '-')}`}
                                     className="flex-1"
+                                    disabledReason={restrictedReason}
                                 >
                                     {option.label}
                                 </LemonButton>

@@ -3,7 +3,7 @@
 use common_types::RawEvent;
 use serde::{Deserialize, Serialize, Serializer};
 
-use super::dedup_result::DeduplicationResult;
+use crate::pipelines::{DeduplicationResult, DuplicateReason};
 
 /// Helper function to serialize bool as u8 (0 or 1) for ClickHouse UInt8
 fn serialize_bool_as_u8<S>(value: &bool, serializer: S) -> Result<S::Ok, S::Error>
@@ -77,22 +77,35 @@ pub struct DifferentField {
 
 impl DuplicateEvent {
     /// Create a DuplicateEvent from deduplication result (which includes similarity data)
-    pub fn from_result(source_event: &RawEvent, result: &DeduplicationResult) -> Option<Self> {
+    pub fn from_result(
+        source_event: &RawEvent,
+        result: &DeduplicationResult<RawEvent>,
+    ) -> Option<Self> {
         // Extract similarity from the result
         let similarity = result.get_similarity()?;
 
         let (dedup_type, is_confirmed, reason, original_event) = match result {
-            DeduplicationResult::ConfirmedDuplicate(dtype, dreason, _, original_event) => (
-                dtype.to_string().to_lowercase(),
+            DeduplicationResult::ConfirmedDuplicate(info) => (
+                "timestamp".to_string(),
                 true,
-                Some(dreason.to_string()),
-                original_event,
+                Some(match info.reason {
+                    DuplicateReason::SameEvent => "SameEvent".to_string(),
+                    DuplicateReason::SameUuid => "SameUuid".to_string(),
+                    DuplicateReason::OnlyUuidDifferent => "OnlyUuidDifferent".to_string(),
+                    DuplicateReason::ContentDiffers => "ContentDiffers".to_string(),
+                }),
+                &info.original_event,
             ),
-            DeduplicationResult::PotentialDuplicate(dtype, _, original_event) => (
-                dtype.to_string().to_lowercase(),
+            DeduplicationResult::PotentialDuplicate(info) => (
+                "timestamp".to_string(),
                 false,
-                None,
-                original_event,
+                Some(match info.reason {
+                    DuplicateReason::SameEvent => "SameEvent".to_string(),
+                    DuplicateReason::SameUuid => "SameUuid".to_string(),
+                    DuplicateReason::OnlyUuidDifferent => "OnlyUuidDifferent".to_string(),
+                    DuplicateReason::ContentDiffers => "ContentDiffers".to_string(),
+                }),
+                &info.original_event,
             ),
             _ => {
                 // New and Skipped don't have similarity data
@@ -200,10 +213,7 @@ impl DuplicateEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipelines::ingestion_events::dedup_result::{
-        DeduplicationResultReason, DeduplicationType,
-    };
-    use crate::rocksdb::dedup_metadata::{DedupFieldName, EventSimilarity};
+    use crate::pipelines::{DuplicateInfo, EventSimilarity};
     use serde_json::json;
 
     #[test]
@@ -242,7 +252,7 @@ mod tests {
             overall_score: 0.9,
             different_field_count: 1,
             different_fields: vec![(
-                DedupFieldName::Uuid,
+                "uuid".to_string(),
                 "uuid-2".to_string(),
                 "uuid-1".to_string(),
             )],
@@ -251,12 +261,12 @@ mod tests {
             different_properties: vec![],
         };
 
-        let result = DeduplicationResult::ConfirmedDuplicate(
-            DeduplicationType::Timestamp,
-            DeduplicationResultReason::OnlyUuidDifferent,
+        let result = DeduplicationResult::ConfirmedDuplicate(DuplicateInfo {
+            reason: DuplicateReason::OnlyUuidDifferent,
             similarity,
-            result_event,
-        );
+            original_event: result_event,
+            unique_uuids_count: 2,
+        });
 
         let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
 
@@ -306,17 +316,18 @@ mod tests {
             different_properties: vec![],
         };
 
-        let result = DeduplicationResult::PotentialDuplicate(
-            DeduplicationType::Timestamp,
+        let result = DeduplicationResult::PotentialDuplicate(DuplicateInfo {
+            reason: DuplicateReason::ContentDiffers,
             similarity,
-            result_event,
-        );
+            original_event: result_event,
+            unique_uuids_count: 2,
+        });
 
         let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
 
         assert!(!duplicate_event.is_confirmed);
         assert_eq!(duplicate_event.dedup_type, "timestamp");
-        assert!(duplicate_event.reason.is_none());
+        assert_eq!(duplicate_event.reason, Some("ContentDiffers".to_string()));
         assert_eq!(duplicate_event.similarity_score, 0.7);
     }
 
@@ -361,11 +372,7 @@ mod tests {
         let similarity = EventSimilarity {
             overall_score: 0.8,
             different_field_count: 1,
-            different_fields: vec![(
-                DedupFieldName::Uuid,
-                "uuid1".to_string(),
-                "uuid2".to_string(),
-            )],
+            different_fields: vec![("uuid".to_string(), "uuid1".to_string(), "uuid2".to_string())],
             properties_similarity: 0.7,
             different_property_count: 3,
             different_properties: vec![
@@ -378,11 +385,12 @@ mod tests {
             ],
         };
 
-        let result = DeduplicationResult::PotentialDuplicate(
-            DeduplicationType::Timestamp,
+        let result = DeduplicationResult::PotentialDuplicate(DuplicateInfo {
+            reason: DuplicateReason::OnlyUuidDifferent,
             similarity,
-            result_event,
-        );
+            original_event: result_event,
+            unique_uuids_count: 2,
+        });
 
         let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
 
@@ -428,11 +436,12 @@ mod tests {
             different_properties: vec![], // Would normally have 15 entries
         };
 
-        let result = DeduplicationResult::PotentialDuplicate(
-            DeduplicationType::Timestamp,
+        let result = DeduplicationResult::PotentialDuplicate(DuplicateInfo {
+            reason: DuplicateReason::OnlyUuidDifferent,
             similarity,
-            result_event,
-        );
+            original_event: result_event,
+            unique_uuids_count: 2,
+        });
 
         let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
 

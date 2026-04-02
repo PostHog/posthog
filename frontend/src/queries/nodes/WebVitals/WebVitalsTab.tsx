@@ -5,8 +5,8 @@ import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { WebVitalsMetric } from '~/queries/schema/schema-general'
 
-import { WebVitalsProgressBar } from './WebVitalsProgressBar'
 import { LONG_METRIC_NAME, METRIC_DESCRIPTION, getThresholdColor, getValueWithUnit } from './definitions'
+import { WebVitalsProgressBar } from './WebVitalsProgressBar'
 
 type WebVitalsTabProps = {
     value: number | undefined

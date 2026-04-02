@@ -15,6 +15,7 @@ rust_decimal = "1.37.1"
 sqlx = { workspace = true, features = ["rust_decimal"] }
 uuid = { workspace = true }
 time = { workspace = true }
+metrics = { workspace = true }
 dateparser = "0.2"
 jiff = "0.1"
 regex = { workspace = true }

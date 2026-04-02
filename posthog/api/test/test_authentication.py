@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -17,6 +18,7 @@ from django.utils import timezone
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.parsers import JSONParser
@@ -33,9 +35,9 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -1151,6 +1153,18 @@ class TestPasswordResetAPI(APIBaseTest):
             )
         )
 
+    def test_password_reset_is_case_insensitive(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        # User registered as "user1@posthog.com", request reset with different casing
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL.upper()})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Email should still be sent
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+
     def test_reset_with_sso_available(self):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
@@ -1464,7 +1478,56 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertFalse(self.user.check_password("a12345678"))
 
+    def test_cant_reset_password_with_non_uuid_user_id(self):
+        token = password_reset_token_generator.make_token(self.user)
+
+        response = self.client.post("/api/reset/confirm/", {"token": token, "password": "a12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
+    def test_cant_validate_token_with_non_uuid_user_id(self):
+        token = password_reset_token_generator.make_token(self.user)
+
+        response = self.client.get(f"/api/reset/confirm/?token={token}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_password_change_invalidates_reset_token(self, mock_send_email):
+        token = password_reset_token_generator.make_token(self.user)
+        self.assertTrue(password_reset_token_generator.check_token(self.user, token))
+
+        # change password via account settings
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"current_password": self.CONFIG_PASSWORD, "password": VALID_TEST_PASSWORD},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertFalse(password_reset_token_generator.check_token(self.user, token))
+
     def test_e2e_test_special_handlers(self):
+        self.ensure_url_patterns_loaded()
+
         with self.settings(E2E_TESTING=True):
             response = self.client.get("/api/reset/e2e_test_user/?token=e2e_test_token")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1487,6 +1550,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-25T22:10:14.252"):
@@ -1509,6 +1573,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2022-08-25T22:00:14.252"):
@@ -1531,6 +1596,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-26T22:00:14.252"):
@@ -1548,7 +1614,9 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
         self.client.logout()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, secure_value=hash_key_value(personal_api_key), scopes=["*"]
+        )
 
         with freeze_time("2022-08-25T22:00:14.252"):
             response = self.client.get(
@@ -1570,6 +1638,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-25T21:14:14.252"):
@@ -1591,6 +1660,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-24T21:14:14.252"):
@@ -1622,7 +1692,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }
@@ -1645,7 +1715,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }
@@ -1686,6 +1756,42 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.patch(
                 "/api/users/@me",
                 {"set_current_organization": str(self.organization.id)},
+            )
+            assert res.status_code == 200
+
+    @parameterized.expand(
+        [
+            ("set_current_team", {"set_current_team": "1"}),
+            ("events_column_config", {"events_column_config": {"active": "type"}}),
+            ("role_at_organization", {"role_at_organization": "engineering"}),
+        ]
+    )
+    def test_user_can_update_non_sensitive_fields_without_recent_authentication(self, _name, payload):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/users/@me", payload, format="json")
+            assert res.status_code != 403, f"Field update should not require re-authentication, got: {res.json()}"
+
+    def test_user_can_update_hedgehog_config_without_recent_authentication(self):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch(
+                "/api/users/@me/hedgehog_config",
+                {"enabled": True, "color": "red"},
+                format="json",
+            )
+            assert res.status_code == 200
+
+    def test_user_can_update_scene_personalisation_without_recent_authentication(self):
+        from products.dashboards.backend.models.dashboard import Dashboard
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test")
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.post(
+                "/api/users/@me/scene_personalisation",
+                {"scene": "Person", "dashboard": dashboard.id},
+                format="json",
             )
             assert res.status_code == 200
 
@@ -1766,7 +1872,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertIsNone(result)
 
     def test_authenticate_with_matching_project_api_key_in_body(self):
-        # Test that when project API key in body matches the secret key's team, it passes
+        # Test that when project token in body matches the secret key's team, it passes
         wsgi_request = self.factory.post(
             "/",
             data=f'{{"project_api_key": "{self.team.api_token}"}}',
@@ -1785,7 +1891,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_no_project_api_key_in_body_passes(self):
-        # Test that when there's no project API key in body, it still works normally
+        # Test that when there's no project token in body, it still works normally
         wsgi_request = self.factory.post(
             "/",
             data='{"some_other_field": "value"}',
@@ -1802,6 +1908,25 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         user, _ = result
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
         self.assertEqual(user.team, self.team)
+
+    @parameterized.expand(
+        [
+            ("public_token", "phc_test_public_token"),
+            ("non_prefixed_token", "some_random_token_without_prefix"),
+            ("empty_string", ""),
+            ("integer_value", 12345),
+        ]
+    )
+    def test_authenticate_with_invalid_token_in_body_rejected(self, _name, token_value):
+        data = json.dumps({"secret_api_key": token_value})
+        wsgi_request = self.factory.post("/", data=data, content_type="application/json")
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
 
 
 @override_settings(

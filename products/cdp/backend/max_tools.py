@@ -5,6 +5,7 @@ from typing import Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from posthog.hogql import errors as hogql_errors
 from posthog.hogql.ai import (
     DESTINATION_LIMITATIONS_MESSAGE,
     EVENT_PROPERTY_TAXONOMY_MESSAGE,
@@ -19,6 +20,7 @@ from posthog.hogql.ai import (
     PERSON_TAXONOMY_MESSAGE,
     TRANSFORMATION_LIMITATIONS_MESSAGE,
 )
+from posthog.hogql.parser import parse_program
 
 from posthog.cdp.validation import compile_hog
 
@@ -127,9 +129,18 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         try:
             compile_hog(hog_code, "transformation")
-        except Exception as e:
+        except Exception:
+            # Try to get a more specific error by parsing directly
+            try:
+                parse_program(hog_code)
+            except hogql_errors.SyntaxError as parse_err:
+                raise PydanticOutputParserException(
+                    llm_output=hog_code,
+                    validation_message=f"The Hog code failed to compile: {parse_err}",
+                )
             raise PydanticOutputParserException(
-                llm_output=hog_code, validation_message=f"The Hog code failed to compile: {str(e)}"
+                llm_output=hog_code,
+                validation_message="The Hog code failed to compile.",
             )
 
         return HogTransformationOutput(hog_code=hog_code)

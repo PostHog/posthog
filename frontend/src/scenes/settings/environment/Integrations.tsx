@@ -4,8 +4,10 @@ import { PropsWithChildren, useMemo, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
@@ -31,15 +33,30 @@ export function GithubIntegration(): JSX.Element {
     return <OAuthIntegration kind="github" connectText="Connect organization" />
 }
 
+export function JiraIntegration(): JSX.Element {
+    return <OAuthIntegration kind="jira" connectText="Connect site" />
+}
+
 const OAuthIntegration = ({ kind, connectText }: { kind: IntegrationKind; connectText: string }): JSX.Element => {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const authorizationUrl = api.integrations.authorizeUrl({
-        next: urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }),
+        next: urls.errorTrackingConfiguration({
+            tab: 'error-tracking-integrations',
+        }),
         kind,
     })
 
     return (
         <Integration kind={kind}>
-            <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
+            <LemonButton
+                type="secondary"
+                disableClientSideRouting
+                to={authorizationUrl}
+                disabledReason={restrictedReason}
+            >
                 {connectText}
             </LemonButton>
         </Integration>

@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import cast
 
 import pytest
-from unittest.mock import patch
 
 from django.conf import settings
 
@@ -42,8 +41,8 @@ class TestCreateSnapshotForRepositoryWorkflow:
     """
     End-to-end workflow tests for snapshot creation using real Modal sandboxes.
 
-    These tests create actual sandboxes and snapshots, only mocking the setup command
-    to avoid running full dependency installation.
+    These tests create actual sandboxes and snapshots. Setup is now a no-op
+    (repository setup happens via agent-server).
     """
 
     async def _run_workflow(
@@ -51,45 +50,39 @@ class TestCreateSnapshotForRepositoryWorkflow:
         github_integration_id: int,
         repository: str,
         team_id: int,
-        mock_setup_command: str = "echo 'setup complete'",
     ) -> CreateSnapshotForRepositoryOutput:
         workflow_id = str(uuid.uuid4())
 
-        with patch(
-            "products.tasks.backend.temporal.create_snapshot.activities.setup_repository.Sandbox._get_setup_command"
-        ) as mock_setup:
-            mock_setup.return_value = mock_setup_command
-
-            async with (
-                await WorkflowEnvironment.start_time_skipping() as env,
-                Worker(
-                    env.client,
-                    task_queue=settings.TASKS_TASK_QUEUE,
-                    workflows=[CreateSnapshotForRepositoryWorkflow],
-                    activities=[
-                        get_snapshot_context,
-                        create_sandbox,
-                        clone_repository,
-                        setup_repository,
-                        create_snapshot,
-                        cleanup_sandbox,
-                    ],
-                    workflow_runner=UnsandboxedWorkflowRunner(),
-                    activity_executor=ThreadPoolExecutor(max_workers=10),
+        async with (
+            await WorkflowEnvironment.start_time_skipping() as env,
+            Worker(
+                env.client,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                workflows=[CreateSnapshotForRepositoryWorkflow],
+                activities=[
+                    get_snapshot_context,
+                    create_sandbox,
+                    clone_repository,
+                    setup_repository,
+                    create_snapshot,
+                    cleanup_sandbox,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=10),
+            ),
+        ):
+            result = await env.client.execute_workflow(
+                CreateSnapshotForRepositoryWorkflow.run,
+                CreateSnapshotForRepositoryInput(
+                    github_integration_id=github_integration_id,
+                    repository=repository,
+                    team_id=team_id,
                 ),
-            ):
-                result = await env.client.execute_workflow(
-                    CreateSnapshotForRepositoryWorkflow.run,
-                    CreateSnapshotForRepositoryInput(
-                        github_integration_id=github_integration_id,
-                        repository=repository,
-                        team_id=team_id,
-                    ),
-                    id=workflow_id,
-                    task_queue=settings.TASKS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=timedelta(minutes=60),
-                )
+                id=workflow_id,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=timedelta(minutes=60),
+            )
 
         return result
 
@@ -178,18 +171,6 @@ class TestCreateSnapshotForRepositoryWorkflow:
         assert result.error is not None
         assert result.snapshot_id is None
 
-    async def test_workflow_handles_setup_failure(self, github_integration, test_team):
-        result = await self._run_workflow(
-            github_integration_id=github_integration.id,
-            repository="posthog/posthog-js",
-            team_id=test_team.id,
-            mock_setup_command="exit 1",
-        )
-
-        assert result.success is False
-        assert result.error is not None
-        assert result.snapshot_id is None
-
     async def test_workflow_cleans_up_sandbox_on_success(self, github_integration, test_team):
         created_snapshots: list[SandboxSnapshot] = []
 
@@ -218,9 +199,8 @@ class TestCreateSnapshotForRepositoryWorkflow:
     async def test_workflow_cleans_up_sandbox_on_failure(self, github_integration, test_team):
         result = await self._run_workflow(
             github_integration_id=github_integration.id,
-            repository="posthog/posthog-js",
+            repository="posthog/nonexistent-repo-12345",
             team_id=test_team.id,
-            mock_setup_command="exit 1",
         )
 
         assert result.success is False

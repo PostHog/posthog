@@ -3,7 +3,7 @@ import './SessionRecordingPlayer.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -14,16 +14,17 @@ import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotke
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
+import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
+import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { urls } from 'scenes/urls'
 
-import { PlayerFrame } from './PlayerFrame'
-import { PlayerFrameMetaOverlay } from './PlayerFrameMetaOverlay'
-import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
 import { PlayerMetaBar } from './player-meta/PlayerMetaBar'
+import { PlayerFrame } from './PlayerFrame'
+import { PlayerFrameMetaOverlay } from './PlayerFrameMetaOverlay'
+import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import {
@@ -47,7 +48,12 @@ export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysIn
 }
 
 export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps): JSX.Element {
-    const playerRef = useRef<HTMLDivElement>(null)
+    const playerRef = useRef<HTMLDivElement | null>(null)
+    const [playerContainer, setPlayerContainer] = useState<HTMLDivElement | null>(null)
+    const playerCallbackRef = useCallback((el: HTMLDivElement | null) => {
+        playerRef.current = el
+        setPlayerContainer(el)
+    }, [])
     const {
         incrementClickCount,
         setIsFullScreen,
@@ -66,6 +72,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         setQuickEmojiIsOpen,
         setShowingClipParams,
         setPlayNextAnimationInterrupted,
+        setPlayerActive,
     } = useActions(sessionRecordingPlayerLogic)
 
     const {
@@ -82,7 +89,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         endReached,
     } = useValues(sessionRecordingPlayerLogic)
 
-    const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
+    const { isNotFound, isRecentAndInvalid, isRecordingDeleted, recordingDeletedAt, recordingDeletedBy } = useValues(
+        sessionRecordingDataCoordinatorLogic(logicProps)
+    )
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
     const { isPlaylistCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
@@ -93,6 +102,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         mode === SessionRecordingPlayerMode.Screenshot ||
         mode === SessionRecordingPlayerMode.Video ||
         mode === SessionRecordingPlayerMode.Kiosk
+
+    useEffect(() => {
+        setPlayerActive(true)
+        return () => setPlayerActive(false)
+    }, [setPlayerActive])
 
     useEffect(() => {
         // Disable skipping inactivity when exporting, but keep it if we are displaying metadata footer (export for analysis purposes)
@@ -220,9 +234,17 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         )
     }
 
+    if (isRecordingDeleted) {
+        return (
+            <div className="flex-1 w-full flex justify-center items-center">
+                <RecordingDeleted deletedAt={recordingDeletedAt} deletedBy={recordingDeletedBy} />
+            </div>
+        )
+    }
+
     return (
         <div
-            ref={playerRef}
+            ref={playerCallbackRef}
             className={clsx(
                 'SessionRecordingPlayer',
                 {
@@ -236,7 +258,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             onMouseMove={() => setPlayNextAnimationInterrupted(true)}
             onMouseOut={() => setPlayNextAnimationInterrupted(false)}
         >
-            <FloatingContainerContext.Provider value={playerRef}>
+            <FloatingContainerContext.Provider value={playerContainer}>
                 {explorerMode ? (
                     <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                 ) : (
