@@ -587,7 +587,6 @@ export const searchLogic = kea<searchLogicType>([
                     href: urls.alerts(),
                     icon: <IconBell />,
                     itemType: null,
-                    searchKeywords: ['alert', 'alerts', 'insight alerts'],
                     lastViewedAt: sceneLogViewsByRef['SavedInsights'] ?? null,
                     record: { type: 'alerts' },
                 },
