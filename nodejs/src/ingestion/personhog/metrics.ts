@@ -18,3 +18,26 @@ export const personhogLatencySeconds = new Histogram({
     labelNames: ['method', 'source', 'client'] as const,
     buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5],
 })
+
+export async function timedPostgres<T>(clientLabel: string, method: string, fn: () => Promise<T>): Promise<T> {
+    const end = personhogLatencySeconds.startTimer({ method, source: 'postgres', client: clientLabel })
+    try {
+        return await fn()
+    } finally {
+        end()
+        personhogRequestsTotal.inc({ method, source: 'postgres', client: clientLabel })
+    }
+}
+
+export async function timedGrpc<T>(clientLabel: string, method: string, fn: () => Promise<T>): Promise<T> {
+    const end = personhogLatencySeconds.startTimer({ method, source: 'grpc', client: clientLabel })
+    try {
+        return await fn()
+    } catch (error) {
+        personhogErrorsTotal.inc({ method, client: clientLabel })
+        throw error
+    } finally {
+        end()
+        personhogRequestsTotal.inc({ method, source: 'grpc', client: clientLabel })
+    }
+}

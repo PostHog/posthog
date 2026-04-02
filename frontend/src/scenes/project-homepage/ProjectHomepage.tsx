@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { NewTabScene } from 'scenes/new-tab/NewTabScene'
@@ -40,9 +41,10 @@ function HomePageContent(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
     const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
+    const isAiFirst = featureFlags[FEATURE_FLAGS.AI_FIRST]
 
     return (
-        <SceneContent className="ProjectHomepage">
+        <SceneContent className={cn('ProjectHomepage', !isAiFirst && 'p-4')}>
             {/* TODO: Remove this after AA test is over. Just a hidden element. */}
             <span className="hidden" data-attr="aa-test-flag-result">
                 AA test flag result: {String(aaTestBayesianLegacy)} {String(aaTestBayesianNew)}

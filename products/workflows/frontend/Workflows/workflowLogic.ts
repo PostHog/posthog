@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -22,7 +22,13 @@ import { HogFunctionTemplateType } from '~/types'
 
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
-import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
+import {
+    type HogFlow,
+    type HogFlowAction,
+    HogFlowActionValidationResult,
+    type HogFlowEdge,
+    type HogFlowSchedule,
+} from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
@@ -134,6 +140,10 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
+        setPendingSchedule: (schedule: { rrule: string; starts_at: string; timezone?: string } | null) => ({
+            schedule,
+        }),
+        setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
         triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string | null) => ({
             variables,
@@ -253,8 +263,29 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         },
     })),
+    reducers({
+        schedules: [
+            [] as HogFlowSchedule[],
+            {
+                setSchedules: (_, { schedules }) => schedules,
+            },
+        ],
+        pendingSchedule: [
+            false as { rrule: string; starts_at: string; timezone?: string } | null | false,
+            {
+                setPendingSchedule: (_, { schedule }) => schedule,
+                setSchedules: () => false,
+                resetWorkflow: () => false,
+            },
+        ],
+    }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
+        currentSchedule: [(s) => [s.schedules], (schedules): HogFlowSchedule | null => schedules[0] ?? null],
+        hasUnsavedChanges: [
+            (s) => [s.workflowChanged, s.pendingSchedule],
+            (formChanged, pendingSchedule): boolean => formChanged || pendingSchedule !== false,
+        ],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
         edgesByActionId: [
             (s) => [s.workflow],
@@ -434,8 +465,40 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)
+            if (originalWorkflow.id && originalWorkflow.trigger?.type === 'batch') {
+                try {
+                    const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
+                    actions.setSchedules(schedules)
+                } catch {
+                    // Schedules are non-critical, don't block workflow loading
+                }
+            }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            // Save pending schedule changes
+            const workflowId = originalWorkflow.id
+            const pendingSchedule = values.pendingSchedule
+            const existingScheduleId = values.currentSchedule?.id
+            const hasScheduleChanges = pendingSchedule !== false && !!workflowId
+
+            if (hasScheduleChanges) {
+                try {
+                    if (pendingSchedule === null && existingScheduleId) {
+                        await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+                    } else if (pendingSchedule !== null && existingScheduleId) {
+                        await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
+                    } else if (pendingSchedule !== null) {
+                        await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                    }
+
+                    const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
+                    actions.setSchedules(schedules)
+                } catch (e) {
+                    console.error('Failed to save schedule', e)
+                    lemonToast.error('Workflow saved, but schedule could not be updated')
+                }
+            }
+
             const tasksToMarkAsCompleted: SetupTaskId[] = []
             lemonToast.success('Workflow saved')
             if (props.id === 'new' && originalWorkflow.id) {

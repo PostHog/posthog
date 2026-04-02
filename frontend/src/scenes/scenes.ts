@@ -75,6 +75,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/cdp/apps',
         iconType: 'data_pipeline',
     },
+    [Scene.BatchExport]: {
+        projectBased: true,
+        name: 'Batch export',
+        activityScope: ActivityScope.BATCH_EXPORT,
+        iconType: 'data_pipeline',
+        defaultDocsPath: '/docs/cdp/batch-exports',
+        changelogTeamSlug: 'Batch Exports',
+    },
+    [Scene.BatchExportNew]: {
+        projectBased: true,
+        name: 'New batch export',
+        iconType: 'data_pipeline',
+        defaultDocsPath: '/docs/cdp/batch-exports',
+        changelogTeamSlug: 'Batch Exports',
+    },
     [Scene.BillingAuthorizationStatus]: {
         organizationBased: true,
         defaultDocsPath: '/pricing',
@@ -520,6 +535,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Monitor the health of your PostHog integrations.',
         iconType: 'health',
     },
+    [Scene.HealthCategoryDetail]: {
+        projectBased: true,
+        name: 'Health detail',
+        iconType: 'health',
+    },
     [Scene.PipelineStatus]: {
         projectBased: true,
         name: 'Pipeline status',
@@ -948,6 +968,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    // Parameterized route must come after static /health/* routes
+    [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
