@@ -3,8 +3,8 @@ import { humanFriendlyNumber } from 'lib/utils'
 
 import { InsightType, TrendExperimentVariant } from '~/types'
 
-import { VariantTag } from '../../ExperimentView/components'
 import { legacyCalculateDelta } from '../calculations/legacyExperimentCalculations'
+import { LegacyVariantTag } from '../components/LegacyVariantTag'
 
 interface LegacyVariantTooltipProps {
     tooltipData: {
@@ -44,7 +44,7 @@ export function LegacyVariantTooltip({
             }} // Dynamic positioning based on mouse hover position
         >
             <div className="flex flex-col gap-1">
-                <VariantTag variantKey={tooltipData.variant} />
+                <LegacyVariantTag variantKey={tooltipData.variant} />
                 <div className="inline-flex">
                     <span className="text-secondary font-semibold mb-1">Win probability:</span>
                     {result?.probability?.[tooltipData.variant] !== undefined ? (
