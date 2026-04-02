@@ -91,6 +91,8 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 
 const sseHeartbeatInterval = 30 * time.Second
 
+var sseHeartbeatEvent = Event{Comment: []byte("heartbeat")}
+
 var subID uint64 = 1
 
 func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSubChan chan events.Subscription) func(c echo.Context) error {
@@ -186,7 +188,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 				}
 				w.Flush()
 			case <-heartbeat.C:
-				event := Event{Comment: []byte("heartbeat")}
+				event := sseHeartbeatEvent
 				if err := event.WriteTo(w); err != nil {
 					return err
 				}
@@ -256,7 +258,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 				}
 				w.Flush()
 			case <-heartbeat.C:
-				event := Event{Comment: []byte("heartbeat")}
+				event := sseHeartbeatEvent
 				if err := event.WriteTo(w); err != nil {
 					return err
 				}
