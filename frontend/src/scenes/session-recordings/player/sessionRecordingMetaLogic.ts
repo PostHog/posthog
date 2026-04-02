@@ -1,6 +1,7 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { snapshotDataLogic } from 'scenes/session-recordings/player/snapshotDataLogic'
@@ -72,7 +73,21 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             {
                 loadRecordingMeta: () => false,
                 loadRecordingMetaSuccess: () => false,
-                loadRecordingMetaFailure: () => true,
+                loadRecordingMetaFailure: (_, { errorObject }) =>
+                    errorObject instanceof ApiError && errorObject.status === 404,
+            },
+        ],
+        loadMetaError: [
+            null as string | null,
+            {
+                loadRecordingMeta: () => null,
+                loadRecordingMetaSuccess: () => null,
+                loadRecordingMetaFailure: (_, { error, errorObject }) => {
+                    if (errorObject instanceof ApiError && errorObject.status === 404) {
+                        return null
+                    }
+                    return error ?? 'An unexpected error occurred'
+                },
             },
         ],
         trackedWindow: [
