@@ -551,7 +551,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
 
         if (isItemDroppable?.(item)) {
             wrappedContent = (
-                <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
+                <TreeNodeDroppable id={item.id} isDroppable={!!isItemDroppable?.(item)}>
                     {wrappedContent}
                 </TreeNodeDroppable>
             )
