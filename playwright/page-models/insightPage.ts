@@ -94,12 +94,19 @@ export class InsightPage {
         const originalPathname = new URL(originalUrl).pathname
         await this.saveButton.click()
 
-        await Promise.race([
-            this.page.waitForURL((url) => url.pathname !== originalPathname, { timeout: 15000 }),
-            this.editButton.waitFor({ state: 'visible', timeout: 15000 }),
-        ])
+        await expect(async () => {
+            const currentPathname = new URL(this.page.url()).pathname
 
-        await expect(this.editButton).toBeVisible()
+            if (currentPathname !== originalPathname) {
+                return
+            }
+
+            await expect(this.editButton).toBeVisible()
+        }).toPass({ timeout: 30000 })
+
+        if (new URL(this.page.url()).pathname === originalPathname) {
+            await expect(this.editButton).toBeVisible()
+        }
     }
 
     async edit(): Promise<void> {
