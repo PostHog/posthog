@@ -16,8 +16,7 @@ from langgraph.checkpoint.base import (
     PendingWrite,
     get_checkpoint_id,
 )
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
+from langgraph.checkpoint.serde.types import TASKS
 
 from posthog.sync import database_sync_to_async
 
@@ -25,8 +24,6 @@ from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBl
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
-    jsonplus_serde = JsonPlusSerializer()
-
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
             [
@@ -42,13 +39,13 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             else []
         )
 
-    def _load_json(self, obj: Any):
-        return self.jsonplus_serde.loads(self.jsonplus_serde.dumps(obj))
+    def _load_json(self, obj: Any) -> Any:
+        # Data from Django's JSONField is already a Python dict; round-trip through JSON to normalise types.
+        return json.loads(json.dumps(obj))
 
     def _dump_json(self, obj: Any) -> dict[str, Any]:
-        serialized_metadata = self.jsonplus_serde.dumps(obj)
         # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
-        nulls_removed = serialized_metadata.decode().replace("\\u0000", "")
+        nulls_removed = json.dumps(obj, ensure_ascii=False).replace("\\u0000", "")
         return json.loads(nulls_removed)
 
     def _get_checkpoint_qs(
@@ -155,11 +152,14 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 else {}
             )
 
-            checkpoint_dict: Checkpoint = {
-                **loaded_checkpoint,
-                "pending_sends": pending_sends,
-                "channel_values": channel_values,
-            }
+            checkpoint_dict = cast(
+                Checkpoint,
+                {
+                    **loaded_checkpoint,
+                    "pending_sends": pending_sends,
+                    "channel_values": channel_values,
+                },
+            )
 
             yield CheckpointTuple(
                 {
@@ -346,7 +346,8 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 update_fields=["channel", "type", "blob"],
             )
 
-    def get_next_version(self, current: Optional[str | int], channel: ChannelProtocol) -> str:
+    def get_next_version(self, current: Optional[str | int], channel: None) -> str:
+        # `channel` is a deprecated argument kept for backwards compatibility with the base class signature.
         if current is None:
             current_v = 0
         elif isinstance(current, int):
