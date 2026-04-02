@@ -18,7 +18,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 
 const createCohort = (id: number, name: string, count: number, isStatic: boolean, isCalculating = false): CohortType =>
     ({

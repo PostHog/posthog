@@ -24,7 +24,7 @@ class TestPinterestAdsSource:
         assert config.name.value == "PinterestAds"
         assert config.label == "Pinterest Ads"
         assert config.betaSource is True
-        assert config.featureFlag == "pinterest-ads-source"
+        assert config.featureFlag is None
         assert len(config.fields) == 2
 
         account_field = config.fields[0]

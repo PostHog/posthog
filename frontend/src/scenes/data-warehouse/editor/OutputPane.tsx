@@ -645,7 +645,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const {
         query,
         effectiveVisualizationType,
-        showEditingUI,
         response,
         responseLoading,
         isChartSettingsPanelOpen,
@@ -663,7 +662,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-    if (!showEditingUI && (!response || responseLoading)) {
+    if (!response || responseLoading) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <LoadingBar />
@@ -847,22 +846,6 @@ const Content = ({
                     onSortColumnsChange={setSortColumns}
                 />
             </TabScroller>
-        )
-    }
-
-    if (activeTab === OutputTab.Visualization) {
-        return (
-            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
-                <InternalDataTableVisualization
-                    uniqueKey={vizKey}
-                    query={sourceQuery}
-                    setQuery={setSourceQuery}
-                    context={{}}
-                    cachedResults={undefined}
-                    exportContext={exportContext}
-                    editMode
-                />
-            </div>
         )
     }
     return null

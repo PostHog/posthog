@@ -40,6 +40,18 @@ type ViewRecordingProps = {
     checkRecordingExists?: boolean
 }
 
+export type ViewRecordingButtonProps = Pick<
+    LemonButtonProps,
+    'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'
+> &
+    ViewRecordingProps & {
+        checkIfViewed?: boolean
+        label?: ReactNode
+        variant?: ViewRecordingButtonVariant
+        iconOnly?: boolean
+        noPadding?: boolean
+    }
+
 export default function ViewRecordingButton({
     sessionId,
     recordingStatus,
@@ -56,14 +68,7 @@ export default function ViewRecordingButton({
     iconOnly = false,
     noPadding = false,
     ...props
-}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
-    ViewRecordingProps & {
-        checkIfViewed?: boolean
-        label?: ReactNode
-        variant?: ViewRecordingButtonVariant
-        iconOnly?: boolean
-        noPadding?: boolean
-    }): JSX.Element {
+}: ViewRecordingButtonProps): JSX.Element {
     const { checkRecordingExists: registerCheck } = useActions(sessionRecordingExistsLogic)
     const { getRecordingExists } = useValues(sessionRecordingExistsLogic)
 

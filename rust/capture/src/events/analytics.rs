@@ -15,7 +15,7 @@ use crate::{
     api::CaptureError,
     debug_or_info, error_tracking_sampler,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
-    prometheus::report_dropped_events,
+    prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
     utils::uuid_v7,
     v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
@@ -37,6 +37,10 @@ pub fn process_single_event(
 
     let data_type = match (event.event.as_str(), context.historical_migration) {
         ("$$client_ingestion_warning", _) => DataType::ClientIngestionWarning,
+        ("$exception", _) if error_tracking_sampler::should_route_to_node() => {
+            metrics::counter!("capture_exception_events_routed_to_node").increment(1);
+            DataType::ExceptionErrorTracking
+        }
         ("$exception", _) => DataType::ExceptionMain,
         ("$$heatmap", _) => DataType::HeatmapMain,
         (_, true) => DataType::AnalyticsHistorical,
@@ -66,20 +70,23 @@ pub fn process_single_event(
         .unwrap_or(false);
 
     // Parse the event timestamp
-    let computed_timestamp = common_types::timestamp::parse_event_timestamp(
+    let parsed_timestamp = common_types::timestamp::parse_event_timestamp(
         event.timestamp.as_deref(),
         event.offset,
         sent_at_utc,
         ignore_sent_at,
         context.now,
     );
+    if let Some(skew) = parsed_timestamp.clock_skew {
+        report_clock_skew(skew);
+    }
 
     let event_name = event.event.clone();
 
     let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
-        computed_timestamp: Some(computed_timestamp),
+        computed_timestamp: Some(parsed_timestamp.timestamp),
         event_name: event_name.clone(),
         force_overflow: false,
         skip_person_processing: false,
@@ -87,7 +94,7 @@ pub fn process_single_event(
         redirect_to_topic: None,
     };
 
-    if historical_cfg.should_reroute(metadata.data_type, computed_timestamp) {
+    if historical_cfg.should_reroute(metadata.data_type, parsed_timestamp.timestamp) {
         metrics::counter!(
             "capture_events_rerouted_historical",
             &[("reason", "timestamp")]
@@ -110,7 +117,7 @@ pub fn process_single_event(
         sent_at: context.sent_at,
         token: context.token.clone(),
         event: event_name,
-        timestamp: computed_timestamp,
+        timestamp: parsed_timestamp.timestamp,
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
@@ -181,18 +188,6 @@ pub async fn process_events<'a>(
             event.metadata.redirect_to_dlq |= applied.redirect_to_dlq();
             if let Some(topic) = applied.redirect_to_topic() {
                 event.metadata.redirect_to_topic = Some(topic.to_string());
-            }
-
-            // Dual-write exception events to error tracking pipeline if feature flag is enabled
-            // This is temporary, and will be removed once the new error tracking pipeline is tested.
-            if event.metadata.data_type == DataType::ExceptionMain
-                && !event.metadata.redirect_to_dlq
-                && error_tracking_sampler::should_dual_write_error_tracking()
-            {
-                let mut dual_event = event.clone();
-                dual_event.metadata.data_type = DataType::ExceptionErrorTracking;
-                filtered_events.push(dual_event);
-                metrics::counter!("capture_exception_events_dual_written").increment(1);
             }
 
             filtered_events.push(event);
@@ -750,11 +745,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_events_exception_dual_write() {
-        // Initialize the error tracking sampler at 100% to ensure dual-write happens.
+    async fn test_process_events_exception_node_rollout() {
+        // Initialize the error tracking sampler at 100% to route all exceptions to Node.
         // Note: OnceLock means this only succeeds once per test binary, so this test
         // assumes no other test initializes the sampler first.
-        crate::error_tracking_sampler::init_dual_write(true, 100.0);
+        crate::error_tracking_sampler::init(true, 100.0);
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -771,7 +766,6 @@ mod tests {
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        // Create restriction service with no restrictions (just to enter the dual-write code path)
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
 
         let result = process_events(
@@ -787,17 +781,12 @@ mod tests {
         assert!(result.is_ok());
         let captured = sink.get_events();
 
-        // Should have 2 events: the dual-write copy (ExceptionErrorTracking) and the original (ExceptionMain)
-        assert_eq!(captured.len(), 2);
+        // At 100% rollout, the exception should be routed to Node (ExceptionErrorTracking)
+        assert_eq!(captured.len(), 1);
         assert_eq!(
             captured[0].metadata.data_type,
             DataType::ExceptionErrorTracking
         );
-        assert_eq!(captured[1].metadata.data_type, DataType::ExceptionMain);
-
-        // Both should have the same event data
-        assert_eq!(captured[0].event.uuid, captured[1].event.uuid);
-        assert_eq!(captured[0].event.distinct_id, captured[1].event.distinct_id);
     }
 
     #[tokio::test]

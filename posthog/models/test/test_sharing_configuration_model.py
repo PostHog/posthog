@@ -17,6 +17,7 @@ class TestSharingConfigurationSettings(BaseTest):
         assert settings.showInspector is None
         assert settings.legend is None
         assert settings.detailed is None
+        assert settings.theme is None
 
     def test_model_validate_with_empty_dict(self):
         """Test model_validate with empty dictionary returns defaults"""
@@ -26,6 +27,7 @@ class TestSharingConfigurationSettings(BaseTest):
         assert settings.showInspector is None
         assert settings.legend is None
         assert settings.detailed is None
+        assert settings.theme is None
 
     def test_model_validate_with_partial_data(self):
         """Test model_validate with partial data uses defaults for missing fields"""
@@ -36,6 +38,7 @@ class TestSharingConfigurationSettings(BaseTest):
         assert settings.noHeader is None  # default
         assert settings.showInspector is None  # default
         assert settings.detailed is None  # default
+        assert settings.theme is None  # default
 
     def test_model_validate_with_complete_data(self):
         """Test model_validate with complete data"""
@@ -45,6 +48,7 @@ class TestSharingConfigurationSettings(BaseTest):
             "showInspector": True,
             "legend": True,
             "detailed": True,
+            "theme": "dark",
         }
         settings = SharingConfigurationSettings.model_validate(data, strict=False)
         assert settings.whitelabel is True
@@ -52,6 +56,7 @@ class TestSharingConfigurationSettings(BaseTest):
         assert settings.showInspector is True
         assert settings.legend is True
         assert settings.detailed is True
+        assert settings.theme == "dark"
 
     def test_model_validate_rejects_unknown_fields(self):
         """Test model_validate rejects unknown fields due to extra='forbid'"""
@@ -78,6 +83,7 @@ class TestSharingConfigurationSettings(BaseTest):
             "legend": None,
             "hideExtraDetails": None,
             "detailed": None,
+            "theme": None,
         }
         assert dump == expected
 

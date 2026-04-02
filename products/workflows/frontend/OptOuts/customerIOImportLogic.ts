@@ -1,8 +1,9 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
 import { ApiRequest, getCookie } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { customerIOImportLogicType } from './customerIOImportLogicType'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
@@ -45,6 +46,9 @@ export interface CSVImportProgress {
 
 export const customerIOImportLogic = kea<customerIOImportLogicType>([
     path(['products', 'workflows', 'customerIOImportLogic']),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamIdStrict']],
+    })),
     actions({
         openImportModal: true,
         closeImportModal: true,
@@ -146,7 +150,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         isImportComplete: [(s) => [s.importProgress], (importProgress) => importProgress?.status === 'completed'],
         isImportFailed: [(s) => [s.importProgress], (importProgress) => importProgress?.status === 'failed'],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setImportProgress: ({ importProgress }) => {
             if (importProgress.status === 'completed') {
                 const categoriesCreated = importProgress.categories_created || 0
@@ -182,7 +186,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
 
             try {
                 const response = await fetch(
-                    '/api/environments/@current/messaging_categories/import_preferences_csv/',
+                    `/api/environments/${values.currentTeamIdStrict}/messaging_categories/import_preferences_csv/`,
                     {
                         method: 'POST',
                         body: formData,

@@ -73,10 +73,34 @@ class TestTypeformTransport:
         paginator.update_state(response, data=[{"token": "tok_1"}])
 
         request = Mock()
-        request.params = {"page_size": 1000}
+        request.params = {
+            "page_size": 1000,
+            "since": "2026-03-01T00:00:00Z",
+            "until": "2026-03-25T00:00:00Z",
+        }
         paginator.update_request(request)
 
         assert request.params["before"] == "tok_1"
+        assert "since" not in request.params
+        assert "until" not in request.params
+
+    def test_responses_paginator_init_request_resets_state_between_forms(self) -> None:
+        paginator = TypeformResponsesPaginator()
+        response = Mock()
+
+        # Simulate mid-stream state: Form A fetched one page but there are more
+        paginator.update_state(response, data=[{"token": "tok_a1"}])
+        assert paginator._cursor == "tok_a1"
+
+        # Reset for Form B — must clear the stale cursor
+        paginator.init_request(Mock())
+
+        # update_request should not inject stale cursor from Form A
+        request_b = Mock()
+        request_b.params = {"page_size": 1000, "since": "2026-03-01", "until": "2026-03-25"}
+        paginator.update_request(request_b)
+        assert "before" not in request_b.params
+        assert request_b.params["since"] == "2026-03-01"
 
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
@@ -173,18 +197,6 @@ class TestTypeformTransport:
         assert mock_get.call_count == 2
         assert mock_get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
         assert mock_get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
-
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
-    def test_validate_credentials_aggregates_forms_and_responses_errors(self, mock_get) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = {"items": [{"id": "form_1"}]}
-        responses_response = Mock(status_code=403, text="forbidden")
-        responses_response.json.return_value = {"description": "forbidden"}
-        mock_get.side_effect = [forms_response, responses_response]
-
-        result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
-
-        assert result == (False, "Typeform token is missing required scope for responses endpoint: responses:read")
 
     def test_get_resource_forms_non_incremental(self) -> None:
         resource = cast(

@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useMemo } from 'react'
 
@@ -98,50 +98,60 @@ const meta: Meta = {
 }
 export default meta
 
-export const AllStepsCompleted: StoryFn = () => {
-    useStorybookMocks({
-        get: { 'api/environments/:team_id/insights/1/': makeInsight() },
-        post: { 'api/environments/:team_id/query/': { result: allCompletedSteps() } },
-    })
-    return <AppWithProfileContext />
-}
-AllStepsCompleted.parameters = {
-    pageUrl: urls.notebook('cj-all-completed'),
-    testOptions: { waitForSelector: '.react-flow__node' },
+type Story = StoryObj<{}>
+
+export const AllStepsCompleted: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight() },
+            post: { 'api/environments/:team_id/query/': { result: allCompletedSteps() } },
+        })
+        return <AppWithProfileContext />
+    },
+    parameters: {
+        pageUrl: urls.notebook('cj-all-completed'),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
 }
 
-export const SomeStepsCompleted: StoryFn = () => {
-    useStorybookMocks({
-        get: { 'api/environments/:team_id/insights/1/': makeInsight() },
-        post: { 'api/environments/:team_id/query/': { result: someCompletedSteps() } },
-    })
-    return <AppWithProfileContext />
-}
-SomeStepsCompleted.parameters = {
-    pageUrl: urls.notebook('cj-some-completed'),
-    testOptions: { waitForSelector: '.react-flow__node' },
-}
-
-export const WithOptionalSteps: StoryFn = () => {
-    useStorybookMocks({
-        get: { 'api/environments/:team_id/insights/1/': makeInsight([1, 3]) },
-        post: { 'api/environments/:team_id/query/': { result: optionalStepResults() } },
-    })
-    return <AppWithProfileContext />
-}
-WithOptionalSteps.parameters = {
-    pageUrl: urls.notebook('cj-optional-steps'),
-    testOptions: { waitForSelector: '.react-flow__node' },
+export const SomeStepsCompleted: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight() },
+            post: { 'api/environments/:team_id/query/': { result: someCompletedSteps() } },
+        })
+        return <AppWithProfileContext />
+    },
+    parameters: {
+        pageUrl: urls.notebook('cj-some-completed'),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
 }
 
-export const NoStepsCompleted: StoryFn = () => {
-    useStorybookMocks({
-        get: { 'api/environments/:team_id/insights/1/': makeInsight() },
-        post: { 'api/environments/:team_id/query/': { result: noCompletedSteps() } },
-    })
-    return <AppWithProfileContext />
+export const WithOptionalSteps: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight([1, 3]) },
+            post: { 'api/environments/:team_id/query/': { result: optionalStepResults() } },
+        })
+        return <AppWithProfileContext />
+    },
+    parameters: {
+        pageUrl: urls.notebook('cj-optional-steps'),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
 }
-NoStepsCompleted.parameters = {
-    pageUrl: urls.notebook('cj-none-completed'),
-    testOptions: { waitForSelector: '.react-flow__node' },
+
+export const NoStepsCompleted: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight() },
+            post: { 'api/environments/:team_id/query/': { result: noCompletedSteps() } },
+        })
+        return <AppWithProfileContext />
+    },
+    parameters: {
+        pageUrl: urls.notebook('cj-none-completed'),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
 }

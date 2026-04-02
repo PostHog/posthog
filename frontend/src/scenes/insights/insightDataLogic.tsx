@@ -1,16 +1,18 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -23,8 +25,10 @@ import {
     isDataVisualizationNode,
     isHogQLQuery,
     isHogQuery,
+    isInsightQueryNode,
     isInsightVizNode,
     isWebAnalyticsInsightQuery,
+    shouldQueryBeAsync,
 } from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
@@ -107,22 +111,27 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     loaders(({ values }) => ({
-        generatedInsightName: [
-            null as string | null,
+        generatedInsightMetadata: [
+            null as { name: string; description: string } | null,
             {
-                generateInsightName: async () => {
+                generateInsightMetadata: async () => {
                     const insightQuery = values.insightQuery
                     if (!insightQuery) {
                         return null
                     }
+
                     try {
-                        const response = await api.insights.generateName({
+                        const response = await api.insights.generateMetadata({
                             kind: NodeKind.InsightVizNode,
                             source: insightQuery,
                         })
-                        return response.name
+
+                        eventUsageLogic.actions.reportInsightMetadataAiGenerated(insightQuery.kind)
+
+                        return { name: response.name, description: response.description }
                     } catch (e) {
-                        lemonToast.error('Failed to generate name')
+                        eventUsageLogic.actions.reportInsightMetadataAiGenerationFailed(insightQuery.kind)
+                        lemonToast.error('Failed to generate name and description')
                         throw e
                     }
                 },
@@ -245,9 +254,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        generateInsightNameSuccess: ({ generatedInsightName }) => {
-            if (generatedInsightName) {
-                actions.setInsightMetadata({ name: generatedInsightName })
+        generateInsightMetadataSuccess: ({ generatedInsightMetadata }) => {
+            if (generatedInsightMetadata) {
+                actions.setInsightMetadata({
+                    name: generatedInsightMetadata.name,
+                    description: generatedInsightMetadata.description,
+                })
+                if (generatedInsightMetadata.description && !sceneLayoutLogic.values.showDescription) {
+                    sceneLayoutLogic.actions.toggleShowDescription()
+                }
             }
         },
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
@@ -348,6 +363,38 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // values.query can throw if the logic's state isn't in the store yet
             // (e.g. when InsightCard rebuilds the logic during navigation)
             actions.setQuery(props.cachedInsight.query)
+        }
+    }),
+    afterMount(({ actions, props }) => {
+        // On a dashboard, the first response for a tile can say “we don’t have chart numbers yet”
+        // (`result: null`) instead of leaving the field unset. Without a real fetch, the UI can look
+        // like a failed load (“Chart data didn’t load”) even though we simply haven’t run the query.
+        // Force-refresh here for dashboard-backed insights only so we don’t change generic data-node behavior.
+        if (props.doNotLoad || props.dashboardId == null) {
+            return
+        }
+        const cached = props.cachedInsight
+        if (!cached || typeof cached !== 'object') {
+            return
+        }
+        const cr = cached as Record<string, unknown>
+        const hasRenderable =
+            (cr.result !== null && cr.result !== undefined) || (cr.results !== null && cr.results !== undefined)
+        if (hasRenderable) {
+            return
+        }
+        const iq = cached.query
+        if (!iq || !isInsightVizNode(iq)) {
+            return
+        }
+        const source = iq.source
+        if (isInsightQueryNode(source)) {
+            if (isWebAnalyticsInsightQuery(source)) {
+                return
+            }
+            actions.loadData(shouldQueryBeAsync(source) ? 'force_async' : 'force_blocking')
+        } else if (isHogQLQuery(source)) {
+            actions.loadData('force_blocking')
         }
     }),
     actionToUrl(({ props }) => ({

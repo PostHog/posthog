@@ -9,38 +9,71 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
-export const getTracingSpansRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/`
+export const getTracingSpansAttributesRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tracing/spans/attributes/`
 }
 
-export const tracingSpansRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getTracingSpansRetrieveUrl(projectId), {
+export const tracingSpansAttributesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTracingSpansAttributesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getTracingSpansSparklineRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/sparkline/`
+export const getTracingSpansQueryCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tracing/spans/query/`
 }
 
-export const tracingSpansSparklineRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getTracingSpansSparklineRetrieveUrl(projectId), {
+export const tracingSpansQueryCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTracingSpansQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTracingSpansServiceNamesRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tracing/spans/service-names/`
+}
+
+export const tracingSpansServiceNamesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTracingSpansServiceNamesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getTracingSpansTraceRetrieveUrl = (projectId: string, traceId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/trace/${traceId}/`
+export const getTracingSpansSparklineCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tracing/spans/sparkline/`
 }
 
-export const tracingSpansTraceRetrieve = async (
+export const tracingSpansSparklineCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTracingSpansSparklineCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTracingSpansTraceCreateUrl = (projectId: string, traceId: string) => {
+    return `/api/environments/${projectId}/tracing/spans/trace/${traceId}/`
+}
+
+export const tracingSpansTraceCreate = async (
     projectId: string,
     traceId: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getTracingSpansTraceRetrieveUrl(projectId, traceId), {
+    return apiMutator<void>(getTracingSpansTraceCreateUrl(projectId, traceId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTracingSpansValuesRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tracing/spans/values/`
+}
+
+export const tracingSpansValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTracingSpansValuesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

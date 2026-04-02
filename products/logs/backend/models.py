@@ -9,6 +9,25 @@ from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.utils import generate_short_id
+
+
+class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
+    name = models.CharField(max_length=400)
+    filters = models.JSONField(default=dict)
+    pinned = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "logs_logsview"
+        unique_together = ("team", "short_id")
+        indexes = [
+            models.Index(fields=["team_id", "-created_at"], name="logs_view_team_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (Team: {self.team})"
 
 
 class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -81,6 +100,24 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
+
+    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
+        """Returns field names modified (for use with update_fields)."""
+        updated: list[str] = []
+        if reset_state:
+            self.state = self.State.NOT_FIRING
+            updated.append("state")
+        self.next_check_at = None
+        updated.append("next_check_at")
+        return updated
+
+    def get_recent_breaches(self) -> tuple[bool, ...]:
+        """Last M non-errored checks' threshold_breached values, newest first."""
+        return tuple(
+            LogsAlertCheck.objects.filter(alert=self, error_message__isnull=True)
+            .order_by("-created_at")
+            .values_list("threshold_breached", flat=True)[: self.evaluation_periods]
+        )
 
     def clean(self) -> None:
         super().clean()

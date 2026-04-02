@@ -8,9 +8,10 @@ from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.tasks.tasks import _process_diffs, process_run_diffs
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestProcessRunDiffs:
     @pytest.fixture
     def repo(self, team):
@@ -80,6 +81,13 @@ class TestProcessRunDiffs:
             team_id=repo.team_id,
         )
 
+        # Classification happens at complete_run time
+        with patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"Button": "same_hash"},
+        ):
+            logic.complete_run(create_result.run_id)
+
         # Process - should skip unchanged snapshot
         _process_diffs(create_result.run_id)
 
@@ -133,6 +141,16 @@ class TestProcessRunDiffs:
             ),
             team_id=repo.team_id,
         )
+
+        # Classification happens at complete_run time
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines",
+                return_value={"Button": "old_hash"},
+            ),
+            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+        ):
+            logic.complete_run(create_result.run_id)
 
         # Process - should attempt to diff but fail because artifacts aren't in storage
         with patch("products.visual_review.backend.tasks.tasks.logger") as mock_logger:

@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useEffect, useRef } from 'react'
 
 import {
     LemonButton,
@@ -315,8 +316,24 @@ function DefinitionPicker({
     )
 }
 
-export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element {
-    const logic = useMountedLogic(traceReviewModalLogic({ traceId }))
+export function TraceReviewButton({
+    traceId,
+    queueId,
+    buttonType = 'tertiary',
+    buttonSize = 'xsmall',
+    buttonClassName,
+    buttonLabel,
+    onReviewSaved,
+}: {
+    traceId: string
+    queueId?: string | null
+    buttonType?: 'primary' | 'secondary' | 'tertiary'
+    buttonSize?: 'xsmall' | 'small' | 'medium'
+    buttonClassName?: string
+    buttonLabel?: string
+    onReviewSaved?: () => void
+}): JSX.Element {
+    const logic = useMountedLogic(traceReviewModalLogic({ traceId, queueId }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { getTraceReview } = useValues(traceReviewsLazyLoaderLogic)
     const {
@@ -350,11 +367,20 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
     } = useValues(logic)
     const cachedReview = typeof getTraceReview === 'function' ? getTraceReview(traceId) : undefined
     const effectiveReview = cachedReview === undefined ? currentReview : cachedReview
-    const buttonLabel = effectiveReview ? 'Edit review' : 'Review trace'
+    const resolvedButtonLabel = buttonLabel ?? (effectiveReview ? 'Edit review' : 'Review trace')
     const modalTitle = effectiveReview ? 'Edit review' : 'Review trace'
     const scorersUrl = combineUrl(urls.llmAnalyticsReviews(), { human_reviews_tab: 'scorers' }).url
     const showEmptyDefinitionsState =
         !definitionSearch.trim() && loadedDefinitions.length === 0 && selectedDefinitions.length === 0
+    const wasSavingRef = useRef(false)
+
+    useEffect(() => {
+        if (wasSavingRef.current && !saving && !isOpen && effectiveReview) {
+            onReviewSaved?.()
+        }
+
+        wasSavingRef.current = saving
+    }, [effectiveReview, isOpen, onReviewSaved, saving])
 
     if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]) {
         return <></>
@@ -368,15 +394,15 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
             >
                 {({ disabled, disabledReason }: AccessControlActionChildrenProps) => (
                     <LemonButton
-                        type="tertiary"
-                        size="xsmall"
+                        type={buttonType}
+                        size={buttonSize}
                         onClick={openModal}
                         disabled={disabled}
                         disabledReason={disabledReason}
-                        className="shrink-0"
+                        className={buttonClassName || 'shrink-0'}
                         data-attr="review-trace-button"
                     >
-                        {buttonLabel}
+                        {resolvedButtonLabel}
                     </LemonButton>
                 )}
             </AccessControlAction>

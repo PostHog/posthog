@@ -57,6 +57,16 @@ export const taxonomicFilterMocksDecorator = mswDecorator({
                 count: 103,
             },
         ],
+        '/api/environments/:team_id/events/values/': [
+            { name: 'https://example.com/page1' },
+            { name: 'https://example.com/page2' },
+            { name: 'https://example.com/page3' },
+        ],
+        '/api/environments/:team_id/persons/values/': [
+            { name: 'user@example.com' },
+            { name: 'admin@example.com' },
+            { name: 'test@example.com' },
+        ],
         '/api/projects/:team_id/cohorts/': [
             {
                 id: 1,

@@ -5,7 +5,6 @@ from django.db.models import QuerySet
 
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -13,7 +12,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..llm.client import Client
@@ -125,7 +124,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
 class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated, AccessControlPermission]
+    permission_classes = [TeamMemberStrictManagementPermission]
     serializer_class = LLMProviderKeySerializer
     queryset = LLMProviderKey.objects.all()
 
@@ -312,7 +311,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Validate LLM provider API keys without persisting them"""
 
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated, AccessControlPermission]
+    permission_classes = [TeamMemberStrictManagementPermission]
 
     @llma_track_latency("llma_provider_key_validations_create")
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
