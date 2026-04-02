@@ -73,7 +73,7 @@ func (m *Model) cyclePane(dir int) {
 
 func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
-	case key.Matches(msg, m.keys.Quit), msg.Code == tea.KeyEscape:
+	case msg.Code == tea.KeyEscape:
 		m.searchMode = false
 		m.clearSearch()
 		m = m.applySize()
