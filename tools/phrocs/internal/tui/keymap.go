@@ -16,19 +16,20 @@ type keyMap struct {
 	Start      key.Binding
 	Stop       key.Binding
 	Restart    key.Binding
+	ClearLogs  key.Binding
 	CopyMode   key.Binding
-	Search     key.Binding
+	InfoMode   key.Binding
+	SearchMode key.Binding
 	SearchNext key.Binding
 	SearchPrev key.Binding
 	Quit       key.Binding
 	Help       key.Binding
 	Backspace  key.Binding
 	Hedgehog   key.Binding
-	Info       key.Binding
 	Sort       key.Binding
 	LazyDocker key.Binding
 	ProcViewer key.Binding
-	Setup      key.Binding
+	SetupMode  key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -83,11 +84,15 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r:", "restart"),
 		),
+		ClearLogs: key.NewBinding(
+			key.WithKeys("l"),
+			key.WithHelp("l:", "clear"),
+		),
 		CopyMode: key.NewBinding(
 			key.WithKeys("c"),
 			key.WithHelp("c:", "copy"),
 		),
-		Search: key.NewBinding(
+		SearchMode: key.NewBinding(
 			key.WithKeys("/"),
 			key.WithHelp("/:", "search"),
 		),
@@ -115,7 +120,7 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("h"),
 			key.WithHelp("h:", "hedgehog"),
 		),
-		Info: key.NewBinding(
+		InfoMode: key.NewBinding(
 			key.WithKeys("i"),
 			key.WithHelp("i:", "info"),
 		),
@@ -133,7 +138,7 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("p:", "htop"),
 			key.WithDisabled(),
 		),
-		Setup: key.NewBinding(
+		SetupMode: key.NewBinding(
 			key.WithKeys("t"),
 			key.WithHelp("t:", "setup"),
 		),
@@ -141,17 +146,18 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.KeyDown, k.NextPane, k.Start, k.Stop, k.Restart, k.Search, k.CopyMode, k.Setup, k.Sort, k.Info, k.Quit, k.Help}
+	return []key.Binding{k.Start, k.Stop, k.Restart, k.ClearLogs, k.SearchMode, k.CopyMode, k.InfoMode, k.SetupMode, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.KeyDown, k.KeyUp, k.Sort},
-		{k.ScrollUp, k.ScrollDown, k.Setup},
-		{k.GotoTop, k.GotoBottom, k.Info},
+		{k.ScrollUp, k.ScrollDown},
+		{k.GotoTop, k.GotoBottom},
 		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
-		{k.Start, k.Stop, k.Restart},
-		{k.Search, k.SearchNext, k.SearchPrev},
-		{k.CopyMode, k.Quit, k.Help},
+		{k.Start, k.Stop, k.Restart, k.ClearLogs},
+		{k.SearchMode, k.SearchNext, k.SearchPrev},
+		{k.CopyMode, k.InfoMode, k.SetupMode},
+		{k.Quit, k.Help, k.Hedgehog},
 	}
 }

@@ -219,6 +219,13 @@ func (p *Process) Lines() []string {
 	return cp
 }
 
+// ClearLines empties the scrollback buffer.
+func (p *Process) ClearLines() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lines = nil
+}
+
 // AppendLine injects a line into the buffer without a real subprocess (for tests).
 func (p *Process) AppendLine(line string) {
 	p.mu.Lock()

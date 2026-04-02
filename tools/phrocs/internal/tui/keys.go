@@ -172,7 +172,7 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
 
-	case key.Matches(msg, m.keys.Info), msg.Code == tea.KeyEscape:
+	case key.Matches(msg, m.keys.InfoMode), msg.Code == tea.KeyEscape:
 		m.infoMode = false
 		m.disableAllMetrics()
 		if !m.isDockerMode() {
@@ -216,12 +216,14 @@ func (m *Model) updateProcKeys() {
 		m.keys.Start.SetEnabled(false)
 		m.keys.Stop.SetEnabled(false)
 		m.keys.Restart.SetEnabled(false)
+		m.keys.ClearLogs.SetEnabled(false)
 		return
 	}
 	running := p.IsRunning()
 	m.keys.Start.SetEnabled(!running)
 	m.keys.Stop.SetEnabled(running)
 	m.keys.Restart.SetEnabled(running)
+	m.keys.ClearLogs.SetEnabled(running)
 }
 
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
@@ -368,7 +370,16 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			p.Stop()
 		}
 
-	case key.Matches(msg, m.keys.Search):
+	case key.Matches(msg, m.keys.ClearLogs):
+		if p := m.activeProc(); p != nil && p.IsRunning() {
+			m.dbg("clear logs: proc=%s", p.Name)
+			p.ClearLines()
+			var loadCmds []tea.Cmd
+			m, loadCmds = m.loadActiveProc()
+			cmds = append(cmds, loadCmds...)
+		}
+
+	case key.Matches(msg, m.keys.SearchMode):
 		m.searchMode = true
 		m.clearSearch()
 		m = m.applySize()
@@ -386,14 +397,14 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.sortServices()
 		m.dbg("sort: %s", m.sortMode)
 
-	case key.Matches(msg, m.keys.Info):
+	case key.Matches(msg, m.keys.InfoMode):
 		m.infoMode = true
 		m.toggleMetricsOnSelectedProc()
 		m.refreshInfoContent()
 		m.viewport.GotoTop()
 		m.dbg("info mode: enter")
 
-	case key.Matches(msg, m.keys.Setup):
+	case key.Matches(msg, m.keys.SetupMode):
 		m = m.enterSetupMode()
 		m.dbg("setup mode: enter")
 
