@@ -274,8 +274,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
             query: Node | null,
-            isNewInsight: boolean
-        ) => ({ insight, query, isNewInsight }),
+            isNewInsight: boolean,
+            saveType: 'save' | 'save_as'
+        ) => ({ insight, query, isNewInsight, saveType }),
         reportInsightViewed: (
             insightModel: Partial<QueryBasedInsightModel>,
             query: Node | null,
@@ -1093,12 +1094,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardMetadataAiGenerationFailed: async ({ dashboardId }) => {
             posthog.capture('dashboard metadata ai generation failed', { dashboard_id: dashboardId })
         },
-        reportInsightSaved: async ({ insight, query, isNewInsight }) => {
+        reportInsightSaved: async ({ insight, query, isNewInsight, saveType }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
                 ...sanitizeQuery(query),
                 insight: sanitizeInsight(insight),
                 is_new_insight: isNewInsight,
+                save_type: saveType,
             })
         },
         reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
