@@ -269,6 +269,20 @@ function makeSecureDispatcher(): Dispatcher {
 const sharedSecureAgent = makeSecureDispatcher()
 const sharedInsecureAgent = new InsecureAgent()
 
+/**
+ * Reads a response body stream and destroys it immediately after to release
+ * the underlying socket and its off-heap buffers. Without explicit destruction,
+ * undici holds onto these buffers until GC, and V8 never returns the ~64MB
+ * ArrayBuffer arenas they live in to the OS.
+ */
+async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promise<string> {
+    try {
+        return await body.text()
+    } finally {
+        body.destroy()
+    }
+}
+
 export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
     let parsed: URL
     try {
@@ -300,28 +314,31 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         }
     }
 
-    let consumed = false
+    // On first .text()/.json() call, read the full body and destroy the
+    // stream immediately after. This releases undici's socket buffers
+    // without waiting for GC.
+    let bodyPromise: Promise<string> | undefined
 
-    const returnValue = {
+    const readBody = (): Promise<string> => {
+        if (!bodyPromise) {
+            bodyPromise = readAndDestroyBody(result.body)
+        }
+        return bodyPromise
+    }
+
+    return {
         status: result.statusCode,
         headers,
-        json: async () => {
-            consumed = true
-            return parseJSON(await result.body.text())
-        },
-        text: async () => {
-            consumed = true
-            return await result.body.text()
-        },
-        dump: async () => {
-            if (consumed) {
-                return
+        json: async () => parseJSON(await readBody()),
+        text: async () => await readBody(),
+        dump: () => {
+            if (!bodyPromise) {
+                bodyPromise = Promise.resolve('')
+                result.body.destroy()
             }
-            consumed = true
-            await result.body.dump()
+            return Promise.resolve()
         },
     }
-    return returnValue
 }
 
 export async function internalFetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
