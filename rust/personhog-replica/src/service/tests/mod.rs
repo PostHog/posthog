@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
+    DeletePersonsRequest, GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
 };
 use tonic::Request;
 
@@ -102,4 +102,129 @@ async fn test_query_error_on_group_operation_returns_internal() {
 
     let status = result.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Internal);
+}
+
+// ============================================================
+// DeletePersons tests
+// ============================================================
+
+#[tokio::test]
+async fn test_delete_persons_connection_error_returns_unavailable() {
+    let storage = Arc::new(FailingStorage::with_connection_error());
+    let service = PersonHogReplicaService::new(storage);
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: vec!["00000000-0000-0000-0000-000000000001".to_string()],
+        }))
+        .await;
+
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+}
+
+#[tokio::test]
+async fn test_delete_persons_query_error_returns_internal() {
+    let storage = Arc::new(FailingStorage::with_query_error());
+    let service = PersonHogReplicaService::new(storage);
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: vec!["00000000-0000-0000-0000-000000000001".to_string()],
+        }))
+        .await;
+
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::Internal);
+}
+
+#[tokio::test]
+async fn test_delete_persons_empty_uuids_returns_zero() {
+    let storage = Arc::new(mocks::SuccessStorage);
+    let service = PersonHogReplicaService::new(storage);
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: vec![],
+        }))
+        .await;
+
+    let response = result.unwrap();
+    assert_eq!(response.get_ref().deleted_count, 0);
+}
+
+#[tokio::test]
+async fn test_delete_persons_too_many_uuids_returns_invalid_argument() {
+    let storage = Arc::new(mocks::SuccessStorage);
+    let service = PersonHogReplicaService::new(storage);
+
+    let uuids: Vec<String> = (0..1001)
+        .map(|i| format!("00000000-0000-0000-0000-{i:012}"))
+        .collect();
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: uuids,
+        }))
+        .await;
+
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("1000"));
+}
+
+#[tokio::test]
+async fn test_delete_persons_invalid_uuid_returns_invalid_argument() {
+    let storage = Arc::new(mocks::SuccessStorage);
+    let service = PersonHogReplicaService::new(storage);
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: vec!["not-a-valid-uuid".to_string()],
+        }))
+        .await;
+
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("Invalid UUID"));
+}
+
+#[tokio::test]
+async fn test_delete_persons_success() {
+    let storage = Arc::new(mocks::SuccessStorage);
+    let service = PersonHogReplicaService::new(storage);
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: vec!["00000000-0000-0000-0000-000000000001".to_string()],
+        }))
+        .await;
+
+    let response = result.unwrap();
+    assert_eq!(response.get_ref().deleted_count, 0); // SuccessStorage returns 0
+}
+
+#[tokio::test]
+async fn test_delete_persons_exactly_1000_uuids_succeeds() {
+    let storage = Arc::new(mocks::SuccessStorage);
+    let service = PersonHogReplicaService::new(storage);
+
+    let uuids: Vec<String> = (0..1000)
+        .map(|i| format!("00000000-0000-0000-0000-{i:012}"))
+        .collect();
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: uuids,
+        }))
+        .await;
+
+    assert!(result.is_ok());
 }

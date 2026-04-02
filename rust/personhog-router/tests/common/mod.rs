@@ -28,8 +28,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     Person, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    DeletePersonsRequest, DeletePersonsResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{LeaderBackend, ReplicaBackend};
 use personhog_router::config::RetryConfig;
@@ -289,6 +289,13 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(GroupTypeMappingsBatchResponse {
             results: vec![],
         }))
+    }
+
+    async fn delete_persons(
+        &self,
+        _request: Request<DeletePersonsRequest>,
+    ) -> Result<Response<DeletePersonsResponse>, Status> {
+        Ok(Response::new(DeletePersonsResponse { deleted_count: 0 }))
     }
 }
 
