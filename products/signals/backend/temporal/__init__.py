@@ -42,6 +42,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
+    publish_report_completed_activity,
     reset_report_to_potential_activity,
 )
 
@@ -77,6 +78,7 @@ ACTIVITIES = [
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
+    publish_report_completed_activity,
     reingest_signals_activity,
     reset_report_to_potential_activity,
     run_agentic_report_activity,
