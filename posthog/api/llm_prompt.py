@@ -136,10 +136,7 @@ class LLMPromptViewSet(
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
             request.successful_authenticator,
-            SessionAuthentication
-            | JwtAuthentication
-            | PersonalAPIKeyAuthentication
-            | OAuthAccessTokenAuthentication,
+            SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication,
         ):
             return Response(
                 {"detail": "This endpoint is only available to web-authenticated users."},
