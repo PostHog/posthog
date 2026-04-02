@@ -356,6 +356,21 @@
             "readOnlyHint": false
         }
     },
+    "evaluation-test-hog": {
+        "description": "Test Hog evaluation code against recent $ai_generation events without persisting results. Compiles the provided Hog source code and runs it against a sample of recent events (up to 10 from the last 7 days). Returns per-event results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Dry-run Hog evaluation code against sample events.",
+        "title": "Test Hog evaluation",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "LLM analytics",
