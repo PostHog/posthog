@@ -529,7 +529,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                           </LLMAnalyticsSetupPrompt>
                       ),
                       link: combineUrl(urls.llmAnalyticsReviews(), searchParams).url,
-                      'data-attr': 'reviews-tab',
+                      'data-attr': 'llma-reviews-tab',
                   } as LemonTab<string>,
               ]
             : []),
