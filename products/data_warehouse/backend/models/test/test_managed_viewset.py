@@ -1,11 +1,40 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import IntegrityError
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
-from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
+
+from products.data_warehouse.backend.models import (
+    DataWarehouseCredential,
+    DataWarehouseManagedViewSet,
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+
+STRIPE_SCHEMA_NAMES = [
+    STRIPE_CHARGE_RESOURCE_NAME,
+    STRIPE_CUSTOMER_RESOURCE_NAME,
+    STRIPE_INVOICE_RESOURCE_NAME,
+    STRIPE_PRODUCT_RESOURCE_NAME,
+    STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+]
+
+DUMMY_COLUMNS = {"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}}
+SCHEDULE_MATERIALIZATION = (
+    "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+)
 
 
 class TestDataWarehouseManagedViewSetModel(BaseTest):
@@ -172,3 +201,135 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
                 team=self.team,
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
+
+
+class TestManagedViewSetSyncWithStripeSource(BaseTest):
+    """Tests for sync_views behavior with a Stripe external data source.
+
+    Covers the lifecycle where views start with empty queries (tables don't
+    exist yet during initial sync) and transition to real queries after
+    the Stripe sync completes and tables are created.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src_stripe_1",
+            connection_id="conn_1",
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        self.credential = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        self.managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+    def _create_schemas_without_tables(self) -> list[ExternalDataSchema]:
+        return [
+            ExternalDataSchema.objects.create(
+                team=self.team, name=name, source=self.source, table=None, should_sync=True
+            )
+            for name in STRIPE_SCHEMA_NAMES
+        ]
+
+    def _create_table_for_schema(self, schema: ExternalDataSchema) -> DataWarehouseTable:
+        table = DataWarehouseTable.objects.create(
+            name=f"stripe_{schema.name.lower()}",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=self.source,
+            credential=self.credential,
+            url_pattern=f"https://bucket.s3/{schema.name.lower()}/*",
+            columns=DUMMY_COLUMNS,
+        )
+        schema.table = table
+        schema.save()
+        return table
+
+    def _get_saved_queries(self) -> list[DataWarehouseSavedQuery]:
+        return list(
+            DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset=self.managed_viewset).exclude(
+                deleted=True
+            )
+        )
+
+    def assertQueryIsEmpty(self, saved_query: DataWarehouseSavedQuery, msg: str | None = None) -> None:
+        assert saved_query.query is not None
+        query_str = saved_query.query.get("query", "")
+        self.assertTrue("where false" in query_str.lower(), msg=msg)
+
+    def assertQueryIsNotEmpty(self, saved_query: DataWarehouseSavedQuery, msg: str | None = None) -> None:
+        assert saved_query.query is not None
+        query_str = saved_query.query.get("query", "")
+        self.assertFalse("where false" in query_str.lower(), msg=msg)
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_sync_views_produces_empty_queries_when_no_tables_exist(self, _):
+        self._create_schemas_without_tables()
+        self.managed_viewset.sync_views()
+
+        saved_queries = self._get_saved_queries()
+        self.assertEqual(len(saved_queries), 6)
+
+        # MRR view references other saved queries (not tables directly),
+        # so it always produces a non-empty query regardless of table state
+        for query in saved_queries:
+            if "mrr" in query.name:
+                continue
+            self.assertQueryIsEmpty(query, f"Expected empty query initially for {query.name}")
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_sync_views_produces_real_queries_after_tables_created(self, _):
+        schemas = self._create_schemas_without_tables()
+
+        self.managed_viewset.sync_views()
+        for query in self._get_saved_queries():
+            if "mrr" in query.name:
+                continue
+            self.assertQueryIsEmpty(query, f"Expected empty query initially for {query.name}")
+
+        for schema in schemas:
+            self._create_table_for_schema(schema)
+
+        self.managed_viewset.sync_views()
+        saved_queries = self._get_saved_queries()
+        self.assertEqual(len(saved_queries), 6)
+        for query in saved_queries:
+            self.assertQueryIsNotEmpty(query, f"Expected not empty query after table creation for {query.name}")
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_sync_views_is_idempotent(self, _):
+        schemas = self._create_schemas_without_tables()
+        for schema in schemas:
+            self._create_table_for_schema(schema)
+
+        self.managed_viewset.sync_views()
+        count_after_first = len(self._get_saved_queries())
+
+        self.managed_viewset.sync_views()
+        count_after_second = len(self._get_saved_queries())
+
+        self.managed_viewset.sync_views()
+        count_after_third = len(self._get_saved_queries())
+
+        self.assertEqual(count_after_first, count_after_second)
+        self.assertEqual(count_after_second, count_after_third)
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_partial_sync_only_creates_real_queries_for_available_tables(self, _):
+        schemas = self._create_schemas_without_tables()
+        charge_schema = next(s for s in schemas if s.name == STRIPE_CHARGE_RESOURCE_NAME)
+        self._create_table_for_schema(charge_schema)
+
+        self.managed_viewset.sync_views()
+
+        saved_queries = self._get_saved_queries()
+        charge_query = next(query for query in saved_queries if "charge" in query.name)
+        customer_query = next(sq for sq in saved_queries if "customer" in sq.name)
+        self.assertQueryIsNotEmpty(charge_query)
+        self.assertQueryIsEmpty(customer_query)

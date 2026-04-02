@@ -56,6 +56,9 @@ export const RECENTS_LIMIT = 5
 export const STARRED_LIMIT = 20
 const SEARCH_LIMIT = 5
 
+/** Safely extract a string — returns undefined for objects/arrays to avoid rendering [object Object]. */
+const safeString = (val: unknown): string | undefined => (typeof val === 'string' ? val : undefined)
+
 export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
@@ -500,7 +503,10 @@ export const searchLogic = kea<searchLogicType>([
                     .filter((person) => person.uuid) // Skip persons without uuid to avoid invalid URLs
                     .map((person) => {
                         const personId = person.distinct_ids?.[0] || person.uuid
-                        const displayName = person.properties?.email || person.properties?.name || personId
+                        const displayName =
+                            safeString(person.properties?.email) ||
+                            safeString(person.properties?.name) ||
+                            String(personId)
 
                         return {
                             id: `person-${person.uuid}`,
@@ -667,11 +673,6 @@ export const searchLogic = kea<searchLogicType>([
 
                 const categoryItems: Record<string, SearchItem[]> = {}
 
-                // Safely extract a string field from extra_fields — the API may return
-                // non-string values (objects, arrays) which would crash React if rendered.
-                const safeField = (field: unknown): string | undefined =>
-                    typeof field === 'string' ? field : undefined
-
                 for (const result of unifiedSearchResults.results) {
                     const category = result.type
                     if (!categoryItems[category]) {
@@ -683,51 +684,51 @@ export const searchLogic = kea<searchLogicType>([
 
                     switch (result.type) {
                         case 'insight':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/insights/${result.result_id}`
                             break
                         case 'dashboard':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/dashboard/${result.result_id}`
                             break
                         case 'feature_flag':
-                            name = safeField(result.extra_fields.key) || result.result_id
+                            name = safeString(result.extra_fields.key) || result.result_id
                             href = `/feature_flags/${result.result_id}`
                             break
                         case 'experiment':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/experiments/${result.result_id}`
                             break
                         case 'early_access_feature':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/early_access_features/${result.result_id}`
                             break
                         case 'hog_flow':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/workflows/${result.result_id}/workflow`
                             break
                         case 'survey':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/surveys/${result.result_id}`
                             break
                         case 'notebook':
-                            name = safeField(result.extra_fields.title) || result.result_id
+                            name = safeString(result.extra_fields.title) || result.result_id
                             href = `/notebooks/${result.result_id}`
                             break
                         case 'cohort':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/cohorts/${result.result_id}`
                             break
                         case 'action':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/data-management/actions/${result.result_id}`
                             break
                         case 'event_definition':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/data-management/events/${result.result_id}`
                             break
                         case 'property_definition':
-                            name = safeField(result.extra_fields.name) || result.result_id
+                            name = safeString(result.extra_fields.name) || result.result_id
                             href = `/data-management/properties/${result.result_id}`
                             break
                     }

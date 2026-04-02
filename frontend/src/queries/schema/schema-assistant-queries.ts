@@ -1104,6 +1104,76 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
     lifecycleFilter?: AssistantLifecycleFilter
 }
 
+/**
+ * Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency,
+ * token usage, costs, errors, and other metadata. Use for AI observability — debugging
+ * slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.
+ *
+ * This is a listing tool, not a visualization/insight tool. It does not support series,
+ * breakdowns, or math aggregations. Use property filters and dateRange to narrow results.
+ */
+export interface AssistantTracesQuery {
+    kind: NodeKind.TracesQuery
+
+    /**
+     * Date range for the query.
+     */
+    dateRange?: AssistantDateRangeFilter
+
+    /**
+     * Maximum number of traces to return.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of traces to skip for pagination.
+     * @default 0
+     */
+    offset?: integer
+
+    /**
+     * Exclude internal and test users by applying the respective filters.
+     * @default false
+     */
+    filterTestAccounts?: boolean
+
+    /**
+     * Exclude support impersonation traces.
+     * @default false
+     */
+    filterSupportTraces?: boolean
+
+    /**
+     * Property filters to narrow results. Use event properties like `$ai_model`,
+     * `$ai_provider`, `$ai_trace_id`, etc. to filter traces.
+     * @default []
+     */
+    properties?: AssistantPropertyFilter[]
+
+    /**
+     * Filter traces by a specific person UUID.
+     */
+    personId?: string
+
+    /**
+     * Filter traces by group key. Requires `groupTypeIndex` to be set.
+     */
+    groupKey?: string
+
+    /**
+     * Group type index when filtering by group.
+     */
+    groupTypeIndex?: integer
+
+    /**
+     * Use random ordering instead of timestamp DESC.
+     * Useful for representative sampling to avoid recency bias.
+     * @default false
+     */
+    randomOrder?: boolean
+}
+
 export interface AssistantHogQLQuery {
     kind: NodeKind.HogQLQuery
     /** SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions. */

@@ -15,6 +15,7 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { isDataVisualizationNode } from '~/queries/utils'
@@ -40,7 +41,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
-
     const { push } = useActions(router)
 
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -49,6 +49,26 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+
+    const insightDisplayName = insight?.name || insight?.derived_name
+
+    const readDataMaxToolProps = useMemo(
+        () =>
+            hasDashboardItemId && insight?.short_id
+                ? {
+                      identifier: 'read_data' as const,
+                      context: {
+                          insight_id: insight.id,
+                          insight_short_id: insight.short_id,
+                      },
+                      contextDescription: {
+                          text: insightDisplayName || 'Insight',
+                          icon: iconForType(getInsightIconTypeFromQuery(query)),
+                      },
+                  }
+                : undefined,
+        [hasDashboardItemId, insight?.short_id, insight?.id, insightDisplayName, query]
+    )
 
     useMaxTool({
         identifier: 'upsert_alert',
@@ -95,6 +115,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 renameDebounceMs={0}
                 saveOnBlur
                 descriptionMaxLength={400}
+                maxToolProps={readDataMaxToolProps}
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
