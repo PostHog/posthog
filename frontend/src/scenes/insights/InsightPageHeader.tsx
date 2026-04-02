@@ -41,7 +41,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
-
     const { push } = useActions(router)
 
     const { breadcrumbs } = useValues(breadcrumbsLogic)
