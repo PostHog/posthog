@@ -102,7 +102,9 @@ class TestTrafficTypeFunctions:
 
         label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
 
-        assert "llm_crawler" in label_values
+        assert "ai_crawler" in label_values
+        assert "ai_search" in label_values
+        assert "ai_assistant" in label_values
         assert "search_crawler" in label_values
         assert "http_client" in label_values
         assert "no_user_agent" in label_values  # For empty UA
@@ -167,7 +169,9 @@ class TestGetBotTypeFunction:
 
         label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
 
-        assert "llm_crawler" in label_values
+        assert "ai_crawler" in label_values
+        assert "ai_search" in label_values
+        assert "ai_assistant" in label_values
         assert "search_crawler" in label_values
         assert "seo_crawler" in label_values
         assert "social_crawler" in label_values
@@ -339,7 +343,9 @@ class TestBotDefinitionsDataStructure:
 
     def test_categories_are_valid(self):
         valid_categories = {
-            "llm_crawler",
+            "ai_crawler",
+            "ai_search",
+            "ai_assistant",
             "search_crawler",
             "seo_crawler",
             "social_crawler",
@@ -353,22 +359,30 @@ class TestBotDefinitionsDataStructure:
     @pytest.mark.parametrize(
         "pattern,expected_name,expected_category,expected_type",
         [
-            # AI Agents
-            ("GPTBot", "GPTBot", "llm_crawler", "AI Agent"),
-            ("OAI-SearchBot", "OpenAI Search", "llm_crawler", "AI Agent"),
-            ("ChatGPT-User", "ChatGPT", "llm_crawler", "AI Agent"),
-            ("ClaudeBot", "Claude", "llm_crawler", "AI Agent"),
-            ("Claude-Web", "Claude Web", "llm_crawler", "AI Agent"),
-            ("PerplexityBot", "Perplexity", "llm_crawler", "AI Agent"),
-            ("Meta-ExternalFetcher", "Meta Fetcher", "llm_crawler", "AI Agent"),
-            ("Diffbot", "Diffbot", "llm_crawler", "AI Agent"),
-            ("Timpibot", "Timpi", "llm_crawler", "AI Agent"),
-            ("omgili", "Webz.io", "llm_crawler", "AI Agent"),
-            ("Webzio-Extended", "Webz.io Extended", "llm_crawler", "AI Agent"),
+            # AI Crawlers (training)
+            ("GPTBot", "GPTBot", "ai_crawler", "AI Agent"),
+            ("ClaudeBot", "Claude", "ai_crawler", "AI Agent"),
+            ("GoogleOther", "GoogleOther", "ai_crawler", "AI Agent"),
+            ("Meta-ExternalFetcher", "Meta Fetcher", "ai_crawler", "AI Agent"),
+            ("TikTokSpider", "TikTok AI", "ai_crawler", "AI Agent"),
+            ("Diffbot", "Diffbot", "ai_crawler", "AI Agent"),
+            ("Timpibot", "Timpi", "ai_crawler", "AI Agent"),
+            ("omgili", "Webz.io", "ai_crawler", "AI Agent"),
+            ("Webzio-Extended", "Webz.io Extended", "ai_crawler", "AI Agent"),
+            ("PetalBot", "Petal", "ai_crawler", "AI Agent"),
+            ("Brightbot", "Brightbot", "ai_crawler", "AI Agent"),
+            # AI Search (real-time search)
+            ("OAI-SearchBot", "OpenAI Search", "ai_search", "AI Agent"),
+            ("PerplexityBot", "Perplexity", "ai_search", "AI Agent"),
+            # AI Assistants (live browsing)
+            ("ChatGPT-User", "ChatGPT", "ai_assistant", "AI Agent"),
+            ("Claude-User", "Claude User", "ai_assistant", "AI Agent"),
+            ("Claude-Web", "Claude Web", "ai_assistant", "AI Agent"),
             # Search Crawlers
             ("Googlebot", "Googlebot", "search_crawler", "Bot"),
             ("Applebot", "Applebot", "search_crawler", "Bot"),
             ("Amazonbot", "Amazon", "search_crawler", "Bot"),
+            ("bingbot", "Bingbot", "search_crawler", "Bot"),
             # SEO Tools
             ("AhrefsBot", "Ahrefs", "seo_crawler", "Bot"),
             # Social Crawlers

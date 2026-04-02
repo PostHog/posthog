@@ -55,7 +55,7 @@ def get_traffic_category_expr(user_agent_expr: ast.Expr) -> ast.Expr:
 
     EXPERIMENTAL: This function may change without notice.
 
-    Categories: llm_crawler, search_crawler, seo_crawler, social_crawler,
+    Categories: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, social_crawler,
     monitoring, http_client, headless_browser, no_user_agent, regular
     """
     return _get_traffic_category(node=ast.Call(name="__preview_getTrafficCategory", args=[]), args=[user_agent_expr])
@@ -76,7 +76,7 @@ def get_bot_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
 
     EXPERIMENTAL: This function may change without notice.
 
-    Categories: llm_crawler, search_crawler, seo_crawler, social_crawler,
+    Categories: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, social_crawler,
     monitoring, http_client, headless_browser, no_user_agent, "" (regular)
     """
     return _get_bot_type(node=ast.Call(name="__preview_getBotType", args=[]), args=[user_agent_expr])
