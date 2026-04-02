@@ -507,23 +507,15 @@ def override_error_tracking_issue_fingerprint(
     )
 
 
-def sync_issue_to_clickhouse(*, issue_id, team_id: int) -> None:
-    issue = ErrorTrackingIssue.objects.filter(id=issue_id, team_id=team_id).select_related("assignment").first()
-    if issue is None:
+def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
+    if not issue_ids:
         return
 
-    fingerprints = list(ErrorTrackingIssueFingerprintV2.objects.filter(issue=issue, team_id=team_id))
-    if not fingerprints:
-        return
-
-    assignment = getattr(issue, "assignment", None)
-    assigned_user_id: int | None = None
-    assigned_role_id: str | None = None
-    if assignment is not None:
-        if assignment.user_id:
-            assigned_user_id = assignment.user_id
-        elif assignment.role_id:
-            assigned_role_id = str(assignment.role_id)
+    issues = {
+        i.id: i
+        for i in ErrorTrackingIssue.objects.filter(id__in=issue_ids, team_id=team_id).select_related("assignment")
+    }
+    fingerprints = ErrorTrackingIssueFingerprintV2.objects.filter(issue_id__in=issue_ids, team_id=team_id)
 
     producer = ClickhouseProducer()
     version = int(
@@ -531,6 +523,19 @@ def sync_issue_to_clickhouse(*, issue_id, team_id: int) -> None:
     )  # ReplacingMergeTree version — match rust/cymbal FingerprintIssueState::new (Utc::now().timestamp_millis())
 
     for fp in fingerprints:
+        issue = issues.get(fp.issue_id)
+        if issue is None:
+            continue
+
+        assignment = getattr(issue, "assignment", None)
+        assigned_user_id: int | None = None
+        assigned_role_id: str | None = None
+        if assignment is not None:
+            if assignment.user_id:
+                assigned_user_id = assignment.user_id
+            elif assignment.role_id:
+                assigned_role_id = str(assignment.role_id)
+
         first_seen_raw = fp.first_seen or issue.created_at
         first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
         producer.produce(
@@ -549,13 +554,7 @@ def sync_issue_to_clickhouse(*, issue_id, team_id: int) -> None:
                 "is_deleted": 0,
                 "version": version,
             },
-            sync=True,
         )
-
-
-def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
-    for issue_id in issue_ids:
-        sync_issue_to_clickhouse(issue_id=issue_id, team_id=team_id)
 
 
 def delete_symbol_set_contents(upload_path: str) -> None:
