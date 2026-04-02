@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import TypedDict, cast
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -49,6 +50,15 @@ from posthog.utils import render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
+
+
+def get_region_info() -> dict | None:
+    """Return region metadata if running on PostHog Cloud US/EU, else None."""
+    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
+    if cloud in ("US", "EU"):
+        region = cloud.lower()
+        return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
+    return None
 
 
 class OAuthAuthorizationContext(TypedDict):
@@ -644,6 +654,9 @@ class OAuthTokenView(TokenView):
                     access_token = OAuthAccessToken.objects.get(token=access_token_value)
                     response_data["scoped_teams"] = access_token.scoped_teams or []
                     response_data["scoped_organizations"] = access_token.scoped_organizations or []
+
+                    if region_info := get_region_info():
+                        response_data.update(region_info)
                     return JsonResponse(response_data)
             except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
                 logger.warning(f"Error adding scoped fields to token response: {e}")
@@ -871,5 +884,8 @@ class OAuthAuthorizationServerMetadataView(APIView):
             # Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document-00)
             "client_id_metadata_document_supported": True,
         }
+
+        if region_info := get_region_info():
+            metadata.update(region_info)
 
         return JsonResponse(metadata)
