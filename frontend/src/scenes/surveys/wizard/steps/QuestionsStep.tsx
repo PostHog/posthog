@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -455,23 +455,20 @@ function SortableQuestionCard({
                         }
                         textPlaceholder="Add description (optional)"
                     />
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <QuestionTypeChip type={question.type} onChange={(newType) => onChangeType(index, newType)} />
-                        {question.optional && (
-                            <LemonTag type="highlight" size="small">
-                                Optional
-                            </LemonTag>
+                        {index > 0 && (
+                            <LemonSegmentedButton
+                                size="small"
+                                value={question.optional ? 'optional' : 'mandatory'}
+                                onChange={(value) => onUpdate(index, { optional: value === 'optional' })}
+                                options={[
+                                    { value: 'mandatory', label: 'Mandatory' },
+                                    { value: 'optional', label: 'Optional' },
+                                ]}
+                            />
                         )}
                     </div>
-                    {index > 0 && (
-                        <LemonCheckbox
-                            size="small"
-                            checked={!!question.optional}
-                            onChange={(checked) => onUpdate(index, { optional: checked })}
-                            label="Optional"
-                        />
-                    )}
-
                     <QuestionOptions question={question} onUpdate={(updates) => onUpdate(index, updates)} />
                 </div>
                 {canDelete && (
