@@ -638,15 +638,3 @@ def filter_to_query(filter: dict, allow_variables: bool = False) -> InsightQuery
     # :KLUDGE: We do this dance to have default values instead of None, when setting
     # values from a filter above.
     return Query(**Query(**data).model_dump(exclude_none=True))
-
-
-def filter_str_to_query(filters: str) -> InsightQueryNode:
-    filter = json.loads(filters)
-    # we have insights that have been serialized to json twice in the database
-    # due to people misunderstanding our api
-    if isinstance(filter, str):
-        filter = json.loads(filter)
-    # we also have insights wrapped in an additional array
-    elif isinstance(filter, list):
-        filter = filter[0]
-    return filter_to_query(filter)
