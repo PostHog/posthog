@@ -402,9 +402,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 <LemonButton
                                     onClick={() => closeEditingObject()}
                                     icon={<IconX />}
-                                    type="secondary"
+                                    type="tertiary"
                                     size="small"
-                                    //   noPadding
                                     aria-label="close"
                                     tooltip={closeObjectTooltip}
                                 />
