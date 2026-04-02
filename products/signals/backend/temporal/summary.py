@@ -69,12 +69,14 @@ class SignalReportSummaryWorkflow:
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         # If new signals arrived after the report was generated - loop back to process them also
-        while True:
+        max_iterations = 10  # Basic safety guard
+        for _ in range(max_iterations):
             # Loop internally rather than spawning new workflows because summary workflows are
             # fire-and-forget (ParentClosePolicy.ABANDON), so there's no external caller to wait/restart them.
             should_loop = await self._run_once(inputs)
             if not should_loop:
                 return
+        workflow.logger.warning(f"Report {inputs.report_id} hit max loop iterations ({max_iterations}), exiting")
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
