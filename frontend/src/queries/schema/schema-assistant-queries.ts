@@ -1134,7 +1134,7 @@ export interface AssistantTracesQuery {
 
     /**
      * Exclude internal and test users by applying the respective filters.
-     * @default false
+     * @default true
      */
     filterTestAccounts?: boolean
 
@@ -1172,6 +1172,31 @@ export interface AssistantTracesQuery {
      * @default false
      */
     randomOrder?: boolean
+}
+
+/**
+ * Fetch a single LLM trace by ID. Returns the full trace with all child events
+ * and their complete properties — use for deep inspection of a specific trace
+ * found via `query-llm-traces-list`.
+ */
+export interface AssistantTraceQuery {
+    kind: NodeKind.TraceQuery
+
+    /**
+     * The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).
+     */
+    traceId: string
+
+    /**
+     * Date range for the query.
+     */
+    dateRange?: AssistantDateRangeFilter
+
+    /**
+     * Property filters to narrow events within the trace.
+     * @default []
+     */
+    properties?: AssistantPropertyFilter[]
 }
 
 export interface AssistantHogQLQuery {

@@ -2898,6 +2898,34 @@
             "required": ["type", "content", "tool_call_id"],
             "type": "object"
         },
+        "AssistantTraceQuery": {
+            "additionalProperties": false,
+            "description": "Fetch a single LLM trace by ID. Returns the full trace with all child events and their complete properties — use for deep inspection of a specific trace found via `query-llm-traces-list`.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query."
+                },
+                "kind": {
+                    "const": "TraceQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters to narrow events within the trace.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "traceId": {
+                    "description": "The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "traceId"],
+            "type": "object"
+        },
         "AssistantTracesQuery": {
             "additionalProperties": false,
             "description": "Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency, token usage, costs, errors, and other metadata. Use for AI observability — debugging slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.\n\nThis is a listing tool, not a visualization/insight tool. It does not support series, breakdowns, or math aggregations. Use property filters and dateRange to narrow results.",
@@ -2912,7 +2940,7 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
-                    "default": false,
+                    "default": true,
                     "description": "Exclude internal and test users by applying the respective filters.",
                     "type": "boolean"
                 },
@@ -17373,6 +17401,17 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "FormDismissPayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "const": "dismiss_form",
+                    "type": "string"
+                }
+            },
+            "required": ["action"],
+            "type": "object"
+        },
         "FormResumePayload": {
             "additionalProperties": false,
             "properties": {
@@ -30884,6 +30923,9 @@
                 },
                 {
                     "$ref": "#/definitions/FormResumePayload"
+                },
+                {
+                    "$ref": "#/definitions/FormDismissPayload"
                 }
             ]
         },

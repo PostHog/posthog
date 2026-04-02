@@ -2014,6 +2014,13 @@ class FlagPropertyFilter(BaseModel):
     value: bool | str = Field(..., description="The value can be true, false, or a variant name")
 
 
+class FormDismissPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["dismiss_form"] = "dismiss_form"
+
+
 class FunnelConversionWindowTimeUnit(StrEnum):
     SECOND = "second"
     MINUTE = "minute"
@@ -5472,6 +5479,43 @@ class AssistantStringOrBooleanValuePropertyFilter(BaseModel):
     )
 
 
+class AssistantTraceQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query."
+    )
+    kind: Literal["TraceQuery"] = "TraceQuery"
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters to narrow events within the trace.")
+    traceId: str = Field(
+        ...,
+        description=("The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results)."),
+    )
+
+
 class AssistantTracesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5481,7 +5525,7 @@ class AssistantTracesQuery(BaseModel):
     )
     filterSupportTraces: bool | None = Field(default=False, description="Exclude support impersonation traces.")
     filterTestAccounts: bool | None = Field(
-        default=False,
+        default=True,
         description=("Exclude internal and test users by applying the respective filters."),
     )
     groupKey: str | None = Field(
@@ -6890,8 +6934,8 @@ class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomiza
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
 
-class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload]):
-    root: ApprovalResumePayload | FormResumePayload
+class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload]):
+    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload
 
 
 class RetentionResult(BaseModel):
