@@ -214,7 +214,7 @@ export function TableMenu(): JSX.Element | null {
             const positions = getTableCellPositions()
             if (mode === 'row') {
                 const row = positions[hoveredCell.rowIndex]
-                if (row && row.length >= 2) {
+                if (row && row.length >= 1) {
                     ttEditor
                         .chain()
                         .focus()
@@ -223,7 +223,7 @@ export function TableMenu(): JSX.Element | null {
                 }
             } else {
                 const col = hoveredCell.colIndex
-                if (positions.length >= 2 && positions[0][col] !== undefined) {
+                if (positions.length >= 1 && positions[0][col] !== undefined) {
                     ttEditor
                         .chain()
                         .focus()
