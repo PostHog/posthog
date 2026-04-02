@@ -121,6 +121,10 @@ class DataWarehouseSavedQuerySerializerMixin:
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
+        query = view.query or {}
+        if not isinstance(query, dict) or "query" not in query:
+            return []
+
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
@@ -651,7 +655,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        request_data = getattr(self.request, "data", {})
+        should_include_database = self.action in {"create", "list", "retrieve"} or (
+            self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
+        )
+
+        if should_include_database:
+            context["database"] = Database.create_for(team_id=self.team_id)
         return context
 
     def get_serializer_class(self):
