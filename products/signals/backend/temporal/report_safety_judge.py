@@ -55,30 +55,11 @@ Return ONLY valid JSON, no other text."""
 
 
 def _build_report_safety_judge_prompt(
-    title: str | None,
-    summary: str | None,
     signals: list[SignalData],
 ) -> str:
-    report_sections = ["REPORT TO REVIEW:"]
-    if title is not None:
-        report_sections.extend(
-            [
-                "<title>",
-                title,
-                "</title>",
-            ]
-        )
-    if summary is not None:
-        report_sections.extend(
-            [
-                "<summary>",
-                summary,
-                "</summary>",
-            ]
-        )
-
-    report_sections.extend(
+    return "\n".join(
         [
+            "REPORT TO REVIEW:",
             "",
             "UNDERLYING SIGNALS:",
             "",
@@ -88,15 +69,11 @@ def _build_report_safety_judge_prompt(
         ]
     )
 
-    return "\n".join(report_sections)
-
 
 # One thing I'd like to be doing here, or maybe on the signal-ingestion side, is compare each signals embedding
 # to the average embedding for all signals of the same type - if it's some enormous outlier, it's probably a warning
 # that it's a bit odd (but the mechanics of exactly how that comparison should work are TBD).
 async def judge_report_safety(
-    title: str | None,
-    summary: str | None,
     signals: list[SignalData],
 ) -> SafetyJudgeResponse:
     """
@@ -105,7 +82,7 @@ async def judge_report_safety(
     Returns:
         SafetyJudgeResponse with choice=True if safe, choice=False if unsafe.
     """
-    user_prompt = _build_report_safety_judge_prompt(title, summary, signals)
+    user_prompt = _build_report_safety_judge_prompt(signals)
 
     def validate(text: str) -> SafetyJudgeResponse:
         data = json.loads(text)
@@ -124,8 +101,6 @@ class SafetyJudgeInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
-    title: str | None = None
-    summary: str | None = None
 
 
 @dataclass
@@ -139,8 +114,6 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
     """Assess report for prompt injection attacks and store result as artefact."""
     try:
         result = await judge_report_safety(
-            title=input.title,
-            summary=input.summary,
             signals=input.signals,
         )
 
