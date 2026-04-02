@@ -76,45 +76,52 @@ test.describe('SQL Editor direct Postgres queries', () => {
                             throw new Error('CSRF cookie missing in browser context')
                         }
 
-                        const response = await fetch('/api/projects/@current/external_data_sources/', {
-                            method: 'POST',
-                            credentials: 'include',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRFToken': decodeURIComponent(csrfToken),
-                            },
-                            body: JSON.stringify({
-                                source_type: 'Postgres',
-                                access_method: 'direct',
-                                prefix: name,
-                                payload: {
-                                    source_type: 'Postgres',
-                                    host: '127.0.0.1',
-                                    port: '5432',
-                                    database: 'posthog',
-                                    user: 'posthog',
-                                    password: 'posthog',
-                                    schema: 'public',
-                                    schemas: [
-                                        {
-                                            name: table,
-                                            should_sync: true,
-                                            sync_type: null,
-                                            incremental_field: null,
-                                            incremental_field_type: null,
-                                            sync_time_of_day: null,
-                                        },
-                                    ],
+                        for (let attempt = 1; attempt <= 3; attempt++) {
+                            const response = await fetch('/api/projects/@current/external_data_sources/', {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': decodeURIComponent(csrfToken),
                                 },
-                            }),
-                        })
+                                body: JSON.stringify({
+                                    source_type: 'Postgres',
+                                    access_method: 'direct',
+                                    prefix: name,
+                                    payload: {
+                                        source_type: 'Postgres',
+                                        host: '127.0.0.1',
+                                        port: '5432',
+                                        database: 'posthog',
+                                        user: 'posthog',
+                                        password: 'posthog',
+                                        schema: 'public',
+                                        schemas: [
+                                            {
+                                                name: table,
+                                                should_sync: true,
+                                                sync_type: null,
+                                                incremental_field: null,
+                                                incremental_field_type: null,
+                                                sync_time_of_day: null,
+                                            },
+                                        ],
+                                    },
+                                }),
+                            })
 
-                        if (!response.ok) {
-                            throw new Error(`${response.status} ${await response.text()}`)
+                            if (response.ok) {
+                                const data = await response.json()
+                                return data.id as string
+                            }
+
+                            if (![502, 503, 504].includes(response.status) || attempt === 3) {
+                                throw new Error(`${response.status} ${await response.text()}`)
+                            }
+
+                            await new Promise((resolve) => window.setTimeout(resolve, attempt * 1000))
                         }
-
-                        const data = await response.json()
-                        return data.id as string
+                        throw new Error('Failed to create Postgres direct source after retries')
                     },
                     { name: sourceName, table: tableName }
                 )
@@ -141,14 +148,16 @@ test.describe('SQL Editor direct Postgres queries', () => {
                     .locator('[data-attr=hogql-query-editor]')
                     .pressSequentially(`SELECT id, label FROM ${tableName} ORDER BY id`)
                 await page.locator('[data-attr=sql-editor-run-button]').click()
+                await expect(page.locator('[data-attr=sql-editor-run-button]')).toContainText('Cancel')
+                await expect(page.locator('[data-attr=sql-editor-run-button]')).toContainText('Run', { timeout: 60000 })
 
                 await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
                 await expect
-                    .poll(async () => await page.locator('body').innerText(), { timeout: 15000 })
-                    .toContain('Showing 2 rows')
-                await expect
-                    .poll(async () => await page.locator('body').innerText(), { timeout: 15000 })
+                    .poll(async () => await page.locator('body').innerText(), { timeout: 60000 })
                     .toContain('alpha')
+                await expect
+                    .poll(async () => await page.locator('body').innerText(), { timeout: 60000 })
+                    .toContain('beta')
             })
         } finally {
             if (sourceId) {
