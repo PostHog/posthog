@@ -40,7 +40,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { getDatumTitle, TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -303,6 +303,7 @@ export function LineGraph_({
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
+    const hasMultipleSeries = new Set(_datasets.map((d) => d.action?.order).filter((o) => o !== undefined)).size > 1
     const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
     const zoomPluginOptions = useChartZoom({
         datasets,
@@ -820,6 +821,16 @@ export function LineGraph_({
                                         renderSeries={(value, datum) => {
                                             const hasBreakdown =
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value
+
+                                            if (hasBreakdown && !hasMultipleSeries) {
+                                                const title = getDatumTitle(
+                                                    datum,
+                                                    breakdownFilter,
+                                                    tooltipConfig?.formatCompareLabel
+                                                )
+
+                                                return <div className="datum-label-column">{title}</div>
+                                            }
 
                                             return (
                                                 <div className="datum-label-column">
