@@ -1421,6 +1421,46 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"
+              },
+              "$virt_is_bot": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_is_bot`",
+                  "id": null,
+                  "name": "$virt_is_bot",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "$virt_traffic_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_type`",
+                  "id": null,
+                  "name": "$virt_traffic_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_traffic_category": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_category`",
+                  "id": null,
+                  "name": "$virt_traffic_category",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_bot_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_name`",
+                  "id": null,
+                  "name": "$virt_bot_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
               }
           },
           "id": "events",
@@ -5964,6 +6004,46 @@
                   "hogql_value": "issue_id",
                   "id": null,
                   "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_is_bot": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_is_bot`",
+                  "id": null,
+                  "name": "$virt_is_bot",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "$virt_traffic_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_type`",
+                  "id": null,
+                  "name": "$virt_traffic_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_traffic_category": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_category`",
+                  "id": null,
+                  "name": "$virt_traffic_category",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_bot_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_name`",
+                  "id": null,
+                  "name": "$virt_bot_name",
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"

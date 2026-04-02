@@ -153,7 +153,6 @@ import {
     LogEntryRequestParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
-    type OAuthApplicationPublicMetadata,
     ObjectMediaPreview,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
@@ -1829,10 +1828,6 @@ export class ApiRequest {
 
     public messagingPreferencesOptOuts(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
-    }
-
-    public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
-        return this.addPathComponent('oauth_application').addPathComponent('metadata').addPathComponent(clientId)
     }
 
     public hogFlows(): ApiRequest {
@@ -5422,11 +5417,6 @@ const api = {
                     page: page || 1,
                 })
                 .get()
-        },
-    },
-    oauthApplication: {
-        async getPublicMetadata(clientId: string): Promise<OAuthApplicationPublicMetadata> {
-            return await new ApiRequest().oauthApplicationPublicMetadata(clientId).get()
         },
     },
     hogFlows: {

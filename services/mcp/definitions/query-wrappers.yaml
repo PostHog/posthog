@@ -116,8 +116,8 @@ wrappers:
             - modifiers
             - samplingFactor
 
-    query-traces-list:
-        schema_ref: TracesQuery
+    query-llm-traces-list:
+        schema_ref: AssistantTracesQuery
         enabled: true
         scopes:
             - query:read
@@ -127,13 +127,7 @@ wrappers:
             idempotent: true
         mcp_version: 2
         title: List LLM traces
-        description: >
-            Query LLM traces to inspect AI/LLM usage. Returns a list of traces
-            with their events, latency, token usage, and other metadata.
-            Use dateRange, properties, and limit to filter results.
+        description_file: ./prompts/query-llm-traces-list.md
         exclude_properties:
             - response
             - modifiers
-            - showColumnConfigurator
-            - tags
-            - version
