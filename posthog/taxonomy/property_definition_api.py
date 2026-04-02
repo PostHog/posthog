@@ -847,6 +847,12 @@ class PropertyDefinitionViewSet(
         if v.get("exclude_hidden", False) and prop.get("hidden", False):
             return False
 
+        # verified filter — virtual properties don't participate in the
+        # enterprise verification system, so exclude them whenever the
+        # caller explicitly filters by verified status.
+        if v.get("verified") is not None:
+            return False
+
         # virtual feature flag filter (not supported anywhere yet but add the logic and tests anyway for completeness)
         if v.get("is_feature_flag") is not None:
             if v["is_feature_flag"]:
