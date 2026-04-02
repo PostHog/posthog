@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
@@ -24,6 +24,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -362,56 +363,14 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                     </div>
                                 ),
                             },
-                            content:
-                                id && !isComplete && !actionChanged ? (
-                                    <div className="flex items-center">
-                                        <Spinner className="mr-4" />
-                                        Calculating action, please hold on...
-                                    </div>
-                                ) : (
-                                    <Query
-                                        query={{
-                                            kind: NodeKind.DataTableNode,
-                                            source: {
-                                                kind: NodeKind.EventsQuery,
-                                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                                ...(id && !actionChanged
-                                                    ? { actionId: id }
-                                                    : {
-                                                          actionSteps: action.steps?.map(
-                                                              ({
-                                                                  event,
-                                                                  properties,
-                                                                  selector,
-                                                                  tag_name,
-                                                                  text,
-                                                                  text_matching,
-                                                                  href,
-                                                                  href_matching,
-                                                                  url,
-                                                                  url_matching,
-                                                              }) => ({
-                                                                  event,
-                                                                  properties,
-                                                                  selector,
-                                                                  tag_name,
-                                                                  text,
-                                                                  text_matching,
-                                                                  href,
-                                                                  href_matching,
-                                                                  url,
-                                                                  url_matching,
-                                                              })
-                                                          ),
-                                                      }),
-                                                after: '-24h',
-                                            },
-                                            full: true,
-                                            showEventFilter: false,
-                                            showPropertyFilter: false,
-                                        }}
-                                    />
-                                ),
+                            content: (
+                                <MatchingEvents
+                                    id={id}
+                                    isComplete={isComplete}
+                                    actionChanged={actionChanged}
+                                    steps={action.steps}
+                                />
+                            ),
                         },
                     ]}
                 />
@@ -438,6 +397,76 @@ const REFERENCES_COLUMNS: LemonTableColumns<ActionReferenceApi> = [
     createdByColumn() as LemonTableColumns<ActionReferenceApi>[number],
     createdAtColumn() as LemonTableColumns<ActionReferenceApi>[number],
 ]
+
+function MatchingEvents({
+    id,
+    isComplete,
+    actionChanged,
+    steps,
+}: {
+    id?: number
+    isComplete: boolean
+    actionChanged: boolean
+    steps?: ActionStepType[]
+}): JSX.Element {
+    const { filterTestAccountsDefault } = useValues(filterTestAccountsDefaultsLogic)
+
+    const query = useMemo(() => {
+        const source: Record<string, any> = {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            after: '-24h',
+            filterTestAccounts: filterTestAccountsDefault,
+        }
+        if (id && !actionChanged) {
+            source.actionId = id
+        } else {
+            source.actionSteps = steps?.map(
+                ({
+                    event,
+                    properties,
+                    selector,
+                    tag_name,
+                    text,
+                    text_matching,
+                    href,
+                    href_matching,
+                    url,
+                    url_matching,
+                }) => ({
+                    event,
+                    properties,
+                    selector,
+                    tag_name,
+                    text,
+                    text_matching,
+                    href,
+                    href_matching,
+                    url,
+                    url_matching,
+                })
+            )
+        }
+        return {
+            kind: NodeKind.DataTableNode as const,
+            source,
+            full: true,
+            showEventFilter: false,
+            showPropertyFilter: false,
+        }
+    }, [id, actionChanged, steps, filterTestAccountsDefault])
+
+    if (id && !isComplete && !actionChanged) {
+        return (
+            <div className="flex items-center">
+                <Spinner className="mr-4" />
+                Calculating action, please hold on...
+            </div>
+        )
+    }
+
+    return <Query query={query} />
+}
 
 function ReferencesList({ logicProps }: { logicProps: ActionEditLogicProps }): JSX.Element {
     const { filteredReferences, referencesSearch } = useValues(actionEditLogic(logicProps))
