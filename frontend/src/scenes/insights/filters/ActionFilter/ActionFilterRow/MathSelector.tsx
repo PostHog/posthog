@@ -7,7 +7,8 @@ import { useMathSelectorOptions } from './useMathSelectorOptions'
 
 export function MathSelector(props: MathSelectorProps): JSX.Element {
     const options = useMathSelectorOptions(props)
-    const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason, size } = props
+    const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason, size, fullWidth, truncateText } =
+        props
 
     const mathType = apiValueToMathType(math, mathGroupTypeIndex)
 
@@ -23,6 +24,8 @@ export function MathSelector(props: MathSelectorProps): JSX.Element {
             dropdownMatchSelectWidth={false}
             dropdownPlacement="bottom-start"
             size={size}
+            fullWidth={fullWidth}
+            truncateText={truncateText}
         />
     )
 }
