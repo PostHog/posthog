@@ -580,7 +580,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             const result = savedInsight.result || (values.query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: true })
             try {
-                eventUsageLogic.actions.reportInsightSaved(savedInsight, values.query, insightNumericId === undefined)
+                eventUsageLogic.actions.reportInsightSaved(
+                    savedInsight,
+                    values.query,
+                    insightNumericId === undefined,
+                    'save'
+                )
             } catch (error) {
                 console.error('Failed to report insight save analytics', error)
             }
@@ -696,7 +701,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 )
             }
 
-            persist && actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
+            if (persist) {
+                actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
+                eventUsageLogic.actions.reportInsightSaved(insight, values.query, true, 'save_as')
+            }
             actions.reloadSavedInsights() // Load insights afresh
 
             if (redirectToViewMode) {
