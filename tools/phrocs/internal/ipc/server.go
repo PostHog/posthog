@@ -10,6 +10,7 @@
 //	{"cmd":"status","process":"web"}
 //	{"cmd":"status_all"}
 //	{"cmd":"logs","process":"web","lines":100,"grep":"error"}
+//	{"cmd":"send-keys","process":"web","keys":"yes\n"}
 //
 // Responses (one JSON object per line):
 //
@@ -17,6 +18,7 @@
 //	{"ok":true,"process":"web","status":"running","pid":1234,...}
 //	{"ok":true,"processes":{"web":{...},"worker":{...}}}
 //	{"ok":true,"lines":["..."],"buffered":4832}
+//	{"ok":true}
 //	{"ok":false,"error":"process not found: web"}
 package ipc
 
@@ -56,6 +58,7 @@ type request struct {
 	Process string `json:"process,omitempty"`
 	Lines   int    `json:"lines,omitempty"`
 	Grep    string `json:"grep,omitempty"`
+	Keys    string `json:"keys,omitempty"`
 }
 
 // Binds a Unix domain socket at path and returns the listener.
@@ -184,6 +187,19 @@ func dispatch(req request, mgr *process.Manager) any {
 			"lines":    tail,
 			"buffered": len(all),
 		}
+
+	case "send-keys":
+		p, ok := mgr.Get(req.Process)
+		if !ok {
+			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+		}
+		if req.Keys == "" {
+			return map[string]any{"ok": false, "error": "missing keys"}
+		}
+		if err := p.WriteInput([]byte(req.Keys)); err != nil {
+			return map[string]any{"ok": false, "error": err.Error()}
+		}
+		return map[string]any{"ok": true}
 
 	default:
 		return map[string]any{"ok": false, "error": "unknown command: " + req.Cmd}

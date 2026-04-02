@@ -22,6 +22,7 @@ import (
 const metricsSampleInterval = 1 * time.Second
 const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
+const defaultShell = "/bin/bash"
 
 type Status int
 
@@ -104,6 +105,7 @@ type Snapshot struct {
 type Process struct {
 	Name         string
 	Cfg          config.ProcConfig
+	shellBin     string // shell binary for running shell commands
 	readyPattern *regexp.Regexp
 	maxLines     int
 	status       Status
@@ -124,10 +126,15 @@ type Process struct {
 	metricsEnabled atomic.Bool
 }
 
-func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
+func NewProcess(name string, cfg config.ProcConfig, scrollback int, globalShell string) *Process {
+	shell := globalShell
+	if shell == "" {
+		shell = defaultShell
+	}
 	p := &Process{
 		Name:     name,
 		Cfg:      cfg,
+		shellBin: shell,
 		maxLines: scrollback,
 		status:   StatusStopped,
 	}
@@ -331,7 +338,7 @@ func (p *Process) buildCmd() *exec.Cmd {
 	if len(p.Cfg.Cmd) > 0 {
 		cmd = exec.Command(p.Cfg.Cmd[0], p.Cfg.Cmd[1:]...)
 	} else {
-		cmd = exec.Command("/bin/bash", "-c", p.Cfg.Shell)
+		cmd = exec.Command(p.shellBin, "-c", p.Cfg.Shell)
 	}
 	cmd.Dir = p.Cfg.Cwd
 	return cmd

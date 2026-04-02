@@ -196,7 +196,7 @@ func (m *Model) applySetupChanges() {
 	for name := range newNames {
 		if !oldNames[name] {
 			m.dbg("setup: adding process %s", name)
-			p := m.mgr.Add(name, newCfg.Procs[name], newCfg.Scrollback)
+			p := m.mgr.Add(name, newCfg.Procs[name], newCfg.Scrollback, newCfg.Shell)
 			go func() { _ = p.Start(send) }()
 		}
 	}

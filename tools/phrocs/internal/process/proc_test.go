@@ -36,7 +36,7 @@ func TestStatusString(t *testing.T) {
 
 func TestNewProcess_fields(t *testing.T) {
 	cfg := config.ProcConfig{Shell: "echo hi"}
-	p := NewProcess("backend", cfg, 5000)
+	p := NewProcess("backend", cfg, 5000, "")
 	if p.Name != "backend" {
 		t.Errorf("Name: got %q, want %q", p.Name, "backend")
 	}
@@ -49,7 +49,7 @@ func TestNewProcess_fields(t *testing.T) {
 }
 
 func TestNewProcess_notReadyWithPattern(t *testing.T) {
-	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "started"}, 1000)
+	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "started"}, 1000, "")
 	if p.Status() == StatusRunning {
 		t.Error("process with ready_pattern should not start ready")
 	}
@@ -59,7 +59,7 @@ func TestNewProcess_notReadyWithPattern(t *testing.T) {
 }
 
 func TestNewProcess_compilesReadyPattern(t *testing.T) {
-	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "started"}, 1000)
+	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "started"}, 1000, "")
 	if p.readyPattern == nil {
 		t.Error("readyPattern should be compiled")
 	}
@@ -67,21 +67,21 @@ func TestNewProcess_compilesReadyPattern(t *testing.T) {
 
 func TestNewProcess_invalidPattern(t *testing.T) {
 	// invalid regex should not panic; readyPattern stays nil
-	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "["}, 1000)
+	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "["}, 1000, "")
 	if p.readyPattern != nil {
 		t.Error("invalid regex should result in nil readyPattern")
 	}
 }
 
 func TestProcess_linesEmpty(t *testing.T) {
-	p := NewProcess("svc", config.ProcConfig{}, 100)
+	p := NewProcess("svc", config.ProcConfig{}, 100, "")
 	if lines := p.Lines(); len(lines) != 0 {
 		t.Errorf("expected empty lines, got %v", lines)
 	}
 }
 
 func TestSnapshot_initialState(t *testing.T) {
-	p := NewProcess("backend", config.ProcConfig{Shell: "echo hi"}, 1000)
+	p := NewProcess("backend", config.ProcConfig{Shell: "echo hi"}, 1000, "")
 
 	snap := p.Snapshot()
 
@@ -130,7 +130,7 @@ func TestSnapshot_initialState(t *testing.T) {
 }
 
 func TestSnapshot_withMetrics(t *testing.T) {
-	p := NewProcess("worker", config.ProcConfig{Shell: "echo hi"}, 1000)
+	p := NewProcess("worker", config.ProcConfig{Shell: "echo hi"}, 1000, "")
 
 	someTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	p.startedAt = someTime
@@ -174,7 +174,7 @@ func TestSnapshot_withMetrics(t *testing.T) {
 }
 
 func TestSnapshot_withReadyAt(t *testing.T) {
-	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "ready"}, 1000)
+	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "ready"}, 1000, "")
 
 	t0 := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	p.startedAt = t0
@@ -224,7 +224,7 @@ func TestStop_kills_entire_process_group(t *testing.T) {
 	// "sleep 999 &" creates a grandchild; "echo $!" prints its PID.
 	p := NewProcess("test-pgkill", config.ProcConfig{
 		Shell: `sleep 999 & echo "GRANDCHILD_PID=$!"; wait`,
-	}, 1000)
+	}, 1000, "")
 
 	send, _, _ := collectMsgs()
 	if err := p.Start(send); err != nil {
@@ -285,7 +285,7 @@ func TestReadLoop_batchesOutput(t *testing.T) {
 	// Spawn a process that writes 500 lines as fast as possible
 	p := NewProcess("batch-test", config.ProcConfig{
 		Shell: fmt.Sprintf(`for i in $(seq 1 %d); do echo "line $i"; done`, totalLines),
-	}, totalLines+100)
+	}, totalLines+100, "")
 
 	send, msgs, mu := collectMsgs()
 	if err := p.Start(send); err != nil {
@@ -341,7 +341,7 @@ func TestHasPrompt_partialLine(t *testing.T) {
 	// detect and set HasPrompt = true.
 	p := NewProcess("prompt-test", config.ProcConfig{
 		Shell: `printf "Enter name: "`,
-	}, 100)
+	}, 100, "")
 
 	send, _, _ := collectMsgs()
 	if err := p.Start(send); err != nil {
@@ -375,7 +375,7 @@ func TestHasPrompt_completeLine(t *testing.T) {
 	// be false once the process finishes.
 	p := NewProcess("no-prompt", config.ProcConfig{
 		Shell: `echo "hello"`,
-	}, 100)
+	}, 100, "")
 
 	send, _, _ := collectMsgs()
 	if err := p.Start(send); err != nil {
@@ -404,7 +404,7 @@ func TestHasPrompt_completeLine(t *testing.T) {
 func TestWriteInput(t *testing.T) {
 	p := NewProcess("pty-input", config.ProcConfig{
 		Shell: `head -1`,
-	}, 100)
+	}, 100, "")
 
 	send, _, _ := collectMsgs()
 	if err := p.Start(send); err != nil {
@@ -474,7 +474,7 @@ func TestBackpressure_concurrentFloodDoesNotStall(t *testing.T) {
 					`for i in $(seq 1 %d); do echo "proc-%d line $i xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; done`,
 					linesPerProc, i),
 			},
-			linesPerProc+100,
+			linesPerProc+100, "",
 		)
 	}
 
@@ -533,7 +533,7 @@ func TestBackpressure_concurrentFloodDoesNotStall(t *testing.T) {
 }
 
 func TestSnapshot_noReadyAt(t *testing.T) {
-	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "ready"}, 1000)
+	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "ready"}, 1000, "")
 	// readyAt is left as zero value; startedAt is also zero
 
 	snap := p.Snapshot()

@@ -30,7 +30,7 @@ func NewManager(cfg *config.Config) *Manager {
 		if docker.IsDockerComposeShell(pcfg.Shell) {
 			pcfg.Shell = docker.StripComposeLogsTail(pcfg.Shell)
 		}
-		proc := NewProcess(name, pcfg, cfg.Scrollback)
+		proc := NewProcess(name, pcfg, cfg.Scrollback, cfg.Shell)
 		mgr.procs = append(mgr.procs, proc)
 		mgr.byName[name] = proc
 	}
@@ -103,7 +103,7 @@ func (m *Manager) Send() func(tea.Msg) {
 
 // Add creates a new process from config and appends it to the manager.
 // If a process with the same name already exists, it is a no-op.
-func (m *Manager) Add(name string, pcfg config.ProcConfig, scrollback int) *Process {
+func (m *Manager) Add(name string, pcfg config.ProcConfig, scrollback int, globalShell string) *Process {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byName[name]; ok {
@@ -112,7 +112,7 @@ func (m *Manager) Add(name string, pcfg config.ProcConfig, scrollback int) *Proc
 	if docker.IsDockerComposeShell(pcfg.Shell) {
 		pcfg.Shell = docker.StripComposeLogsTail(pcfg.Shell)
 	}
-	proc := NewProcess(name, pcfg, scrollback)
+	proc := NewProcess(name, pcfg, scrollback, globalShell)
 	m.procs = append(m.procs, proc)
 	m.byName[name] = proc
 	return proc

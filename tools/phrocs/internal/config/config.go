@@ -31,6 +31,7 @@ func (p ProcConfig) ShouldAutostart() bool {
 
 // Top-level mprocs.yaml document
 type Config struct {
+	Shell            string                `yaml:"shell"`
 	Procs            map[string]ProcConfig `yaml:"procs"`
 	HideKeymapWindow bool                  `yaml:"hide_keymap_window"`
 	MouseScrollSpeed int                   `yaml:"mouse_scroll_speed"`

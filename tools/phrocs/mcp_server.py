@@ -116,5 +116,22 @@ def get_process_logs(process: str, lines: int = 100, grep: str = "") -> dict[str
     return resp
 
 
+@mcp.tool()
+def send_keys(process: str, keys: str) -> dict[str, Any]:
+    """Send input to a dev environment process's stdin.
+    Use this to answer interactive prompts, confirm dialogs, or send
+    signals like Ctrl+C (as '\\x03') to a running process.
+    Args:
+        process: Process name (e.g. 'backend', 'frontend', 'celery-worker').
+        keys: The text to send (e.g. 'yes\\n', 'Y\\n'). Include '\\n' for Enter.
+    """
+    result = _query_phrocs({"cmd": "send-keys", "process": process, "keys": keys})
+    if result is None:
+        return {"process": process, **_NOT_RUNNING}
+    if not result.get("ok"):
+        return {"process": process, "error": result.get("error", "unknown error")}
+    return {"process": process, "ok": True}
+
+
 if __name__ == "__main__":
     mcp.run()
