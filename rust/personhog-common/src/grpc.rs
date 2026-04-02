@@ -276,11 +276,11 @@ where
                 counter!("grpc_server_requests_total",
                     "method" => this.method.clone(),
                     "client" => this.client.to_string())
-                    .increment(1);
+                .increment(1);
                 histogram!("grpc_server_request_duration_ms",
                     "method" => this.method.clone(),
                     "client" => this.client.to_string())
-                    .record(duration_ms);
+                .record(duration_ms);
                 Poll::Ready(result)
             }
             Poll::Pending => Poll::Pending,
@@ -298,7 +298,7 @@ impl<F> PinnedDrop for GrpcMetricsFuture<F> {
         gauge!("grpc_server_requests_in_flight",
             "method" => this.method.clone(),
             "client" => this.client.to_string())
-            .decrement(1.0);
+        .decrement(1.0);
     }
 }
 
