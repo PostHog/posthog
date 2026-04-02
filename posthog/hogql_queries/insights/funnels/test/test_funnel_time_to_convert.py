@@ -402,21 +402,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
-        query = FunnelsQuery(
-            series=[
-                EventsNode(event="step one"),
-                EventsNode(event="step two"),
-                EventsNode(event="step three"),
-            ],
-            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
-            interval=IntervalType.DAY,
-            funnelsFilter=FunnelsFilter(
-                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
-                funnelFromStep=0,
-                funnelToStep=2,
-                funnelWindowInterval=7,
-                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
-            ),
+        query = query.model_copy(
+            update={"funnelsFilter": query.funnelsFilter.model_copy(update={"funnelFromStep": 0, "funnelToStep": 2})}
         )
         results_steps_specified = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
