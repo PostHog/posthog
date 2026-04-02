@@ -1274,6 +1274,22 @@ class FeatureFlagSerializer(
 
         should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
         self._update_filters(validated_data)
+
+        # Set default filters for remote config flags to 100% rollout
+        if validated_data.get("is_remote_configuration", False):
+            filters = validated_data.get("filters", {}) or {}
+            groups = filters.get("groups", [])
+
+            # If no groups exist, create one with 100% rollout
+            if not groups:
+                filters["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": None}]
+                validated_data["filters"] = filters
+            else:
+                # If groups exist, update any with 0% or None rollout to 100%
+                for group in groups:
+                    if group.get("rollout_percentage") in [0, None]:
+                        group["rollout_percentage"] = 100
+
         encrypt_flag_payloads(validated_data)
 
         try:

@@ -1,10 +1,13 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
 
+from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.models import NotificationEvent, NotificationReadState
 
 
@@ -74,6 +77,45 @@ class TestNotificationsAPI(BaseTest):
         assert resp.status_code == 200
         assert resp.json()["updated"] == 2
         assert NotificationReadState.objects.count() == 2
+
+    def test_unread_count_is_cached_after_first_call(self):
+        cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
+        assert cache.get(cache_key) is None
+
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 1
+        assert cache.get(cache_key) == 1
+
+    def test_unread_count_serves_from_cache(self):
+        cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
+        cache.set(cache_key, 42, 60)
+
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 42
+
+    def test_mark_read_invalidates_cache(self):
+        cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
+        cache.set(cache_key, 5, 60)
+
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{self.event.id}/mark_read/")
+        assert cache.get(cache_key) is None
+
+    def test_mark_unread_invalidates_cache(self):
+        NotificationReadState.objects.create(notification_event=self.event, user=self.user)
+        cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
+        cache.set(cache_key, 0, 60)
+
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{self.event.id}/mark_unread/")
+        assert cache.get(cache_key) is None
+
+    def test_mark_all_read_sets_cache_to_zero(self):
+        cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
+        cache.set(cache_key, 5, 60)
+
+        self.client.post(f"/api/environments/{self.team.id}/notifications/mark_all_read/")
+        assert cache.get(cache_key) == 0
 
     def test_other_users_notifications_not_visible(self):
         other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")
