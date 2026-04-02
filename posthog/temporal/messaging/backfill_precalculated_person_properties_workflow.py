@@ -203,27 +203,23 @@ def evaluate_single_filter_sync(
     hog_globals: dict[str, Any],
     person_id: str,
     inputs: BackfillPrecalculatedPersonPropertiesInputs,
-    kafka_producer: _KafkaProducer,
-    logger: structlog.BoundLogger,
-) -> list[Any]:
+) -> dict[str, Any] | None:
     """
-    Evaluate a single filter for a person and produce Kafka events if it matches.
+    Evaluate a single filter for a person and return event data if it matches.
 
     This is a synchronous function that will be run in a thread pool for concurrency.
 
     Returns:
-        List of ProduceResult objects from successful Kafka produces
+        Event dict if filter matches, None otherwise
     """
-    kafka_results = []
-
     try:
         # Execute the filter bytecode to get the result
         bytecode_result: BytecodeResult = execute_bytecode(filter_obj.bytecode, hog_globals)
         result = bytecode_result.result
 
-        # If filter matches, create an event for each cohort
+        # If filter matches, return event data
         if result:
-            event = {
+            return {
                 "team_id": inputs.team_id,
                 "distinct_id": person_id,
                 "person_id": person_id,
@@ -231,30 +227,15 @@ def evaluate_single_filter_sync(
                 "matches": result,
                 "source": f"cohort_filter_{filter_obj.condition_hash}",
             }
-
-            # Produce to Kafka and collect ProduceResult objects
-            try:
-                produce_result = kafka_producer.produce(
-                    topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                    data=event,
-                )
-                kafka_results.append(produce_result)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to produce Kafka message for person {person_id}: {e}",
-                    person_id=person_id,
-                    error=str(e),
-                )
-                # Continue processing even if Kafka produce fails
     except Exception as e:
-        logger.warning(
+        LOGGER.warning(
             f"Failed to execute filter bytecode for person {person_id}: {e}",
             person_id=person_id,
             condition_hash=filter_obj.condition_hash,
             error=str(e),
         )
 
-    return kafka_results
+    return None
 
 
 @temporalio.activity.defn
@@ -418,6 +399,20 @@ async def backfill_precalculated_person_properties_activity(
         last_person_id = inputs.start_person_id
         batch_count = 0
 
+        # Initialize semaphore and async function outside the loop
+        MAX_CONCURRENT_FILTERS = min(20, len(filters))  # Cap at 20 concurrent threads
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_FILTERS)
+
+        async def run_filter_in_thread(filter_obj, hog_globals_bound, person_id_bound):
+            async with semaphore:
+                return await asyncio.to_thread(
+                    evaluate_single_filter_sync,
+                    filter_obj,
+                    hog_globals_bound,
+                    person_id_bound,
+                    inputs,
+                )
+
         with tags_context(
             team_id=inputs.team_id,
             feature=Feature.BEHAVIORAL_COHORTS,
@@ -451,42 +446,40 @@ async def backfill_precalculated_person_properties_activity(
                     person_filter_start = time.monotonic()
                     hog_globals = {"person": {"properties": parsed_properties}}
 
-                    # Use a semaphore to limit concurrent filter evaluations
-                    MAX_CONCURRENT_FILTERS = min(20, len(filters))  # Cap at 20 concurrent threads
-                    semaphore = asyncio.Semaphore(MAX_CONCURRENT_FILTERS)
-
-                    async def run_filter_in_thread(filter_obj, hog_globals_bound, person_id_bound, semaphore_bound):
-                        async with semaphore_bound:
-                            return await asyncio.to_thread(
-                                evaluate_single_filter_sync,
-                                filter_obj,
-                                hog_globals_bound,
-                                person_id_bound,
-                                inputs,
-                                kafka_producer,
-                                logger,
-                            )
-
                     # Create tasks for concurrent filter evaluation
-                    filter_tasks = [
-                        run_filter_in_thread(filter_obj, hog_globals, person_id, semaphore) for filter_obj in filters
-                    ]
+                    filter_tasks = [run_filter_in_thread(filter_obj, hog_globals, person_id) for filter_obj in filters]
 
                     # Execute all filters concurrently
                     filter_results = await asyncio.gather(*filter_tasks, return_exceptions=True)
 
-                    # Collect all successful Kafka produce results
+                    # Collect matching events and produce to Kafka sequentially (thread-safe)
+                    matching_events = []
                     for result in filter_results:
-                        if isinstance(result, list):  # Successful result
-                            kafka_results.extend(result)
-                            total_events_produced += len(result)
+                        if isinstance(result, dict):  # Successful result with event data
+                            matching_events.append(result)
                         elif isinstance(result, Exception):
                             logger.error(
                                 "Error while evaluating filter for person_id %s: %r",
                                 person_id,
                                 result,
                             )
-                        # Other non-list results are ignored
+                        # None results (no match) are ignored
+
+                    # Produce all matching events to Kafka sequentially in main thread
+                    for event in matching_events:
+                        try:
+                            produce_result = kafka_producer.produce(
+                                topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                data=event,
+                            )
+                            kafka_results.append(produce_result)
+                            total_events_produced += 1
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to produce Kafka message for person {person_id}: {e}",
+                                person_id=person_id,
+                                error=str(e),
+                            )
 
                     # Periodically flush Kafka batches to avoid memory buildup
                     if len(kafka_results) >= KAFKA_FLUSH_BATCH_SIZE:
