@@ -1,7 +1,7 @@
 import { LEGACY_COLORS } from './legacyColors'
 import { legacyFormatTickValue } from './legacyUtils'
 
-interface TickPanelProps {
+interface LegacyTickPanelProps {
     tickValues: number[]
     valueToX: (value: number) => number
     viewBoxWidth: number
@@ -9,13 +9,18 @@ interface TickPanelProps {
     svgRef?: React.RefObject<SVGSVGElement> // Optional ref for resize observation
 }
 
-export function TickPanel({
+/**
+ * @deprecated
+ * Legacy tick panel component for MetricsView.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyTickPanel({
     tickValues,
     valueToX,
     viewBoxWidth,
     tickPanelHeight,
     svgRef,
-}: TickPanelProps): JSX.Element {
+}: LegacyTickPanelProps): JSX.Element {
     const TICK_FONT_SIZE = 9
     const colors = LEGACY_COLORS
 

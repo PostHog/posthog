@@ -2,7 +2,7 @@ import { ReactNode } from 'react'
 
 import { useSvgResizeObserver } from '~/scenes/experiments/MetricsView/hooks/useSvgResizeObserver'
 
-import { TickPanel } from './LegacyTickPanel'
+import { LegacyTickPanel } from './LegacyTickPanel'
 import { legacyValueToXCoordinate } from './legacyUtils'
 
 interface MetricsChartLayoutProps {
@@ -72,7 +72,7 @@ export function MetricsChartLayout({
                     {isFirstMetric && (
                         <>
                             <div className="flex justify-center">
-                                <TickPanel
+                                <LegacyTickPanel
                                     svgRef={ticksSvgRef}
                                     tickValues={tickValues}
                                     valueToX={valueToX}
