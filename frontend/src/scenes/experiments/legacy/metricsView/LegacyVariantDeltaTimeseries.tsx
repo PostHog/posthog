@@ -26,7 +26,12 @@ const LABELS = [
     'Day 14',
 ]
 
-export const VariantDeltaTimeseries = (): JSX.Element => {
+/**
+ * @deprecated
+ * Legacy variant delta timeseries component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export const LegacyVariantDeltaTimeseries = (): JSX.Element => {
     const { closeVariantDeltaTimeseriesModal } = useActions(modalsLogic)
     const { isVariantDeltaTimeseriesModalOpen } = useValues(modalsLogic)
 
