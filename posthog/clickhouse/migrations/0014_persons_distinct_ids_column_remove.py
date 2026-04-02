@@ -8,7 +8,7 @@ operations = [
     run_sql_with_exceptions(f"DROP TABLE kafka_person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     run_sql_with_exceptions(
         "ALTER TABLE person DROP COLUMN IF EXISTS distinct_ids",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),
