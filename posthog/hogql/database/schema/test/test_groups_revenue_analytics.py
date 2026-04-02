@@ -2,7 +2,6 @@ from decimal import Decimal
 
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries
-from unittest.mock import patch
 
 from posthog.schema import (
     CurrencyCode,
@@ -463,11 +462,6 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
 class TestGroupsRevenueAnalyticsManagedViewsets(
     TestGroupsRevenueAnalyticsMixin, RevenueAnalyticsManagedViewsetsTestMixin
 ):
-    def setUp(self) -> None:
-        super().setUp()
-        self.mock_flag = patch("posthoganalytics.feature_enabled", return_value=True)
-        self.mock_flag.start()
-
     def test_get_revenue_for_events(self):
         self.setup_events()
 
