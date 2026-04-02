@@ -644,17 +644,14 @@ export class HogExecutorService {
 
                     params.body = params.body ? replace(params.body) : params.body
                     headers = Object.fromEntries(
-                        Object.entries(params.headers ?? {}).map(([key, value]) => [
-                            key,
-                            typeof value === 'string' ? replace(value) : value,
-                        ])
+                        Object.entries(params.headers ?? {}).map(([key, value]) => [key, replace(value)])
                     )
                     params.url = replace(params.url)
                 }
             }
         }
 
-        const fetchParams: FetchOptions = { method, headers: headers as Record<string, string> }
+        const fetchParams: FetchOptions = { method, headers }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
