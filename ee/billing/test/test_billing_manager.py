@@ -2,12 +2,11 @@ import json
 import datetime
 from typing import Any, cast
 
-import requests
-
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import jwt
+import requests
 from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 

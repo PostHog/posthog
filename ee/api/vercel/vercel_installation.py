@@ -8,12 +8,12 @@ from rest_framework.response import Response
 
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.billing.billing_manager import BillingServiceOpenInvoicesError
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.utils import expect_vercel_user_claim
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_permission import VercelPermission
 from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
+from ee.billing.billing_manager import BillingServiceOpenInvoicesError
 from ee.vercel.integration import VercelIntegration
 
 logger = structlog.get_logger(__name__)
