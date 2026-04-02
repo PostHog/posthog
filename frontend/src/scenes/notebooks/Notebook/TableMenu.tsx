@@ -99,18 +99,17 @@ function GripHandle({
                     </div>
                 }
             >
-                <button
-                    className="flex items-center justify-center w-5 h-5 cursor-pointer border-0 rounded bg-transparent p-0 hover:bg-surface-secondary active:bg-surface-secondary"
+                <LemonButton
+                    size="xsmall"
+                    noPadding
+                    icon={<IconDrag className={`text-tertiary text-lg${mode === 'col' ? ' rotate-90' : ''}`} />}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
                         onClick()
                     }}
-                    type="button"
-                >
-                    <IconDrag className={`text-tertiary text-lg${mode === 'col' ? ' rotate-90' : ''}`} />
-                </button>
+                />
             </Popover>
         </div>
     )
