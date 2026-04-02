@@ -9,8 +9,6 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     uiResourceUri?: string
     /** Return JSON instead of TOON-encoded text. */
     responseFormat?: 'json'
-    /** Values merged into the query body alongside agent-provided params. */
-    fixedProperties?: Record<string, unknown>
     /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new?q=...`. */
     urlPrefix?: string
 }

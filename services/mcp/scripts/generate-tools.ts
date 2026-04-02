@@ -1118,9 +1118,7 @@ function generateQueryWrapperFile(
             if (toolConfig.response_format) {
                 configParts.push(`responseFormat: '${toolConfig.response_format}'`)
             }
-            if (toolConfig.fixed_properties && Object.keys(toolConfig.fixed_properties).length > 0) {
-                configParts.push(`fixedProperties: ${JSON.stringify(toolConfig.fixed_properties)}`)
-            }
+
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
             }
