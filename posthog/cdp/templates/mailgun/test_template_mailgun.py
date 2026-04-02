@@ -36,35 +36,62 @@ class TestTemplateMailgunSendEmail(BaseHogFunctionTemplateTest):
                 "method": "POST",
                 "headers": {
                     "Authorization": "Basic YXBpOkFQSV9LRVk=",
-                    "Content-Type": "multipart/form-data; boundary=---011000010111000001101001",
+                    "Content-Type": "multipart/form-data; boundary=---bcf493bf-5640-4519-817e-610dc1ba48bd",
                 },
                 "body": """\
------011000010111000001101001\r
+-----bcf493bf-5640-4519-817e-610dc1ba48bd\r
 Content-Disposition: form-data; name="from"\r
 \r
 noreply@posthog.com\r
------011000010111000001101001\r
+-----bcf493bf-5640-4519-817e-610dc1ba48bd\r
 Content-Disposition: form-data; name="to"\r
 \r
 example@posthog.com\r
------011000010111000001101001\r
+-----bcf493bf-5640-4519-817e-610dc1ba48bd\r
 Content-Disposition: form-data; name="subject"\r
 \r
 TEST SUBJECT\r
------011000010111000001101001\r
+-----bcf493bf-5640-4519-817e-610dc1ba48bd\r
 Content-Disposition: form-data; name="text"\r
 \r
 Test\r
------011000010111000001101001\r
+-----bcf493bf-5640-4519-817e-610dc1ba48bd\r
 Content-Disposition: form-data; name="html"\r
 \r
 <h1>Test</h1>\r
------011000010111000001101001\r
+-----bcf493bf-5640-4519-817e-610dc1ba48bd\r
 """,
             },
         )
 
         assert self.get_mock_print_calls() == []
+
+    def test_function_prevents_boundary_injection(self):
+        """Verify that a malicious 'to' value containing the multipart boundary cannot inject extra form fields."""
+        malicious_to = (
+            "victim@example.com\r\n"
+            "-----011000010111000001101001\r\n"
+            'Content-Disposition: form-data; name="bcc"\r\n'
+            "\r\n"
+            "attacker@evil.com"
+        )
+        self.run_function(
+            inputs=create_inputs({"template": {**create_inputs()["template"], "to": malicious_to}}),
+            functions={"generateUUIDv4": lambda: "bcf493bf-5640-4519-817e-610dc1ba48bd"},
+        )
+
+        fetch_calls = self.get_mock_fetch_calls()
+        assert len(fetch_calls) == 1
+        body = fetch_calls[0][1]["body"]
+        boundary = fetch_calls[0][1]["headers"]["Content-Type"].split("boundary=")[1]
+        # Split body by the actual boundary — "bcc" must not be a real form field
+        parts = body.split(f"--{boundary}")
+        field_names = []
+        for part in parts:
+            if 'Content-Disposition: form-data; name="' in part:
+                name = part.split('name="')[1].split('"')[0]
+                field_names.append(name)
+        assert "bcc" not in field_names, f"Injected 'bcc' field found as separate form part: {field_names}"
 
     def test_function_ignores_no_email(self):
         self.run_function(inputs=create_inputs({"template": {"to": ""}}))
