@@ -1,0 +1,104 @@
+# Desired-state schema for the heatmaps ecosystem.
+
+ecosystem: heatmaps
+cluster: main
+
+tables:
+    sharded_heatmaps:
+        engine: ReplicatedMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - type
+            - team_id
+            - 'toDate(timestamp)'
+            - current_url
+            - viewport_width
+        partition_by: 'toYYYYMM(timestamp)'
+        columns:
+            - name: session_id
+              type: String
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: x
+              type: Int16
+            - name: y
+              type: Int16
+            - name: scale_factor
+              type: Int16
+            - name: viewport_width
+              type: Int16
+            - name: viewport_height
+              type: Int16
+            - name: pointer_target_fixed
+              type: Bool
+            - name: current_url
+              type: String
+            - name: type
+              type: LowCardinality(String)
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
+
+    heatmaps:
+        engine: Distributed
+        source: sharded_heatmaps
+        sharding_key: "cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))"
+        on_nodes: COORDINATOR
+        columns: inherit sharded_heatmaps
+
+    writable_heatmaps:
+        engine: Distributed
+        source: sharded_heatmaps
+        sharding_key: "cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))"
+        on_nodes: INGESTION_MEDIUM
+        columns: inherit sharded_heatmaps
+
+    kafka_heatmaps:
+        engine: Kafka
+        on_nodes: INGESTION_MEDIUM
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_heatmap_events
+            kafka_group_name: clickhouse_heatmaps
+            kafka_format: JSONEachRow
+        columns:
+            - name: session_id
+              type: String
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: x
+              type: Int16
+            - name: y
+              type: Int16
+            - name: scale_factor
+              type: Int16
+            - name: viewport_width
+              type: Int16
+            - name: viewport_height
+              type: Int16
+            - name: pointer_target_fixed
+              type: Bool
+            - name: current_url
+              type: String
+            - name: type
+              type: LowCardinality(String)
+
+    heatmaps_mv:
+        engine: MaterializedView
+        source: kafka_heatmaps
+        target: writable_heatmaps
+        select: "SELECT session_id, team_id, distinct_id, timestamp, x, y, scale_factor, viewport_width, viewport_height, pointer_target_fixed, current_url, type, _timestamp, _offset, _partition FROM {{ database }}.kafka_heatmaps"
+        on_nodes: INGESTION_MEDIUM
+        columns: []

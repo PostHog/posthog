@@ -1,0 +1,84 @@
+# Desired-state schema for the app_metrics2 ecosystem.
+
+ecosystem: app_metrics2
+cluster: main
+
+tables:
+    sharded_app_metrics2:
+        engine: ReplicatedAggregatingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - app_source
+            - app_source_id
+            - instance_id
+            - 'toStartOfHour(timestamp)'
+            - metric_kind
+            - metric_name
+        partition_by: 'toYYYYMM(timestamp)'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: app_source
+              type: LowCardinality(String)
+            - name: app_source_id
+              type: String
+            - name: instance_id
+              type: String
+            - name: metric_kind
+              type: LowCardinality(String)
+            - name: metric_name
+              type: LowCardinality(String)
+            - name: count
+              type: "SimpleAggregateFunction(sum, Int64)"
+
+    writable_app_metrics2:
+        engine: Distributed
+        source: sharded_app_metrics2
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_app_metrics2
+
+    app_metrics2:
+        engine: Distributed
+        source: sharded_app_metrics2
+        sharding_key: 'rand()'
+        on_nodes: ALL
+        columns: inherit sharded_app_metrics2
+
+    kafka_app_metrics2:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_app_metrics2
+            kafka_group_name: clickhouse_app_metrics2
+            kafka_format: JSONEachRow
+        columns:
+            - name: team_id
+              type: Int64
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: app_source
+              type: LowCardinality(String)
+            - name: app_source_id
+              type: String
+            - name: instance_id
+              type: String
+            - name: metric_kind
+              type: String
+            - name: metric_name
+              type: String
+            - name: count
+              type: Int64
+
+    app_metrics2_mv:
+        engine: MaterializedView
+        source: kafka_app_metrics2
+        target: writable_app_metrics2
+        select: "SELECT team_id, timestamp, app_source, app_source_id, instance_id, metric_kind, metric_name, count, _timestamp, _offset, _partition FROM {{ database }}.kafka_app_metrics2"
+        on_nodes: INGESTION_EVENTS
+        columns: []

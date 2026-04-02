@@ -1,0 +1,62 @@
+# Desired-state schema for the cohort_membership ecosystem.
+
+ecosystem: cohort_membership
+cluster: main
+
+tables:
+    cohort_membership:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - cohort_id
+            - person_id
+        columns:
+            - name: team_id
+              type: Int64
+            - name: cohort_id
+              type: Int64
+            - name: person_id
+              type: UUID
+            - name: status
+              type: "Enum8('entered' = 1, 'left' = 2)"
+            - name: last_updated
+              type: DateTime64(6)
+              default_expression: 'now64()'
+              default_kind: DEFAULT
+
+    writable_cohort_membership:
+        engine: Distributed
+        source: cohort_membership
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit cohort_membership
+
+    kafka_cohort_membership:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: cohort_membership_changed
+            kafka_group_name: clickhouse_cohort_membership_changed
+            kafka_format: JSONEachRow
+        columns:
+            - name: team_id
+              type: Int64
+            - name: cohort_id
+              type: Int64
+            - name: person_id
+              type: UUID
+            - name: status
+              type: "Enum8('entered' = 1, 'left' = 2, 'member' = 3, 'not_member' = 4)"
+            - name: last_updated
+              type: DateTime64(6)
+
+    cohort_membership_mv:
+        engine: MaterializedView
+        source: kafka_cohort_membership
+        target: writable_cohort_membership
+        select: "SELECT team_id, cohort_id, person_id, multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status, last_updated FROM {{ database }}.kafka_cohort_membership"
+        on_nodes: INGESTION_EVENTS
+        columns: []

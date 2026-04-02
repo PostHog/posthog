@@ -1,0 +1,116 @@
+# Desired-state schema for the events ecosystem.
+# Edit this file to declare the desired schema, then run:
+#   python manage.py ch_migrate plan
+#   python manage.py ch_migrate apply
+
+ecosystem: events
+cluster: main
+
+tables:
+    sharded_events:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toDate(timestamp)'
+            - event
+            - 'cityHash64(distinct_id)'
+            - 'cityHash64(uuid)'
+        partition_by: 'toYYYYMM(timestamp)'
+        columns:
+            - name: uuid
+              type: UUID
+            - name: event
+              type: String
+            - name: properties
+              type: String
+            - name: timestamp
+              type: DateTime64(6, 'UTC')
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: elements_chain
+              type: String
+            - name: created_at
+              type: DateTime64(6, 'UTC')
+            - name: person_id
+              type: UUID
+            - name: person_created_at
+              type: DateTime64(3)
+            - name: person_properties
+              type: String
+            - name: group0_properties
+              type: String
+            - name: group1_properties
+              type: String
+            - name: group2_properties
+              type: String
+            - name: group3_properties
+              type: String
+            - name: group4_properties
+              type: String
+            - name: group0_created_at
+              type: DateTime64(3)
+            - name: group1_created_at
+              type: DateTime64(3)
+            - name: group2_created_at
+              type: DateTime64(3)
+            - name: group3_created_at
+              type: DateTime64(3)
+            - name: group4_created_at
+              type: DateTime64(3)
+
+    writable_events:
+        engine: Distributed
+        source: sharded_events
+        sharding_key: 'cityHash64(distinct_id)'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_events
+
+    events:
+        engine: Distributed
+        source: sharded_events
+        sharding_key: 'cityHash64(distinct_id)'
+        on_nodes: ALL
+        columns: inherit sharded_events
+
+    kafka_events_json:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: events_json
+            kafka_group_name: events_json_consumer
+            kafka_format: JSONEachRow
+            kafka_skip_broken_messages: '100'
+        columns: inherit sharded_events
+
+    events_json_mv:
+        engine: MaterializedView
+        source: kafka_events_json
+        target: writable_events
+        select: 'SELECT * FROM {{ database }}.kafka_events_json'
+        on_nodes: INGESTION_EVENTS
+        columns: []
+
+    # Production-only: daily aggregation of event counts
+    events_by_day:
+        engine: ReplicatedSummingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toDate(timestamp)'
+            - event
+        partition_by: 'toYYYYMM(timestamp)'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: timestamp
+              type: Date
+            - name: event
+              type: String
+            - name: count
+              type: UInt64

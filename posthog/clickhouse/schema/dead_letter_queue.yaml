@@ -1,0 +1,112 @@
+# Desired-state schema for the events_dead_letter_queue ecosystem.
+
+ecosystem: dead_letter_queue
+cluster: main
+
+tables:
+    events_dead_letter_queue:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: ALL
+        order_by:
+            - id
+            - event_uuid
+            - distinct_id
+            - team_id
+        settings:
+            index_granularity: '512'
+        columns:
+            - name: id
+              type: UUID
+            - name: event_uuid
+              type: UUID
+            - name: event
+              type: String
+            - name: properties
+              type: String
+            - name: distinct_id
+              type: String
+            - name: team_id
+              type: Int64
+            - name: elements_chain
+              type: String
+            - name: created_at
+              type: "DateTime64(6, 'UTC')"
+            - name: ip
+              type: String
+            - name: site_url
+              type: String
+            - name: now
+              type: "DateTime64(6, 'UTC')"
+            - name: raw_payload
+              type: String
+            - name: error_timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: error_location
+              type: String
+            - name: error
+              type: String
+            - name: tags
+              type: Array(String)
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+
+    writable_events_dead_letter_queue:
+        engine: Distributed
+        source: events_dead_letter_queue
+        sharding_key: 'rand()'
+        on_nodes: ALL
+        columns: inherit events_dead_letter_queue
+
+    kafka_events_dead_letter_queue:
+        engine: Kafka
+        on_nodes: ALL
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: events_dead_letter_queue
+            kafka_group_name: events_dead_letter_queue
+            kafka_format: JSONEachRow
+            kafka_skip_broken_messages: '1000'
+        columns:
+            - name: id
+              type: UUID
+            - name: event_uuid
+              type: UUID
+            - name: event
+              type: String
+            - name: properties
+              type: String
+            - name: distinct_id
+              type: String
+            - name: team_id
+              type: Int64
+            - name: elements_chain
+              type: String
+            - name: created_at
+              type: "DateTime64(6, 'UTC')"
+            - name: ip
+              type: String
+            - name: site_url
+              type: String
+            - name: now
+              type: "DateTime64(6, 'UTC')"
+            - name: raw_payload
+              type: String
+            - name: error_timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: error_location
+              type: String
+            - name: error
+              type: String
+            - name: tags
+              type: Array(String)
+
+    events_dead_letter_queue_mv:
+        engine: MaterializedView
+        source: kafka_events_dead_letter_queue
+        target: writable_events_dead_letter_queue
+        select: "SELECT id, event_uuid, event, properties, distinct_id, team_id, elements_chain, created_at, ip, site_url, now, raw_payload, error_timestamp, error_location, error, tags, _timestamp, _offset FROM {{ database }}.kafka_events_dead_letter_queue"
+        on_nodes: ALL
+        columns: []

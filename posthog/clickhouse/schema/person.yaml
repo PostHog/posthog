@@ -1,0 +1,84 @@
+# Desired-state schema for the person ecosystem.
+
+ecosystem: person
+cluster: main
+
+tables:
+    person:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - id
+        partition_by: 'team_id % 100'
+        columns:
+            - name: id
+              type: UUID
+            - name: created_at
+              type: DateTime64(3)
+            - name: team_id
+              type: Int64
+            - name: properties
+              type: String
+            - name: is_identified
+              type: Int8
+            - name: is_deleted
+              type: Int8
+              default_expression: '0'
+              default_kind: DEFAULT
+            - name: version
+              type: UInt64
+
+    writable_person:
+        engine: Distributed
+        source: person
+        sharding_key: 'cityHash64(id)'
+        on_nodes: COORDINATOR
+        columns: inherit person
+
+    kafka_person:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_person
+            kafka_group_name: person_consumer
+            kafka_format: JSONEachRow
+            kafka_skip_broken_messages: '100'
+        columns: inherit person
+
+    person_mv:
+        engine: MaterializedView
+        source: kafka_person
+        target: writable_person
+        select: 'SELECT * FROM {{ database }}.kafka_person'
+        on_nodes: INGESTION_EVENTS
+        columns: []
+
+    # Production tables: sharded/distributed variants visible on coordinator
+    sharded_person:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - id
+        partition_by: 'team_id % 100'
+        columns: inherit person
+
+    distributed_person:
+        engine: Distributed
+        source: sharded_person
+        sharding_key: 'cityHash64(id)'
+        on_nodes: COORDINATOR
+        columns: inherit person
+
+    person_collapsing:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - id
+        columns: inherit person

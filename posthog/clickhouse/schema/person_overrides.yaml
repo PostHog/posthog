@@ -1,0 +1,74 @@
+# Desired-state schema for the person_overrides ecosystem.
+# NOTE: These tables are retained for migration consistency but are not actively used.
+# See person_distinct_id_overrides in person.yaml for the replacement.
+
+ecosystem: person_overrides
+cluster: main
+
+tables:
+    person_overrides:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: ALL
+        order_by:
+            - team_id
+            - old_person_id
+        partition_by: 'toYYYYMM(oldest_event)'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: old_person_id
+              type: UUID
+            - name: override_person_id
+              type: UUID
+            - name: merged_at
+              type: "DateTime64(6, 'UTC')"
+            - name: oldest_event
+              type: "DateTime64(6, 'UTC')"
+            - name: created_at
+              type: "DateTime64(6, 'UTC')"
+              default_expression: 'now()'
+              default_kind: DEFAULT
+            - name: version
+              type: Int32
+
+    kafka_person_overrides:
+        engine: Kafka
+        on_nodes: ALL
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_person_override
+            kafka_group_name: clickhouse-person-overrides
+            kafka_format: JSONEachRow
+        columns:
+            - name: team_id
+              type: Int64
+            - name: old_person_id
+              type: UUID
+            - name: override_person_id
+              type: UUID
+            - name: merged_at
+              type: "DateTime64(6, 'UTC')"
+            - name: oldest_event
+              type: "DateTime64(6, 'UTC')"
+            - name: version
+              type: Int32
+
+    person_overrides_mv:
+        engine: MaterializedView
+        source: kafka_person_overrides
+        target: person_overrides
+        select: "SELECT team_id, old_person_id, override_person_id, merged_at, oldest_event, version FROM {{ database }}.kafka_person_overrides"
+        on_nodes: ALL
+        columns: []
+
+    person_overrides_dict:
+        engine: Dictionary
+        on_nodes: ALL
+        columns:
+            - name: team_id
+              type: Int64
+            - name: old_person_id
+              type: UUID
+            - name: override_person_id
+              type: UUID

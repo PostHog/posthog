@@ -1,0 +1,24 @@
+# Desired-state schema for the person_static_cohort ecosystem.
+
+ecosystem: person_static_cohort
+cluster: main
+
+tables:
+    person_static_cohort:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - cohort_id
+            - person_id
+            - id
+        columns:
+            - name: id
+              type: UUID
+            - name: person_id
+              type: UUID
+            - name: cohort_id
+              type: Int64
+            - name: team_id
+              type: Int64

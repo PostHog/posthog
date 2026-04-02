@@ -1,0 +1,77 @@
+# Desired-state schema for the precalculated_events ecosystem.
+
+ecosystem: precalculated_events
+cluster: main
+
+tables:
+    sharded_precalculated_events:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - condition
+            - date
+            - distinct_id
+            - uuid
+        partition_by: 'toYYYYMM(date)'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: date
+              type: Date
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: condition
+              type: String
+            - name: uuid
+              type: UUID
+            - name: source
+              type: String
+
+    writable_precalculated_events:
+        engine: Distributed
+        source: sharded_precalculated_events
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_precalculated_events
+
+    precalculated_events:
+        engine: Distributed
+        source: sharded_precalculated_events
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: ALL
+        columns: inherit sharded_precalculated_events
+
+    kafka_precalculated_events:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_prefiltered_events
+            kafka_group_name: precalculated_events
+            kafka_format: JSONEachRow
+            kafka_skip_broken_messages: '100'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: condition
+              type: String
+            - name: uuid
+              type: UUID
+            - name: source
+              type: String
+
+    precalculated_events_mv:
+        engine: MaterializedView
+        source: kafka_precalculated_events
+        target: writable_precalculated_events
+        select: "SELECT team_id, toDate(_timestamp) AS date, distinct_id, person_id, condition, uuid, source, _timestamp, _offset, _partition FROM {{ database }}.kafka_precalculated_events"
+        on_nodes: INGESTION_EVENTS
+        columns: []

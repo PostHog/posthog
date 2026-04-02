@@ -1,0 +1,39 @@
+# Desired-state schema for the channel_definition ecosystem.
+
+ecosystem: channel_definition
+cluster: main
+
+tables:
+    channel_definition:
+        engine: ReplicatedMergeTree
+        sharded: false
+        on_nodes: ALL
+        order_by:
+            - domain
+            - kind
+        columns:
+            - name: domain
+              type: String
+            - name: kind
+              type: String
+            - name: domain_type
+              type: Nullable(String)
+            - name: type_if_paid
+              type: Nullable(String)
+            - name: type_if_organic
+              type: Nullable(String)
+
+    channel_definition_dict:
+        engine: Dictionary
+        on_nodes: ALL
+        columns:
+            - name: domain
+              type: String
+            - name: kind
+              type: String
+            - name: domain_type
+              type: Nullable(String)
+            - name: type_if_paid
+              type: Nullable(String)
+            - name: type_if_organic
+              type: Nullable(String)

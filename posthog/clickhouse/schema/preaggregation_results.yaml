@@ -1,0 +1,41 @@
+# Desired-state schema for the preaggregation_results ecosystem.
+# Used for caching intermediate query results (experimental, behind flag).
+
+ecosystem: preaggregation_results
+cluster: main
+
+tables:
+    sharded_preaggregation_results:
+        engine: ReplicatedAggregatingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - job_id
+            - time_window_start
+            - breakdown_value
+        partition_by: 'toYYYYMM(time_window_start)'
+        settings:
+            index_granularity: '8192'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: job_id
+              type: UUID
+            - name: time_window_start
+              type: "DateTime64(6, 'UTC')"
+            - name: expires_at
+              type: "DateTime64(6, 'UTC')"
+              default_expression: "now() + INTERVAL 7 DAY"
+              default_kind: DEFAULT
+            - name: breakdown_value
+              type: Array(String)
+            - name: uniq_exact_state
+              type: "AggregateFunction(uniqExact, UUID)"
+
+    preaggregation_results:
+        engine: Distributed
+        source: sharded_preaggregation_results
+        sharding_key: 'sipHash64(job_id)'
+        on_nodes: ALL
+        columns: inherit sharded_preaggregation_results
