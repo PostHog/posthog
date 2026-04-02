@@ -11,13 +11,17 @@ from posthog.schema import (
     EventsNode,
     FunnelsFilter,
     FunnelsQuery,
+    StepOrderValue,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import FunnelOrderType
+from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     assert_funnel_results_equal,
@@ -601,6 +605,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
     def test_redundant_event_filtering_strict_funnel(self):
         query = FunnelsQuery(
             series=[EventsNode(event="$pageview"), EventsNode(event="insight viewed")],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
             funnelsFilter=FunnelsFilter(funnelOrderType=FunnelOrderType.STRICT),
         )
 
@@ -609,11 +614,28 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
             properties={"test": "okay"},
         )
-        for _ in range(10):
-            _create_event(team=self.team, event="user signed up", distinct_id="many_other_events")
+        # Step events so the person qualifies past the pre-filter
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="many_other_events", timestamp="2021-05-01 01:00:00"
+        )
+        _create_event(
+            team=self.team, event="insight viewed", distinct_id="many_other_events", timestamp="2021-05-01 05:00:00"
+        )
+        # 10 redundant non-step events that should be condensed by the event_array_filter
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="many_other_events",
+                timestamp=f"2021-05-01 02:0{i}:00",
+            )
 
         runner = FunnelsQueryRunner(query=query, team=self.team)
         inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
+        # When pre-filter is active, _inner_aggregation_query returns a SelectSetQuery (UNION ALL).
+        # Extract the primary UDF query (first branch) to inspect event filtering.
+        if isinstance(inner_aggregation_query, ast.SelectSetQuery):
+            inner_aggregation_query = inner_aggregation_query.initial_select_query
         inner_aggregation_query.select.append(
             parse_expr(f"{runner.funnel_class.event_array_filter()} AS filtered_array")
         )
@@ -628,8 +650,8 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
                 enable_analyzer=True,
             ),
         )
-        # Make sure the events have been condensed down to two
-        self.assertEqual(2, len(response.results[0][-1]))
+        # $pageview + 2 boundary "user signed up" events (condensed from 10) + insight viewed = 4
+        self.assertEqual(4, len(response.results[0][-1]))
 
     def test_different_prop_val_in_strict_filter(self):
         funnels_query = FunnelsQuery(
@@ -686,3 +708,59 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
         self.assertEqual(1, results[-1]["count"])
+
+    def test_pre_filter_strict_basic(self):
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
+        # user_1: step one -> step two (strict match)
+        _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2021-05-01 01:00:00")
+        _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2021-05-01 02:00:00")
+        # user_2: only step one — should be handled by synthetic branch
+        _create_event(team=self.team, event="step one", distinct_id="user_2", timestamp="2021-05-01 01:00:00")
+        # user_3: step one -> intervening event -> step two (strict fail, but has both step events)
+        _create_event(team=self.team, event="step one", distinct_id="user_3", timestamp="2021-05-01 01:00:00")
+        _create_event(team=self.team, event="blah", distinct_id="user_3", timestamp="2021-05-01 01:30:00")
+        _create_event(team=self.team, event="step two", distinct_id="user_3", timestamp="2021-05-01 02:00:00")
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.STRICT),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        self.assertTrue(FunnelUDF(context=context)._should_apply_pre_filter())
+
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        # All 3 users entered step one
+        self.assertEqual(results[0]["count"], 3)
+        # Only user_1 converted (user_2 never did step two, user_3 had intervening event)
+        self.assertEqual(results[1]["count"], 1)
+
+    def test_pre_filter_strict_actors_dropoff(self):
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
+        # user_1: strict conversion
+        _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2021-05-01 01:00:00")
+        _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2021-05-01 02:00:00")
+        # user_2: only step one — synthetic branch dropoff
+        _create_event(team=self.team, event="step one", distinct_id="user_2", timestamp="2021-05-01 01:00:00")
+        # user_3: has both steps but intervening event breaks strict — UDF dropoff
+        _create_event(team=self.team, event="step one", distinct_id="user_3", timestamp="2021-05-01 01:00:00")
+        _create_event(team=self.team, event="blah", distinct_id="user_3", timestamp="2021-05-01 01:30:00")
+        _create_event(team=self.team, event="step two", distinct_id="user_3", timestamp="2021-05-01 02:00:00")
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.STRICT),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        self.assertTrue(FunnelUDF(context=context)._should_apply_pre_filter())
+
+        # Step 2 dropoff (funnelStep=-2): persons who did step 1 but not step 2
+        actors = get_actors(query, self.team, funnel_step=-2)
+        actor_ids = {val[0] for val in actors}
+        # Both user_2 (no step_two events) and user_3 (strict fail) dropped off
+        self.assertEqual(len(actor_ids), 2)
