@@ -181,21 +181,23 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     Returns true if the user agent matches bot/automation patterns, false otherwise.
     NULL user agents are treated as bots (empty UA is considered automation).
+
+    Uses multiMatchAnyIndex for efficient single-pass matching (same as get_traffic_type etc.).
     """
     user_agent_expr = args[0]
 
-    # Coalesce NULL to empty string so NULL user agents match the ^$ pattern
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
-    # Build OR expression from all patterns
-    match_exprs: list[ast.Expr] = []
-    for pattern in BOT_DEFINITIONS.keys():
-        match_exprs.append(ast.Call(name="match", args=[safe_user_agent, ast.Constant(value=pattern)]))
+    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
+    patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
-    # Empty user agent (also matches NULL after coalescing)
-    match_exprs.append(ast.Call(name="match", args=[safe_user_agent, ast.Constant(value="^$")]))
+    index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
-    return ast.Or(exprs=match_exprs)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.NotEq,
+        left=index_call,
+        right=ast.Constant(value=0),
+    )
 
 
 def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
