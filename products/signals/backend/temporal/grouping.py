@@ -868,12 +868,11 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             # - SUPPRESSED reports gather signals indefinitely but are never promoted.
             # - POTENTIAL reports are promoted once signal_count >= signals_at_run (snooze gate;
-            # signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met.
-            # - READY reports are re-promoted under the same gate so the summary workflow can
-            # regenerate the report with the additional signals, keeping it meaningful as
-            # new evidence accumulates.
-            if (
-                report.status in (SignalReport.Status.POTENTIAL, SignalReport.Status.READY)
+            #   signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met.
+            # - READY reports are re-promoted on every new signal so the agentic report
+            #   always reflects the latest evidence.
+            if report.status == SignalReport.Status.READY or (
+                report.status == SignalReport.Status.POTENTIAL
                 and report.total_weight >= WEIGHT_THRESHOLD
                 and report.signal_count >= report.signals_at_run
             ):
