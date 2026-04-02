@@ -448,7 +448,7 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
         useValues(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
     const { selectedSeriesBreakdownColumn, seriesBreakdownData } = useValues(breakdownLogic)
-    const { addSeriesBreakdown, deleteSeriesBreakdown } = useActions(breakdownLogic)
+    const { addSeriesBreakdown, deleteSeriesBreakdown, updateBreakdownSeriesColor } = useActions(breakdownLogic)
 
     const availableBreakdownColumns = getAvailableSeriesBreakdownColumns(columns, selectedXAxis, selectedYAxis)
 
@@ -497,7 +497,12 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
                     <div className="text-danger font-bold mt-1">{seriesBreakdownData.error}</div>
                 ) : (
                     seriesBreakdownData.seriesData.map((series, index) => (
-                        <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
+                        <BreakdownSeries
+                            series={series}
+                            index={index}
+                            key={`${series.name}-${index}`}
+                            onColorChange={(color) => updateBreakdownSeriesColor(series.name, color)}
+                        />
                     ))
                 )}
             </div>
@@ -505,13 +510,32 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
     )
 }
 
-const BreakdownSeries = ({ series, index }: { series: AxisBreakdownSeries<number>; index: number }): JSX.Element => {
+const BreakdownSeries = ({
+    series,
+    index,
+    onColorChange,
+}: {
+    series: AxisBreakdownSeries<number>
+    index: number
+    onColorChange: (color: string) => void
+}): JSX.Element => {
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
         <div className="flex gap-1 mb-2">
-            <div className="flex gap-2">
-                <LemonColorGlyph color={seriesColor} className="mr-2" />
+            <div className="flex gap-2 items-center">
+                <LemonColorPicker
+                    selectedColor={seriesColor}
+                    onSelectColor={onColorChange}
+                    colors={getSeriesColorPalette()}
+                    showCustomColor
+                    customColorValue={series.settings?.display?.color}
+                    customButton={
+                        <div className="cursor-pointer">
+                            <LemonColorGlyph color={seriesColor} className="mr-2" />
+                        </div>
+                    }
+                />
                 <span>{series.name ? series.name : '[No value]'}</span>
             </div>
             {/* For now let's keep things simple and not allow too much configuration */}

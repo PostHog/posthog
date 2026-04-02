@@ -5625,6 +5625,7 @@ class ChartSettings(BaseModel):
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
     rightYAxisSettings: YAxisSettings | None = None
+    seriesBreakdownColors: dict[str, str] | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
     showNullsAsZero: bool | None = None

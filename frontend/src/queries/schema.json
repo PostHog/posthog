@@ -8850,6 +8850,12 @@
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
+                "seriesBreakdownColors": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
                 "seriesBreakdownColumn": {
                     "type": ["string", "null"]
                 },

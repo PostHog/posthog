@@ -1105,6 +1105,7 @@ export interface ChartSettings {
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
     seriesBreakdownColumn?: string | null
+    seriesBreakdownColors?: Record<string, string>
     showXAxisTicks?: boolean
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean

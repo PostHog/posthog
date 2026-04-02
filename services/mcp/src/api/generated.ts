@@ -6537,6 +6537,11 @@ export namespace Schemas {
       settings?: Settings | null;
     }
 
+    /**
+     * @nullable
+     */
+    export type ChartSettingsSeriesBreakdownColors = {[key: string]: string} | null | null;
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -6599,6 +6604,8 @@ export namespace Schemas {
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
       rightYAxisSettings?: YAxisSettings | null;
+      /** @nullable */
+      seriesBreakdownColors?: ChartSettingsSeriesBreakdownColors;
       /** @nullable */
       seriesBreakdownColumn?: string | null;
       /** @nullable */
