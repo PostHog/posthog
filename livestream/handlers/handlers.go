@@ -89,6 +89,8 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 	}
 }
 
+const sseHeartbeatInterval = 30 * time.Second
+
 var subID uint64 = 1
 
 func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSubChan chan events.Subscription) func(c echo.Context) error {
@@ -157,7 +159,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		heartbeat := time.NewTicker(30 * time.Second)
+		heartbeat := time.NewTicker(sseHeartbeatInterval)
 		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
 		for {
@@ -228,7 +230,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		heartbeat := time.NewTicker(30 * time.Second)
+		heartbeat := time.NewTicker(sseHeartbeatInterval)
 		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
 
