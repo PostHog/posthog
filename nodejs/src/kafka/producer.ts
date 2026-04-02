@@ -121,13 +121,13 @@ export class KafkaProducerWrapper {
         topic: string
         headers?: Record<string, string>
     }): Promise<void> {
-        const producerLabels: Record<string, string> = { topic_name: topic }
+        const labels: Record<string, string> = { topic_name: topic }
         if (this.name) {
-            producerLabels.producer_name = this.name
+            labels.producer_name = this.name
         }
         try {
-            const produceTimer = ingestEventKafkaProduceLatency.labels({ topic, ...producerLabels }).startTimer()
-            kafkaProducerMessagesQueuedCounter.labels(producerLabels).inc()
+            const produceTimer = ingestEventKafkaProduceLatency.labels(labels).startTimer()
+            kafkaProducerMessagesQueuedCounter.labels(labels).inc()
             logger.debug('📤', 'Producing message', { topic: topic })
 
             // NOTE: The MessageHeader type is super weird. Essentially you are passing in a record and it expects a string key and a string or buffer value.
@@ -150,11 +150,11 @@ export class KafkaProducerWrapper {
                 )
             })
 
-            kafkaProducerMessagesWrittenCounter.labels(producerLabels).inc()
+            kafkaProducerMessagesWrittenCounter.labels(labels).inc()
             logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()
         } catch (error) {
-            kafkaProducerMessagesFailedCounter.labels(producerLabels).inc()
+            kafkaProducerMessagesFailedCounter.labels(labels).inc()
             logger.error('⚠️', 'kafka_produce_error', {
                 error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
                 topic: topic,
@@ -283,6 +283,6 @@ export const kafkaProducerMessagesFailedCounter = new Counter({
 export const ingestEventKafkaProduceLatency = new Summary({
     name: 'ingest_event_kafka_produce_latency',
     help: 'Wait time for individual Kafka produces',
-    labelNames: ['topic', 'producer_name'],
+    labelNames: ['topic_name', 'producer_name'],
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
