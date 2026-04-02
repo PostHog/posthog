@@ -1,0 +1,70 @@
+# Desired-state schema for the metrics ecosystem.
+# Includes metrics_time_to_see_data and supporting tables.
+# Note: These tables are experimental on cloud (see posthog/models/query_metrics/sql.py).
+
+ecosystem: metrics
+cluster: main
+
+tables:
+    metrics_time_to_see_data:
+        engine: ReplicatedMergeTree
+        sharded: false
+        on_nodes: ALL
+        order_by:
+            - team_id
+            - 'toDate(timestamp)'
+            - session_id
+            - user_id
+        partition_by: 'toYYYYMM(timestamp)'
+        columns:
+            - name: team_events_last_month
+              type: UInt64
+            - name: query_id
+              type: String
+            - name: primary_interaction_id
+              type: String
+            - name: team_id
+              type: UInt64
+            - name: user_id
+              type: UInt64
+            - name: session_id
+              type: String
+            - name: timestamp
+              type: DateTime64
+            - name: type
+              type: LowCardinality(String)
+            - name: context
+              type: LowCardinality(String)
+            - name: is_primary_interaction
+              type: UInt8
+            - name: time_to_see_data_ms
+              type: UInt64
+            - name: status
+              type: LowCardinality(String)
+            - name: api_response_bytes
+              type: UInt64
+            - name: current_url
+              type: String
+            - name: api_url
+              type: String
+            - name: insight
+              type: LowCardinality(String)
+            - name: action
+              type: LowCardinality(String)
+            - name: insights_fetched
+              type: UInt16
+            - name: insights_fetched_cached
+              type: UInt16
+            - name: min_last_refresh
+              type: DateTime64
+            - name: max_last_refresh
+              type: DateTime64
+
+    team_events_last_month_dictionary:
+        engine: Dictionary
+        on_nodes: ALL
+        columns:
+            - name: team_id
+              type: UInt64
+            - name: event_count
+              type: UInt64

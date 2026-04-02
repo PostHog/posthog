@@ -1,0 +1,55 @@
+# Desired-state schema for the experiment_exposures_preaggregated ecosystem.
+
+ecosystem: experiment_exposures
+cluster: main
+
+tables:
+    sharded_experiment_exposures_preaggregated:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - job_id
+            - entity_id
+            - breakdown_value
+        partition_by: 'toYYYYMMDD(expires_at)'
+        settings:
+            index_granularity: '8192'
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: job_id
+              type: UUID
+            - name: entity_id
+              type: String
+            - name: variant
+              type: String
+            - name: first_exposure_time
+              type: "DateTime64(6, 'UTC')"
+            - name: last_exposure_time
+              type: "DateTime64(6, 'UTC')"
+            - name: exposure_event_uuid
+              type: UUID
+            - name: exposure_session_id
+              type: String
+            - name: breakdown_value
+              type: Array(String)
+            - name: computed_at
+              type: "DateTime64(6, 'UTC')"
+              default_expression: 'now()'
+              default_kind: DEFAULT
+            - name: expires_at
+              type: Date
+              default_expression: "today() + toIntervalDay(7)"
+              default_kind: DEFAULT
+
+    experiment_exposures_preaggregated:
+        engine: Distributed
+        source: sharded_experiment_exposures_preaggregated
+        sharding_key: 'cityHash64(entity_id)'
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        columns: inherit sharded_experiment_exposures_preaggregated

@@ -1,0 +1,138 @@
+# Desired-state schema for the sessions v1 ecosystem (legacy, limited to specific teams).
+
+ecosystem: sessions
+cluster: main
+
+tables:
+    sharded_sessions:
+        engine: ReplicatedAggregatingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - 'toStartOfDay(min_timestamp)'
+            - team_id
+            - session_id
+        partition_by: 'toYYYYMM(min_timestamp)'
+        settings:
+            index_granularity: '512'
+        columns:
+            - name: session_id
+              type: String
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: "SimpleAggregateFunction(any, String)"
+            - name: min_timestamp
+              type: "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+            - name: max_timestamp
+              type: "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+            - name: urls
+              type: "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+            - name: entry_url
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: exit_url
+              type: "AggregateFunction(argMax, String, DateTime64(6, 'UTC'))"
+            - name: initial_referring_domain
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_utm_source
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_utm_campaign
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_utm_medium
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_utm_term
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_utm_content
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_gclid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_gad_source
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_gclsrc
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_dclid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_gbraid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_wbraid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_fbclid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_msclkid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_twclid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_li_fat_id
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_mc_cid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_igshid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_ttclid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_epik
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_qclid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: initial_sccid
+              type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+            - name: event_count_map
+              type: "SimpleAggregateFunction(sumMap, Map(String, Int64))"
+            - name: pageview_count
+              type: "SimpleAggregateFunction(sum, Int64)"
+            - name: autocapture_count
+              type: "SimpleAggregateFunction(sum, Int64)"
+
+    writable_sessions:
+        engine: Distributed
+        source: sharded_sessions
+        sharding_key: 'sipHash64(session_id)'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_sessions
+
+    sessions:
+        engine: Distributed
+        source: sharded_sessions
+        sharding_key: 'sipHash64(session_id)'
+        on_nodes: ALL
+        columns: inherit sharded_sessions
+
+    sessions_mv:
+        engine: MaterializedView
+        source: sharded_events
+        target: writable_sessions
+        select: "SELECT ... FROM {{ database }}.sharded_events"
+        on_nodes: DATA
+        columns: []
+
+    # Production-only tables for sessions rework
+    new_sessions:
+        engine: ReplicatedAggregatingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - session_id
+        columns: inherit sharded_sessions
+
+    new_writable_sessions:
+        engine: Distributed
+        source: new_sessions
+        sharding_key: 'sipHash64(session_id)'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_sessions
+
+    new_sessions_mv:
+        engine: MaterializedView
+        source: sharded_events
+        target: new_writable_sessions
+        select: "SELECT ... FROM {{ database }}.sharded_events"
+        on_nodes: DATA
+        columns: []
+
+    writable_sessions_background:
+        engine: Distributed
+        source: sharded_sessions
+        sharding_key: 'sipHash64(session_id)'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_sessions

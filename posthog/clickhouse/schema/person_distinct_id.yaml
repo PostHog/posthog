@@ -1,0 +1,73 @@
+# Desired-state schema for the person_distinct_id ecosystem.
+
+ecosystem: person_distinct_id
+cluster: main
+
+tables:
+    person_distinct_id:
+        engine: ReplicatedCollapsingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - distinct_id
+            - person_id
+        columns:
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: team_id
+              type: Int64
+            - name: _sign
+              type: Int8
+              default_expression: '1'
+              default_kind: DEFAULT
+            - name: is_deleted
+              type: Int8
+
+    kafka_person_distinct_id:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_person_unique_id
+            kafka_group_name: person_distinct_id
+            kafka_format: JSONEachRow
+        columns:
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: team_id
+              type: Int64
+            - name: _sign
+              type: Nullable(Int8)
+            - name: is_deleted
+              type: Nullable(Int8)
+
+    person_distinct_id_mv:
+        engine: MaterializedView
+        source: kafka_person_distinct_id
+        target: person_distinct_id
+        select: "SELECT distinct_id, person_id, team_id, coalesce(_sign, if(is_deleted==0, 1, -1)) AS _sign, _timestamp, _offset FROM {{ database }}.kafka_person_distinct_id"
+        on_nodes: INGESTION_EVENTS
+        columns: []
+
+    # Production tables: sharded/distributed variants visible on coordinator
+    sharded_person_distinct_id:
+        engine: ReplicatedCollapsingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - distinct_id
+            - person_id
+        columns: inherit person_distinct_id
+
+    distributed_person_distinct_id:
+        engine: Distributed
+        source: sharded_person_distinct_id
+        sharding_key: 'cityHash64(distinct_id)'
+        on_nodes: COORDINATOR
+        columns: inherit person_distinct_id

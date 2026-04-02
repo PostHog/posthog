@@ -1,0 +1,50 @@
+# Desired-state schema for the groups ecosystem.
+
+ecosystem: groups
+cluster: main
+
+tables:
+    groups:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - group_type_index
+            - group_key
+        columns:
+            - name: group_type_index
+              type: UInt8
+            - name: group_key
+              type: String
+            - name: created_at
+              type: DateTime64(3)
+            - name: team_id
+              type: Int64
+            - name: group_properties
+              type: String
+
+    writable_groups:
+        engine: Distributed
+        source: groups
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit groups
+
+    kafka_groups:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_groups
+            kafka_group_name: groups
+            kafka_format: JSONEachRow
+        columns: inherit groups
+
+    groups_mv:
+        engine: MaterializedView
+        source: kafka_groups
+        target: writable_groups
+        select: "SELECT group_type_index, group_key, created_at, team_id, group_properties, _timestamp, _offset FROM {{ database }}.kafka_groups"
+        on_nodes: INGESTION_EVENTS
+        columns: []

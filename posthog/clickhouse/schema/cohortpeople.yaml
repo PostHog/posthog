@@ -1,0 +1,26 @@
+# Desired-state schema for the cohortpeople ecosystem.
+
+ecosystem: cohortpeople
+cluster: main
+
+tables:
+    cohortpeople:
+        engine: ReplicatedCollapsingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - cohort_id
+            - person_id
+            - version
+        columns:
+            - name: person_id
+              type: UUID
+            - name: cohort_id
+              type: Int64
+            - name: team_id
+              type: Int64
+            - name: sign
+              type: Int8
+            - name: version
+              type: UInt64

@@ -1,0 +1,190 @@
+# Desired-state schema for the ai_events ecosystem.
+
+ecosystem: ai_events
+cluster: main
+
+tables:
+    sharded_ai_events:
+        engine: ReplicatedMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - trace_id
+            - timestamp
+        partition_by: 'toYYYYMM(drop_date)'
+        settings:
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: uuid
+              type: UUID
+            - name: event
+              type: LowCardinality(String)
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: properties
+              type: String
+            - name: retention_days
+              type: Int16
+              default_expression: '30'
+              default_kind: DEFAULT
+            - name: drop_date
+              type: Date
+            - name: trace_id
+              type: String
+            - name: session_id
+              type: Nullable(String)
+            - name: parent_id
+              type: Nullable(String)
+            - name: span_id
+              type: Nullable(String)
+            - name: span_type
+              type: LowCardinality(Nullable(String))
+            - name: generation_id
+              type: Nullable(String)
+            - name: experiment_id
+              type: Nullable(String)
+            - name: span_name
+              type: Nullable(String)
+            - name: trace_name
+              type: Nullable(String)
+            - name: prompt_name
+              type: Nullable(String)
+            - name: model
+              type: LowCardinality(Nullable(String))
+            - name: provider
+              type: LowCardinality(Nullable(String))
+            - name: framework
+              type: LowCardinality(Nullable(String))
+            - name: total_tokens
+              type: Nullable(Int64)
+            - name: input_tokens
+              type: Nullable(Int64)
+            - name: output_tokens
+              type: Nullable(Int64)
+            - name: text_input_tokens
+              type: Nullable(Int64)
+            - name: text_output_tokens
+              type: Nullable(Int64)
+            - name: image_input_tokens
+              type: Nullable(Int64)
+            - name: image_output_tokens
+              type: Nullable(Int64)
+            - name: audio_input_tokens
+              type: Nullable(Int64)
+            - name: audio_output_tokens
+              type: Nullable(Int64)
+            - name: video_input_tokens
+              type: Nullable(Int64)
+            - name: video_output_tokens
+              type: Nullable(Int64)
+            - name: reasoning_tokens
+              type: Nullable(Int64)
+            - name: cache_read_input_tokens
+              type: Nullable(Int64)
+            - name: cache_creation_input_tokens
+              type: Nullable(Int64)
+            - name: web_search_count
+              type: Nullable(Int64)
+            - name: input_cost_usd
+              type: Nullable(Float64)
+            - name: output_cost_usd
+              type: Nullable(Float64)
+            - name: total_cost_usd
+              type: Nullable(Float64)
+            - name: request_cost_usd
+              type: Nullable(Float64)
+            - name: web_search_cost_usd
+              type: Nullable(Float64)
+            - name: audio_cost_usd
+              type: Nullable(Float64)
+            - name: image_cost_usd
+              type: Nullable(Float64)
+            - name: video_cost_usd
+              type: Nullable(Float64)
+            - name: latency
+              type: Nullable(Float64)
+            - name: time_to_first_token
+              type: Nullable(Float64)
+            - name: is_error
+              type: UInt8
+            - name: error
+              type: Nullable(String)
+            - name: error_type
+              type: LowCardinality(Nullable(String))
+            - name: error_normalized
+              type: Nullable(String)
+            - name: input
+              type: Nullable(String)
+            - name: output
+              type: Nullable(String)
+            - name: output_choices
+              type: Nullable(String)
+            - name: input_state
+              type: Nullable(String)
+            - name: output_state
+              type: Nullable(String)
+            - name: tools
+              type: Nullable(String)
+
+    writable_ai_events:
+        engine: Distributed
+        source: sharded_ai_events
+        sharding_key: "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
+        on_nodes: COORDINATOR
+        columns: inherit sharded_ai_events
+
+    ai_events:
+        engine: Distributed
+        source: sharded_ai_events
+        sharding_key: "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
+        on_nodes: ALL
+        columns: inherit sharded_ai_events
+
+    kafka_ai_events_json:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_ai_events_json
+            kafka_group_name: ai_events
+            kafka_format: JSONEachRow
+        columns:
+            - name: uuid
+              type: UUID
+            - name: event
+              type: String
+            - name: properties
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: elements_chain
+              type: String
+            - name: created_at
+              type: "DateTime64(6, 'UTC')"
+            - name: person_id
+              type: UUID
+            - name: person_properties
+              type: String
+            - name: person_created_at
+              type: DateTime64(3)
+            - name: person_mode
+              type: "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)"
+
+    ai_events_json_mv:
+        engine: MaterializedView
+        source: kafka_ai_events_json
+        target: writable_ai_events
+        select: "SELECT ... FROM {{ database }}.kafka_ai_events_json"
+        on_nodes: INGESTION_EVENTS
+        columns: []

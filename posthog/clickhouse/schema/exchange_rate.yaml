@@ -1,0 +1,37 @@
+# Desired-state schema for the exchange_rate ecosystem.
+
+ecosystem: exchange_rate
+cluster: main
+
+tables:
+    exchange_rate:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: ALL
+        order_by:
+            - date
+            - currency
+        columns:
+            - name: currency
+              type: String
+            - name: date
+              type: Date
+            - name: rate
+              type: Decimal64(10)
+            - name: version
+              type: UInt32
+              default_expression: 'toUnixTimestamp(now())'
+              default_kind: DEFAULT
+
+    exchange_rate_dict:
+        engine: Dictionary
+        on_nodes: ALL
+        columns:
+            - name: currency
+              type: String
+            - name: start_date
+              type: Date
+            - name: end_date
+              type: Nullable(Date)
+            - name: rate
+              type: Decimal64(10)

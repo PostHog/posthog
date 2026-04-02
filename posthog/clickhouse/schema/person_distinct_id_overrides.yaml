@@ -1,0 +1,62 @@
+# Desired-state schema for the person_distinct_id_overrides ecosystem.
+
+ecosystem: person_distinct_id_overrides
+cluster: main
+
+tables:
+    person_distinct_id_overrides:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - distinct_id
+        settings:
+            index_granularity: '512'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: is_deleted
+              type: Int8
+            - name: version
+              type: Int64
+
+    writable_person_distinct_id_overrides:
+        engine: Distributed
+        source: person_distinct_id_overrides
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit person_distinct_id_overrides
+
+    kafka_person_distinct_id_overrides:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_person_distinct_id
+            kafka_group_name: clickhouse-person-distinct-id-overrides
+            kafka_format: JSONEachRow
+        columns: inherit person_distinct_id_overrides
+
+    person_distinct_id_overrides_mv:
+        engine: MaterializedView
+        source: kafka_person_distinct_id_overrides
+        target: writable_person_distinct_id_overrides
+        select: "SELECT team_id, distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition FROM {{ database }}.kafka_person_distinct_id_overrides WHERE version > 0"
+        on_nodes: INGESTION_EVENTS
+        columns: []
+
+    person_distinct_id_overrides_dict:
+        engine: Dictionary
+        on_nodes: ALL
+        columns:
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID

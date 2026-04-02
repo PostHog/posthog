@@ -1,0 +1,84 @@
+# Desired-state schema for the sessions_v3 ecosystem.
+
+ecosystem: sessions_v3
+cluster: main
+
+tables:
+    sharded_raw_sessions_v3:
+        engine: ReplicatedMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toStartOfDay(min_first_timestamp)'
+            - session_id_v7
+        partition_by: 'toYYYYMM(min_first_timestamp)'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: session_id_v7
+              type: UInt128
+            - name: min_first_timestamp
+              type: DateTime64(6, 'UTC')
+            - name: max_last_timestamp
+              type: DateTime64(6, 'UTC')
+            - name: urls
+              type: Array(String)
+            - name: entry_url
+              type: String
+            - name: end_url
+              type: String
+            - name: initial_referring_domain
+              type: String
+            - name: initial_utm_source
+              type: String
+            - name: initial_utm_campaign
+              type: String
+            - name: initial_utm_medium
+              type: String
+            - name: initial_utm_term
+              type: String
+            - name: initial_utm_content
+              type: String
+            - name: initial_gclid
+              type: String
+            - name: initial_gad_source
+              type: String
+            - name: pageview_count
+              type: Int64
+            - name: autocapture_count
+              type: Int64
+            - name: screen_count
+              type: Int64
+            - name: event_count
+              type: Int64
+
+    writable_raw_sessions_v3:
+        engine: Distributed
+        source: sharded_raw_sessions_v3
+        sharding_key: 'cityHash64(session_id_v7)'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_raw_sessions_v3
+
+    raw_sessions_v3:
+        engine: Distributed
+        source: sharded_raw_sessions_v3
+        sharding_key: 'cityHash64(session_id_v7)'
+        on_nodes: ALL
+        columns: inherit sharded_raw_sessions_v3
+
+    raw_sessions_v3_mv:
+        engine: MaterializedView
+        source: sharded_events
+        target: writable_raw_sessions_v3
+        select: "SELECT ... FROM {{ database }}.sharded_events"
+        on_nodes: DATA
+        columns: []
+
+    raw_sessions_v3_recordings_mv:
+        engine: MaterializedView
+        source: sharded_session_replay_events
+        target: writable_raw_sessions_v3
+        select: "SELECT ... FROM {{ database }}.sharded_session_replay_events"
+        on_nodes: DATA
+        columns: []

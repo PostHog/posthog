@@ -1,0 +1,177 @@
+# Desired-state schema for the logs ecosystem (OpenTelemetry log pipeline).
+# These tables run on the dedicated logs cluster, not the main cluster.
+
+ecosystem: logs
+cluster: logs
+
+tables:
+    logs32:
+        engine: ReplicatedMergeTree
+        sharded: false
+        on_nodes: LOGS
+        order_by:
+            - team_id
+            - time_bucket
+            - service_name
+            - resource_fingerprint
+            - severity_text
+            - timestamp
+        partition_by: 'toDate(original_expiry_timestamp)'
+        columns:
+            - name: time_bucket
+              type: DateTime
+              default_kind: MATERIALIZED
+              default_expression: 'toStartOfDay(timestamp)'
+            - name: original_expiry_timestamp
+              type: DateTime64(6)
+            - name: uuid
+              type: String
+            - name: team_id
+              type: Int32
+            - name: trace_id
+              type: String
+            - name: span_id
+              type: String
+            - name: trace_flags
+              type: Int32
+            - name: timestamp
+              type: DateTime64(6)
+            - name: observed_timestamp
+              type: DateTime64(6)
+            - name: created_at
+              type: DateTime64(6)
+              default_kind: MATERIALIZED
+              default_expression: 'now()'
+            - name: body
+              type: String
+            - name: severity_text
+              type: LowCardinality(String)
+            - name: severity_number
+              type: Int32
+            - name: service_name
+              type: LowCardinality(String)
+            - name: resource_attributes
+              type: "Map(LowCardinality(String), String)"
+            - name: resource_fingerprint
+              type: UInt64
+              default_kind: MATERIALIZED
+              default_expression: 'cityHash64(resource_attributes)'
+            - name: instrumentation_scope
+              type: String
+            - name: event_name
+              type: String
+            - name: attributes_map_str
+              type: "Map(LowCardinality(String), String)"
+            - name: _partition
+              type: UInt32
+            - name: _topic
+              type: String
+            - name: _offset
+              type: UInt64
+            - name: _bytes_uncompressed
+              type: UInt64
+            - name: _bytes_compressed
+              type: UInt64
+            - name: _record_count
+              type: UInt64
+
+    logs:
+        engine: Distributed
+        source: logs32
+        sharding_key: 'rand()'
+        on_nodes: LOGS
+        columns: inherit logs32
+
+    logs_distributed:
+        engine: Distributed
+        source: logs32
+        sharding_key: 'rand()'
+        on_nodes: LOGS
+        columns: inherit logs32
+
+    log_attributes:
+        engine: ReplicatedAggregatingMergeTree
+        sharded: false
+        on_nodes: LOGS
+        order_by:
+            - team_id
+            - attribute_type
+            - time_bucket
+            - resource_fingerprint
+            - attribute_key
+            - attribute_value
+        partition_by: 'toDate(original_expiry_time_bucket)'
+        columns:
+            - name: team_id
+              type: Int32
+            - name: time_bucket
+              type: DateTime64(0)
+            - name: original_expiry_time_bucket
+              type: DateTime64(0)
+            - name: service_name
+              type: LowCardinality(String)
+            - name: resource_fingerprint
+              type: UInt64
+              default_expression: '0'
+              default_kind: DEFAULT
+            - name: attribute_key
+              type: LowCardinality(String)
+            - name: attribute_value
+              type: String
+            - name: attribute_count
+              type: "SimpleAggregateFunction(sum, UInt64)"
+            - name: attribute_type
+              type: LowCardinality(String)
+
+    log_attributes_distributed:
+        engine: Distributed
+        source: log_attributes
+        sharding_key: 'rand()'
+        on_nodes: LOGS
+        columns: inherit log_attributes
+
+    logs32_to_log_attributes:
+        engine: MaterializedView
+        source: logs32
+        target: log_attributes
+        select: "SELECT team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (aggregation subquery)"
+        on_nodes: LOGS
+        columns: []
+
+    logs32_to_resource_attributes:
+        engine: MaterializedView
+        source: logs32
+        target: log_attributes
+        select: "SELECT team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (aggregation subquery)"
+        on_nodes: LOGS
+        columns: []
+
+    logs_kafka_metrics:
+        engine: ReplicatedAggregatingMergeTree
+        sharded: false
+        on_nodes: LOGS
+        order_by:
+            - _topic
+            - _partition
+        columns:
+            - name: _partition
+              type: UInt32
+            - name: _topic
+              type: String
+            - name: max_offset
+              type: "SimpleAggregateFunction(max, UInt64)"
+            - name: max_observed_timestamp
+              type: "SimpleAggregateFunction(max, DateTime64(9))"
+            - name: max_timestamp
+              type: "SimpleAggregateFunction(max, DateTime64(9))"
+            - name: max_created_at
+              type: "SimpleAggregateFunction(max, DateTime64(9))"
+            - name: max_lag
+              type: "SimpleAggregateFunction(max, UInt64)"
+
+    logs_kafka_metrics_distributed:
+        engine: Distributed
+        source: logs_kafka_metrics
+        sharding_key: 'rand()'
+        on_nodes: LOGS
+        columns: inherit logs_kafka_metrics
