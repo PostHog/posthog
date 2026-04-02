@@ -318,12 +318,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                             Execute endpoint
                         </LemonButton>
                         {superpowersEnabled && (
-                            <LemonSwitch
-                                checked={debugMode}
-                                onChange={setDebugMode}
-                                label="Debug"
-                                bordered
-                            />
+                            <LemonSwitch checked={debugMode} onChange={setDebugMode} label="Debug" bordered />
                         )}
                     </div>
                     {endpointResult &&
