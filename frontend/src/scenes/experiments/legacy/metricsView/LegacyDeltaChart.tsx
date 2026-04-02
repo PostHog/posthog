@@ -26,9 +26,9 @@ import { LegacyChartModal } from './LegacyChartModal'
 import { useLegacyChartColors } from './legacyColors'
 import { LegacyGridLines } from './LegacyGridLines'
 import { LegacyMetricHeader } from './LegacyMetricHeader'
+import { LegacyMetricsChartLayout } from './LegacyMetricsChartLayout'
 import { LegacyVariantTooltip } from './LegacyVariantTooltip'
 import { legacyGenerateViolinPath } from './legacyViolinUtils'
-import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
 
 // Chart configuration types
@@ -615,7 +615,7 @@ export function LegacyDeltaChart({
 
     return (
         <DeltaChartContext.Provider value={contextValue}>
-            <MetricsChartLayout
+            <LegacyMetricsChartLayout
                 isFirstMetric={isFirstMetric}
                 tickValues={tickValues}
                 chartBound={chartBound}
