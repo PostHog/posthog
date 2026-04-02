@@ -56,11 +56,18 @@ export function getCoreFilterDefinition(
     } else if (value.startsWith('$survey_response_')) {
         const surveyIndex = value.replace(/^\$survey_response_/, '')
         if (surveyIndex) {
-            const index = Number(surveyIndex) + 1
-            const suffix = index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+            const index = Number(surveyIndex)
+            if (isNaN(index)) {
+                return {
+                    label: `Survey response (${surveyIndex})`,
+                    description: `The response value for survey question with ID: "${surveyIndex}".`,
+                }
+            }
+            const ordinal = index + 1
+            const suffix = ordinal === 2 ? 'nd' : ordinal === 3 ? 'rd' : 'th'
             return {
-                label: `Survey response for ${index}${suffix} question`,
-                description: `The response value for the ${index}${suffix} question in the survey.`,
+                label: `Survey response for ${ordinal}${suffix} question`,
+                description: `The response value for the ${ordinal}${suffix} question in the survey.`,
             }
         }
     } else if (value.startsWith('$feature/')) {
