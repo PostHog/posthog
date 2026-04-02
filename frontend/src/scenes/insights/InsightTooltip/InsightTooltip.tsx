@@ -86,7 +86,7 @@ function renderDatumToTableCell(
     )
 }
 
-function closeColumn(onClose: () => void): LemonTableColumn<any, any> {
+function closeColumn<T extends Record<string, any>>(onClose: () => void): LemonTableColumn<T, keyof T | undefined> {
     return {
         key: 'close',
         className: 'InsightTooltip__close-column',
