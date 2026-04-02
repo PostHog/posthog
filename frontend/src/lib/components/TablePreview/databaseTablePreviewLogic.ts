@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props, propsChanged } from 'kea'
+import { afterMount, kea, key, path, props, propsChanged, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -18,36 +18,54 @@ export interface DatabaseTablePreviewLogicProps {
 
 const DEFAULT_LIMIT = 10
 
+function buildPreviewQuery({
+    tableName,
+    limit,
+    whereClause,
+    expressionColumns,
+}: Pick<DatabaseTablePreviewLogicProps, 'tableName' | 'limit' | 'whereClause' | 'expressionColumns'>): string | null {
+    if (!tableName) {
+        return null
+    }
+
+    const previewLimit = limit || DEFAULT_LIMIT
+    const trimmedWhereClause = whereClause?.trim()
+    const previewExpressionSelectClause =
+        expressionColumns && expressionColumns.length > 0
+            ? `, ${expressionColumns
+                  .map(({ expression, key }) => String(hogql`${hogql.raw(expression)} AS ${hogql.identifier(key)}`))
+                  .join(', ')}`
+            : ''
+
+    return String(
+        trimmedWhereClause
+            ? hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(tableName)} WHERE ${hogql.raw(trimmedWhereClause)} LIMIT ${previewLimit}`
+            : hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(tableName)} LIMIT ${previewLimit}`
+    )
+}
+
 export const databaseTablePreviewLogic = kea<databaseTablePreviewLogicType>([
     path((logicKey) => ['lib', 'components', 'TablePreview', 'databaseTablePreviewLogic', logicKey]),
     props({} as DatabaseTablePreviewLogicProps),
     key((props) => props.logicKey),
-    loaders(({ props }) => ({
+    selectors({
+        previewQuery: [
+            (s, p) => [p.tableName, p.limit, p.whereClause, p.expressionColumns],
+            (tableName, limit, whereClause, expressionColumns): string | null =>
+                buildPreviewQuery({ tableName, limit, whereClause, expressionColumns }),
+        ],
+    }),
+    loaders(({ values }) => ({
         previewData: [
             [] as Record<string, any>[],
             {
                 loadPreviewData: async () => {
-                    if (!props.tableName) {
+                    if (!values.previewQuery) {
                         return []
                     }
 
-                    const previewLimit = props.limit || DEFAULT_LIMIT
-                    const trimmedWhereClause = props.whereClause?.trim()
-                    const previewExpressionSelectClause =
-                        props.expressionColumns && props.expressionColumns.length > 0
-                            ? `, ${props.expressionColumns
-                                  .map(({ expression, key }) =>
-                                      String(hogql`${hogql.raw(expression)} AS ${hogql.identifier(key)}`)
-                                  )
-                                  .join(', ')}`
-                            : ''
-
                     try {
-                        const response = await hogqlQuery(
-                            trimmedWhereClause
-                                ? hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(props.tableName)} WHERE ${hogql.raw(trimmedWhereClause)} LIMIT ${previewLimit}`
-                                : hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(props.tableName)} LIMIT ${previewLimit}`
-                        )
+                        const response = await hogqlQuery(values.previewQuery)
                         return (response.results || []).map((row: any[]) =>
                             Object.fromEntries(
                                 (response.columns || []).map((column: string, index: number) => [column, row[index]])
@@ -65,19 +83,7 @@ export const databaseTablePreviewLogic = kea<databaseTablePreviewLogicType>([
         actions.loadPreviewData()
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        const previousWhereClause = oldProps.whereClause?.trim() || null
-        const nextWhereClause = props.whereClause?.trim() || null
-        const previousLimit = oldProps.limit || DEFAULT_LIMIT
-        const nextLimit = props.limit || DEFAULT_LIMIT
-        const previousExpressionColumns = JSON.stringify(oldProps.expressionColumns || [])
-        const nextExpressionColumns = JSON.stringify(props.expressionColumns || [])
-
-        if (
-            props.tableName !== oldProps.tableName ||
-            previousWhereClause !== nextWhereClause ||
-            previousLimit !== nextLimit ||
-            previousExpressionColumns !== nextExpressionColumns
-        ) {
+        if (buildPreviewQuery(props) !== buildPreviewQuery(oldProps)) {
             actions.loadPreviewData()
         }
     }),
