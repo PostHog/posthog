@@ -628,9 +628,10 @@ export function iOSSnippet({
         return (
             <>
                 <CodeSnippet language={Language.Swift} wrap>
-                    {`${warning ? warning + '\n' : ''}if let remoteConfig = ${clientSuffix}getFeatureFlagPayload("${flagKey}") {
+                    {`${warning ? warning + '\n' : ''}let result = ${clientSuffix}getFeatureFlagResult("${flagKey}")
+if let payload = result.payload {
     // Handle remote configuration payload
-    print("Remote config: \\(remoteConfig)")
+    print("Remote config: \\(payload)")
 }`}
                 </CodeSnippet>
                 <div className="mt-2">
@@ -645,7 +646,11 @@ export function iOSSnippet({
     if (payload) {
         return (
             <CodeSnippet language={Language.Swift} wrap>
-                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
+                {`let result = ${clientSuffix}getFeatureFlagResult("${flagKey}")
+if let payload = result.payload {
+    // Handle the payload
+    print("Payload: \\(payload)")
+}`}
             </CodeSnippet>
         )
     }
