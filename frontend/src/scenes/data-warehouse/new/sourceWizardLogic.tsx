@@ -1096,6 +1096,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const kind = searchParams.kind?.toLowerCase()
             const returnUrl = searchParams.returnUrl
             const returnLabel = searchParams.returnLabel
+            const accessMethod = searchParams.access_method === 'direct' ? 'direct' : 'warehouse'
 
             if (returnUrl && returnLabel) {
                 actions.setReturnConfig(returnUrl, returnLabel)
@@ -1114,6 +1115,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (source) {
                 actions.selectConnector(source)
+                actions.updateSource({ access_method: accessMethod })
+                actions.setSourceConnectionDetailsValue('access_method', accessMethod)
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
                 // Restore form values saved before an OAuth redirect
