@@ -17,7 +17,7 @@ comparing cluster behavior, and drilling into individual clusters.
 | `posthog:llm-analytics-clustering-jobs-retrieve` | Get a specific clustering job by ID             |
 | `posthog:execute-sql`                            | Query cluster run events and compute metrics    |
 | `posthog:query-llm-traces-list`                  | Find traces belonging to a cluster              |
-| `posthog:query-llm-trace`                        | Inspect a specific trace from a cluster         |
+| `posthog:query-llm-trace`                        | Inspect a specific trace in detail              |
 
 ## How clustering works
 
