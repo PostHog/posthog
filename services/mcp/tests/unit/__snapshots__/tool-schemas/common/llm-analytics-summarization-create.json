@@ -1,0 +1,37 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "data": {
+            "description": "Data to summarize. For traces: {trace, hierarchy}. For events: {event}."
+        },
+        "force_refresh": {
+            "default": false,
+            "description": "Force regenerate summary, bypassing cache",
+            "type": "boolean"
+        },
+        "mode": {
+            "default": "minimal",
+            "description": "Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points\n\n* `minimal` - minimal\n* `detailed` - detailed",
+            "enum": ["minimal", "detailed"],
+            "type": "string"
+        },
+        "model": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "LLM model to use (defaults based on provider)"
+        },
+        "summarize_type": {
+            "description": "Type of entity to summarize\n\n* `trace` - trace\n* `event` - event",
+            "enum": ["trace", "event"],
+            "type": "string"
+        }
+    },
+    "required": ["summarize_type", "data"],
+    "type": "object"
+}
