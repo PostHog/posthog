@@ -318,14 +318,11 @@ def test_map_hosts_with_satellite_clusters() -> None:
     ]
 
     bootstrap_client_mock = Mock()
-    call_count = 0
 
     def mock_execute(query, params):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
+        if "satellite_name" not in params:
             return main_cluster_hosts
-        elif call_count == 2:
+        elif params["satellite_name"] == "aux":
             return aux_cluster_hosts
         else:
             return sessions_cluster_hosts
@@ -367,12 +364,9 @@ def test_map_hosts_with_satellite_clusters() -> None:
 
 def test_satellite_cluster_hosts_have_no_shard_info() -> None:
     bootstrap_client_mock = Mock()
-    call_count = 0
 
     def mock_execute(query, params):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
+        if "satellite_name" not in params:
             return [("host1", "9000", "1", "1", "online", "data")]
         else:
             return [("aux-host1", "9000", "1", "1", "online", "aux")]
