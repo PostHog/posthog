@@ -134,7 +134,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
-    '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
@@ -606,7 +605,7 @@ export const productUrls = {
         breakdownBy?: string
     }): string => {
         if (!params) {
-            return '/endpoints/usage'
+            return '/endpoints?tab=usage'
         }
         const searchParams: Record<string, string> = {}
         if (params.endpointFilter?.length) {
@@ -627,7 +626,7 @@ export const productUrls = {
         if (params.breakdownBy) {
             searchParams.breakdownBy = params.breakdownBy
         }
-        return combineUrl('/endpoints/usage', searchParams).url
+        return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,

@@ -97,6 +97,7 @@ import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
@@ -153,7 +154,6 @@ import {
     LogEntryRequestParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
-    type OAuthApplicationPublicMetadata,
     ObjectMediaPreview,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
@@ -171,6 +171,7 @@ import {
     ProductTourStep,
     ProjectType,
     PropertyDefinition,
+    PropertyGroupFilter,
     PropertyDefinitionType,
     QueryBasedInsightModel,
     QueryTabState,
@@ -229,6 +230,7 @@ import {
     HogFlow,
     HogFlowAction,
     HogFlowBatchJob,
+    HogFlowSchedule,
     HogFlowTemplate,
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -754,7 +756,7 @@ export class ApiRequest {
 
     // # Tracing
     public tracingSpans(): ApiRequest {
-        return this.projectsDetail().addPathComponent('tracing').addPathComponent('spans')
+        return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')
     }
 
     // # Data management
@@ -1335,8 +1337,16 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
 
+    public dataWarehouseSavedQueryFolders(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_folders')
+    }
+
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
+    public dataWarehouseSavedQueryFolder(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueryFolders(teamId).addPathComponent(id)
     }
 
     public dataWarehouseSavedQueryDrafts(teamId?: TeamType['id']): ApiRequest {
@@ -1827,10 +1837,6 @@ export class ApiRequest {
 
     public messagingPreferencesOptOuts(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
-    }
-
-    public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
-        return this.addPathComponent('oauth_application').addPathComponent('metadata').addPathComponent(clientId)
     }
 
     public hogFlows(): ApiRequest {
@@ -2575,24 +2581,45 @@ const api = {
 
     tracing: {
         async listSpans(query: {
-            dateRange?: { date_from?: string; date_to?: string }
+            dateRange?: { date_from?: string | null; date_to?: string | null }
             serviceNames?: string[]
             statusCodes?: number[]
-            searchTerm?: string
+            filterGroup?: PropertyGroupFilter
             orderBy?: 'latest' | 'earliest'
             limit?: number
             after?: string
+            prefetchSpans?: number
         }): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextCursor?: string }> {
             return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
         },
         async getTrace(
             traceId: string,
-            dateRange?: { date_from?: string; date_to?: string }
+            dateRange?: { date_from?: string | null; date_to?: string | null }
         ): Promise<{ results: Record<string, any>[] }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({ data: { dateRange: dateRange ?? { date_from: '-24h' } } })
+        },
+        async sparkline(query: {
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+            serviceNames?: string[]
+            statusCodes?: number[]
+            filterGroup?: PropertyGroupFilter
+        }): Promise<{ results: { time: string; service: string; count: number }[] }> {
+            return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
+        },
+        async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
+            return new ApiRequest()
+                .tracingSpans()
+                .withAction('service-names')
+                .withQueryString(
+                    Object.entries(params)
+                        .filter(([, v]) => v !== undefined && v !== '')
+                        .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`)
+                        .join('&')
+                )
+                .get()
         },
     },
 
@@ -3013,6 +3040,10 @@ const api = {
 
         async get(id: number): Promise<DashboardType> {
             return new ApiRequest().dashboardsDetail(id).get()
+        },
+
+        async generateMetadata(id: number): Promise<{ name: string; description: string }> {
+            return await new ApiRequest().dashboardsDetail(id).withAction('generate_metadata').create({ data: {} })
         },
 
         async createUnlistedDashboard(tag: string): Promise<DashboardType> {
@@ -3588,7 +3619,6 @@ const api = {
             auth_type: string
             api_key?: string
             description?: string
-            oauth_provider_kind?: string
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
         },
@@ -4700,7 +4730,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; edited_history_id?: string }
+            data: Partial<DataWarehouseSavedQuery> & { types?: string[][]; edited_history_id?: string }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
@@ -4750,6 +4780,24 @@ const api = {
             ): Promise<PaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
+        },
+    },
+
+    dataWarehouseSavedQueryFolders: {
+        async list(): Promise<DataWarehouseSavedQueryFolder[]> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolders().get()
+        },
+        async create(data: Pick<DataWarehouseSavedQueryFolder, 'name'>): Promise<DataWarehouseSavedQueryFolder> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolders().create({ data })
+        },
+        async update(
+            folderId: DataWarehouseSavedQueryFolder['id'],
+            data: Pick<DataWarehouseSavedQueryFolder, 'name'>
+        ): Promise<DataWarehouseSavedQueryFolder> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).update({ data })
+        },
+        async delete(folderId: DataWarehouseSavedQueryFolder['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).delete()
         },
     },
 
@@ -4964,6 +5012,9 @@ const api = {
         },
         async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
             await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
+        },
+        async cancel(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('cancel').create()
         },
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
@@ -5397,11 +5448,6 @@ const api = {
                 .get()
         },
     },
-    oauthApplication: {
-        async getPublicMetadata(clientId: string): Promise<OAuthApplicationPublicMetadata> {
-            return await new ApiRequest().oauthApplicationPublicMetadata(clientId).get()
-        },
-    },
     hogFlows: {
         async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
             return await new ApiRequest().hogFlows().get()
@@ -5454,6 +5500,29 @@ const api = {
         },
         async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
+        },
+        async getHogFlowSchedules(hogFlowId: HogFlow['id']): Promise<HogFlowSchedule[]> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').get()
+        },
+        async createHogFlowSchedule(
+            hogFlowId: HogFlow['id'],
+            data: { rrule: string; starts_at: string; timezone?: string }
+        ): Promise<HogFlowSchedule> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').create({ data })
+        },
+        async updateHogFlowSchedule(
+            hogFlowId: HogFlow['id'],
+            scheduleId: string,
+            data: Partial<{ rrule: string; starts_at: string; timezone?: string }>
+        ): Promise<HogFlowSchedule> {
+            return await new ApiRequest()
+                .hogFlow(hogFlowId)
+                .withAction('schedules')
+                .withAction(scheduleId)
+                .update({ data })
+        },
+        async deleteHogFlowSchedule(hogFlowId: HogFlow['id'], scheduleId: string): Promise<void> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').withAction(scheduleId).delete()
         },
     },
     hogFlowTemplates: {

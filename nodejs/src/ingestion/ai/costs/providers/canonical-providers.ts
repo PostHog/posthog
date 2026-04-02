@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-31 20:09:55 UTC
+// Generated at: 2026-04-02 10:19:12 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -12,6 +12,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock'
     | 'ambient-fp8'
     | 'anthropic'
+    | 'arcee-ai'
     | 'arcee-ai-bf16'
     | 'arcee-ai-prime'
     | 'atlas-cloud-fast'
@@ -57,7 +58,6 @@ export type CanonicalProvider =
     | 'inceptron-int4'
     | 'infermatic-bf16'
     | 'inflection'
-    | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'io-net-int4'
@@ -74,7 +74,6 @@ export type CanonicalProvider =
     | 'morph'
     | 'nebius'
     | 'nebius-base'
-    | 'nebius-bf16'
     | 'nebius-fast'
     | 'nebius-fp4'
     | 'nebius-fp8'
@@ -121,6 +120,7 @@ export type CanonicalProvider =
     | 'upstage'
     | 'venice'
     | 'venice-beta'
+    | 'venice-e2ee'
     | 'venice-fp16'
     | 'venice-fp4'
     | 'venice-fp8'

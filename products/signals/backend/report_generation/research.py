@@ -2,12 +2,27 @@ from __future__ import annotations
 
 import json
 import logging
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
 from products.signals.backend.temporal.types import SignalData
+
+
+class ActionabilityChoice(str, Enum):
+    IMMEDIATELY_ACTIONABLE = "immediately_actionable"
+    REQUIRES_HUMAN_INPUT = "requires_human_input"
+    NOT_ACTIONABLE = "not_actionable"
+
+
+class Priority(str, Enum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
 
 if TYPE_CHECKING:
     from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn

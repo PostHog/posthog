@@ -174,12 +174,12 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
         if len(keys) != len(set(keys)):
             raise serializers.ValidationError("Variable keys must be unique")
 
-        # Make sure entire variables definition is less than 1KB
+        # Make sure entire variables definition is less than 5KB
         # This is just a check for massive keys / default values, we also have a check for dynamically
         # set variables during execution
         total_size = sum(len(json.dumps(item)) for item in attrs)
-        if total_size > 1024:
-            raise serializers.ValidationError("Total size of variables definition must be less than 1KB")
+        if total_size > 5120:
+            raise serializers.ValidationError("Total size of variables definition must be less than 5KB")
 
         return super().validate(attrs)
 
@@ -688,6 +688,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         """
         from django.db import transaction
 
+        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
         from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
         from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
 
@@ -732,6 +733,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
             for schedule_id in due_schedule_ids:
                 try:
+                    batch_job_params = None
                     with transaction.atomic():
                         # Per-schedule transaction: lock only one row at a time to minimize
                         # lock duration and allow concurrent replicas via skip_locked.
@@ -759,15 +761,21 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
                         advance_next_run(schedule, after=schedule.next_run_at)
 
-                        processed.append(
-                            {
-                                "schedule_id": str(schedule.id),
-                                "team_id": schedule.team_id,
-                                "hog_flow_id": str(schedule.hog_flow_id),
-                                "filters": (hog_flow.trigger or {}).get("filters", {}),
-                                "variables": resolve_variables(hog_flow, schedule),
-                            }
+                        batch_job_params = {
+                            "team_id": schedule.team_id,
+                            "hog_flow": hog_flow,
+                            "variables": resolve_variables(hog_flow, schedule),
+                            "filters": (hog_flow.trigger or {}).get("filters", {}),
+                        }
+
+                    # Create the batch job outside the transaction so the
+                    # post_save signal's HTTP call doesn't hold the row lock.
+                    if batch_job_params:
+                        HogFlowBatchJob.objects.create(
+                            **batch_job_params,
+                            status=HogFlowBatchJob.State.QUEUED,
                         )
+                        processed.append(str(schedule_id))
                 except Exception:
                     logger.exception("Error processing schedule", schedule_id=str(schedule_id))
                     failed.append(str(schedule_id))

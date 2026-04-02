@@ -21,19 +21,19 @@ operations = [
     ),
     run_sql_with_exceptions(
         SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL(),
-        node_roles=[NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
+        node_roles=[NodeRole.ENDPOINTS],
     ),
     # Add columns to the writable distributed table
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_ADD_V8_COLUMNS_SQL(SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE),
-        node_roles=[NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
+        node_roles=[NodeRole.ENDPOINTS],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
     # Add columns to the distributed read table
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_ADD_V8_COLUMNS_SQL(QUERY_LOG_ARCHIVE_DATA_TABLE),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
@@ -44,10 +44,10 @@ operations = [
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    # Update the MV on coordinator/endpoints nodes
+    # Update the MV on endpoints nodes
     run_sql_with_exceptions(
         f"ALTER TABLE {DIST_QUERY_LOG_ARCHIVE_MV} MODIFY QUERY\n{MV_SELECT_SQL}",
-        node_roles=[NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
+        node_roles=[NodeRole.ENDPOINTS],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
