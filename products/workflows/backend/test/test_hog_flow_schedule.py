@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import unittest.mock
 from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
@@ -10,6 +11,7 @@ from rest_framework import status
 
 from posthog.models.hog_flow.hog_flow import HogFlow
 
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 
 BATCH_TRIGGER = {
@@ -223,12 +225,28 @@ class TestProcessDueSchedules(APIBaseTest):
 
         data = response.json()
         assert len(data["processed"]) == 1
-        assert data["processed"][0]["hog_flow_id"] == str(hog_flow.id)
-        assert data["processed"][0]["variables"]["greeting"] == "Hello"
+        assert str(schedule.id) in data["processed"]
 
         schedule.refresh_from_db()
         assert schedule.next_run_at is not None
         assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
+
+    @unittest.mock.patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_due_schedule_creates_batch_job(self, mock_dispatch):
+        hog_flow, schedule = self._create_workflow_with_schedule(
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        response = self._post()
+        assert response.status_code == 200
+        assert len(response.json()["processed"]) == 1
+
+        batch_job = HogFlowBatchJob.objects.filter(hog_flow=hog_flow).first()
+        assert batch_job is not None
+        assert batch_job.status == "queued"
+        assert batch_job.variables == {"greeting": "Hello"}
+        mock_dispatch.assert_called_once()
 
     def test_inactive_workflow_clears_next_run_at(self):
         hog_flow, schedule = self._create_workflow_with_schedule(
@@ -286,7 +304,10 @@ class TestProcessDueSchedules(APIBaseTest):
         assert len(response.json()["initialized"]) == 0
         assert len(response.json()["failed"]) == 0
 
-    def test_schedule_with_variable_overrides_resolves_correctly(self):
+    @unittest.mock.patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_schedule_with_variable_overrides_resolves_correctly(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
@@ -295,10 +316,12 @@ class TestProcessDueSchedules(APIBaseTest):
 
         response = self._post()
         assert response.status_code == 200
+        assert len(response.json()["processed"]) == 1
 
-        variables = response.json()["processed"][0]["variables"]
-        assert variables["greeting"] == "Overridden"
-        assert variables["extra"] == "value"
+        batch_job = HogFlowBatchJob.objects.filter(hog_flow=hog_flow).first()
+        assert batch_job is not None
+        assert batch_job.variables["greeting"] == "Overridden"
+        assert batch_job.variables["extra"] == "value"
 
     def test_multiple_due_schedules_processed_independently(self):
         self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))

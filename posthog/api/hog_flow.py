@@ -733,6 +733,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
             for schedule_id in due_schedule_ids:
                 try:
+                    batch_job_params = None
                     with transaction.atomic():
                         # Per-schedule transaction: lock only one row at a time to minimize
                         # lock duration and allow concurrent replicas via skip_locked.
@@ -760,22 +761,21 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
                         advance_next_run(schedule, after=schedule.next_run_at)
 
-                        variables = resolve_variables(hog_flow, schedule)
-                        filters = (hog_flow.trigger or {}).get("filters", {})
+                        batch_job_params = {
+                            "team_id": schedule.team_id,
+                            "hog_flow": hog_flow,
+                            "variables": resolve_variables(hog_flow, schedule),
+                            "filters": (hog_flow.trigger or {}).get("filters", {}),
+                        }
 
-                        # Create a HogFlowBatchJob so the run appears in
-                        # the workflow's Invocations/Metrics tabs. The
-                        # post_save signal dispatches to the CDP API which
-                        # handles the actual batch execution.
+                    # Create the batch job outside the transaction so the
+                    # post_save signal's HTTP call doesn't hold the row lock.
+                    if batch_job_params:
                         HogFlowBatchJob.objects.create(
-                            team_id=schedule.team_id,
-                            hog_flow=hog_flow,
-                            variables=variables,
-                            filters=filters,
+                            **batch_job_params,
                             status=HogFlowBatchJob.State.QUEUED,
                         )
-
-                        processed.append(str(schedule.id))
+                        processed.append(str(schedule_id))
                 except Exception:
                     logger.exception("Error processing schedule", schedule_id=str(schedule_id))
                     failed.append(str(schedule_id))

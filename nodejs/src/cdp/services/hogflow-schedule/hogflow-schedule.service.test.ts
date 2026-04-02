@@ -111,9 +111,10 @@ describe('HogFlowScheduleService', () => {
     describe('lifecycle', () => {
         it('does not allow double start', () => {
             mockDjangoResponse({ processed: [], initialized: [], failed: [] })
-            const startCount = (service as any).running
+            const pollPromiseBefore = (service as any).pollPromise
             service.start()
-            expect(startCount).toBe(true)
+            // Poll promise should be the same instance, not a new one
+            expect((service as any).pollPromise).toBe(pollPromiseBefore)
         })
     })
 
