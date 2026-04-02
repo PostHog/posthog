@@ -273,6 +273,8 @@ export const QueryWrapperToolConfigSchema = z
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),
+        /** Return JSON instead of TOON-encoded text. */
+        response_format: z.enum(['json']).optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

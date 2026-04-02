@@ -177,6 +177,7 @@ function PlayerWrapper({
         allowHogQLFilters,
         totalFiltersCount,
         nextSessionRecording,
+        pinnedFilters,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
@@ -204,6 +205,7 @@ function PlayerWrapper({
                         setFilters={setFilters}
                         totalFiltersCount={totalFiltersCount}
                         allowReplayHogQLFilters={allowHogQLFilters}
+                        pinnedFilters={pinnedFilters}
                     />
                 </div>
             ) : showContent && activeSessionRecording ? (

@@ -37,6 +37,7 @@ export type RequestProperties = {
     apiToken: string
     sessionId?: string
     features?: string[]
+    tools?: string[]
     region?: string
     version?: number
     organizationId?: string
@@ -334,11 +335,14 @@ export class MCP extends McpAgent<Env> {
                     }
                 }
 
+                const useJson = tool._meta?.responseFormat === 'json'
+                const text = useJson ? JSON.stringify(result) : formatResponse(result)
+
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: formatResponse(result),
+                            text,
                         },
                     ],
                     // Include raw result as structuredContent for UI apps to consume
@@ -413,7 +417,7 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
+        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
         // Pre-seed cache, fetch group types, and evaluate feature flag in parallel
         const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
@@ -453,6 +457,7 @@ export class MCP extends McpAgent<Env> {
         const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
+            tools,
             version,
             excludeTools,
             readOnly,

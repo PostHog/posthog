@@ -6401,30 +6401,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `acquisition` - Acquisition
-    * `activation` - Activation
-    * `monetization` - Monetization
-    * `expansion` - Expansion
-    * `referral` - Referral
-    * `retention` - Retention
-    * `churn` - Churn
-    * `reactivation` - Reactivation
-     */
-    export type CategoryEnum = typeof CategoryEnum[keyof typeof CategoryEnum];
-
-
-    export const CategoryEnum = {
-      Acquisition: 'acquisition',
-      Activation: 'activation',
-      Monetization: 'monetization',
-      Expansion: 'expansion',
-      Referral: 'referral',
-      Retention: 'retention',
-      Churn: 'churn',
-      Reactivation: 'reactivation',
-    } as const;
-
-    /**
      * * `marketing` - Marketing
     * `transactional` - Transactional
      */
@@ -7470,6 +7446,30 @@ export namespace Schemas {
       failed: CopyFlagsResult[];
     }
 
+    /**
+     * * `acquisition` - Acquisition
+    * `activation` - Activation
+    * `monetization` - Monetization
+    * `expansion` - Expansion
+    * `referral` - Referral
+    * `retention` - Retention
+    * `churn` - Churn
+    * `reactivation` - Reactivation
+     */
+    export type CoreEventCategoryEnum = typeof CoreEventCategoryEnum[keyof typeof CoreEventCategoryEnum];
+
+
+    export const CoreEventCategoryEnum = {
+      Acquisition: 'acquisition',
+      Activation: 'activation',
+      Monetization: 'monetization',
+      Expansion: 'expansion',
+      Referral: 'referral',
+      Retention: 'retention',
+      Churn: 'churn',
+      Reactivation: 'reactivation',
+    } as const;
+
     export interface CoreEvent {
       readonly id: string;
       /**
@@ -7489,7 +7489,7 @@ export namespace Schemas {
     * `retention` - Retention
     * `churn` - Churn
     * `reactivation` - Reactivation */
-      category: CategoryEnum;
+      category: CoreEventCategoryEnum;
       /** Filter configuration - event, action, or data warehouse node */
       filter: unknown;
       readonly created_at: string;
@@ -18334,6 +18334,181 @@ export namespace Schemas {
     }
 
     /**
+     * * `feedback` - Feedback
+    * `missing_capability` - Missing capability
+     */
+    export type MCPAnalyticsSubmissionKindEnum = typeof MCPAnalyticsSubmissionKindEnum[keyof typeof MCPAnalyticsSubmissionKindEnum];
+
+
+    export const MCPAnalyticsSubmissionKindEnum = {
+      Feedback: 'feedback',
+      MissingCapability: 'missing_capability',
+    } as const;
+
+    export interface MCPAnalyticsSubmission {
+      /** Unique identifier for this submission. */
+      readonly id: string;
+      /** Whether this submission is general feedback or a missing capability report.
+
+    * `feedback` - Feedback
+    * `missing_capability` - Missing capability */
+      readonly kind: MCPAnalyticsSubmissionKindEnum;
+      /** The user's goal in plain language. */
+      goal: string;
+      /** The core feedback or missing capability request. */
+      summary: string;
+      /** Feedback category when present. Empty for submissions that do not use categories. */
+      readonly category: string;
+      /**
+       * Whether the missing capability blocked progress. Null when not provided.
+       * @nullable
+       */
+      readonly blocked: boolean | null;
+      /** The tool the user tried before submitting this feedback, if known. */
+      readonly attempted_tool: string;
+      /** MCP client name captured alongside the submission when available. */
+      readonly mcp_client_name: string;
+      /** MCP client version captured alongside the submission when available. */
+      readonly mcp_client_version: string;
+      /** MCP protocol version captured alongside the submission when available. */
+      readonly mcp_protocol_version: string;
+      /** MCP transport captured alongside the submission when available. */
+      readonly mcp_transport: string;
+      /** MCP session identifier captured alongside the submission when available. */
+      readonly mcp_session_id: string;
+      /** MCP trace identifier captured alongside the submission when available. */
+      readonly mcp_trace_id: string;
+      /** When this submission was created. */
+      readonly created_at: string;
+      /** When this submission was last updated. */
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `results` - Results
+    * `usability` - Usability
+    * `bug` - Bug
+    * `docs` - Docs
+    * `other` - Other
+     */
+    export type MCPFeedbackCreateCategoryEnum = typeof MCPFeedbackCreateCategoryEnum[keyof typeof MCPFeedbackCreateCategoryEnum];
+
+
+    export const MCPFeedbackCreateCategoryEnum = {
+      Results: 'results',
+      Usability: 'usability',
+      Bug: 'bug',
+      Docs: 'docs',
+      Other: 'other',
+    } as const;
+
+    export interface MCPFeedbackCreate {
+      /**
+       * The tool the user tried before leaving feedback, if known.
+       * @maxLength 200
+       */
+      attempted_tool?: string;
+      /**
+       * MCP client name, for example Claude Desktop or Cursor.
+       * @maxLength 200
+       */
+      mcp_client_name?: string;
+      /**
+       * Version string for the MCP client when available.
+       * @maxLength 100
+       */
+      mcp_client_version?: string;
+      /**
+       * MCP protocol version negotiated for the session when available.
+       * @maxLength 50
+       */
+      mcp_protocol_version?: string;
+      /**
+       * Transport used for the MCP session, for example streamable_http or sse.
+       * @maxLength 50
+       */
+      mcp_transport?: string;
+      /**
+       * Stable MCP session identifier when available.
+       * @maxLength 200
+       */
+      mcp_session_id?: string;
+      /**
+       * Trace identifier for the surrounding MCP workflow when available.
+       * @maxLength 200
+       */
+      mcp_trace_id?: string;
+      /**
+       * The user's intended outcome when using MCP.
+       * @maxLength 500
+       */
+      goal: string;
+      /**
+       * Concrete feedback about the MCP experience, tool result, or workflow friction.
+       * @maxLength 5000
+       */
+      feedback: string;
+      /** High-level category for the feedback.
+
+    * `results` - Results
+    * `usability` - Usability
+    * `bug` - Bug
+    * `docs` - Docs
+    * `other` - Other */
+      category?: MCPFeedbackCreateCategoryEnum;
+    }
+
+    export interface MCPMissingCapabilityCreate {
+      /**
+       * The tool the user tried before leaving feedback, if known.
+       * @maxLength 200
+       */
+      attempted_tool?: string;
+      /**
+       * MCP client name, for example Claude Desktop or Cursor.
+       * @maxLength 200
+       */
+      mcp_client_name?: string;
+      /**
+       * Version string for the MCP client when available.
+       * @maxLength 100
+       */
+      mcp_client_version?: string;
+      /**
+       * MCP protocol version negotiated for the session when available.
+       * @maxLength 50
+       */
+      mcp_protocol_version?: string;
+      /**
+       * Transport used for the MCP session, for example streamable_http or sse.
+       * @maxLength 50
+       */
+      mcp_transport?: string;
+      /**
+       * Stable MCP session identifier when available.
+       * @maxLength 200
+       */
+      mcp_session_id?: string;
+      /**
+       * Trace identifier for the surrounding MCP workflow when available.
+       * @maxLength 200
+       */
+      mcp_trace_id?: string;
+      /**
+       * The user's intended outcome when using MCP.
+       * @maxLength 500
+       */
+      goal: string;
+      /**
+       * Capability, tool, or workflow support that is currently missing.
+       * @maxLength 5000
+       */
+      missing_capability: string;
+      /** Whether the missing capability blocked the user's progress. */
+      blocked?: boolean;
+    }
+
+    /**
      * * `api_key` - API Key
     * `oauth` - OAuth
      */
@@ -19702,6 +19877,15 @@ export namespace Schemas {
       results: LogsView[];
     }
 
+    export interface PaginatedMCPAnalyticsSubmissionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPAnalyticsSubmission[];
+    }
+
     export interface PaginatedMCPServerInstallationList {
       count: number;
       /** @nullable */
@@ -19835,6 +20019,23 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: OrganizationOAuthApplication[];
+    }
+
+    export interface PauseStateResponse {
+      /**
+       * The timestamp the pipeline is paused until, or null if not paused/not running.
+       * @nullable
+       */
+      paused_until: string | null;
+    }
+
+    export interface PaginatedPauseStateResponseList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PauseStateResponse[];
     }
 
     /**
@@ -22021,7 +22222,7 @@ export namespace Schemas {
     * `retention` - Retention
     * `churn` - Churn
     * `reactivation` - Reactivation */
-      category?: CategoryEnum;
+      category?: CoreEventCategoryEnum;
       /** Filter configuration - event, action, or data warehouse node */
       filter?: unknown;
       readonly created_at?: string;
@@ -25541,6 +25742,18 @@ export namespace Schemas {
       variants?: unknown;
     }
 
+    export interface PauseResponse {
+      /** Always 'paused'. */
+      status: string;
+      /** The timestamp the pipeline is paused until. */
+      paused_until: string;
+    }
+
+    export interface PauseUntilRequest {
+      /** Pause the grouping pipeline until this timestamp (ISO 8601). */
+      timestamp: string;
+    }
+
     export interface PersonBulkDeleteRequest {
       /** A list of PostHog person UUIDs to delete (max 1000). */
       ids?: string[];
@@ -29056,18 +29269,18 @@ export namespace Schemas {
     } as const;
 
     export interface SummarizeRequest {
-      /** Type of entity to summarize
+      /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
 
     * `trace` - trace
     * `event` - event */
-      summarize_type: SummarizeTypeEnum;
+      summarize_type?: SummarizeTypeEnum;
       /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
     * `minimal` - minimal
     * `detailed` - detailed */
       mode?: Mode02aEnum;
-      /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
-      data: unknown;
+      /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
+      data?: unknown;
       /** Force regenerate summary, bypassing cache */
       force_refresh?: boolean;
       /**
@@ -29075,6 +29288,20 @@ export namespace Schemas {
        * @nullable
        */
       model?: string | null;
+      /** Trace ID to summarize. The backend fetches the trace data automatically. Requires date_from for efficient lookup. */
+      trace_id?: string;
+      /** Generation event UUID to summarize. The backend fetches the event data automatically. Requires date_from for efficient lookup. */
+      generation_id?: string;
+      /**
+       * Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+       * @nullable
+       */
+      date_from?: string | null;
+      /**
+       * End of date range for ID-based lookup. Defaults to now.
+       * @nullable
+       */
+      date_to?: string | null;
     }
 
     export interface SummarizeResponse {
@@ -30000,6 +30227,13 @@ export namespace Schemas {
        * @nullable
        */
       queue_id?: string | null;
+    }
+
+    export interface UnpauseResponse {
+      /** Always 'unpaused'. */
+      status: string;
+      /** Whether the workflow was actually paused at the time of the call. */
+      was_paused: boolean;
     }
 
     /**
@@ -32021,6 +32255,28 @@ export namespace Schemas {
     };
 
     export type MaterializedColumnSlotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -34673,6 +34929,17 @@ export namespace Schemas {
     };
 
     export type SessionRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SignalProcessingListParams = {
     /**
      * Number of results to return per page.
      */

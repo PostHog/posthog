@@ -322,7 +322,7 @@
                 width: 100%;
                 margin: 1rem 0;
                 border-spacing: 0;
-                border-collapse: separate;
+                border-collapse: collapse;
             }
 
             table:not(.NotebookNode *) th,
@@ -330,8 +330,7 @@
                 position: relative;
                 padding: 0.5rem 0.75rem;
                 vertical-align: top;
-                border: 0;
-                border-bottom: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
+                border: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
             }
 
             table:not(.NotebookNode *) th {
@@ -350,7 +349,7 @@
 
             // TipTap table cell selection
             table:not(.NotebookNode *) .selectedCell {
-                background: color-mix(in oklab, var(--color-accent), transparent 85%);
+                background: color-mix(in oklab, var(--color-accent), transparent 95%);
             }
 
             table:not(.NotebookNode *) p {

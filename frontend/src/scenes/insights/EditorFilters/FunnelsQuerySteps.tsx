@@ -31,7 +31,7 @@ export const FUNNEL_STEP_COUNT_LIMIT = 30
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
