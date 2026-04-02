@@ -159,7 +159,7 @@ pub struct ClientInFlightGuard {
 impl ClientInFlightGuard {
     pub fn new(backend: &'static str) -> Self {
         let client = current_client_name();
-        gauge!("personhog_router_client_requests_in_flight", "backend" => backend, "client" => client.to_string())
+        gauge!("personhog_router_client_requests_in_flight", "backend" => backend, "client" => client.clone())
             .increment(1.0);
         Self { backend, client }
     }
@@ -167,7 +167,7 @@ impl ClientInFlightGuard {
 
 impl Drop for ClientInFlightGuard {
     fn drop(&mut self) {
-        gauge!("personhog_router_client_requests_in_flight", "backend" => self.backend, "client" => self.client.to_string())
+        gauge!("personhog_router_client_requests_in_flight", "backend" => self.backend, "client" => self.client.clone())
             .decrement(1.0);
     }
 }
@@ -231,7 +231,7 @@ where
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
         let method = extract_grpc_method(request.uri().path());
         let client = extract_client_name(&request);
-        gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.to_string())
+        gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.clone())
             .increment(1.0);
 
         let start = Instant::now();
@@ -275,11 +275,11 @@ where
                 let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
                 counter!("grpc_server_requests_total",
                     "method" => this.method.clone(),
-                    "client" => this.client.to_string())
+                    "client" => this.client.clone())
                 .increment(1);
                 histogram!("grpc_server_request_duration_ms",
                     "method" => this.method.clone(),
-                    "client" => this.client.to_string())
+                    "client" => this.client.clone())
                 .record(duration_ms);
                 Poll::Ready(result)
             }
@@ -297,7 +297,7 @@ impl<F> PinnedDrop for GrpcMetricsFuture<F> {
         let this = self.project();
         gauge!("grpc_server_requests_in_flight",
             "method" => this.method.clone(),
-            "client" => this.client.to_string())
+            "client" => this.client.clone())
         .decrement(1.0);
     }
 }

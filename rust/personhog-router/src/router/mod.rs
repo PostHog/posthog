@@ -36,7 +36,7 @@ macro_rules! call_backend {
             "personhog_router_backend_requests_total",
             "method" => $method_name,
             "backend" => "replica",
-            "client" => client.to_string()
+            "client" => client.clone()
         )
         .increment(1);
 
@@ -50,7 +50,7 @@ macro_rules! call_backend {
             "personhog_router_backend_duration_ms",
             "method" => $method_name,
             "backend" => "replica",
-            "client" => client.to_string()
+            "client" => client.clone()
         )
         .record(duration_ms);
 
@@ -59,7 +59,7 @@ macro_rules! call_backend {
                 "personhog_router_backend_errors_total",
                 "method" => $method_name,
                 "backend" => "replica",
-                "client" => client.to_string()
+                "client" => client.clone()
             )
             .increment(1);
         }
@@ -80,7 +80,7 @@ macro_rules! call_leader {
             "personhog_router_backend_requests_total",
             "method" => $method_name,
             "backend" => "leader",
-            "client" => client.to_string()
+            "client" => client.clone()
         )
         .increment(1);
 
@@ -92,7 +92,7 @@ macro_rules! call_leader {
             "personhog_router_backend_duration_ms",
             "method" => $method_name,
             "backend" => "leader",
-            "client" => client.to_string()
+            "client" => client.clone()
         )
         .record(duration_ms);
 
@@ -101,7 +101,7 @@ macro_rules! call_leader {
                 "personhog_router_backend_errors_total",
                 "method" => $method_name,
                 "backend" => "leader",
-                "client" => client.to_string()
+                "client" => client.clone()
             )
             .increment(1);
         }
