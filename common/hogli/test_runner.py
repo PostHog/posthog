@@ -7,6 +7,7 @@ Detects the test type from a file path and dispatches to the correct runner
 from __future__ import annotations
 
 import json
+import shlex
 import platform
 import subprocess
 from dataclasses import dataclass, field
@@ -31,7 +32,7 @@ def _is_test_file(path: str) -> bool:
         return True
     if path.endswith("_test.go"):
         return True
-    if path.endswith("_test.rs") or "/tests/" in path and path.endswith(".rs"):
+    if path.endswith("_test.rs") or ("/tests/" in path and path.endswith(".rs")):
         return True
     return False
 
@@ -91,15 +92,26 @@ def _find_nearest(file_path: str, target_filename: str) -> Path | None:
     If it points to a file, starts from its parent directory.
     Stops at REPO_ROOT to avoid escaping the repo.
     """
-    abs_path = REPO_ROOT / file_path
+    repo_root = REPO_ROOT.resolve()
+    path = Path(file_path)
+    if path.is_absolute():
+        try:
+            abs_path = path.resolve()
+            abs_path.relative_to(repo_root)
+        except ValueError:
+            return None
+    else:
+        abs_path = repo_root / path
+
     current = abs_path if abs_path.is_dir() else abs_path.parent
     while True:
         candidate = current / target_filename
         if candidate.exists():
             return candidate
-        if current == REPO_ROOT:
+        if current == repo_root or current.parent == current:
             break
         current = current.parent
+
     return None
 
 
@@ -142,12 +154,12 @@ def _detect_rust_test(file_only: str) -> TestRunConfig:
     # Check if there's a parent workspace Cargo.toml above this one
     workspace_toml = None
     parent = crate_toml.parent.parent
-    while parent >= REPO_ROOT:
+    while parent == REPO_ROOT or REPO_ROOT in parent.parents:
         candidate = parent / "Cargo.toml"
         if candidate.exists() and "[workspace]" in candidate.read_text():
             workspace_toml = candidate
             break
-        if parent == REPO_ROOT:
+        if parent == parent.parent:
             break
         parent = parent.parent
 
@@ -326,6 +338,20 @@ def detect_test_type(file_path: str) -> TestRunConfig:
 # ---------------------------------------------------------------------------
 
 
+def _parse_porcelain_path(line: str) -> str:
+    """Extract the file path from a ``git status --porcelain`` line.
+
+    Handles renames/copies (``R  old -> new``) by taking the destination,
+    and strips quotes that git adds for paths with special characters.
+    """
+    raw = line[3:]
+    # Renames/copies: "old -> new" — take the destination
+    if " -> " in raw:
+        raw = raw.split(" -> ", 1)[1]
+    # Git quotes paths containing special chars
+    return raw.strip().strip('"')
+
+
 def _get_changed_files() -> list[str]:
     """Get files changed on the current branch vs master, plus uncommitted changes."""
     branch = subprocess.run(
@@ -361,7 +387,7 @@ def _get_changed_files() -> list[str]:
         .stdout.strip()
         .splitlines()
     )
-    uncommitted = [line[3:] for line in porcelain if len(line) > 3]
+    uncommitted = [_parse_porcelain_path(line) for line in porcelain if len(line) > 3]
 
     return sorted(set(diff_vs_master + uncommitted))
 
@@ -397,11 +423,18 @@ def _run_changed(extra_args: list[str]) -> None:
             click.secho(f"Running {len(files)} Python test file(s)...", fg="cyan")
             _run(command + extra_args, env=config.env if config.env else None, cwd=config.cwd)
         elif test_type == "jest":
-            # jest can take multiple files at once
-            config = detect_test_type(files[0])
-            command = config.command[:-1] + files
-            click.secho(f"Running {len(files)} Jest test file(s)...", fg="cyan")
-            _run(command + extra_args, env=config.env if config.env else None, cwd=config.cwd)
+            # Sub-group by package so each pnpm --filter is correct
+            by_package: dict[str, tuple[TestRunConfig, list[str]]] = {}
+            for f in files:
+                cfg = detect_test_type(f)
+                pkg = cfg.command[1]  # e.g. "--filter=@posthog/frontend"
+                if pkg not in by_package:
+                    by_package[pkg] = (cfg, [])
+                by_package[pkg][1].append(f)
+            for pkg, (cfg, pkg_files) in by_package.items():
+                command = cfg.command[:-1] + pkg_files
+                click.secho(f"Running {len(pkg_files)} Jest test file(s) ({pkg})...", fg="cyan")
+                _run(command + extra_args, env=cfg.env if cfg.env else None, cwd=cfg.cwd)
         else:
             # Other types: run individually
             for f in files:
@@ -423,16 +456,20 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
     if config.test_type in ("python", "python-eval"):
         # Use nodemon for Python, matching bin/tests behavior
         watch_dirs = ["./posthog", "./common/hogvm/python", "./ee", "./dags", "./products"]
-        watch_flags = " ".join(f"-w {d}" for d in watch_dirs)
-        inner_cmd = " ".join(config.command + extra_args)
 
-        env_prefix = " ".join(f"{k}={v}" for k, v in config.env.items()) if config.env else ""
-        if env_prefix:
-            inner_cmd = f"{env_prefix} {inner_cmd}"
+        # Build the inner command as a properly shell-escaped string for nodemon --exec
+        inner_parts = list(config.command) + list(extra_args)
+        env_prefix_parts = [f"{k}={shlex.quote(v)}" for k, v in config.env.items()] if config.env else []
+        inner_cmd = " ".join(env_prefix_parts + [shlex.quote(arg) for arg in inner_parts])
 
-        nodemon_cmd = f'nodemon {watch_flags} --ext py --exec "{inner_cmd}"'
+        # Build nodemon as a list to avoid shell=True
+        nodemon_cmd: list[str] = ["nodemon"]
+        for d in watch_dirs:
+            nodemon_cmd.extend(["-w", d])
+        nodemon_cmd.extend(["--ext", "py", "--exec", inner_cmd])
+
         click.secho(f"Watching: {config.description}", fg="cyan")
-        _run(nodemon_cmd, shell=True)
+        _run(nodemon_cmd)
 
     elif config.test_type == "jest":
         # Jest has built-in --watch

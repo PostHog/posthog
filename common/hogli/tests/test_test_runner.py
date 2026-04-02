@@ -8,7 +8,13 @@ import pytest
 from unittest.mock import patch
 
 import click
-from hogli.test_runner import _is_test_file, _resolve_to_repo_relative, _run_changed, detect_test_type
+from hogli.test_runner import (
+    _is_test_file,
+    _parse_porcelain_path,
+    _resolve_to_repo_relative,
+    _run_changed,
+    detect_test_type,
+)
 from parameterized import parameterized
 
 
@@ -237,6 +243,22 @@ class TestIsTestFile:
         assert _is_test_file(path) == expected
 
 
+class TestParsePorcelainPath:
+    @parameterized.expand(
+        [
+            (" M posthog/api/views.py", "posthog/api/views.py"),
+            ("?? posthog/new_file.py", "posthog/new_file.py"),
+            ("A  posthog/added.py", "posthog/added.py"),
+            ("R  old/test_foo.py -> new/test_foo.py", "new/test_foo.py"),
+            ("C  src/a.py -> src/b.py", "src/b.py"),
+            (' M "path with spaces/test_foo.py"', "path with spaces/test_foo.py"),
+            ('R  "old name.py" -> "new name.py"', "new name.py"),
+        ]
+    )
+    def test_parse_porcelain_path(self, line: str, expected: str) -> None:
+        assert _parse_porcelain_path(line) == expected
+
+
 class TestRunChanged:
     @patch("hogli.test_runner._run")
     @patch("hogli.test_runner._get_changed_files")
@@ -254,6 +276,25 @@ class TestRunChanged:
         assert "posthog/api/test/test_user.py" in command
         assert "posthog/api/test/test_comments.py" in command
         assert "posthog/api/views.py" not in command
+
+    @patch("hogli.test_runner._run")
+    @patch("hogli.test_runner._get_changed_files")
+    def test_jest_files_grouped_by_package(self, mock_changed, mock_run) -> None:
+        mock_changed.return_value = [
+            "frontend/src/scenes/dashboard/Dashboard.test.tsx",
+            "frontend/src/lib/utils.test.ts",
+            "nodejs/tests/cdp/cdp-api.test.ts",
+        ]
+        _run_changed([])
+
+        assert mock_run.call_count == 2
+        commands = [call[0][0] for call in mock_run.call_args_list]
+        # One call for @posthog/frontend, one for @posthog/nodejs
+        frontend_cmd = next(c for c in commands if "--filter=@posthog/frontend" in c)
+        nodejs_cmd = next(c for c in commands if "--filter=@posthog/nodejs" in c)
+        assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in frontend_cmd
+        assert "frontend/src/lib/utils.test.ts" in frontend_cmd
+        assert "nodejs/tests/cdp/cdp-api.test.ts" in nodejs_cmd
 
     @patch("hogli.test_runner._get_changed_files")
     def test_no_changed_files_exits(self, mock_changed) -> None:
