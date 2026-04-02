@@ -154,7 +154,7 @@ The selection result is persisted as a `repo_selection` artefact on the report b
 
 #### Re-promotion
 
-`READY` reports are re-promoted to `candidate` when enough new signals accumulate (`signal_count >= signals_at_run`). On re-promotion:
+`READY` reports are re-promoted to `candidate` on every new signal, so the agentic report always reflects the latest evidence. On re-promotion:
 
 - **Repo selection** reuses the previous `repo_selection` artefact (no sandbox re-run).
 - **Agentic research** loads previous findings, actionability, and priority from artefacts. Signals with matching `signal_id` in the previous findings get lightweight validation (reuse if still valid). Only new signals are fully investigated.
