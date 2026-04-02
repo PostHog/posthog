@@ -14,18 +14,14 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
+    ActionabilityChoice,
+    Priority,
     PriorityAssessment,
     ReportResearchOutput,
     SignalFinding,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
-from products.signals.backend.temporal.agentic.report import (
-    RunAgenticReportInput,
-    SignalsLegacyReportGateInput,
-    run_agentic_report_activity,
-    signals_legacy_report_gate_activity,
-)
+from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, run_agentic_report_activity
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
@@ -109,44 +105,6 @@ def _build_signals() -> list[SignalData]:
             timestamp=now,
         ),
     ]
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.parametrize("flag_enabled", [True, False])
-async def test_signals_legacy_report_gate_activity(monkeypatch, ateam, flag_enabled):
-    captured = {}
-
-    def fake_feature_enabled(
-        key,
-        distinct_id,
-        *,
-        groups=None,
-        group_properties=None,
-        only_evaluate_locally=False,
-        send_feature_flag_events=True,
-    ):
-        captured["key"] = key
-        captured["distinct_id"] = distinct_id
-        captured["groups"] = groups
-        captured["group_properties"] = group_properties
-        captured["only_evaluate_locally"] = only_evaluate_locally
-        captured["send_feature_flag_events"] = send_feature_flag_events
-        return flag_enabled
-
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report.posthoganalytics.feature_enabled",
-        fake_feature_enabled,
-    )
-
-    result = await signals_legacy_report_gate_activity(SignalsLegacyReportGateInput(team_id=ateam.id))
-
-    assert result is flag_enabled
-    assert captured["key"] == "signals-legacy-report-generation"
-    assert captured["distinct_id"] == str(ateam.uuid)
-    assert captured["groups"] == {"organization": str(ateam.organization_id), "project": str(ateam.id)}
-    assert captured["only_evaluate_locally"] is False
-    assert captured["send_feature_flag_events"] is True
 
 
 @pytest.mark.asyncio
