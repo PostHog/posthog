@@ -52,34 +52,31 @@ describe('scheduleRestrictionValidation', () => {
             expect(findQuietHoursIssues([{ start: '10:00', end: '10:30' }])).toBeNull()
         })
 
-        it('flags duplicate windows with identical start and end (same day)', () => {
-            const issue = findQuietHoursIssues([
-                { start: '10:00', end: '11:00' },
-                { start: '10:00', end: '11:00' },
-            ])
-            expect(issue).toEqual(
-                expect.objectContaining({
-                    kind: 'row',
-                    index: 1,
-                    message: expect.stringContaining('Duplicate'),
-                })
-            )
+        it('allows identical rows (API merges duplicates)', () => {
+            expect(
+                findQuietHoursIssues([
+                    { start: '10:00', end: '11:00' },
+                    { start: '10:00', end: '11:00' },
+                ])
+            ).toBeNull()
         })
 
-        it('flags duplicate overnight windows', () => {
-            const issue = findQuietHoursIssues([
-                { start: '22:00', end: '07:00' },
-                { start: '22:00', end: '07:00' },
-            ])
-            expect(issue).toEqual(expect.objectContaining({ kind: 'row', index: 1 }))
+        it('allows duplicate overnight rows', () => {
+            expect(
+                findQuietHoursIssues([
+                    { start: '22:00', end: '07:00' },
+                    { start: '22:00', end: '07:00' },
+                ])
+            ).toBeNull()
         })
 
-        it('treats equivalent formatting as duplicate', () => {
-            const issue = findQuietHoursIssues([
-                { start: '09:00', end: '10:00' },
-                { start: '9:00', end: '10:00' },
-            ])
-            expect(issue).toEqual(expect.objectContaining({ kind: 'row', index: 1 }))
+        it('allows same window with different HH:MM formatting', () => {
+            expect(
+                findQuietHoursIssues([
+                    { start: '09:00', end: '10:00' },
+                    { start: '9:00', end: '10:00' },
+                ])
+            ).toBeNull()
         })
     })
 

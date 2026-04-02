@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { forms } from 'kea-forms'
+import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -169,10 +169,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     detector_config: null,
                     insight: props.insightId,
                 } as AlertFormType),
-            errors: ((alert: AlertFormType) => ({
-                name: !alert.name ? 'You need to give your alert a name' : undefined,
-                schedule_restriction: quietHoursFormError(alert.schedule_restriction),
-            })) as (a: AlertFormType) => Record<string, string | undefined>,
+            errors: (alert: AlertType | AlertFormType) =>
+                ({
+                    name: !alert.name ? 'You need to give your alert a name' : undefined,
+                    schedule_restriction: quietHoursFormError(alert.schedule_restriction),
+                }) as DeepPartialMap<AlertType | AlertFormType, ValidationErrorType>,
             submit: async (alert) => {
                 const payload: AlertTypeWrite = {
                     ...alert,

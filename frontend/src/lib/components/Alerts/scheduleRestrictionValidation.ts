@@ -134,15 +134,6 @@ export function mergeBlockedWindowsOrIssue(windows: BlockedWindow[]): MergeBlock
                 },
             }
         }
-        if (parsed.some((p) => p.start === sm && p.end === em)) {
-            return {
-                issue: {
-                    kind: 'row',
-                    index: i,
-                    message: 'Duplicate window: another window already uses these start and end times.',
-                },
-            }
-        }
         parsed.push({ start: sm, end: em, overnight })
     }
 

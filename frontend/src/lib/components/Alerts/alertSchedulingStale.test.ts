@@ -85,7 +85,7 @@ describe('alertSchedulingStale', () => {
                 },
                 true,
             ],
-        ] as const)('is true when %s differs from saved', (_label, form, expected) => {
+        ])('is true when %s differs from saved', (_label, form, expected) => {
             expect(isNextPlannedEvaluationStale(false, saved, form)).toBe(expected)
         })
 

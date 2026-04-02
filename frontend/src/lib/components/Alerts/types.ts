@@ -1,6 +1,8 @@
 import {
     AlertCalculationInterval,
     AlertCondition,
+    AlertScheduleRestriction,
+    AlertScheduleRestrictionWindow,
     AlertState,
     DetectorConfig,
     InsightThreshold,
@@ -10,15 +12,10 @@ import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig
 
-export interface BlockedWindow {
-    start: string
-    end: string
-}
+export type BlockedWindow = AlertScheduleRestrictionWindow
 
 /** Quiet hours / blocked local periods; times are HH:MM in the project timezone. */
-export interface ScheduleRestriction {
-    blocked_windows: BlockedWindow[]
-}
+export type ScheduleRestriction = AlertScheduleRestriction
 
 export interface SubDetectorScores {
     type: string

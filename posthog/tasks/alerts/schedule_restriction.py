@@ -61,8 +61,8 @@ def _parse_hhmm(value: str) -> int:
 
 
 def _parse_window_pair(start_s: str, end_s: str) -> tuple[int, int, bool]:
-    start = _parse_hhmm(start_s) if isinstance(start_s, str) else _parse_hhmm(str(start_s))
-    end = _parse_hhmm(end_s) if isinstance(end_s, str) else _parse_hhmm(str(end_s))
+    start = _parse_hhmm(start_s)
+    end = _parse_hhmm(end_s)
     if start == end:
         raise ValueError("Start and end must differ for a blocked window")
     overnight = start > end
@@ -155,7 +155,8 @@ def validate_and_normalize_schedule_restriction(raw: Any) -> dict[str, Any] | No
         return None
 
     windows_in = normalized_in.get("blocked_windows")
-    assert isinstance(windows_in, list)
+    if not isinstance(windows_in, list):
+        raise ValueError("blocked_windows must be an array")
     if len(windows_in) > MAX_BLOCKED_WINDOWS:
         raise ValueError(f"At most {MAX_BLOCKED_WINDOWS} blocked time windows are allowed")
 
@@ -227,13 +228,17 @@ def is_utc_datetime_blocked(alert: AlertConfiguration, dt_utc: datetime) -> bool
     return is_local_minute_blocked(_minute_of_local_datetime(local), windows)
 
 
-def next_unblocked_utc(
+def next_unblocked_utc(alert: AlertConfiguration, from_utc: datetime) -> datetime:
+    """Smallest UTC instant >= from_utc (minute precision) when the alert is not in a blocked window."""
+    return _next_unblocked_utc(alert, from_utc, recursion_depth=0)
+
+
+def _next_unblocked_utc(
     alert: AlertConfiguration,
     from_utc: datetime,
     *,
-    _recursion_depth: int = 0,
+    recursion_depth: int,
 ) -> datetime:
-    """Smallest UTC instant >= from_utc (minute precision) when the alert is not in a blocked window."""
     windows = parse_blocked_windows_tuples(alert.schedule_restriction)
     if not windows:
         return from_utc.astimezone(UTC).replace(microsecond=0)
@@ -252,9 +257,9 @@ def next_unblocked_utc(
         "schedule_restriction.next_unblocked_utc_exceeded_cap",
         alert_id=str(alert.id),
         steps=steps,
-        recursion_depth=_recursion_depth,
+        recursion_depth=recursion_depth,
     )
-    if _recursion_depth >= 1:
+    if recursion_depth >= 1:
         logger.error(
             "schedule_restriction.next_unblocked_utc_giving_up_after_retry",
             alert_id=str(alert.id),
@@ -262,7 +267,7 @@ def next_unblocked_utc(
         return (from_utc.astimezone(UTC) + timedelta(days=1)).replace(microsecond=0)
 
     bump = from_utc.astimezone(UTC) + timedelta(days=1)
-    return next_unblocked_utc(alert, bump, _recursion_depth=_recursion_depth + 1)
+    return _next_unblocked_utc(alert, bump, recursion_depth=recursion_depth + 1)
 
 
 def snap_candidate_utc_to_schedule_restriction(alert: AlertConfiguration, candidate_utc: datetime) -> datetime:
