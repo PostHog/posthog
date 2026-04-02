@@ -70,9 +70,8 @@ function useBoldNumberTooltip({
     const { aggregationLabel } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
 
-    const divRef = useRef<HTMLDivElement>(null)
+    const elementRef = useRef<HTMLDivElement>(null)
 
-    const divRect = divRef.current?.getBoundingClientRect()
     const { getTooltip } = useInsightTooltip()
     const [tooltipRoot, tooltipEl] = getTooltip()
 
@@ -105,16 +104,20 @@ function useBoldNumberTooltip({
     }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        const tooltipRect = tooltipEl.getBoundingClientRect()
-        if (divRect) {
-            tooltipEl.style.top = `${
-                window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
-            }px`
-            tooltipEl.style.left = `${divRect.left + divRect.width / 2 - tooltipRect.width / 2}px`
+        if (!isTooltipShown) {
+            return
         }
-    })
+        const elementRect = elementRef.current?.getBoundingClientRect()
+        const tooltipRect = tooltipEl.getBoundingClientRect()
+        if (elementRect) {
+            tooltipEl.style.top = `${
+                window.scrollY + elementRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
+            }px`
+            tooltipEl.style.left = `${elementRect.left + elementRect.width / 2 - tooltipRect.width / 2}px`
+        }
+    }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    return divRef
+    return elementRef
 }
 
 export function BoldNumber({ showPersonsModal = true, context }: ChartParams): JSX.Element {
@@ -234,8 +237,6 @@ function BoldNumberComparison({
                         ref={comparisonRef}
                         onMouseEnter={() => setIsTooltipShown(true)}
                         onMouseLeave={() => setIsTooltipShown(false)}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ display: 'contents' }}
                     >
                         <Link
                             onClick={() => {

@@ -1487,6 +1487,22 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             properties_path=["poe", "properties"],
         )
 
+    with timings.measure("traffic_type_virtual_fields"):
+        from posthog.hogql.database.schema.traffic_type import (
+            create_bot_name_field,
+            create_is_bot_field,
+            create_traffic_category_field,
+            create_traffic_type_field,
+        )
+
+        for field_name, factory_fn in [
+            ("$virt_is_bot", create_is_bot_field),
+            ("$virt_traffic_type", create_traffic_type_field),
+            ("$virt_traffic_category", create_traffic_category_field),
+            ("$virt_bot_name", create_bot_name_field),
+        ]:
+            events_table.fields[field_name] = factory_fn(name=field_name)
+
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):
         for field in revenue_fields:
