@@ -67,7 +67,9 @@ Content-Disposition: form-data; name="html"\r
         assert self.get_mock_print_calls() == []
 
     def test_function_prevents_boundary_injection(self):
-        """Verify that a malicious 'to' value containing the multipart boundary cannot inject extra form fields."""
+        # The fix relies on boundary unpredictability — an attacker who doesn't know
+        # the random UUID can't craft a payload that splits the multipart form.
+        # We use the old hardcoded boundary as the attacker's guess to simulate this.
         malicious_to = (
             "victim@example.com\r\n"
             "-----011000010111000001101001\r\n"
@@ -75,8 +77,10 @@ Content-Disposition: form-data; name="html"\r
             "\r\n"
             "attacker@evil.com"
         )
+        inputs = create_inputs()
+        inputs["template"]["to"] = malicious_to
         self.run_function(
-            inputs=create_inputs({"template": {**create_inputs()["template"], "to": malicious_to}}),
+            inputs=inputs,
             functions={"generateUUIDv4": lambda: "bcf493bf-5640-4519-817e-610dc1ba48bd"},
         )
 
