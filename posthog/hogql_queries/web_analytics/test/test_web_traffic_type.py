@@ -3,7 +3,6 @@ import pytest
 from posthog.hogql import ast
 
 from posthog.hogql_queries.web_analytics.traffic_type import (
-    BOT_DEFINITIONS,
     get_bot_name_expr,
     get_bot_type_expr,
     get_traffic_category_expr,
@@ -90,9 +89,13 @@ class TestTrafficTypeExpressions:
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = is_bot_expr(user_agent_expr)
 
-        assert isinstance(expr, ast.Or)
-        # Should have len(BOT_DEFINITIONS) + 1 (empty UA) match conditions
-        assert len(expr.exprs) == len(BOT_DEFINITIONS) + 1
+        # Uses multiMatchAnyIndex(...) != 0 pattern
+        assert isinstance(expr, ast.CompareOperation)
+        assert expr.op == ast.CompareOperationOp.NotEq
+        assert isinstance(expr.left, ast.Call)
+        assert expr.left.name == "multiMatchAnyIndex"
+        assert isinstance(expr.right, ast.Constant)
+        assert expr.right.value == 0
 
     def test_get_bot_type_expr_structure(self):
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])

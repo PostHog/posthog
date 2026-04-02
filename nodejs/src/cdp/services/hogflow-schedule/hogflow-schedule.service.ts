@@ -82,7 +82,7 @@ export class HogFlowScheduleService {
         }
 
         logger.info('HogFlowScheduleService: starting...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
         logger.info('HogFlowScheduleService: Kafka producer connected')
 
         this.running = true

@@ -11,7 +11,7 @@ on:
             - '.github/workflows/ci-agent-skills.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
 jobs:
@@ -208,6 +208,7 @@ jobs:
             - name: Determine next version
               id: version
               run: |
+                  git fetch --tags --force
                   LATEST_TAG=$(git tag -l 'agent-skills-v*' | grep -E '^agent-skills-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
                   if [ -z "$LATEST_TAG" ]; then LATEST_TAG="agent-skills-v0.0.0"; fi
                   MINOR=$(echo "${LATEST_TAG#agent-skills-v}" | cut -d. -f2)

@@ -1,5 +1,4 @@
 import json
-import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -16,18 +15,12 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.temporal.actionability_judge import (
-    ActionabilityChoice,
-    ActionabilityJudgeInput,
-    actionability_judge_activity,
-)
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     RunAgenticReportOutput,
-    SignalsLegacyReportGateInput,
     run_agentic_report_activity,
-    signals_legacy_report_gate_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
@@ -35,11 +28,6 @@ from products.signals.backend.temporal.agentic.select_repository import (
 )
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
-from products.signals.backend.temporal.summarize_signals import (
-    SummarizeSignalsInput,
-    SummarizeSignalsOutput,
-    summarize_signals_activity,
-)
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
 from products.signals.backend.utils import EMBEDDING_MODEL
 
@@ -62,9 +50,11 @@ class SignalReportSummaryWorkflow:
     Flow:
     1. Fetch all signals for the report from ClickHouse
     2. Mark report as in_progress
-    3. If the feature flag is off: use the legacy summarize + safety + actionability flow
-    4. If the feature flag is on: run safety first, then the agentic report research flow
-    5. Apply the resulting actionability decision to transition the report
+    3. Run safety judge to filter unsafe reports
+    4. Select a repository for the agentic research
+    5. Run the agentic report research flow
+    6. Apply the resulting actionability decision to transition the report
+    7. If new signals arrived during the run, loop back to step 1
     """
 
     @staticmethod
@@ -78,6 +68,18 @@ class SignalReportSummaryWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        # If new signals arrived after the report was generated - loop back to process them also
+        max_iterations = 10  # Basic safety guard
+        for _ in range(max_iterations):
+            # Loop internally rather than spawning new workflows because summary workflows are
+            # fire-and-forget (ParentClosePolicy.ABANDON), so there's no external caller to wait/restart them.
+            should_loop = await self._run_once(inputs)
+            if not should_loop:
+                return
+        workflow.logger.warning(f"Report {inputs.report_id} hit max loop iterations ({max_iterations}), exiting")
+
+    async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs) -> bool:
+        """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
         # 1. Fetch signals for the report
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
@@ -93,149 +95,81 @@ class SignalReportSummaryWorkflow:
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            return
+            # No loop, as no signals to process
+            return False
+        signal_count = len(fetch_result.signals)
         # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
         await workflow.execute_activity(
             mark_report_in_progress_activity,
-            MarkReportInProgressInput(
-                team_id=inputs.team_id, report_id=inputs.report_id, signal_count=len(fetch_result.signals)
-            ),
+            MarkReportInProgressInput(team_id=inputs.team_id, report_id=inputs.report_id, signal_count=signal_count),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         try:
-            use_legacy_report: bool = await workflow.execute_activity(
-                signals_legacy_report_gate_activity,
-                SignalsLegacyReportGateInput(team_id=inputs.team_id),
-                start_to_close_timeout=timedelta(minutes=1),
+            # 3. Run safety judge first to avoid passing unsafe report into the agentic research
+            safety_result = await workflow.execute_activity(
+                report_safety_judge_activity,
+                SafetyJudgeInput(
+                    team_id=inputs.team_id,
+                    report_id=inputs.report_id,
+                    signals=fetch_result.signals,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            decision: ReportDecision | None = None
-            if not use_legacy_report:
-                workflow.logger.info(f"Report {inputs.report_id} using agentic summary path")
-                # 3. Run safety judge first to avoid passing unsafe report into the agentic research
-                safety_result = await workflow.execute_activity(
-                    report_safety_judge_activity,
-                    SafetyJudgeInput(
+            if not safety_result.safe:
+                workflow.logger.warning(f"Report {inputs.report_id} failed safety review: {safety_result.explanation}")
+                await workflow.execute_activity(
+                    mark_report_failed_activity,
+                    MarkReportFailedInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        signals=fetch_result.signals,
+                        error=f"Failed safety review: {safety_result.explanation}",
                     ),
-                    start_to_close_timeout=timedelta(minutes=5),
+                    start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                if not safety_result.safe:
-                    workflow.logger.warning(
-                        f"Report {inputs.report_id} failed safety review: {safety_result.explanation}"
-                    )
-                    await workflow.execute_activity(
-                        mark_report_failed_activity,
-                        MarkReportFailedInput(
-                            team_id=inputs.team_id,
-                            report_id=inputs.report_id,
-                            error=f"Failed safety review: {safety_result.explanation}",
-                        ),
-                        start_to_close_timeout=timedelta(minutes=1),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    )
-                    return
-                # 4. Select repository for the agentic research
-                repo_result: RepoSelectionResult = await workflow.execute_activity(
-                    select_repository_activity,
-                    SelectRepositoryInput(
-                        team_id=inputs.team_id,
-                        report_id=inputs.report_id,
-                        signals=fetch_result.signals,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                if repo_result.repository is None:
-                    workflow.logger.warning(f"Report {inputs.report_id} no repository selected: {repo_result.reason}")
-                    decision = ReportDecision(
-                        title="Repository selection required",
-                        summary=f"Could not automatically select a repository: {repo_result.reason}",
-                        choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
-                        explanation=repo_result.reason,
-                    )
-                else:
-                    # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
-                    agentic_result: RunAgenticReportOutput = await workflow.execute_activity(
-                        run_agentic_report_activity,
-                        RunAgenticReportInput(
-                            team_id=inputs.team_id,
-                            report_id=inputs.report_id,
-                            signals=fetch_result.signals,
-                            repo_selection=repo_result,
-                        ),
-                        start_to_close_timeout=timedelta(hours=4),
-                        heartbeat_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-                    decision = ReportDecision(
-                        title=agentic_result.title,
-                        summary=agentic_result.summary,
-                        choice=agentic_result.choice,
-                        explanation=agentic_result.explanation,
-                    )
-            else:
-                # 4. Summarize signals
-                summarize_result: SummarizeSignalsOutput = await workflow.execute_activity(
-                    summarize_signals_activity,
-                    SummarizeSignalsInput(report_id=inputs.report_id, signals=fetch_result.signals),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                safety_result, actionability_result = await asyncio.gather(
-                    # 5. Decide if the report is safe to process
-                    workflow.execute_activity(
-                        report_safety_judge_activity,
-                        SafetyJudgeInput(
-                            team_id=inputs.team_id,
-                            report_id=inputs.report_id,
-                            title=summarize_result.title,
-                            summary=summarize_result.summary,
-                            signals=fetch_result.signals,
-                        ),
-                        start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    ),
-                    # 6. Judge the report's actionability and priority
-                    workflow.execute_activity(
-                        actionability_judge_activity,
-                        ActionabilityJudgeInput(
-                            team_id=inputs.team_id,
-                            report_id=inputs.report_id,
-                            title=summarize_result.title,
-                            summary=summarize_result.summary,
-                            signals=fetch_result.signals,
-                        ),
-                        start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    ),
-                )
-                if not safety_result.safe:
-                    workflow.logger.warning(
-                        f"Report {inputs.report_id} failed safety review: {safety_result.explanation}"
-                    )
-                    await workflow.execute_activity(
-                        mark_report_failed_activity,
-                        MarkReportFailedInput(
-                            team_id=inputs.team_id,
-                            report_id=inputs.report_id,
-                            error=f"Failed safety review: {safety_result.explanation}",
-                        ),
-                        start_to_close_timeout=timedelta(minutes=1),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    )
-                    return
+                # No loop, as report is unsafe
+                return False
+            # 4. Select repository for the agentic research
+            repo_result: RepoSelectionResult = await workflow.execute_activity(
+                select_repository_activity,
+                SelectRepositoryInput(
+                    team_id=inputs.team_id,
+                    report_id=inputs.report_id,
+                    signals=fetch_result.signals,
+                ),
+                start_to_close_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if repo_result.repository is None:
+                workflow.logger.warning(f"Report {inputs.report_id} no repository selected: {repo_result.reason}")
                 decision = ReportDecision(
-                    title=summarize_result.title,
-                    summary=summarize_result.summary,
-                    choice=actionability_result.choice,
-                    explanation=actionability_result.explanation,
+                    title="Repository selection required",
+                    summary=f"Could not automatically select a repository: {repo_result.reason}",
+                    choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+                    explanation=repo_result.reason,
                 )
-            assert decision is not None
+            else:
+                # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
+                agentic_result: RunAgenticReportOutput = await workflow.execute_activity(
+                    run_agentic_report_activity,
+                    RunAgenticReportInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signals=fetch_result.signals,
+                        repo_selection=repo_result,
+                    ),
+                    start_to_close_timeout=timedelta(hours=4),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                decision = ReportDecision(
+                    title=agentic_result.title,
+                    summary=agentic_result.summary,
+                    choice=agentic_result.choice,
+                    explanation=agentic_result.explanation,
+                )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
                 workflow.logger.info(f"Report {inputs.report_id} deemed not actionable: {decision.explanation}")
                 await workflow.execute_activity(
@@ -248,7 +182,8 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                return
+                # No loop, as report is not actionable
+                return False
             if decision.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT:
                 workflow.logger.info(f"Report {inputs.report_id} requires human input: {decision.explanation}")
                 await workflow.execute_activity(
@@ -263,18 +198,25 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                return
-            await workflow.execute_activity(
+                # No loop, human input is required
+                return False
+            # 6. Mark ready and check if new signals arrived during the run
+            has_new_signals: bool = await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
                     title=decision.title,
                     summary=decision.summary,
+                    processed_signal_count=signal_count,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            # 7. If new signals arrived during the run - loop back to the start
+            if has_new_signals:
+                workflow.logger.info(f"Report {inputs.report_id} has new signals since run started, looping")
+            return has_new_signals
         except Exception as e:
             await workflow.execute_activity(
                 mark_report_failed_activity,
@@ -417,25 +359,35 @@ class MarkReportReadyInput:
     report_id: str
     title: str
     summary: str
+    processed_signal_count: int
 
 
 @temporalio.activity.defn
-async def mark_report_ready_activity(input: MarkReportReadyInput) -> None:
-    """Mark a report as ready after successful summarization and judge checks."""
+async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
+    """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
 
         @transaction.atomic
-        def do_update():
+        def do_update() -> bool:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             report.save(update_fields=updated_fields)
+            has_new_signals = report.signal_count > input.processed_signal_count
+            if has_new_signals:
+                # If more signals arrived while the report was being processed, we want to
+                # re-promote it back to candidate and loop to also process new signals
+                candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+                report.save(update_fields=candidate_fields)
+            return has_new_signals
 
-        await database_sync_to_async(do_update, thread_sensitive=False)()
+        has_new_signals = await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
             f"Marked report {input.report_id} as ready",
             report_id=input.report_id,
             title=input.title,
+            has_new_signals=has_new_signals,
         )
+        return has_new_signals
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as ready: {e}",
