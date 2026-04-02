@@ -2,9 +2,9 @@ import { Meta } from '@storybook/react'
 
 import { ElementType } from '~/types'
 
-import { HTMLElementsDisplay } from './HTMLElementsDisplay'
+import { HTMLElementsDisplay, HTMLElementsDisplayProps } from './HTMLElementsDisplay'
 
-const meta: Meta<typeof HTMLElementsDisplay> = {
+const meta: Meta<HTMLElementsDisplayProps> = {
     title: 'Components/Html Elements Display',
     component: HTMLElementsDisplay,
 }

@@ -1,19 +1,24 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
+import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { FlushResult, PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { PipelineResultType } from '../pipelines/results'
-import { createFlushBatchStoresStep } from './flush-batch-stores-step'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
+import { emitIngestionWarning } from '../common/ingestion-warnings'
+import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { AfterBatchInput } from '../pipelines/batching-pipeline'
+import { isOkResult, ok } from '../pipelines/results'
+import { FlushBatchStoresStepConfig, createFlushBatchStoresStep } from './flush-batch-stores-step'
 
-jest.mock('../../worker/ingestion/utils', () => ({
-    captureIngestionWarning: jest.fn(),
+jest.mock('../common/ingestion-warnings', () => ({
+    emitIngestionWarning: jest.fn(),
 }))
 
 describe('flush-batch-stores-step', () => {
     let mockPersonsStore: jest.Mocked<PersonsStore>
     let mockGroupStore: jest.Mocked<BatchWritingGroupStore>
-    let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+    let mockOutputs: PersonOutputs
+    let storesConfig: FlushBatchStoresStepConfig
 
     beforeEach(() => {
         mockPersonsStore = {
@@ -28,26 +33,48 @@ describe('flush-batch-stores-step', () => {
             reset: jest.fn(),
         } as any
 
-        mockKafkaProducer = {
-            produce: jest.fn(),
+        const mockProducer = {
+            produce: jest.fn().mockResolvedValue(undefined),
+            queueMessages: jest.fn().mockResolvedValue(undefined),
         } as any
+        mockOutputs = new IngestionOutputs({
+            [PERSONS_OUTPUT]: { topic: 'person_updates', producer: mockProducer },
+            [PERSON_DISTINCT_IDS_OUTPUT]: { topic: 'person_distinct_ids', producer: mockProducer },
+            [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings', producer: mockProducer },
+        })
+
+        storesConfig = {
+            personsStore: mockPersonsStore,
+            groupStore: mockGroupStore,
+            outputs: mockOutputs,
+        }
 
         jest.clearAllMocks()
     })
 
     describe('createFlushBatchStoresStep', () => {
+        let step: ReturnType<typeof createFlushBatchStoresStep>
+
+        function makeInput(elementCount = 2): AfterBatchInput<void, any, NonNullable<unknown>> {
+            return {
+                elements: Array.from({ length: elementCount }, () => ({
+                    result: ok(undefined),
+                    context: { sideEffects: [], warnings: [] },
+                })),
+                batchContext: {},
+                batchId: 0,
+            }
+        }
+
+        beforeEach(() => {
+            step = createFlushBatchStoresStep(storesConfig)
+        })
+
         it('should flush both stores in parallel', async () => {
             mockPersonsStore.flush.mockResolvedValue([])
             mockGroupStore.flush.mockResolvedValue([])
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
-
-            const batch = [{ id: 1 }, { id: 2 }]
-            await step(batch)
+            await step(makeInput())
 
             expect(mockPersonsStore.flush).toHaveBeenCalledTimes(1)
             expect(mockGroupStore.flush).toHaveBeenCalledTimes(1)
@@ -57,13 +84,7 @@ describe('flush-batch-stores-step', () => {
             mockPersonsStore.flush.mockResolvedValue([])
             mockGroupStore.flush.mockResolvedValue([])
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
-
-            await step([{ id: 1 }])
+            await step(makeInput())
 
             expect(mockPersonsStore.reportBatch).toHaveBeenCalledTimes(1)
             expect(mockGroupStore.reportBatch).toHaveBeenCalledTimes(1)
@@ -73,31 +94,21 @@ describe('flush-batch-stores-step', () => {
             mockPersonsStore.flush.mockResolvedValue([])
             mockGroupStore.flush.mockResolvedValue([])
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
-
-            await step([{ id: 1 }])
+            await step(makeInput())
 
             expect(mockPersonsStore.reset).toHaveBeenCalledTimes(1)
             expect(mockGroupStore.reset).toHaveBeenCalledTimes(1)
         })
 
-        it('should create produce promises for person store messages', async () => {
+        it('should return ok result with produce promises as side effects', async () => {
             const personMessages: FlushResult[] = [
                 {
-                    topicMessage: {
-                        topic: 'person_updates',
-                        messages: [
-                            {
-                                key: 'key1',
-                                value: 'value1',
-                                headers: {},
-                            },
-                        ],
-                    },
+                    messages: [
+                        {
+                            output: PERSONS_OUTPUT,
+                            value: Buffer.from('value1'),
+                        },
+                    ],
                     teamId: 1,
                     distinctId: 'user1',
                     uuid: 'uuid1',
@@ -106,38 +117,27 @@ describe('flush-batch-stores-step', () => {
 
             mockPersonsStore.flush.mockResolvedValue(personMessages)
             mockGroupStore.flush.mockResolvedValue([])
-            mockKafkaProducer.produce.mockResolvedValue(undefined as any)
+            const produceSpy = jest.spyOn(mockOutputs, 'produce')
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
+            const result = await step(makeInput())
 
-            const results = await step([{ id: 1 }])
-
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                topic: 'person_updates',
-                key: Buffer.from('key1'),
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.sideEffects).toHaveLength(1)
+            }
+            expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
+                key: null,
                 value: Buffer.from('value1'),
-                headers: {},
             })
-
-            expect(results).toHaveLength(1)
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            expect(results[0].sideEffects).toHaveLength(1)
         })
 
         it('should handle multiple messages per flush result', async () => {
             const personMessages: FlushResult[] = [
                 {
-                    topicMessage: {
-                        topic: 'person_updates',
-                        messages: [
-                            { key: 'key1', value: 'value1', headers: {} },
-                            { key: 'key2', value: 'value2', headers: {} },
-                        ],
-                    },
+                    messages: [
+                        { output: PERSONS_OUTPUT, value: Buffer.from('value1') },
+                        { output: PERSONS_OUTPUT, value: Buffer.from('value2') },
+                    ],
                     teamId: 1,
                     distinctId: 'user1',
                     uuid: 'uuid1',
@@ -146,60 +146,65 @@ describe('flush-batch-stores-step', () => {
 
             mockPersonsStore.flush.mockResolvedValue(personMessages)
             mockGroupStore.flush.mockResolvedValue([])
-            mockKafkaProducer.produce.mockResolvedValue(undefined as any)
+            const produceSpy = jest.spyOn(mockOutputs, 'produce')
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
+            const result = await step(makeInput())
 
-            const results = await step([{ id: 1 }])
-
-            expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(2)
-            expect(results[0].sideEffects).toHaveLength(2)
+            expect(produceSpy).toHaveBeenCalledTimes(2)
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.sideEffects).toHaveLength(2)
+            }
         })
 
-        it('should return same number of results as batch size', async () => {
+        it('should handle multiple flush results with multiple messages each', async () => {
+            const personMessages: FlushResult[] = [
+                {
+                    messages: [
+                        { output: PERSONS_OUTPUT, value: Buffer.from('value1') },
+                        { output: PERSONS_OUTPUT, value: Buffer.from('value2') },
+                    ],
+                    teamId: 1,
+                    distinctId: 'user1',
+                    uuid: 'uuid1',
+                },
+                {
+                    messages: [{ output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('value3') }],
+                    teamId: 2,
+                    distinctId: 'user2',
+                    uuid: 'uuid2',
+                },
+            ]
+
+            mockPersonsStore.flush.mockResolvedValue(personMessages)
+            mockGroupStore.flush.mockResolvedValue([])
+            const produceSpy = jest.spyOn(mockOutputs, 'produce')
+
+            const result = await step(makeInput())
+
+            expect(produceSpy).toHaveBeenCalledTimes(3)
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.sideEffects).toHaveLength(3)
+            }
+        })
+
+        it('should return empty side effects when no messages to produce', async () => {
             mockPersonsStore.flush.mockResolvedValue([])
             mockGroupStore.flush.mockResolvedValue([])
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
+            const result = await step(makeInput())
 
-            const batch = [{ id: 1 }, { id: 2 }, { id: 3 }]
-            const results = await step(batch)
-
-            expect(results).toHaveLength(3)
-            results.forEach((result) => {
-                expect(result.type).toBe(PipelineResultType.OK)
-            })
-        })
-
-        it('should handle empty batch', async () => {
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
-
-            const results = await step([])
-
-            expect(results).toHaveLength(0)
-            expect(mockPersonsStore.flush).not.toHaveBeenCalled()
-            expect(mockGroupStore.flush).not.toHaveBeenCalled()
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.sideEffects).toHaveLength(0)
+            }
         })
 
         it('should handle MessageSizeTooLarge errors gracefully', async () => {
             const personMessages: FlushResult[] = [
                 {
-                    topicMessage: {
-                        topic: 'person_updates',
-                        messages: [{ key: 'key1', value: 'value1', headers: {} }],
-                    },
+                    messages: [{ output: PERSONS_OUTPUT, value: Buffer.from('value1') }],
                     teamId: 1,
                     distinctId: 'user1',
                     uuid: 'uuid1',
@@ -208,33 +213,29 @@ describe('flush-batch-stores-step', () => {
 
             mockPersonsStore.flush.mockResolvedValue(personMessages)
             mockGroupStore.flush.mockResolvedValue([])
-            mockKafkaProducer.produce.mockRejectedValue(new MessageSizeTooLarge('test', new Error('too large')))
+            jest.spyOn(mockOutputs, 'produce').mockRejectedValue(
+                new MessageSizeTooLarge('test', new Error('too large'))
+            )
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
+            const result = await step(makeInput())
 
-            const results = await step([{ id: 1 }])
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.sideEffects).toHaveLength(1)
+                await result.sideEffects[0]
+            }
 
-            expect(captureIngestionWarning).toHaveBeenCalledWith(mockKafkaProducer, 1, 'message_size_too_large', {
+            expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, 'message_size_too_large', {
                 eventUuid: 'uuid1',
                 distinctId: 'user1',
                 step: 'flushBatchStoresStep',
             })
-
-            expect(results).toHaveLength(1)
-            expect(results[0].type).toBe(PipelineResultType.OK)
         })
 
         it('should propagate other Kafka produce errors', async () => {
             const personMessages: FlushResult[] = [
                 {
-                    topicMessage: {
-                        topic: 'person_updates',
-                        messages: [{ key: 'key1', value: 'value1', headers: {} }],
-                    },
+                    messages: [{ output: PERSONS_OUTPUT, value: Buffer.from('value1') }],
                     teamId: 1,
                     distinctId: 'user1',
                     uuid: 'uuid1',
@@ -243,111 +244,61 @@ describe('flush-batch-stores-step', () => {
 
             mockPersonsStore.flush.mockResolvedValue(personMessages)
             mockGroupStore.flush.mockResolvedValue([])
+            jest.spyOn(mockOutputs, 'produce').mockRejectedValue(new Error('Kafka connection failed'))
 
-            const produceError = new Error('Kafka connection failed')
-            mockKafkaProducer.produce.mockRejectedValue(produceError)
+            const result = await step(makeInput())
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
-
-            const results = await step([{ id: 1 }])
-
-            // Error should be in the side effect promise
-            expect(results[0].sideEffects).toHaveLength(1)
-            await expect(results[0].sideEffects[0]).rejects.toThrow('Kafka connection failed')
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.sideEffects).toHaveLength(1)
+                await expect(result.sideEffects[0]).rejects.toThrow('Kafka connection failed')
+            }
         })
 
         it('should throw if person store flush fails', async () => {
-            const flushError = new Error('Database connection failed')
-            mockPersonsStore.flush.mockRejectedValue(flushError)
+            mockPersonsStore.flush.mockRejectedValue(new Error('Database connection failed'))
             mockGroupStore.flush.mockResolvedValue([])
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
-
-            await expect(step([{ id: 1 }])).rejects.toThrow('Database connection failed')
+            await expect(step(makeInput())).rejects.toThrow('Database connection failed')
         })
 
         it('should throw if group store flush fails', async () => {
-            const flushError = new Error('Database connection failed')
             mockPersonsStore.flush.mockResolvedValue([])
-            mockGroupStore.flush.mockRejectedValue(flushError)
+            mockGroupStore.flush.mockRejectedValue(new Error('Database connection failed'))
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
-
-            await expect(step([{ id: 1 }])).rejects.toThrow('Database connection failed')
+            await expect(step(makeInput())).rejects.toThrow('Database connection failed')
         })
 
-        it('should handle null keys and values in messages', async () => {
+        it('should not reset or report if flush fails', async () => {
+            mockPersonsStore.flush.mockRejectedValue(new Error('DB error'))
+            mockGroupStore.flush.mockResolvedValue([])
+
+            await expect(step(makeInput())).rejects.toThrow('DB error')
+
+            expect(mockPersonsStore.reportBatch).not.toHaveBeenCalled()
+            expect(mockGroupStore.reportBatch).not.toHaveBeenCalled()
+            expect(mockPersonsStore.reset).not.toHaveBeenCalled()
+            expect(mockGroupStore.reset).not.toHaveBeenCalled()
+        })
+
+        it('should handle null values in messages', async () => {
             const personMessages: FlushResult[] = [
                 {
-                    topicMessage: {
-                        topic: 'person_updates',
-                        messages: [{ key: null, value: null, headers: {} }],
-                    },
+                    messages: [{ output: PERSONS_OUTPUT, value: null }],
                     teamId: 1,
                 },
             ]
 
             mockPersonsStore.flush.mockResolvedValue(personMessages)
             mockGroupStore.flush.mockResolvedValue([])
-            mockKafkaProducer.produce.mockResolvedValue(undefined as any)
+            const produceSpy = jest.spyOn(mockOutputs, 'produce')
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
+            await step(makeInput())
 
-            await step([{ id: 1 }])
-
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                topic: 'person_updates',
+            expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
                 key: null,
                 value: null,
-                headers: {},
             })
-        })
-
-        it('should attach side effects only to first batch item to avoid duplication', async () => {
-            const personMessages: FlushResult[] = [
-                {
-                    topicMessage: {
-                        topic: 'person_updates',
-                        messages: [{ key: 'key1', value: 'value1', headers: {} }],
-                    },
-                    teamId: 1,
-                },
-            ]
-
-            mockPersonsStore.flush.mockResolvedValue(personMessages)
-            mockGroupStore.flush.mockResolvedValue([])
-            mockKafkaProducer.produce.mockResolvedValue(undefined as any)
-
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
-
-            const batch = [{ id: 1 }, { id: 2 }, { id: 3 }]
-            const results = await step(batch)
-
-            // Only the first result should have side effects to avoid duplication
-            expect(results).toHaveLength(3)
-            expect(results[0].sideEffects).toHaveLength(1)
-            expect(results[1].sideEffects).toHaveLength(0)
-            expect(results[2].sideEffects).toHaveLength(0)
         })
 
         it('should call lifecycle methods in correct order', async () => {
@@ -374,16 +325,8 @@ describe('flush-batch-stores-step', () => {
                 callOrder.push('group.reset')
             })
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
+            await step(makeInput())
 
-            await step([{ id: 1 }])
-
-            // Flushes happen in parallel, so order between them doesn't matter
-            // But reportBatch and reset must happen after flush
             expect(callOrder.slice(0, 2).sort()).toEqual(['group.flush', 'persons.flush'])
             expect(callOrder.slice(2)).toEqual([
                 'persons.reportBatch',
@@ -396,93 +339,41 @@ describe('flush-batch-stores-step', () => {
         it('should produce messages with correct Buffer conversion', async () => {
             const personMessages: FlushResult[] = [
                 {
-                    topicMessage: {
-                        topic: 'person_updates',
-                        messages: [
-                            {
-                                key: 'string-key',
-                                value: 'string-value',
-                                headers: { header1: 'value1' },
-                            },
-                        ],
-                    },
+                    messages: [
+                        {
+                            output: PERSONS_OUTPUT,
+                            value: Buffer.from('string-value'),
+                        },
+                    ],
                     teamId: 1,
                 },
             ]
 
             mockPersonsStore.flush.mockResolvedValue(personMessages)
             mockGroupStore.flush.mockResolvedValue([])
-            mockKafkaProducer.produce.mockResolvedValue(undefined as any)
+            const produceSpy = jest.spyOn(mockOutputs, 'produce')
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
+            await step(makeInput())
 
-            await step([{ id: 1 }])
-
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                topic: 'person_updates',
-                key: Buffer.from('string-key'),
+            expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
+                key: null,
                 value: Buffer.from('string-value'),
-                headers: { header1: 'value1' },
             })
         })
 
-        it('should handle multiple flush results with multiple messages each', async () => {
-            const personMessages: FlushResult[] = [
-                {
-                    topicMessage: {
-                        topic: 'person_updates',
-                        messages: [
-                            { key: 'key1', value: 'value1', headers: {} },
-                            { key: 'key2', value: 'value2', headers: {} },
-                        ],
-                    },
-                    teamId: 1,
-                },
-                {
-                    topicMessage: {
-                        topic: 'person_distinct_ids',
-                        messages: [{ key: 'key3', value: 'value3', headers: {} }],
-                    },
-                    teamId: 2,
-                },
-            ]
-
-            mockPersonsStore.flush.mockResolvedValue(personMessages)
-            mockGroupStore.flush.mockResolvedValue([])
-            mockKafkaProducer.produce.mockResolvedValue(undefined as any)
-
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
-
-            const results = await step([{ id: 1 }])
-
-            expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(3)
-            expect(results[0].sideEffects).toHaveLength(3)
-        })
-
-        it('should not reset or report if flush fails', async () => {
-            mockPersonsStore.flush.mockRejectedValue(new Error('DB error'))
+        it('should pass through elements and batchContext in the result', async () => {
+            mockPersonsStore.flush.mockResolvedValue([])
             mockGroupStore.flush.mockResolvedValue([])
 
-            const step = createFlushBatchStoresStep({
-                personsStore: mockPersonsStore,
-                groupStore: mockGroupStore,
-                kafkaProducer: mockKafkaProducer,
-            })
+            const input = makeInput(3)
+            const result = await step(input)
 
-            await expect(step([{ id: 1 }])).rejects.toThrow('DB error')
-
-            expect(mockPersonsStore.reportBatch).not.toHaveBeenCalled()
-            expect(mockGroupStore.reportBatch).not.toHaveBeenCalled()
-            expect(mockPersonsStore.reset).not.toHaveBeenCalled()
-            expect(mockGroupStore.reset).not.toHaveBeenCalled()
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.value.elements).toHaveLength(3)
+                expect(result.value.elements).toBe(input.elements)
+                expect(result.value.batchContext).toBe(input.batchContext)
+            }
         })
     })
 })

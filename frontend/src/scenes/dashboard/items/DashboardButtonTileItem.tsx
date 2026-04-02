@@ -1,10 +1,12 @@
+import { useValues } from 'kea'
 import React from 'react'
 
 import { ButtonTileCard } from 'lib/components/Cards/ButtonTileCard/ButtonTileCard'
+import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
+import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import type { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
@@ -16,7 +18,7 @@ interface DashboardButtonTileItemProps extends Omit<
 > {
     tile: DashboardTile<QueryBasedInsightModel>
     placement: DashboardPlacement
-    otherDashboards: Pick<DashboardType, 'id' | 'name'>[]
+    dashboardId?: number | null
     onEdit: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
@@ -27,7 +29,7 @@ function DashboardButtonTileItemInternal(
     {
         tile,
         placement,
-        otherDashboards,
+        dashboardId,
         onEdit,
         onMoveToDashboard,
         onDuplicate,
@@ -36,6 +38,16 @@ function DashboardButtonTileItemInternal(
     }: DashboardButtonTileItemProps,
     ref: React.ForwardedRef<HTMLDivElement>
 ): JSX.Element {
+    const buttonId = tile.button_tile?.id
+    const { copyToDestinations } = useValues(
+        dashboardWidgetMenusLogic({
+            instanceKey: buttonId != null ? `button-${buttonId}` : `button-tile-${tile.id}`,
+            dashboardId,
+            dashboards: undefined,
+            dashboard_tiles: tile.button_tile?.dashboard_tiles,
+        })
+    )
+
     return (
         <ButtonTileCard
             ref={ref}
@@ -47,33 +59,10 @@ function DashboardButtonTileItemInternal(
                         Edit button
                     </LemonButton>
 
-                    {onMoveToDashboard && (
-                        <LemonMenu
-                            placement="right-start"
-                            fallbackPlacements={['left-start']}
-                            closeParentPopoverOnClickInside
-                            items={
-                                otherDashboards.length
-                                    ? otherDashboards.map((otherDashboard) => ({
-                                          label: otherDashboard.name || <i>Untitled</i>,
-                                          onClick: () => onMoveToDashboard(otherDashboard),
-                                      }))
-                                    : [
-                                          {
-                                              label: 'No other dashboards',
-                                              disabledReason: 'No other dashboards',
-                                          },
-                                      ]
-                            }
-                        >
-                            <LemonButton
-                                fullWidth
-                                disabledReason={otherDashboards.length ? undefined : 'No other dashboards'}
-                            >
-                                Move to
-                            </LemonButton>
-                        </LemonMenu>
-                    )}
+                    <DashboardWidgetPlacementMenus
+                        placementDestinations={copyToDestinations}
+                        onMoveToDashboard={onMoveToDashboard}
+                    />
 
                     <LemonButton onClick={onDuplicate} fullWidth data-attr="duplicate-button-tile-from-dashboard">
                         Duplicate

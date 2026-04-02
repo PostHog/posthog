@@ -1,8 +1,9 @@
 import type { z } from 'zod'
 
-import { QUERY_RESULTS_RESOURCE_URI } from '@/resources/ui-apps-constants'
+import { withUiApp } from '@/resources/ui-apps'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 import { analyzeQuery } from '../shared'
@@ -11,7 +12,7 @@ const schema = InsightQueryInputSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = { query: unknown; insight: Insight & { url: string }; results: unknown; _posthogUrl: string }
+type Result = WithPostHogUrl<{ query: unknown; insight: Insight & { url: string }; results: unknown }>
 
 export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { insightId } = params
@@ -32,48 +33,48 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
         throw new Error(`Failed to query insight: ${queryResult.error.message}`)
     }
 
-    const posthogUrl = `${context.api.getProjectBaseUrl(projectId)}/insights/${insightResult.data.short_id}`
+    const path = `/insights/${insightResult.data.short_id}`
     const queryInfo = analyzeQuery(insightResult.data.query)
 
     // Format results based on the query type
     // For trends/funnel, pass the inner query (TrendsQuery/FunnelsQuery) directly
     // The UI app infers the visualization type from the data structure
     if (queryInfo.visualization === 'trends' || queryInfo.visualization === 'funnel') {
-        return {
-            query: queryInfo.innerQuery || insightResult.data.query,
-            insight: {
-                url: posthogUrl,
-                ...insightResult.data,
+        return withPostHogUrl(
+            context,
+            {
+                query: queryInfo.innerQuery || insightResult.data.query,
+                insight: {
+                    url: path,
+                    ...insightResult.data,
+                },
+                results: queryResult.data.results,
             },
-            results: queryResult.data.results,
-            _posthogUrl: posthogUrl,
-        }
+            path
+        )
     }
 
     // HogQL/table results have columns and results arrays
-    return {
-        query: insightResult.data.query,
-        insight: {
-            url: posthogUrl,
-            ...insightResult.data,
+    return withPostHogUrl(
+        context,
+        {
+            query: insightResult.data.query,
+            insight: {
+                url: path,
+                ...insightResult.data,
+            },
+            results: {
+                columns: queryResult.data.columns || [],
+                results: queryResult.data.results || [],
+            },
         },
-        results: {
-            columns: queryResult.data.columns || [],
-            results: queryResult.data.results || [],
-        },
-        _posthogUrl: posthogUrl,
-    }
+        path
+    )
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
-    name: 'insight-query',
-    schema,
-    handler: queryHandler,
-    _meta: {
-        ui: {
-            resourceUri: QUERY_RESULTS_RESOURCE_URI,
-        },
-    },
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('query-results', {
+        name: 'insight-query',
+        schema,
+        handler: queryHandler,
+    })

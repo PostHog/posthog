@@ -16,10 +16,19 @@ on:
             - '.github/rust-images.yml'
         branches:
             - 'master'
+    pull_request:
+        paths:
+            - 'rust/**'
+            - '.github/workflows/rust-docker-build.yml'
+        branches:
+            - 'master'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     build-images:
-        timeout-minutes: 20
         uses: ./.github/workflows/_rust-build-images.yml
         with:
             tag-rules: |
@@ -28,7 +37,7 @@ jobs:
                 type=semver,pattern={{version}}
                 type=semver,pattern={{major}}.{{minor}}
                 type=sha
-            timeout-minutes: 15
+            timeout-minutes: 30
         secrets: inherit
         permissions:
             id-token: write

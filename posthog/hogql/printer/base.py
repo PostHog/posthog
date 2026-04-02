@@ -42,6 +42,7 @@ from posthog.hogql.printer.types import (
     PrintableMaterializedColumn,
     PrintableMaterializedPropertyGroupItem,
 )
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
@@ -95,6 +96,17 @@ class HogQLPrinter(Visitor[str]):
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
+
+    def _get_connection_supported_functions(self) -> set[str]:
+        metadata = self.context.direct_postgres_connection_metadata
+        if not isinstance(metadata, dict):
+            return set()
+
+        available_functions = metadata.get("available_functions")
+        if not isinstance(available_functions, list):
+            return set()
+
+        return {function_name.lower() for function_name in available_functions if isinstance(function_name, str)}
 
     def visit(self, node: AST | None):
         if node is None:
@@ -273,15 +285,17 @@ class HogQLPrinter(Visitor[str]):
             f"PREWHERE{space}" + prewhere if prewhere else None,
             f"WHERE{space}" + where if where else None,
             (
-                f"GROUP BY{space}GROUPING SETS ({comma.join(group_by)})"
+                f"GROUP BY ALL"
+                if node.group_by_mode == "all"
+                else f"GROUP BY{space}GROUPING SETS ({comma.join(group_by or [])})"
                 if node.group_by_mode == "grouping_sets"
-                else f"GROUP BY{space}CUBE({comma.join(group_by)})"
+                else f"GROUP BY{space}CUBE({comma.join(group_by or [])})"
                 if node.group_by_mode == "cube"
-                else f"GROUP BY{space}ROLLUP({comma.join(group_by)})"
+                else f"GROUP BY{space}ROLLUP({comma.join(group_by or [])})"
                 if node.group_by_mode == "rollup"
-                else f"GROUP BY{space}{comma.join(group_by)}"
+                else f"GROUP BY{space}{comma.join(group_by or [])}"
             )
-            if group_by and len(group_by) > 0
+            if node.group_by_mode == "all" or (group_by and len(group_by) > 0)
             else None,
             f"HAVING{space}" + having if having else None,
             f"QUALIFY{space}" + qualify if qualify else None,
@@ -372,6 +386,19 @@ class HogQLPrinter(Visitor[str]):
         if self.dialect != "hogql":
             raise NotImplementedError("HogQLPrinter._ensure_team_id_where_clause not overridden")
 
+    def _get_table_predicates(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> list[ast.Expr]:
+        """Return predicate expressions from the table definition, resolved against the table's type."""
+        predicates = table_type.table.get_predicates()
+        if not predicates or node_type is None:
+            return []
+
+        scope = ast.SelectQueryType(tables={"t": node_type})
+        return [resolve_types(clone_expr(pred), self.context, self.dialect, [scope]) for pred in predicates]
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         if self.dialect == "hogql":
             return table_type.table.to_printed_hogql()
@@ -405,6 +432,20 @@ class HogQLPrinter(Visitor[str]):
                 team_id_for_on_clause = team_id_expr
             else:
                 extra_where = team_id_expr
+
+            # Apply table-level predicates (e.g., date filters on PostgresTable).
+            predicate_exprs = self._get_table_predicates(table_type, node.type)
+            for pred in predicate_exprs:
+                if is_left_join and node.constraint is not None:
+                    if team_id_for_on_clause is None:
+                        team_id_for_on_clause = pred
+                    else:
+                        team_id_for_on_clause = ast.And(exprs=[team_id_for_on_clause, pred])
+                else:
+                    if extra_where is None:
+                        extra_where = pred
+                    else:
+                        extra_where = ast.And(exprs=[extra_where, pred])
 
             sql = self._print_table_ref(table_type, node)
 
@@ -537,17 +578,48 @@ class HogQLPrinter(Visitor[str]):
             raise QueryError(f"Positional reference must be a positive integer, got {node.index}")
         return f"#{node.index}"
 
+    def _print_join_expr_chain(self, node: ast.JoinExpr) -> str:
+        parts: list[str] = []
+        next_join: ast.JoinExpr | None = node
+        while isinstance(next_join, ast.JoinExpr):
+            visited = self.visit_join_expr(next_join)
+            if visited.where is not None:
+                raise QueryError("JOIN PIVOT/UNPIVOT cannot apply extra WHERE constraints")
+            parts.append(visited.printed_sql)
+            next_join = next_join.next_join
+        return " ".join(parts)
+
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        table_expr = self.visit(node.table)
-        table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr
+        if isinstance(node.table, ast.JoinExpr):
+            table = self._print_join_expr_chain(node.table)
+        else:
+            table_expr = self.visit(node.table)
+            table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr
         columns = " ".join(self.visit(col) for col in node.columns)
-        return f"{table} UNPIVOT ({columns})"
+        include_nulls = "INCLUDE NULLS " if node.include_nulls else ""
+        return f"{table} UNPIVOT {include_nulls}({columns})"
 
     def visit_unpivot_column(self, node: ast.UnpivotColumn):
         value_cols = self.visit(node.value_columns)
         name_cols = self.visit(node.name_columns)
         values = ", ".join(self.visit(val) for val in node.unpivot_values)
         return f"{value_cols} FOR {name_cols} IN ({values})"
+
+    def visit_pivot_expr(self, node: ast.PivotExpr):
+        if isinstance(node.table, ast.JoinExpr):
+            table = self._print_join_expr_chain(node.table)
+        else:
+            table_expr = self.visit(node.table)
+            table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr
+        aggregates = ", ".join(self.visit(agg) for agg in node.aggregates)
+        columns = " ".join(self.visit(col) for col in node.columns)
+        group_by = f" GROUP BY {', '.join(self.visit(g) for g in node.group_by)}" if node.group_by else ""
+        return f"{table} PIVOT ({aggregates} FOR {columns}{group_by})"
+
+    def visit_pivot_column(self, node: ast.PivotColumn):
+        column = self.visit(node.column)
+        values = ", ".join(self.visit(val) for val in node.values)
+        return f"{column} IN ({values})"
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         visited_tuple = self.visit(node.tuple)
@@ -643,23 +715,36 @@ class HogQLPrinter(Visitor[str]):
         return self._get_compare_op(node.op, left, right)
 
     def visit_between_expr(self, node: ast.BetweenExpr):
-        expr = self.visit(node.expr)
-        low = self.visit(node.low)
-        high = self.visit(node.high)
+        expr = self._visit_infix_operand(node.expr)
+        low = self._visit_infix_operand(node.low)
+        high = self._visit_infix_operand(node.high)
         not_kw = " NOT" if node.negated else ""
         op = f"{expr}{not_kw} BETWEEN {low} AND {high}"
 
         return op
 
     def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
-        left = self.visit(node.left)
-        right = self.visit(node.right)
+        left = self._visit_infix_operand(node.left)
+        right = self._visit_infix_operand(node.right)
         not_kw = " NOT" if node.negated else ""
         return f"{left} IS{not_kw} DISTINCT FROM {right}"
+
+    def _visit_infix_operand(self, node: ast.Expr) -> str:
+        """Visit an operand of an infix keyword operator, parenthesizing Alias
+        nodes since AS binds more loosely than BETWEEN / IS DISTINCT FROM."""
+        result = self.visit(node)
+        if isinstance(node, ast.Alias) and not node.hidden:
+            result = f"({result})"
+        return result
 
     def visit_constant(self, node: ast.Constant):
         # Inline everything in HogQL
         return self._print_escaped_string(node.value)
+
+    def visit_keyword(self, node: ast.Keyword):
+        if not node.name.isidentifier():
+            raise QueryError(f"Invalid keyword name: {node.name}")
+        return node.name
 
     def visit_field(self, node: ast.Field):
         if node.chain == ["*"]:
@@ -768,19 +853,19 @@ class HogQLPrinter(Visitor[str]):
             )
 
             params_part = f"({', '.join(params)})" if params is not None else ""
+            order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+            args_body = f"{'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)}{order_by_part}"
             args_part = (
                 ""
-                if node.within_group is not None and len(arg_strings) == 0 and not node.distinct
-                else f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+                if node.within_group is not None and len(arg_strings) == 0 and not node.distinct and not node.order_by
+                else f"({args_body})"
             )
 
             if node.within_group is not None and not func_meta.requires_within_group:
                 raise QueryError(f"Aggregation '{node.name}' does not support WITHIN GROUP")
 
-            return (
-                f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}"
-                f"{params_part}{args_part}{within_group}"
-            )
+            filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}{within_group}{filter_part}"
 
         elif func_meta := find_hogql_function(node.name):
             validate_function_args(
@@ -931,10 +1016,14 @@ class HogQLPrinter(Visitor[str]):
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
                 params_part = f"({', '.join(params)})" if params is not None else ""
-                args_part = f"({', '.join(args)})"
-                return f"{relevant_clickhouse_name}{params_part}{args_part}"
+                order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+                args_part = f"({', '.join(args)}{order_by_part})"
+                filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+                return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+                order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+                filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])}{order_by_part}){filter_part}"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(
                 node.args,
@@ -990,6 +1079,9 @@ class HogQLPrinter(Visitor[str]):
             # If hogql dialect, just keep it as is
             return f"{node.name}({', '.join(args)})"
         else:
+            if self.dialect == "hogql" and node.name.lower() in self._get_connection_supported_functions():
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
                 raise QueryError(
@@ -1292,6 +1384,9 @@ class HogQLPrinter(Visitor[str]):
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.alias)
+
+    def visit_expression_field_type(self, type: ast.ExpressionFieldType):
+        return self.visit(type.expr)
 
     def visit_virtual_table_type(self, type: ast.VirtualTableType):
         return self.visit(type.table_type)

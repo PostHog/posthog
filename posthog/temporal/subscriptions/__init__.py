@@ -1,17 +1,20 @@
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
-    HandleSubscriptionValueChangeWorkflow,
-    ScheduleAllSubscriptionsWorkflow,
-    deliver_subscription_report_activity,
-    emit_subscription_delivery_outcome_events_activity,
-    emit_subscription_delivery_started_activity,
+from posthog.temporal.subscriptions.activities import (
+    advance_next_delivery_date,
+    create_export_assets,
+    deliver_subscription,
     fetch_due_subscriptions_activity,
 )
+from posthog.temporal.subscriptions.workflows import (
+    HandleSubscriptionValueChangeWorkflow,
+    ProcessSubscriptionWorkflow,
+    ScheduleAllSubscriptionsWorkflow,
+)
 
-WORKFLOWS = [ScheduleAllSubscriptionsWorkflow, HandleSubscriptionValueChangeWorkflow]
+WORKFLOWS = [ScheduleAllSubscriptionsWorkflow, HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow]
 
 ACTIVITIES = [
-    deliver_subscription_report_activity,
-    emit_subscription_delivery_outcome_events_activity,
-    emit_subscription_delivery_started_activity,
     fetch_due_subscriptions_activity,
+    create_export_assets,
+    deliver_subscription,
+    advance_next_delivery_date,
 ]

@@ -158,7 +158,6 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `plan` - plan
  * `execution` - execution
  * `survey` - survey
- * `onboarding` - onboarding
  * `research` - research
  * `flags` - flags
  * `llm_analytics` - llm_analytics
@@ -174,7 +173,6 @@ export const AgentModeEnumApi = {
     Plan: 'plan',
     Execution: 'execution',
     Survey: 'survey',
-    Onboarding: 'onboarding',
     Research: 'research',
     Flags: 'flags',
     LlmAnalytics: 'llm_analytics',
@@ -391,6 +389,8 @@ export interface TicketApi {
     readonly email_subject: string | null
     /** @nullable */
     readonly email_from: string | null
+    /** @nullable */
+    readonly email_to: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -444,6 +444,8 @@ export interface PatchedTicketApi {
     readonly email_subject?: string | null
     /** @nullable */
     readonly email_from?: string | null
+    /** @nullable */
+    readonly email_to?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }

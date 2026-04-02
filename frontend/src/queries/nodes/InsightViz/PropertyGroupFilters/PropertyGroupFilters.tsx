@@ -108,8 +108,8 @@ export function PropertyGroupFilters({
                                                         }
                                                         value={group.type}
                                                     />
-                                                    <LemonDivider className="flex-1 mx-2" />
-                                                    <div className="flex items-center deprecated-space-x-2">
+                                                    <LemonDivider className="flex-1 mx-2 @max-[410px]/editor-panel:hidden" />
+                                                    <div className="flex items-center gap-1 shrink-0">
                                                         <LemonButton
                                                             icon={<IconCopy />}
                                                             onClick={() => duplicateFilterGroup(propertyGroupIndex)}

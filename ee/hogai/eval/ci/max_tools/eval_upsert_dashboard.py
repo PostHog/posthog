@@ -17,7 +17,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models import Insight
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

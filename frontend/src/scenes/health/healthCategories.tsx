@@ -13,8 +13,9 @@ export type HealthIssueKind =
     | 'ingestion_warning'
     | 'sdk_outdated'
     | 'materialized_view_failure'
+    | 'external_data_failure'
 
-interface CategoryConfig {
+export interface CategoryConfig {
     label: string
     description: string
     healthyDescription?: string
@@ -71,6 +72,9 @@ const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
     ingestion_lag: 'ingestion',
     ingestion_warning: 'ingestion',
 
+    // Pipelines
+    external_data_failure: 'pipelines',
+
     // Data modeling
     materialized_view_failure: 'data_modeling',
 
@@ -94,6 +98,7 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     reverse_proxy: 'No reverse proxy',
     web_vitals: 'No web vitals',
     ingestion_lag: 'Ingestion lag',
+    external_data_failure: 'External data failures',
     ingestion_warning: 'Ingestion warning',
     sdk_outdated: 'SDK outdated',
     materialized_view_failure: 'Materialized view failure',
@@ -101,6 +106,12 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {
     return KIND_TO_CATEGORY[kind as HealthIssueKind] ?? 'other'
+}
+
+export const kindsForCategory = (category: HealthIssueCategory): HealthIssueKind[] => {
+    return Object.entries(KIND_TO_CATEGORY)
+        .filter(([, cat]) => cat === category)
+        .map(([kind]) => kind as HealthIssueKind)
 }
 
 export const CATEGORY_ORDER: HealthIssueCategory[] = [

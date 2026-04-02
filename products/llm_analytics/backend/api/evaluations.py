@@ -389,6 +389,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         from posthog.hogql.query import execute_hogql_query
 
         from posthog.cdp.validation import compile_hog
+        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
         from posthog.models.team import Team
 
         try:
@@ -446,6 +447,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             limit=ast.Constant(value=sample_count),
         )
 
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
         response = execute_hogql_query(query=query, team=team, limit_context=None)
 
         if not response.results:

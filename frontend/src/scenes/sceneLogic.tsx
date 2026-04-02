@@ -472,7 +472,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     const newState = state.map((t) =>
                         t === tab
                             ? !t.active
-                                ? { ...t, active: true }
+                                ? { ...t, active: true, badge: false }
                                 : t
                             : t.active
                               ? {
@@ -732,8 +732,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     isCurrentTeamUnavailable &&
                     sceneId &&
                     sceneConfigurations[sceneId]?.projectBased &&
-                    !location.pathname.startsWith('/settings') &&
-                    location.pathname !== urls.settings('user-danger-zone')
+                    !location.pathname.startsWith('/settings')
                 ) {
                     return Scene.ErrorProjectUnavailable
                 }
@@ -1151,7 +1150,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
-                            location.pathname !== urls.settings('user-danger-zone')
+                            !location.pathname.startsWith(urls.settings('user'))
                         ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
@@ -1520,7 +1519,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         // When the tab is loading, don't flicker between the loaded title and the new one
                         return
                     }
-                    const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title, iconType } : tab))
+                    const newTabs = values.tabs.map((tab, i) =>
+                        i === activeIndex ? { ...tab, title, iconType, badge: false } : tab
+                    )
                     actions.setTabs(newTabs)
                 }
                 if (!process?.env?.STORYBOOK) {
@@ -1572,10 +1573,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
     afterMount(({ actions, cache, values }) => {
         cache.disposables.add(() => {
-            const onStorage = (event: StorageEvent): void => {
-                if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
-                    return
-                }
+            const syncPinnedTabsFromStorage = (): void => {
                 const storedPinned = getPersistedPinnedState()
                 const currentTabs = values.tabs
                 const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
@@ -1601,6 +1599,15 @@ export const sceneLogic = kea<sceneLogicType>([
                     router.actions.push(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
                 }
             }
+
+            const onStorage = (event: StorageEvent): void => {
+                if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
+                    return
+                }
+                syncPinnedTabsFromStorage()
+            }
+
+            syncPinnedTabsFromStorage()
             window.addEventListener('storage', onStorage)
             return () => window.removeEventListener('storage', onStorage)
         }, 'pinnedTabsStorageListener')

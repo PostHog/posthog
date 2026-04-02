@@ -22,24 +22,23 @@ from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
-from .dashboard import Dashboard
-from .dashboard_templates import DashboardTemplate
+from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
 from ..ducklake.models import DuckgresServer, DuckLakeCatalog
-from .dashboard_tile import ButtonTile, DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
 from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .event.event import Event
 from .event_buffer import EventBuffer
+
+# TODO: remove noqa once the event filters API imports from posthog.models
+from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
-from .surveys.survey import Survey
-from .surveys.survey_response_archive import SurveyResponseArchive
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
@@ -57,12 +56,8 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
-from .link import Link
 from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
-from .message_template import MessageTemplate
-from .message_category import MessageCategory
-from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
@@ -119,13 +114,13 @@ __all__ = [
     "BatchExportDestination",
     "BatchExportRun",
     "BatchImport",
-    "ButtonTile",
     "Cohort",
     "CohortPeople",
     "CohortCalculationHistory",
     "ColumnConfiguration",
     "CoreEvent",
     "Dashboard",
+    "DataDeletionRequest",
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",
@@ -156,7 +151,6 @@ __all__ = [
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
-    "Link",
     "LLMPrompt",
     "HostDefinition",
     "Insight",
@@ -168,9 +162,6 @@ __all__ = [
     "InviteExpiredException",
     "MaterializedColumnSlot",
     "MaterializedColumnSlotState",
-    "MessageCategory",
-    "MessageRecipientPreference",
-    "MessageTemplate",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
@@ -216,14 +207,11 @@ __all__ = [
     "SharePassword",
     "SharingConfiguration",
     "Subscription",
-    "Survey",
-    "SurveyResponseArchive",
     "Tag",
     "TaggedItem",
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
-    "Text",
     "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",

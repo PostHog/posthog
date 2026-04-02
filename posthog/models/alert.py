@@ -216,6 +216,9 @@ class AlertCheck(UUIDTModel):
     triggered_points = models.JSONField(null=True, blank=True)  # Indices of detected anomalies
     triggered_dates = models.JSONField(null=True, blank=True)  # Dates for chart alignment
     interval = models.CharField(max_length=10, null=True, blank=True)  # Insight interval when check was created
+    triggered_metadata = models.JSONField(
+        null=True, blank=True
+    )  # Additional trigger context (e.g. series_index, breakdown_value)
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

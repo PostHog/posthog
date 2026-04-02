@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 
 from asgiref.sync import async_to_sync
 
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.exceptions import TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
@@ -86,3 +86,21 @@ class TestGetTaskProcessingContextActivity:
 
         assert isinstance(result, TaskProcessingContext)
         assert result.create_pr is False
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_resolves_allowed_domains(self, activity_environment, test_task):
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="Restricted env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=["example.com"],
+        )
+        task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_environment_id == str(sandbox_environment.id)
+        assert result.sandbox_environment_name == "Restricted env"
+        assert result.allowed_domains == ["example.com"]
