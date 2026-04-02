@@ -1,0 +1,39 @@
+# Desired-state schema for the prefiltered_events ecosystem.
+# These tables serve realtime cohort calculation via HogQL.
+
+ecosystem: prefiltered_events
+cluster: main
+
+tables:
+    sharded_prefiltered_events:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - condition
+            - distinct_id
+            - uuid
+        partition_by: 'toYYYYMM(timestamp)'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: condition
+              type: String
+            - name: uuid
+              type: UUID
+            - name: source
+              type: String
+
+    prefiltered_events:
+        engine: Distributed
+        source: sharded_prefiltered_events
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: ALL
+        columns: inherit sharded_prefiltered_events

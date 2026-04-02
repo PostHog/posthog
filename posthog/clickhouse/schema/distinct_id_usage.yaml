@@ -1,0 +1,65 @@
+# Desired-state schema for the distinct_id_usage ecosystem.
+
+ecosystem: distinct_id_usage
+cluster: main
+
+tables:
+    sharded_distinct_id_usage:
+        engine: ReplicatedSummingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - minute
+            - distinct_id
+        partition_by: 'toYYYYMMDD(minute)'
+        settings:
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: minute
+              type: DateTime
+            - name: event_count
+              type: UInt64
+
+    writable_distinct_id_usage:
+        engine: Distributed
+        source: sharded_distinct_id_usage
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_distinct_id_usage
+
+    distinct_id_usage:
+        engine: Distributed
+        source: sharded_distinct_id_usage
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: ALL
+        columns: inherit sharded_distinct_id_usage
+
+    kafka_distinct_id_usage:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: distinct_id_usage_events_json
+            kafka_group_name: distinct_id_usage
+            kafka_format: JSONEachRow
+            kafka_skip_broken_messages: '100'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+
+    distinct_id_usage_mv:
+        engine: MaterializedView
+        source: kafka_distinct_id_usage
+        target: writable_distinct_id_usage
+        select: "SELECT team_id, distinct_id, toStartOfMinute(timestamp) AS minute, 1 AS event_count FROM {{ database }}.kafka_distinct_id_usage"
+        on_nodes: INGESTION_EVENTS
+        columns: []

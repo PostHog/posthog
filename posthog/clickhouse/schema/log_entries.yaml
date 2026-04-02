@@ -1,0 +1,132 @@
+# Desired-state schema for the log_entries ecosystem.
+
+ecosystem: log_entries
+cluster: main
+
+tables:
+    # Legacy non-sharded table (still exists)
+    log_entries:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - log_source
+            - log_source_id
+            - instance_id
+            - timestamp
+        partition_by: 'toStartOfHour(timestamp)'
+        settings:
+            index_granularity: '512'
+        columns:
+            - name: team_id
+              type: UInt64
+            - name: log_source
+              type: LowCardinality(String)
+            - name: log_source_id
+              type: String
+            - name: instance_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: level
+              type: LowCardinality(String)
+            - name: message
+              type: String
+
+    # Sharded table (v3 rework)
+    sharded_log_entries:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - log_source
+            - log_source_id
+            - instance_id
+            - timestamp
+        partition_by: 'toYYYYMMDD(timestamp)'
+        settings:
+            index_granularity: '1024'
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: team_id
+              type: UInt64
+            - name: log_source
+              type: LowCardinality(String)
+            - name: log_source_id
+              type: String
+            - name: instance_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: level
+              type: LowCardinality(String)
+            - name: message
+              type: String
+
+    distributed_log_entries:
+        engine: Distributed
+        source: sharded_log_entries
+        sharding_key: 'rand()'
+        on_nodes: ALL
+        columns: inherit sharded_log_entries
+
+    writable_log_entries:
+        engine: Distributed
+        source: sharded_log_entries
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_log_entries
+
+    # Original Kafka table (non-sharded pipeline)
+    kafka_log_entries:
+        engine: Kafka
+        on_nodes: ALL
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: log_entries
+            kafka_group_name: log_entries
+            kafka_format: JSONEachRow
+        columns:
+            - name: team_id
+              type: UInt64
+            - name: log_source
+              type: LowCardinality(String)
+            - name: log_source_id
+              type: String
+            - name: instance_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: level
+              type: LowCardinality(String)
+            - name: message
+              type: String
+
+    log_entries_mv:
+        engine: MaterializedView
+        source: kafka_log_entries
+        target: log_entries
+        select: "SELECT team_id, log_source, log_source_id, instance_id, timestamp, level, message, _timestamp, _offset FROM {{ database }}.kafka_log_entries"
+        on_nodes: ALL
+        columns: []
+
+    kafka_log_entries_v3:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: log_entries
+            kafka_group_name: log_entries_consumer
+            kafka_format: JSONEachRow
+            kafka_skip_broken_messages: '100'
+        columns: inherit sharded_log_entries
+
+    log_entries_v3_mv:
+        engine: MaterializedView
+        source: kafka_log_entries_v3
+        target: writable_log_entries
+        select: "SELECT team_id, log_source, log_source_id, instance_id, timestamp, level, message, _timestamp, _offset FROM {{ database }}.kafka_log_entries_v3 WHERE toDate(timestamp) <= today()"
+        on_nodes: INGESTION_EVENTS
+        columns: []

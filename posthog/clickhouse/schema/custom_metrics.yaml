@@ -1,0 +1,25 @@
+# Desired-state schema for the custom_metrics_counter_events table.
+
+ecosystem: custom_metrics
+cluster: main
+
+tables:
+    custom_metrics_counter_events:
+        engine: ReplicatedMergeTree
+        sharded: false
+        on_nodes: ALL
+        order_by:
+            - name
+            - timestamp
+        partition_by: 'toYYYYMM(timestamp)'
+        columns:
+            - name: name
+              type: String
+            - name: timestamp
+              type: "DateTime64(3, 'UTC')"
+              default_expression: 'now()'
+              default_kind: DEFAULT
+            - name: labels
+              type: "Map(String, String)"
+            - name: increment
+              type: Float64

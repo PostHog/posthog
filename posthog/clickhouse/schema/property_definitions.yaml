@@ -1,0 +1,24 @@
+# Desired-state schema for the property_definitions ecosystem.
+# Used by the temporal cleanup_property_definitions workflow.
+
+ecosystem: property_definitions
+cluster: main
+
+tables:
+    property_definitions:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: ALL
+        order_by:
+            - team_id
+            - type
+            - name
+        columns:
+            - name: team_id
+              type: Int64
+            - name: name
+              type: String
+            - name: type
+              type: Int8
+            - name: last_seen_at
+              type: DateTime64(6, 'UTC')

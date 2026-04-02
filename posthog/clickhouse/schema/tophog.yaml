@@ -1,0 +1,93 @@
+# Desired-state schema for the tophog ecosystem.
+
+ecosystem: tophog
+cluster: main
+
+tables:
+    sharded_tophog:
+        engine: ReplicatedMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - pipeline
+            - lane
+            - metric
+            - timestamp
+            - key
+        partition_by: 'toYYYYMMDD(timestamp)'
+        settings:
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: metric
+              type: LowCardinality(String)
+            - name: type
+              type: LowCardinality(String)
+              default_expression: "'sum'"
+              default_kind: DEFAULT
+            - name: key
+              type: "Map(LowCardinality(String), String)"
+            - name: value
+              type: Float64
+            - name: count
+              type: UInt64
+              default_expression: '0'
+              default_kind: DEFAULT
+            - name: pipeline
+              type: LowCardinality(String)
+            - name: lane
+              type: LowCardinality(String)
+            - name: labels
+              type: "Map(LowCardinality(String), String)"
+
+    writable_tophog:
+        engine: Distributed
+        source: sharded_tophog
+        sharding_key: 'cityHash64(toString(key))'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_tophog
+
+    tophog:
+        engine: Distributed
+        source: sharded_tophog
+        sharding_key: 'cityHash64(toString(key))'
+        on_nodes: ALL
+        columns: inherit sharded_tophog
+
+    kafka_tophog:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_tophog
+            kafka_group_name: tophog
+            kafka_format: JSONEachRow
+            kafka_skip_broken_messages: '100'
+        columns:
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: metric
+              type: LowCardinality(String)
+            - name: type
+              type: LowCardinality(String)
+            - name: key
+              type: "Map(LowCardinality(String), String)"
+            - name: value
+              type: Float64
+            - name: count
+              type: UInt64
+            - name: pipeline
+              type: LowCardinality(String)
+            - name: lane
+              type: LowCardinality(String)
+            - name: labels
+              type: "Map(LowCardinality(String), String)"
+
+    tophog_mv:
+        engine: MaterializedView
+        source: kafka_tophog
+        target: writable_tophog
+        select: "SELECT timestamp, metric, type, key, value, count, pipeline, lane, labels FROM {{ database }}.kafka_tophog"
+        on_nodes: INGESTION_EVENTS
+        columns: []

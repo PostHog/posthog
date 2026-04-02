@@ -1,0 +1,257 @@
+# Desired-state schema for the query_log_archive ecosystem.
+# Archives ClickHouse query_log entries with extracted log_comment fields.
+
+ecosystem: query_log_archive
+cluster: main
+
+tables:
+    sharded_query_log_archive:
+        engine: ReplicatedMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - event_date
+            - event_time
+            - query_id
+        partition_by: 'toYYYYMM(event_date)'
+        columns:
+            - name: hostname
+              type: LowCardinality(String)
+            - name: user
+              type: LowCardinality(String)
+            - name: query_id
+              type: String
+            - name: initial_query_id
+              type: String
+            - name: is_initial_query
+              type: UInt8
+            - name: type
+              type: "Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4)"
+            - name: event_date
+              type: Date
+            - name: event_time
+              type: DateTime
+            - name: event_time_microseconds
+              type: DateTime64(6)
+            - name: query_start_time
+              type: DateTime
+            - name: query_start_time_microseconds
+              type: DateTime64(6)
+            - name: query_duration_ms
+              type: UInt64
+            - name: read_rows
+              type: UInt64
+            - name: read_bytes
+              type: UInt64
+            - name: written_rows
+              type: UInt64
+            - name: written_bytes
+              type: UInt64
+            - name: result_rows
+              type: UInt64
+            - name: result_bytes
+              type: UInt64
+            - name: memory_usage
+              type: UInt64
+            - name: peak_threads_usage
+              type: UInt64
+            - name: current_database
+              type: LowCardinality(String)
+            - name: query
+              type: String
+            - name: formatted_query
+              type: String
+            - name: normalized_query_hash
+              type: UInt64
+            - name: query_kind
+              type: LowCardinality(String)
+            - name: exception_code
+              type: Int32
+            - name: exception_name
+              type: String
+              default_kind: ALIAS
+              default_expression: 'errorCodeToName(exception_code)'
+            - name: exception
+              type: String
+            - name: stack_trace
+              type: String
+            - name: ProfileEvents_RealTimeMicroseconds
+              type: Int64
+            - name: ProfileEvents_OSCPUVirtualTimeMicroseconds
+              type: Int64
+            - name: ProfileEvents_S3Clients
+              type: Int64
+            - name: ProfileEvents_S3DeleteObjects
+              type: Int64
+            - name: ProfileEvents_S3CopyObject
+              type: Int64
+            - name: ProfileEvents_S3ListObjects
+              type: Int64
+            - name: ProfileEvents_S3HeadObject
+              type: Int64
+            - name: ProfileEvents_S3GetObjectAttributes
+              type: Int64
+            - name: ProfileEvents_S3CreateMultipartUpload
+              type: Int64
+            - name: ProfileEvents_S3UploadPartCopy
+              type: Int64
+            - name: ProfileEvents_S3UploadPart
+              type: Int64
+            - name: ProfileEvents_S3AbortMultipartUpload
+              type: Int64
+            - name: ProfileEvents_S3CompleteMultipartUpload
+              type: Int64
+            - name: ProfileEvents_S3PutObject
+              type: Int64
+            - name: ProfileEvents_S3GetObject
+              type: Int64
+            - name: ProfileEvents_ReadBufferFromS3Bytes
+              type: Int64
+            - name: ProfileEvents_WriteBufferFromS3Bytes
+              type: Int64
+            - name: ProfileEvents
+              type: "Map(String, UInt64)"
+            - name: lc_workflow
+              type: LowCardinality(String)
+            - name: lc_kind
+              type: LowCardinality(String)
+            - name: lc_id
+              type: String
+            - name: lc_route_id
+              type: String
+            - name: lc_access_method
+              type: LowCardinality(String)
+            - name: lc_api_key_label
+              type: String
+            - name: lc_api_key_mask
+              type: String
+            - name: lc_query_type
+              type: LowCardinality(String)
+            - name: lc_product
+              type: LowCardinality(String)
+            - name: lc_chargeable
+              type: Bool
+            - name: lc_name
+              type: String
+            - name: lc_request_name
+              type: String
+            - name: lc_client_query_id
+              type: String
+            - name: lc_org_id
+              type: String
+            - name: team_id
+              type: Int64
+            - name: lc_user_id
+              type: Int64
+            - name: lc_is_impersonated
+              type: Bool
+            - name: lc_session_id
+              type: String
+            - name: lc_dashboard_id
+              type: Int64
+            - name: lc_insight_id
+              type: Int64
+            - name: lc_cohort_id
+              type: Int64
+            - name: lc_batch_export_id
+              type: String
+            - name: lc_experiment_id
+              type: Int64
+            - name: lc_experiment_feature_flag_key
+              type: String
+            - name: lc_alert_config_id
+              type: String
+            - name: lc_feature
+              type: LowCardinality(String)
+            - name: lc_table_id
+              type: String
+            - name: lc_warehouse_query
+              type: Bool
+            - name: lc_person_on_events_mode
+              type: LowCardinality(String)
+            - name: lc_service_name
+              type: String
+            - name: lc_workload
+              type: LowCardinality(String)
+            - name: lc_query__kind
+              type: LowCardinality(String)
+            - name: lc_query__query
+              type: String
+            - name: lc_query
+              type: String
+            - name: lc_temporal__workflow_namespace
+              type: String
+            - name: lc_temporal__workflow_type
+              type: String
+            - name: lc_temporal__workflow_id
+              type: String
+            - name: lc_temporal__workflow_run_id
+              type: String
+            - name: lc_temporal__activity_type
+              type: String
+            - name: lc_temporal__activity_id
+              type: String
+            - name: lc_temporal__attempt
+              type: Int64
+            - name: lc_dagster__job_name
+              type: String
+            - name: lc_dagster__run_id
+              type: String
+            - name: lc_dagster__owner
+              type: String
+            - name: lc_modifiers
+              type: String
+
+    query_log_archive:
+        engine: Distributed
+        source: sharded_query_log_archive
+        sharding_key: 'cityHash64(query_id)'
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        columns: inherit sharded_query_log_archive
+
+    writable_query_log_archive:
+        engine: Distributed
+        source: sharded_query_log_archive
+        sharding_key: 'cityHash64(query_id)'
+        on_nodes:
+            - COORDINATOR
+            - ENDPOINTS
+        columns: inherit sharded_query_log_archive
+
+    writable_sharded_query_log_archive:
+        engine: Distributed
+        source: sharded_query_log_archive
+        sharding_key: 'cityHash64(query_id)'
+        on_nodes:
+            - COORDINATOR
+            - ENDPOINTS
+        columns: inherit sharded_query_log_archive
+
+    sharded_query_log_archive_mv:
+        engine: MaterializedView
+        source: system.query_log
+        target: sharded_query_log_archive
+        select: "SELECT hostname, user, query_id, ... FROM system.query_log WHERE type != 'QueryStart'"
+        on_nodes: DATA
+        columns: []
+
+    query_log_archive_mv:
+        engine: MaterializedView
+        source: system.query_log
+        target: writable_query_log_archive
+        select: "SELECT hostname, user, query_id, ... FROM system.query_log WHERE type != 'QueryStart'"
+        on_nodes: ENDPOINTS
+        columns: []
+
+    dist_query_log_archive_mv:
+        engine: MaterializedView
+        source: system.query_log
+        target: writable_sharded_query_log_archive
+        select: "SELECT hostname, user, query_id, ... FROM system.query_log WHERE type != 'QueryStart'"
+        on_nodes:
+            - COORDINATOR
+            - ENDPOINTS
+        columns: []

@@ -1,0 +1,30 @@
+# Desired-state schema for the adhoc_events_deletion table.
+
+ecosystem: adhoc_events_deletion
+cluster: main
+
+tables:
+    adhoc_events_deletion:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        order_by:
+            - team_id
+            - uuid
+        columns:
+            - name: team_id
+              type: Int64
+            - name: uuid
+              type: UUID
+            - name: created_at
+              type: "DateTime64(6, 'UTC')"
+              default_expression: 'now64()'
+              default_kind: DEFAULT
+            - name: deleted_at
+              type: DateTime
+            - name: is_deleted
+              type: UInt8
+              default_expression: '0'
+              default_kind: DEFAULT

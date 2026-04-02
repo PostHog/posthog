@@ -1,0 +1,96 @@
+# Desired-state schema for the app_metrics ecosystem.
+
+ecosystem: app_metrics
+cluster: main
+
+tables:
+    sharded_app_metrics:
+        engine: ReplicatedAggregatingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - plugin_config_id
+            - job_id
+            - category
+            - 'toStartOfHour(timestamp)'
+            - error_type
+            - error_uuid
+        partition_by: 'toYYYYMM(timestamp)'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: plugin_config_id
+              type: Int64
+            - name: category
+              type: LowCardinality(String)
+            - name: job_id
+              type: String
+            - name: successes
+              type: "SimpleAggregateFunction(sum, Int64)"
+            - name: successes_on_retry
+              type: "SimpleAggregateFunction(sum, Int64)"
+            - name: failures
+              type: "SimpleAggregateFunction(sum, Int64)"
+            - name: error_uuid
+              type: UUID
+            - name: error_type
+              type: String
+            - name: error_details
+              type: String
+
+    writable_app_metrics:
+        engine: Distributed
+        source: sharded_app_metrics
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_app_metrics
+
+    app_metrics:
+        engine: Distributed
+        source: sharded_app_metrics
+        sharding_key: 'rand()'
+        on_nodes: ALL
+        columns: inherit sharded_app_metrics
+
+    kafka_app_metrics:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_app_metrics
+            kafka_group_name: clickhouse_app_metrics
+            kafka_format: JSONEachRow
+        columns:
+            - name: team_id
+              type: Int64
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: plugin_config_id
+              type: Int64
+            - name: category
+              type: LowCardinality(String)
+            - name: job_id
+              type: String
+            - name: successes
+              type: Int64
+            - name: successes_on_retry
+              type: Int64
+            - name: failures
+              type: Int64
+            - name: error_uuid
+              type: UUID
+            - name: error_type
+              type: String
+            - name: error_details
+              type: String
+
+    app_metrics_mv:
+        engine: MaterializedView
+        source: kafka_app_metrics
+        target: writable_app_metrics
+        select: "SELECT team_id, timestamp, plugin_config_id, category, job_id, successes, successes_on_retry, failures, error_uuid, error_type, error_details, _timestamp, _offset, _partition FROM {{ database }}.kafka_app_metrics"
+        on_nodes: INGESTION_EVENTS
+        columns: []

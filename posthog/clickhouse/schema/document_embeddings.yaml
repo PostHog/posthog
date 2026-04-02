@@ -1,0 +1,354 @@
+# Desired-state schema for the document_embeddings ecosystem.
+# Pipeline: Kafka → Buffer (1-day TTL) → Model-Specific Tables (3-month TTL).
+
+ecosystem: document_embeddings
+cluster: main
+
+tables:
+    # --- Main partitioned sharded table (legacy, pre-model-specific) ---
+    partitioned_sharded_posthog_document_embeddings:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toDate(timestamp)'
+            - product
+            - document_type
+            - model_name
+            - rendering
+            - 'cityHash64(document_id)'
+        partition_by: 'toMonday(timestamp)'
+        settings:
+            index_granularity: '512'
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: product
+              type: LowCardinality(String)
+            - name: document_type
+              type: LowCardinality(String)
+            - name: model_name
+              type: LowCardinality(String)
+            - name: rendering
+              type: LowCardinality(String)
+            - name: document_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(3, 'UTC')"
+            - name: inserted_at
+              type: "DateTime64(3, 'UTC')"
+            - name: content
+              type: String
+              default_expression: "''"
+              default_kind: DEFAULT
+            - name: metadata
+              type: String
+              default_expression: "'{}'"
+              default_kind: DEFAULT
+            - name: embedding
+              type: Array(Float64)
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
+
+    distributed_posthog_document_embeddings:
+        engine: Distributed
+        source: partitioned_sharded_posthog_document_embeddings
+        sharding_key: 'cityHash64(document_id)'
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        columns: inherit partitioned_sharded_posthog_document_embeddings
+
+    writable_posthog_document_embeddings:
+        engine: Distributed
+        source: partitioned_sharded_posthog_document_embeddings
+        sharding_key: 'cityHash64(document_id)'
+        on_nodes: INGESTION_SMALL
+        columns: inherit partitioned_sharded_posthog_document_embeddings
+
+    kafka_posthog_document_embeddings:
+        engine: Kafka
+        on_nodes: INGESTION_SMALL
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_document_embeddings
+            kafka_group_name: posthog-clickhouse-embeddings-document-embeddings
+            kafka_format: JSONEachRow
+        columns:
+            - name: team_id
+              type: Int64
+            - name: product
+              type: LowCardinality(String)
+            - name: document_type
+              type: LowCardinality(String)
+            - name: model_name
+              type: LowCardinality(String)
+            - name: rendering
+              type: LowCardinality(String)
+            - name: document_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(3, 'UTC')"
+            - name: content
+              type: String
+            - name: metadata
+              type: String
+            - name: embedding
+              type: Array(Float64)
+
+    posthog_document_embeddings_mv:
+        engine: MaterializedView
+        source: kafka_posthog_document_embeddings
+        target: writable_posthog_document_embeddings
+        select: "SELECT team_id, product, document_type, model_name, rendering, document_id, timestamp, _timestamp as inserted_at, coalesce(content, '') as content, coalesce(metadata, '{}') as metadata, embedding, _timestamp, _offset, _partition FROM {{ database }}.kafka_posthog_document_embeddings"
+        on_nodes: INGESTION_SMALL
+        columns: []
+
+    # --- Buffer tables (short-lived, receives all embeddings before routing to model-specific tables) ---
+    sharded_posthog_document_embeddings_buffer:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - inserted_at
+            - model_name
+            - 'cityHash64(document_id)'
+        partition_by: 'toDate(inserted_at)'
+        settings:
+            index_granularity: '8192'
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: product
+              type: LowCardinality(String)
+            - name: document_type
+              type: LowCardinality(String)
+            - name: model_name
+              type: LowCardinality(String)
+            - name: rendering
+              type: LowCardinality(String)
+            - name: document_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(3, 'UTC')"
+            - name: inserted_at
+              type: "DateTime64(3, 'UTC')"
+            - name: content
+              type: String
+              default_expression: "''"
+              default_kind: DEFAULT
+            - name: metadata
+              type: String
+              default_expression: "'{}'"
+              default_kind: DEFAULT
+            - name: embedding
+              type: Array(Float64)
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
+
+    writable_posthog_document_embeddings_buffer:
+        engine: Distributed
+        source: sharded_posthog_document_embeddings_buffer
+        sharding_key: 'cityHash64(document_id)'
+        on_nodes: INGESTION_SMALL
+        columns: inherit sharded_posthog_document_embeddings_buffer
+
+    posthog_document_embeddings_kafka_to_buffer_mv:
+        engine: MaterializedView
+        source: kafka_posthog_document_embeddings
+        target: writable_posthog_document_embeddings_buffer
+        select: "SELECT team_id, product, document_type, model_name, rendering, document_id, timestamp, _timestamp as inserted_at, coalesce(content, '') as content, coalesce(metadata, '{}') as metadata, embedding, _timestamp, _offset, _partition FROM {{ database }}.kafka_posthog_document_embeddings"
+        on_nodes: INGESTION_SMALL
+        columns: []
+
+    # --- Model-specific tables: text-embedding-3-small-1536 ---
+    sharded_posthog_document_embeddings_text_embedding_3_small_1536:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toDate(timestamp)'
+            - product
+            - document_type
+            - rendering
+            - 'cityHash64(document_id)'
+        partition_by: 'toMonday(timestamp)'
+        settings:
+            index_granularity: '512'
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: product
+              type: LowCardinality(String)
+            - name: document_type
+              type: LowCardinality(String)
+            - name: rendering
+              type: LowCardinality(String)
+            - name: document_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(3, 'UTC')"
+            - name: inserted_at
+              type: "DateTime64(3, 'UTC')"
+            - name: content
+              type: String
+              default_expression: "''"
+              default_kind: DEFAULT
+            - name: metadata
+              type: String
+              default_expression: "'{}'"
+              default_kind: DEFAULT
+            - name: embedding
+              type: Array(Float64)
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
+
+    distributed_posthog_document_embeddings_text_embedding_3_small_1536:
+        engine: Distributed
+        source: sharded_posthog_document_embeddings_text_embedding_3_small_1536
+        sharding_key: 'cityHash64(document_id)'
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        columns: inherit sharded_posthog_document_embeddings_text_embedding_3_small_1536
+
+    writable_posthog_document_embeddings_text_embedding_3_small_1536:
+        engine: Distributed
+        source: sharded_posthog_document_embeddings_text_embedding_3_small_1536
+        sharding_key: 'cityHash64(document_id)'
+        on_nodes: DATA
+        columns: inherit sharded_posthog_document_embeddings_text_embedding_3_small_1536
+
+    posthog_document_embeddings_text_embedding_3_small_1536_mv:
+        engine: MaterializedView
+        source: sharded_posthog_document_embeddings_buffer
+        target: writable_posthog_document_embeddings_text_embedding_3_small_1536
+        select: "SELECT team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, metadata, embedding, _timestamp, _offset, _partition FROM {{ database }}.sharded_posthog_document_embeddings_buffer WHERE model_name = 'text-embedding-3-small-1536'"
+        on_nodes: DATA
+        columns: []
+
+    # --- Model-specific tables: text-embedding-3-large-3072 ---
+    sharded_posthog_document_embeddings_text_embedding_3_large_3072:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toDate(timestamp)'
+            - product
+            - document_type
+            - rendering
+            - 'cityHash64(document_id)'
+        partition_by: 'toMonday(timestamp)'
+        settings:
+            index_granularity: '512'
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: product
+              type: LowCardinality(String)
+            - name: document_type
+              type: LowCardinality(String)
+            - name: rendering
+              type: LowCardinality(String)
+            - name: document_id
+              type: String
+            - name: timestamp
+              type: "DateTime64(3, 'UTC')"
+            - name: inserted_at
+              type: "DateTime64(3, 'UTC')"
+            - name: content
+              type: String
+              default_expression: "''"
+              default_kind: DEFAULT
+            - name: metadata
+              type: String
+              default_expression: "'{}'"
+              default_kind: DEFAULT
+            - name: embedding
+              type: Array(Float64)
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
+
+    distributed_posthog_document_embeddings_text_embedding_3_large_3072:
+        engine: Distributed
+        source: sharded_posthog_document_embeddings_text_embedding_3_large_3072
+        sharding_key: 'cityHash64(document_id)'
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        columns: inherit sharded_posthog_document_embeddings_text_embedding_3_large_3072
+
+    writable_posthog_document_embeddings_text_embedding_3_large_3072:
+        engine: Distributed
+        source: sharded_posthog_document_embeddings_text_embedding_3_large_3072
+        sharding_key: 'cityHash64(document_id)'
+        on_nodes: DATA
+        columns: inherit sharded_posthog_document_embeddings_text_embedding_3_large_3072
+
+    posthog_document_embeddings_text_embedding_3_large_3072_mv:
+        engine: MaterializedView
+        source: sharded_posthog_document_embeddings_buffer
+        target: writable_posthog_document_embeddings_text_embedding_3_large_3072
+        select: "SELECT team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, metadata, embedding, _timestamp, _offset, _partition FROM {{ database }}.sharded_posthog_document_embeddings_buffer WHERE model_name = 'text-embedding-3-large-3072'"
+        on_nodes: DATA
+        columns: []
+
+    # --- Legacy unsharded table (kept for historical data per migration 0183) ---
+    posthog_document_embeddings:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toDate(timestamp)'
+            - product
+            - document_type
+            - model_name
+            - rendering
+            - 'cityHash64(document_id)'
+        partition_by: 'toMonday(timestamp)'
+        settings:
+            index_granularity: '512'
+            ttl_only_drop_parts: '1'
+        columns: inherit partitioned_sharded_posthog_document_embeddings
+
+    sharded_posthog_document_embeddings:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toDate(timestamp)'
+            - product
+            - document_type
+            - model_name
+            - rendering
+            - 'cityHash64(document_id)'
+        partition_by: 'toMonday(timestamp)'
+        settings:
+            index_granularity: '512'
+            ttl_only_drop_parts: '1'
+        columns: inherit partitioned_sharded_posthog_document_embeddings
