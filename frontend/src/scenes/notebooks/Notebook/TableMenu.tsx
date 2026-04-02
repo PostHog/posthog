@@ -194,10 +194,11 @@ export function TableMenu(): JSX.Element | null {
             }
             // Focus the hovered cell so the command operates on the right row/col
             const cellPos = getTableCellPositions()[hoveredCell.rowIndex]?.[hoveredCell.colIndex]
-            if (cellPos !== undefined) {
-                ttEditor.commands.focus()
-                ttEditor.commands.setTextSelection(cellPos + 1) // +1 to get inside cell content
+            if (cellPos === undefined) {
+                return
             }
+            ttEditor.commands.focus()
+            ttEditor.commands.setTextSelection(cellPos + 1) // +1 to get inside cell content
             ;(ttEditor.chain().focus() as any)[command]().run()
             setActiveMenu(null)
             setHoveredCell(null)
