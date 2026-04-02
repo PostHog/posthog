@@ -1708,6 +1708,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
+ "async-compression",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
@@ -1715,6 +1716,7 @@ dependencies = [
  "axum-client-ip",
  "axum-test-helper",
  "base64 0.22.1",
+ "brotli",
  "bytes",
  "chrono",
  "common-alloc",
@@ -1758,6 +1760,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
+ "zstd",
 ]
 
 [[package]]
