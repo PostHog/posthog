@@ -13,7 +13,7 @@ from posthog.clickhouse.client.connection import NodeRole
 class TestUniqueMigrationPrefixes(TestCase):
     def test_migration_prefixes_are_unique(self):
         """Test that no two migration files have the same numeric prefix."""
-        migrations_dir = Path(__file__).parent.parent
+        migrations_dir = Path(__file__).parent.parent / "migrations"
         migration_files = [f for f in os.listdir(migrations_dir) if f.endswith(".py") and f != "__init__.py"]
 
         # Extract prefixes and group by prefix
@@ -27,6 +27,17 @@ class TestUniqueMigrationPrefixes(TestCase):
                 if int(prefix) <= 83:
                     continue
                 prefix_to_files[prefix].append(migration_file)
+
+        # Also scan directory-based migrations (NNNN_name/ with manifest.yaml)
+        for entry in os.listdir(migrations_dir):
+            entry_path = migrations_dir / entry
+            if entry_path.is_dir() and (entry_path / "manifest.yaml").exists():
+                match = re.match(r"^(\d+)_(.+)$", entry)
+                if match:
+                    prefix = match.group(1)
+                    if int(prefix) <= 83:
+                        continue
+                    prefix_to_files[prefix].append(f"{entry}/")
 
         # Find duplicates
         duplicates = {prefix: files for prefix, files in prefix_to_files.items() if len(files) > 1}
@@ -68,24 +79,30 @@ class TestUniqueMigrationPrefixes(TestCase):
 
         max_migration_name = lines[0]
 
-        # Check that the migration file exists
-        max_migration_file = migrations_dir / f"{max_migration_name}.py"
+        # Check that the migration exists as either a .py file or a directory with manifest.yaml
+        max_migration_py = migrations_dir / f"{max_migration_name}.py"
+        max_migration_dir = migrations_dir / max_migration_name / "manifest.yaml"
         self.assertTrue(
-            max_migration_file.exists(),
-            f"max_migration.txt points to {max_migration_name!r} but that file doesn't exist. "
+            max_migration_py.exists() or max_migration_dir.exists(),
+            f"max_migration.txt points to {max_migration_name!r} but neither "
+            f"{max_migration_name}.py nor {max_migration_name}/manifest.yaml exists. "
             "Update max_migration.txt to point to the latest migration.",
         )
 
-        # Get all migration files
-        migration_files = [
-            f[:-3]  # Remove .py extension
-            for f in os.listdir(migrations_dir)
-            if f.endswith(".py") and f != "__init__.py" and re.match(r"^\d+_", f)
-        ]
+        # Get all migration names: .py files and directory-based migrations
+        migration_names: list[str] = []
+        for entry in os.listdir(migrations_dir):
+            if entry == "__init__.py" or entry.startswith("__"):
+                continue
+            full_path = migrations_dir / entry
+            if entry.endswith(".py") and re.match(r"^\d+_", entry):
+                migration_names.append(entry[:-3])  # Remove .py extension
+            elif full_path.is_dir() and re.match(r"^\d+_", entry) and (full_path / "manifest.yaml").exists():
+                migration_names.append(entry)
 
         # Find the actual latest migration by numeric prefix
         latest_migration = max(
-            migration_files,
+            migration_names,
             key=lambda f: int(re.match(r"^(\d+)_", f).group(1)),  # type: ignore
         )
 
