@@ -184,6 +184,10 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     disableScroll?: boolean
     /** Whether to render only the visible rows plus an overscan buffer. */
     virtualized?: boolean
+    /** Fixed row height to use for virtualization calculations and virtualized row layout. */
+    virtualizedRowHeight?: number
+    /** Number of rows to render before and after the viewport when virtualization is enabled. */
+    virtualizedOverscan?: number
     /** Optional external scroll viewport that controls virtualization. */
     virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
 }
@@ -230,6 +234,7 @@ type LemonTreeItemRowProps = LemonTreeNodeProps & {
     ariaSetSize: number
     ariaPosInSet: number
     childrenContent?: React.ReactNode
+    virtualizedRowHeight?: number
 }
 
 const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
@@ -265,6 +270,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             setFocusToElementFromId,
             childrenContent,
             size,
+            virtualizedRowHeight,
         },
         ref
     ): JSX.Element => {
@@ -549,7 +555,22 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             )
         }
 
-        return <div key={item.id}>{wrappedContent}</div>
+        return (
+            <div
+                key={item.id}
+                className={cn(virtualizedRowHeight && 'overflow-hidden')}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={
+                    virtualizedRowHeight
+                        ? {
+                              height: `${virtualizedRowHeight}px`,
+                          }
+                        : undefined
+                }
+            >
+                {wrappedContent}
+            </div>
+        )
     }
 )
 LemonTreeItemRow.displayName = 'LemonTreeItemRow'
@@ -639,14 +660,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             size = 'default',
             disableScroll = false,
             virtualized = false,
+            virtualizedRowHeight = 31,
+            virtualizedOverscan = 10,
             virtualizationScrollContainerRef,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
     ): JSX.Element => {
         const TYPE_AHEAD_TIMEOUT = 500
-        const VIRTUALIZATION_OVERSCAN = 10
-        const ESTIMATED_ROW_HEIGHT = 33
         const mouseSensor = useSensor(MouseSensor, {
             // Require the mouse to move by 10 pixels before activating
             activationConstraint: {
@@ -834,17 +855,17 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const focusedIndex = focusId ? flattenedVisibleItems.findIndex(({ item }) => item.id === focusId) : -1
                 const viewportStartIndex = Math.max(
                     0,
-                    Math.floor(scrollTop / ESTIMATED_ROW_HEIGHT) - VIRTUALIZATION_OVERSCAN
+                    Math.floor(scrollTop / virtualizedRowHeight) - virtualizedOverscan
                 )
                 const viewportEndIndex = Math.min(
                     flattenedVisibleItems.length,
-                    Math.ceil((scrollTop + viewportHeight) / ESTIMATED_ROW_HEIGHT) + VIRTUALIZATION_OVERSCAN
+                    Math.ceil((scrollTop + viewportHeight) / virtualizedRowHeight) + virtualizedOverscan
                 )
                 const focusStartIndex =
-                    focusedIndex >= 0 ? Math.max(0, focusedIndex - VIRTUALIZATION_OVERSCAN) : viewportStartIndex
+                    focusedIndex >= 0 ? Math.max(0, focusedIndex - virtualizedOverscan) : viewportStartIndex
                 const focusEndIndex =
                     focusedIndex >= 0
-                        ? Math.min(flattenedVisibleItems.length, focusedIndex + VIRTUALIZATION_OVERSCAN + 1)
+                        ? Math.min(flattenedVisibleItems.length, focusedIndex + virtualizedOverscan + 1)
                         : viewportEndIndex
 
                 return {
@@ -854,7 +875,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     viewportHeight,
                 }
             },
-            [flattenedVisibleItems]
+            [flattenedVisibleItems, virtualizedOverscan, virtualizedRowHeight]
         )
 
         // Add function to handle type-ahead search
@@ -1475,7 +1496,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                         'flex-1': isDragging,
                                     })}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ height: `${flattenedVisibleItems.length * ESTIMATED_ROW_HEIGHT}px` }}
+                                    style={{ height: `${flattenedVisibleItems.length * virtualizedRowHeight}px` }}
                                 >
                                     {virtualizedSegments.map((segment, segmentIndex) => {
                                         return (
@@ -1484,7 +1505,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                                 className="absolute inset-x-0 top-0"
                                                 // eslint-disable-next-line react/forbid-dom-props
                                                 style={{
-                                                    transform: `translateY(${segment.startIndex * ESTIMATED_ROW_HEIGHT}px)`,
+                                                    transform: `translateY(${segment.startIndex * virtualizedRowHeight}px)`,
                                                 }}
                                             >
                                                 {segment.items.map(
@@ -1520,6 +1541,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                                             setFocusToElementFromId={focusElementFromId}
                                                             depth={depth}
                                                             size={size}
+                                                            virtualizedRowHeight={virtualizedRowHeight}
                                                             {...props}
                                                         />
                                                     )

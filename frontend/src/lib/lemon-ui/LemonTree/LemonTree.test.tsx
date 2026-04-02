@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import React, { createRef } from 'react'
 
 import { LemonTree, LemonTreeRef, TreeDataItem } from './LemonTree'
@@ -43,7 +43,7 @@ describe('LemonTree virtualization', () => {
         expect(screen.queryByLabelText('tree item: child-30')).not.toBeInTheDocument()
 
         act(() => {
-            viewport.scrollTop = 33 * 30
+            viewport.scrollTop = 31 * 30
             viewport.dispatchEvent(new Event('scroll'))
         })
 
@@ -155,12 +155,73 @@ describe('LemonTree virtualization', () => {
         })
 
         act(() => {
-            outerScroll.scrollTop = 120 + 33 * 40
+            outerScroll.scrollTop = 120 + 31 * 40
             outerScroll.dispatchEvent(new Event('scroll'))
         })
 
         await waitFor(() => {
             expect(screen.getByLabelText('tree item: child-40')).toBeInTheDocument()
         })
+    })
+
+    it('supports an overridden virtualized row height', async () => {
+        const data: TreeDataItem[] = [
+            {
+                id: 'root',
+                name: 'root',
+                children: Array.from({ length: 80 }, (_, index) => ({
+                    id: `child-${index}`,
+                    name: `child-${index}`,
+                })),
+            },
+        ]
+
+        const { container } = render(
+            <LemonTree data={data} expandedItemIds={['root']} virtualized virtualizedRowHeight={40} />
+        )
+        const viewport = setViewportHeight(container, 80)
+
+        act(() => {
+            viewport.scrollTop = 40 * 30
+            viewport.dispatchEvent(new Event('scroll'))
+        })
+
+        await waitFor(() => {
+            expect(within(container).getByLabelText('tree item: child-30')).toBeInTheDocument()
+        })
+        expect(within(container).queryByLabelText('tree item: child-0')).not.toBeInTheDocument()
+    })
+
+    it('supports an overridden virtualization overscan', async () => {
+        const data: TreeDataItem[] = [
+            {
+                id: 'root',
+                name: 'root',
+                children: Array.from({ length: 80 }, (_, index) => ({
+                    id: `child-${index}`,
+                    name: `child-${index}`,
+                })),
+            },
+        ]
+
+        const { container } = render(
+            <LemonTree
+                data={data}
+                expandedItemIds={['root']}
+                virtualized
+                virtualizedRowHeight={31}
+                virtualizedOverscan={0}
+            />
+        )
+        const viewport = setViewportHeight(container, 62)
+
+        act(() => {
+            viewport.dispatchEvent(new Event('scroll'))
+        })
+
+        await waitFor(() => {
+            expect(within(container).getByLabelText('tree item: child-0')).toBeInTheDocument()
+        })
+        expect(within(container).queryByLabelText('tree item: child-1')).not.toBeInTheDocument()
     })
 })
