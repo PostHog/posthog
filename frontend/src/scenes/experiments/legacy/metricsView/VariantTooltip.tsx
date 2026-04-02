@@ -4,7 +4,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { VariantTag } from '../../ExperimentView/components'
-import { calculateDelta } from '../calculations/legacyExperimentCalculations'
+import { legacyCalculateDelta } from '../calculations/legacyExperimentCalculations'
 
 interface VariantTooltipProps {
     tooltipData: {
@@ -112,7 +112,7 @@ export function VariantTooltip({
                             <em className="text-secondary">Baseline</em>
                         ) : (
                             (() => {
-                                const deltaResult = calculateDelta(result, tooltipData.variant, metricType)
+                                const deltaResult = legacyCalculateDelta(result, tooltipData.variant, metricType)
                                 if (!deltaResult) {
                                     return '—'
                                 }

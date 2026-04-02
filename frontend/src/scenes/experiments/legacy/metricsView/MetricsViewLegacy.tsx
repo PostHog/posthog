@@ -6,7 +6,7 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { experimentLogic } from '../../experimentLogic'
-import { credibleIntervalForVariant } from '../calculations/legacyExperimentCalculations'
+import { legacyCredibleIntervalForVariant } from '../calculations/legacyExperimentCalculations'
 import { DeltaChart } from './DeltaChart'
 import { legacyGetNiceTickValues } from './legacyUtils'
 
@@ -53,7 +53,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
             }
             return variants.flatMap((variant) => {
                 const insightType = getInsightType(metric)
-                const interval = credibleIntervalForVariant(result, variant.key, insightType)
+                const interval = legacyCredibleIntervalForVariant(result, variant.key, insightType)
                 return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
             })
         })

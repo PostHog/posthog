@@ -14,11 +14,11 @@ import { experimentLogic } from '../../experimentLogic'
 import { isLaunched } from '../../experimentsLogic'
 import { VariantTag } from '../../ExperimentView/components'
 import {
-    calculateDelta,
-    conversionRateForVariant,
-    countDataForVariant,
-    credibleIntervalForVariant,
-    exposureCountDataForVariant,
+    legacyCalculateDelta,
+    legacyConversionRateForVariant,
+    legacyCountDataForVariant,
+    legacyCredibleIntervalForVariant,
+    legacyExposureCountDataForVariant,
 } from '../calculations/legacyExperimentCalculations'
 import { LegacyChartEmptyState } from './LegacyChartEmptyState'
 import { LegacyChartLoadingState } from './LegacyChartLoadingState'
@@ -168,7 +168,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
     const interval = credibleIntervalForVariant(result, variant.key, metricType)
     const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
 
-    const deltaResult = calculateDelta(result, variant.key, metricType)
+    const deltaResult = legacyCalculateDelta(result, variant.key, metricType)
     const delta = deltaResult?.delta || 0
     let hasEnoughData: boolean
 
@@ -573,10 +573,10 @@ export function DeltaChart({
 
         // Data transformation functions
         valueToX,
-        credibleIntervalForVariant,
-        conversionRateForVariant,
-        countDataForVariant,
-        exposureCountDataForVariant,
+        credibleIntervalForVariant: legacyCredibleIntervalForVariant,
+        conversionRateForVariant: legacyConversionRateForVariant,
+        countDataForVariant: legacyCountDataForVariant,
+        exposureCountDataForVariant: legacyExposureCountDataForVariant,
 
         // Chart dimensions
         dimensions,

@@ -27,12 +27,12 @@ import { experimentLogic } from '../../experimentLogic'
 import { VariantTag } from '../../ExperimentView/components'
 import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../../utils'
 import {
-    calculateDelta,
-    conversionRateForVariant,
-    countDataForVariant,
-    credibleIntervalForVariant,
-    exposureCountDataForVariant,
-    getHighestProbabilityVariant,
+    legacyCalculateDelta,
+    legacyConversionRateForVariant,
+    legacyCountDataForVariant,
+    legacyCredibleIntervalForVariant,
+    legacyExposureCountDataForVariant,
+    legacyGetHighestProbabilityVariant,
 } from '../calculations/legacyExperimentCalculations'
 
 /**
@@ -65,7 +65,7 @@ export function LegacySummaryTable({
         return <></>
     }
 
-    const winningVariant = getHighestProbabilityVariant(result)
+    const winningVariant = legacyGetHighestProbabilityVariant(result)
 
     const columns: LemonTableColumns<any> = [
         {
@@ -93,7 +93,7 @@ export function LegacySummaryTable({
                 </div>
             ),
             render: function Key(_, variant): JSX.Element {
-                const count = countDataForVariant(result, variant.key)
+                const count = legacyCountDataForVariant(result, variant.key)
                 if (!count) {
                     return <>—</>
                 }
@@ -120,7 +120,7 @@ export function LegacySummaryTable({
                 </div>
             ),
             render: function Key(_, variant): JSX.Element {
-                const exposure = exposureCountDataForVariant(result, variant.key)
+                const exposure = legacyExposureCountDataForVariant(result, variant.key)
                 if (!exposure) {
                     return <>—</>
                 }
@@ -157,7 +157,7 @@ export function LegacySummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const deltaResult = calculateDelta(result, variant.key, insightType)
+                const deltaResult = legacyCalculateDelta(result, variant.key, insightType)
                 if (!deltaResult) {
                     return <div className="font-semibold">—</div>
                 }
@@ -189,7 +189,7 @@ export function LegacySummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const credibleInterval = credibleIntervalForVariant(result || null, variant.key, insightType)
+                const credibleInterval = legacyCredibleIntervalForVariant(result || null, variant.key, insightType)
                 if (!credibleInterval) {
                     return <>—</>
                 }
@@ -240,7 +240,7 @@ export function LegacySummaryTable({
             key: 'conversionRate',
             title: 'Conversion rate',
             render: function Key(_, item): JSX.Element {
-                const conversionRate = conversionRateForVariant(result, item.key)
+                const conversionRate = legacyConversionRateForVariant(result, item.key)
                 if (!conversionRate) {
                     return <>—</>
                 }
@@ -264,8 +264,8 @@ export function LegacySummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const controlConversionRate = conversionRateForVariant(result, 'control')
-                const variantConversionRate = conversionRateForVariant(result, item.key)
+                const controlConversionRate = legacyConversionRateForVariant(result, 'control')
+                const variantConversionRate = legacyConversionRateForVariant(result, item.key)
 
                 if (!controlConversionRate || !variantConversionRate) {
                     return <>—</>
@@ -296,7 +296,7 @@ export function LegacySummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const credibleInterval = credibleIntervalForVariant(result || null, item.key, insightType)
+                const credibleInterval = legacyCredibleIntervalForVariant(result || null, item.key, insightType)
                 if (!credibleInterval) {
                     return <>—</>
                 }
@@ -326,7 +326,7 @@ export function LegacySummaryTable({
 
             // Only show the win probability if the conversion rate exists
             // TODO: move this to the backend
-            const conversionRate = conversionRateForVariant(result, variantKey)
+            const conversionRate = legacyConversionRateForVariant(result, variantKey)
             const hasValidConversionRate = conversionRate !== null && conversionRate !== undefined
 
             return (
