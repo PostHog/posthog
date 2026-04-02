@@ -454,12 +454,13 @@ function SortableQuestionCard({
                             })
                         }
                         textPlaceholder="Add description (optional)"
+                        textMinRows={1}
                     />
                     <div className="flex items-center gap-2 flex-wrap">
                         <QuestionTypeChip type={question.type} onChange={(newType) => onChangeType(index, newType)} />
                         {index > 0 && (
                             <LemonSegmentedButton
-                                size="small"
+                                size="xsmall"
                                 value={question.optional ? 'optional' : 'mandatory'}
                                 onChange={(value) => onUpdate(index, { optional: value === 'optional' })}
                                 options={[
