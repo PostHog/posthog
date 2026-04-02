@@ -199,8 +199,8 @@ mod tests {
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
-            error_tracking_dual_write_enabled: false,
-            error_tracking_dual_write_sample_rate: 0.0,
+            error_tracking_node_rollout_enabled: false,
+            error_tracking_node_rollout_rate: 0.0,
             continuous_profiling: ContinuousProfilingConfig {
                 continuous_profiling_enabled: false,
                 pyroscope_server_address: String::new(),
