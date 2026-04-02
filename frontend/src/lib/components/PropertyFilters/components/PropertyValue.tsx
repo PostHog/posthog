@@ -287,7 +287,17 @@ export function PropertyValue({
     }
 
     if (isBetweenProperty) {
-        return <PropertyFilterBetween value={value ?? null} onSet={setValue} size={size} />
+        const betweenPropertyType = propertyKey
+            ? describeProperty(propertyKey, propertyDefinitionType) ?? undefined
+            : undefined
+        return (
+            <PropertyFilterBetween
+                value={value ?? null}
+                onSet={setValue}
+                size={size}
+                propertyType={betweenPropertyType}
+            />
+        )
     }
 
     if (isDateTimeProperty) {
