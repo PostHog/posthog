@@ -201,7 +201,7 @@ function PlayerWrapper({
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
         >
-            {isFiltersExpanded ? (
+            {isFiltersExpanded && (
                 <div className="h-full rounded border">
                     <RecordingsUniversalFiltersEmbed
                         resetFilters={resetFilters}
@@ -212,29 +212,32 @@ function PlayerWrapper({
                         pinnedFilters={pinnedFilters}
                     />
                 </div>
-            ) : showContent && activeSessionRecording ? (
-                <SessionRecordingPlayer
-                    playerKey={props.logicKey ?? 'playlist'}
-                    sessionRecordingId={activeSessionRecording.id}
-                    matchingEventsMatchType={matchingEventsMatchType}
-                    autoPlay={props.autoPlay}
-                    onRecordingDeleted={() => {
-                        loadAllRecordings()
-                        setSelectedRecordingId(null)
-                    }}
-                    pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
-                    setPinned={
-                        props.onPinnedChange
-                            ? (pinned) => {
-                                  if (!activeSessionRecording.id) {
-                                      return
+            )}
+            {showContent && activeSessionRecording ? (
+                <div className={cn('h-full', isFiltersExpanded && 'hidden')}>
+                    <SessionRecordingPlayer
+                        playerKey={props.logicKey ?? 'playlist'}
+                        sessionRecordingId={activeSessionRecording.id}
+                        matchingEventsMatchType={matchingEventsMatchType}
+                        autoPlay={props.autoPlay}
+                        onRecordingDeleted={() => {
+                            loadAllRecordings()
+                            setSelectedRecordingId(null)
+                        }}
+                        pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                        setPinned={
+                            props.onPinnedChange
+                                ? (pinned) => {
+                                      if (!activeSessionRecording.id) {
+                                          return
+                                      }
+                                      props.onPinnedChange?.(activeSessionRecording, pinned)
                                   }
-                                  props.onPinnedChange?.(activeSessionRecording, pinned)
-                              }
-                            : undefined
-                    }
-                    playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
-                />
+                                : undefined
+                        }
+                        playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
+                    />
+                </div>
             ) : sessionRecordingsResponseLoading ? (
                 <div className="relative flex flex-col h-full p-4">
                     {/* Player skeleton background */}
@@ -259,14 +262,16 @@ function PlayerWrapper({
                     </div>
                 </div>
             ) : (
-                <div className="mt-20">
-                    <EmptyMessage
-                        title="No recording selected"
-                        description="Please select a recording from the list on the left"
-                        buttonText="Learn more about recordings"
-                        buttonTo="https://posthog.com/docs/user-guides/recordings"
-                    />
-                </div>
+                !isFiltersExpanded && (
+                    <div className="mt-20">
+                        <EmptyMessage
+                            title="No recording selected"
+                            description="Please select a recording from the list on the left"
+                            buttonText="Learn more about recordings"
+                            buttonTo="https://posthog.com/docs/user-guides/recordings"
+                        />
+                    </div>
+                )
             )}
             {resizer}
         </div>
