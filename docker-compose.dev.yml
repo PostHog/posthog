@@ -555,6 +555,7 @@ services:
         image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
         platform: arm64
         restart: on-failure
+        profiles: ['duckgres']
         ports:
             - '15432:15432'
         volumes:

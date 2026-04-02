@@ -1,6 +1,5 @@
 import json
 import uuid
-import logging
 from datetime import timedelta
 from typing import cast
 
@@ -8,6 +7,7 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Value, When
 
+import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import mixins, serializers, status, viewsets
@@ -47,6 +47,10 @@ from products.signals.backend.serializers import (
     SignalReportSerializer,
     SignalSourceConfigSerializer,
 )
+from products.signals.backend.temporal.backfill_error_tracking import (
+    BackfillErrorTrackingInput,
+    BackfillErrorTrackingWorkflow,
+)
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.types import (
@@ -55,7 +59,7 @@ from products.signals.backend.temporal.types import (
 )
 from products.signals.backend.utils import EMBEDDING_MODEL
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -153,6 +157,30 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
             self._trigger_initial_clustering(instance)
+
+        if (
+            instance.source_product == SignalSourceConfig.SourceProduct.ERROR_TRACKING
+            and instance.source_type == SignalSourceConfig.SourceType.ISSUE_CREATED
+            and instance.enabled
+        ):
+            self._trigger_error_tracking_backfill()
+
+    def _trigger_error_tracking_backfill(self) -> None:
+        """Fire-and-forget backfill of recent error tracking issues as signals."""
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "backfill-error-tracking",  # type: ignore
+                BackfillErrorTrackingInput(team_id=self.team_id),  # type: ignore
+                id=BackfillErrorTrackingWorkflow.workflow_id_for(self.team_id),
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            logger.info(f"Started error tracking backfill workflow for team {self.team_id}")
+        except Exception:
+            logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
 
     def _trigger_initial_clustering(self, config: SignalSourceConfig) -> None:
         """Fire-and-forget the clustering workflow."""

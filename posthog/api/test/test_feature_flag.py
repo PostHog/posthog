@@ -834,6 +834,66 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_remote_config_flag_defaults_to_100_percent_rollout(self, mock_report_user_action):
+        """Test that remote config flags default to 100% rollout in various scenarios."""
+        test_cases = [
+            (
+                "no filters",
+                {"key": "rc-no-filters", "name": "RC No Filters", "is_remote_configuration": True},
+            ),
+            (
+                "explicit 0% rollout",
+                {
+                    "key": "rc-zero-rollout",
+                    "name": "RC Zero Rollout",
+                    "is_remote_configuration": True,
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 0, "variant": None}],
+                        "payloads": {"true": '{"key": "value"}'},
+                    },
+                },
+            ),
+            (
+                "None rollout_percentage",
+                {
+                    "key": "rc-null-rollout",
+                    "name": "RC Null Rollout",
+                    "is_remote_configuration": True,
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": None, "variant": None}],
+                        "payloads": {"true": '{"key": "value"}'},
+                    },
+                },
+            ),
+            (
+                "missing rollout_percentage",
+                {
+                    "key": "rc-missing-rollout",
+                    "name": "RC Missing Rollout",
+                    "is_remote_configuration": True,
+                    "filters": {
+                        "groups": [{"properties": [], "variant": None}],
+                        "payloads": {"true": '{"key": "value"}'},
+                    },
+                },
+            ),
+        ]
+        for description, payload in test_cases:
+            with self.subTest(description):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/",
+                    payload,
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+                response_data = response.json()
+                self.assertTrue(response_data["is_remote_configuration"])
+                self.assertEqual(response_data["filters"]["groups"][0]["rollout_percentage"], 100)
+
+                instance = FeatureFlag.objects.get(id=response_data["id"])
+                self.assertEqual(instance.filters["groups"][0]["rollout_percentage"], 100)
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
