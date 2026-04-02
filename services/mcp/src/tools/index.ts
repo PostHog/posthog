@@ -30,6 +30,7 @@ import evaluationDelete from './llmAnalytics/evaluations/delete'
 import evaluationGet from './llmAnalytics/evaluations/get'
 import evaluationsGet from './llmAnalytics/evaluations/getAll'
 import evaluationRun from './llmAnalytics/evaluations/run'
+import evaluationTestHog from './llmAnalytics/evaluations/testHog'
 import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 import logsListAttributes from './logs/listAttributes'
@@ -116,6 +117,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'evaluation-update': evaluationUpdate,
     'evaluation-delete': evaluationDelete,
     'evaluation-run': evaluationRun,
+    'evaluation-test-hog': evaluationTestHog,
 
     // Search
     'entity-search': entitySearch,

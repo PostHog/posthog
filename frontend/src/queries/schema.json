@@ -784,6 +784,9 @@
                     "$ref": "#/definitions/LogPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/SpanPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
                 }
             ]
@@ -2893,6 +2896,95 @@
                 }
             },
             "required": ["type", "content", "tool_call_id"],
+            "type": "object"
+        },
+        "AssistantTraceQuery": {
+            "additionalProperties": false,
+            "description": "Fetch a single LLM trace by ID. Returns the full trace with all child events and their complete properties — use for deep inspection of a specific trace found via `query-llm-traces-list`.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query."
+                },
+                "kind": {
+                    "const": "TraceQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters to narrow events within the trace.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "traceId": {
+                    "description": "The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "traceId"],
+            "type": "object"
+        },
+        "AssistantTracesQuery": {
+            "additionalProperties": false,
+            "description": "Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency, token usage, costs, errors, and other metadata. Use for AI observability — debugging slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.\n\nThis is a listing tool, not a visualization/insight tool. It does not support series, breakdowns, or math aggregations. Use property filters and dateRange to narrow results.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query."
+                },
+                "filterSupportTraces": {
+                    "default": false,
+                    "description": "Exclude support impersonation traces.",
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters.",
+                    "type": "boolean"
+                },
+                "groupKey": {
+                    "description": "Filter traces by group key. Requires `groupTypeIndex` to be set.",
+                    "type": "string"
+                },
+                "groupTypeIndex": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Group type index when filtering by group."
+                },
+                "kind": {
+                    "const": "TracesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of traces to return."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of traces to skip for pagination."
+                },
+                "personId": {
+                    "description": "Filter traces by a specific person UUID.",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters to narrow results. Use event properties like `$ai_model`, `$ai_provider`, `$ai_trace_id`, etc. to filter traces.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "randomOrder": {
+                    "default": false,
+                    "description": "Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.",
+                    "type": "boolean"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "AssistantTrendsActionsNode": {
@@ -13092,6 +13184,10 @@
                 "cache_age_seconds": {
                     "type": "number"
                 },
+                "deleted": {
+                    "description": "Set to true to soft-delete this endpoint",
+                    "type": "boolean"
+                },
                 "derived_from_insight": {
                     "type": "string"
                 },
@@ -13511,6 +13607,35 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "EnrichedReviewer": {
+            "additionalProperties": false,
+            "properties": {
+                "github_login": {
+                    "type": "string"
+                },
+                "github_name": {
+                    "type": ["string", "null"]
+                },
+                "relevant_commits": {
+                    "items": {
+                        "$ref": "#/definitions/RelevantCommit"
+                    },
+                    "type": "array"
+                },
+                "user": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/SignalReviewerUserInfo"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["github_login", "github_name", "relevant_commits", "user"],
             "type": "object"
         },
         "EnsembleDetectorConfig": {
@@ -14912,6 +15037,13 @@
                     "$ref": "#/definitions/integer",
                     "description": "Show events matching a given action"
                 },
+                "actionSteps": {
+                    "description": "Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.",
+                    "items": {
+                        "$ref": "#/definitions/EventsQueryActionStep"
+                    },
+                    "type": "array"
+                },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
                     "type": "string"
@@ -15013,6 +15145,49 @@
                 }
             },
             "required": ["kind", "select"],
+            "type": "object"
+        },
+        "EventsQueryActionStep": {
+            "additionalProperties": false,
+            "description": "An action step definition for matching events without a saved action",
+            "properties": {
+                "event": {
+                    "type": ["string", "null"]
+                },
+                "href": {
+                    "type": ["string", "null"]
+                },
+                "href_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "selector": {
+                    "type": ["string", "null"]
+                },
+                "tag_name": {
+                    "type": ["string", "null"]
+                },
+                "text": {
+                    "type": ["string", "null"]
+                },
+                "text_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                },
+                "url": {
+                    "type": ["string", "null"]
+                },
+                "url_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                }
+            },
             "type": "object"
         },
         "EventsQueryPersonColumn": {
@@ -15413,9 +15588,6 @@
                 "name": {
                     "type": "string"
                 },
-                "only_count_matured_users": {
-                    "type": "boolean"
-                },
                 "response": {
                     "type": "object"
                 },
@@ -15715,9 +15887,6 @@
                 "name": {
                     "type": "string"
                 },
-                "only_count_matured_users": {
-                    "type": "boolean"
-                },
                 "response": {
                     "type": "object"
                 },
@@ -15807,9 +15976,6 @@
                 },
                 "name": {
                     "type": "string"
-                },
-                "only_count_matured_users": {
-                    "type": "boolean"
                 },
                 "response": {
                     "type": "object"
@@ -16123,9 +16289,6 @@
                 "numerator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
-                "only_count_matured_users": {
-                    "type": "boolean"
-                },
                 "response": {
                     "type": "object"
                 },
@@ -16194,9 +16357,6 @@
                 },
                 "name": {
                     "type": "string"
-                },
-                "only_count_matured_users": {
-                    "type": "boolean"
                 },
                 "response": {
                     "type": "object"
@@ -25198,6 +25358,9 @@
                 "log",
                 "log_attribute",
                 "log_resource_attribute",
+                "span",
+                "span_attribute",
+                "span_resource_attribute",
                 "workflow_variable",
                 "empty"
             ],
@@ -30629,6 +30792,22 @@
             ],
             "type": "string"
         },
+        "RelevantCommit": {
+            "additionalProperties": false,
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "sha": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            },
+            "required": ["sha", "url", "reason"],
+            "type": "object"
+        },
         "ReplayInactivityPeriod": {
             "additionalProperties": false,
             "properties": {
@@ -32374,6 +32553,13 @@
                     "$ref": "#/definitions/integer",
                     "description": "Show events matching a given action"
                 },
+                "actionSteps": {
+                    "description": "Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.",
+                    "items": {
+                        "$ref": "#/definitions/EventsQueryActionStep"
+                    },
+                    "type": "array"
+                },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
                     "type": "string"
@@ -33187,6 +33373,28 @@
             "required": ["source_product"],
             "type": "object"
         },
+        "SignalReviewerUserInfo": {
+            "additionalProperties": false,
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "first_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "last_name": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "uuid", "first_name", "last_name", "email"],
+            "type": "object"
+        },
         "SignalSourceProduct": {
             "enum": ["session_replay", "llm_analytics", "github", "linear", "zendesk", "error_tracking"],
             "type": "string"
@@ -33634,6 +33842,32 @@
                 }
             },
             "type": "object"
+        },
+        "SpanPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "$ref": "#/definitions/SpanPropertyFilterType"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "SpanPropertyFilterType": {
+            "enum": ["span", "span_attribute", "span_resource_attribute"],
+            "type": "string"
         },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
@@ -34489,6 +34723,9 @@
                 "logs",
                 "log_attributes",
                 "log_resource_attributes",
+                "spans",
+                "span_attributes",
+                "span_resource_attributes",
                 "replay",
                 "replay_saved_filters",
                 "revenue_analytics_properties",
@@ -34989,6 +35226,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
                 "kind": {
                     "const": "TraceSpansQuery",
                     "type": "string"
@@ -35007,14 +35247,15 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
+                "prefetchSpans": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Prefetch up to this many spans per trace and include them in results"
+                },
                 "response": {
                     "$ref": "#/definitions/TraceSpansQueryResponse"
                 },
                 "rootSpans": {
                     "type": "boolean"
-                },
-                "searchTerm": {
-                    "type": "string"
                 },
                 "serviceNames": {
                     "items": {

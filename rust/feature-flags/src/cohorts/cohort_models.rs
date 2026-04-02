@@ -18,7 +18,7 @@ pub enum CohortType {
 /// `_serialize_cohort()` in posthog/models/feature_flag/flags_cache.py. Field changes
 /// must follow the expand-and-contract pattern. Golden fixture contract test:
 ///   cargo test -p feature-flags test_hypercache_contract
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
 pub struct Cohort {
     pub id: i32,
     pub name: Option<String>,
@@ -154,6 +154,27 @@ pub struct CohortValues {
     #[serde(rename = "type")]
     pub prop_type: String,
     pub values: Vec<PropertyFilter>,
+}
+
+#[cfg(test)]
+#[allow(clippy::needless_update)]
+mod mock_impls {
+    use super::*;
+    use crate::utils::mock::Mock;
+
+    impl Mock for Cohort {
+        fn mock() -> Self {
+            Cohort {
+                id: 1,
+                name: Some("Test Cohort".to_string()),
+                description: Some("Test cohort description".to_string()),
+                team_id: 1,
+                version: Some(1),
+                groups: serde_json::json!({}),
+                ..Default::default()
+            }
+        }
+    }
 }
 
 #[cfg(test)]

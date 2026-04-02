@@ -4,9 +4,16 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
-import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
-import { OverflowOutput } from '../ingestion/common/outputs'
+import { KAFKA_CLICKHOUSE_TOPHOG, KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
+import {
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    OVERFLOW_OUTPUT,
+    OverflowOutput,
+    TOPHOG_OUTPUT,
+} from '../ingestion/common/outputs'
 import { IngestionConsumerConfig } from '../ingestion/config'
+import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,
@@ -76,7 +83,6 @@ export class SessionRecordingIngester {
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
     private readonly kafkaMessageProducer: KafkaProducerWrapper
-    private readonly overflowTopic: string
     private readonly topHog: TopHog
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
@@ -90,7 +96,6 @@ export class SessionRecordingIngester {
         restrictionRedisPool: RedisPool
     ) {
         this.topic = config.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic = config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC
         this.consumerGroupId = config.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
@@ -132,9 +137,21 @@ export class SessionRecordingIngester {
             s3Client = new S3Client(s3Config)
         }
 
+        const outputs = new IngestionOutputs({
+            [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: kafkaMetadataProducer },
+            [DLQ_OUTPUT]: {
+                topic: config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
+                producer: kafkaMessageProducer,
+            },
+            [OVERFLOW_OUTPUT]: {
+                topic: config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC,
+                producer: kafkaMessageProducer,
+            },
+            [TOPHOG_OUTPUT]: { topic: KAFKA_CLICKHOUSE_TOPHOG, producer: kafkaMetadataProducer },
+        })
+
         this.topHog = new TopHog({
-            kafkaProducer: kafkaMetadataProducer,
-            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            outputs,
             pipeline: config.INGESTION_PIPELINE ?? 'unknown',
             lane: config.INGESTION_LANE ?? 'unknown',
         })
@@ -203,15 +220,12 @@ export class SessionRecordingIngester {
         })
 
         this.sessionReplayPipeline = createSessionReplayPipeline({
-            kafkaProducer: this.kafkaMessageProducer,
+            outputs,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: this.overflowEnabled(),
-            overflowTopic: this.overflowTopic,
-            dlqTopic: this.config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
             promiseScheduler: this.promiseScheduler,
             teamService: this.teamService,
             topHog: this.topHog,
-            ingestionWarningProducer: this.kafkaMetadataProducer,
             sessionBatchManager: this.sessionBatchManager,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
         })

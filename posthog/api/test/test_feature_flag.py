@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from freezegun.api import freeze_time
@@ -27,6 +27,7 @@ from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_he
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import CohortType
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus
@@ -831,6 +832,66 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=ANY,
             request=ANY,
         )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_remote_config_flag_defaults_to_100_percent_rollout(self, mock_report_user_action):
+        """Test that remote config flags default to 100% rollout in various scenarios."""
+        test_cases = [
+            (
+                "no filters",
+                {"key": "rc-no-filters", "name": "RC No Filters", "is_remote_configuration": True},
+            ),
+            (
+                "explicit 0% rollout",
+                {
+                    "key": "rc-zero-rollout",
+                    "name": "RC Zero Rollout",
+                    "is_remote_configuration": True,
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 0, "variant": None}],
+                        "payloads": {"true": '{"key": "value"}'},
+                    },
+                },
+            ),
+            (
+                "None rollout_percentage",
+                {
+                    "key": "rc-null-rollout",
+                    "name": "RC Null Rollout",
+                    "is_remote_configuration": True,
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": None, "variant": None}],
+                        "payloads": {"true": '{"key": "value"}'},
+                    },
+                },
+            ),
+            (
+                "missing rollout_percentage",
+                {
+                    "key": "rc-missing-rollout",
+                    "name": "RC Missing Rollout",
+                    "is_remote_configuration": True,
+                    "filters": {
+                        "groups": [{"properties": [], "variant": None}],
+                        "payloads": {"true": '{"key": "value"}'},
+                    },
+                },
+            ),
+        ]
+        for description, payload in test_cases:
+            with self.subTest(description):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/",
+                    payload,
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+                response_data = response.json()
+                self.assertTrue(response_data["is_remote_configuration"])
+                self.assertEqual(response_data["filters"]["groups"][0]["rollout_percentage"], 100)
+
+                instance = FeatureFlag.objects.get(id=response_data["id"])
+                self.assertEqual(instance.filters["groups"][0]["rollout_percentage"], 100)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
@@ -5046,6 +5107,91 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             }.items(),
             cohort_request.json().items(),
         )
+
+    @parameterized.expand(
+        [
+            (
+                "realtime_backfilled_flag_on",
+                CohortType.REALTIME,
+                True,
+                True,
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "realtime_not_backfilled_flag_on",
+                CohortType.REALTIME,
+                False,
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "is still being backfilled",
+            ),
+            (
+                "non_realtime_flag_on",
+                None,
+                False,
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "filters on events",
+            ),
+            (
+                "realtime_backfilled_flag_off",
+                CohortType.REALTIME,
+                True,
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                "filters on events",
+            ),
+        ]
+    )
+    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_behavioral_cohort_flag_validation(
+        self,
+        _name,
+        cohort_type,
+        is_backfilled,
+        flag_enabled,
+        expected_status,
+        expected_detail_fragment,
+        mock_feature_enabled,
+    ):
+        mock_feature_enabled.return_value = flag_enabled
+
+        cohort_kwargs: dict[str, Any] = {
+            "team": self.team,
+            "name": "test-cohort",
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+        }
+        if cohort_type is not None:
+            cohort_kwargs["cohort_type"] = cohort_type
+        if is_backfilled:
+            cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
+
+        cohort = Cohort.objects.create(**cohort_kwargs)
+
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=expected_status,
+        )
+        self.assertEqual(response.status_code, expected_status)
+
+        if expected_detail_fragment is not None:
+            self.assertIn(expected_detail_fragment, response.json()["detail"])
 
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
