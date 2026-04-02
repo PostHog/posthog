@@ -19,6 +19,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -184,6 +185,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                             logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
                                             updateSearchParams
                                             filters={{
+                                                ...DEFAULT_RECORDING_FILTERS,
                                                 duration: [
                                                     {
                                                         type: PropertyFilterType.Recording,
