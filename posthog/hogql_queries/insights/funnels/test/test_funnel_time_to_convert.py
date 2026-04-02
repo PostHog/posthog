@@ -402,6 +402,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
+        assert query.funnelsFilter is not None
         query = query.model_copy(
             update={"funnelsFilter": query.funnelsFilter.model_copy(update={"funnelFromStep": 0, "funnelToStep": 2})}
         )
