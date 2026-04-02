@@ -31,7 +31,7 @@ class DimensionConfig(TypedDict, total=False):
     field: str | None
     is_path: bool
     is_channel: bool
-    raw_field: list[str] | None
+    raw_field: list[str | int] | None
 
 
 DIMENSIONS: list[DimensionConfig] = [

@@ -115,23 +115,23 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_integration_with_events(self):
         # Current period: 2025-01-22 to 2025-01-29
         # Previous period: 2025-01-15 to 2025-01-22
-        s_current_1 = str(uuid7("2025-01-23"))
-        s_current_2 = str(uuid7("2025-01-24"))
-        s_current_3 = str(uuid7("2025-01-25"))
-        s_previous_1 = str(uuid7("2025-01-16"))
+        # Need enough visitors to exceed MIN_TRAFFIC_THRESHOLD (10)
+        sessions_current = [str(uuid7(f"2025-01-{23 + i % 5}")) for i in range(8)]
+        sessions_previous = [str(uuid7(f"2025-01-{16 + i % 5}")) for i in range(4)]
 
-        for distinct_id, session_id, timestamp, pathname, browser in [
-            # Current period: 3 visitors to /blog
-            ("p1", s_current_1, "2025-01-23", "/blog", "Chrome"),
-            ("p2", s_current_2, "2025-01-24", "/blog", "Chrome"),
-            ("p3", s_current_3, "2025-01-25", "/blog", "Firefox"),
-            # Current period: 2 visitors to /home
-            ("p1", s_current_1, "2025-01-23", "/home", "Chrome"),
-            ("p2", s_current_2, "2025-01-24", "/home", "Chrome"),
-            # Previous period: 1 visitor to /blog, 1 to /home
-            ("p1", s_previous_1, "2025-01-16", "/blog", "Chrome"),
-            ("p1", s_previous_1, "2025-01-16", "/home", "Chrome"),
-        ]:
+        events = []
+        # Current period: 8 visitors to /blog
+        for i in range(8):
+            events.append((f"p{i}", sessions_current[i], f"2025-01-{23 + i % 5}", "/blog", "Chrome"))
+        # Current period: 6 visitors to /home
+        for i in range(6):
+            events.append((f"p{i}", sessions_current[i], f"2025-01-{23 + i % 5}", "/home", "Chrome"))
+        # Previous period: 4 visitors to /blog, 4 to /home
+        for i in range(4):
+            events.append((f"prev{i}", sessions_previous[i], f"2025-01-{16 + i % 5}", "/blog", "Chrome"))
+            events.append((f"prev{i}", sessions_previous[i], f"2025-01-{16 + i % 5}", "/home", "Chrome"))
+
+        for distinct_id, session_id, timestamp, pathname, browser in events:
             _create_event(
                 team=self.team,
                 event="$pageview",
