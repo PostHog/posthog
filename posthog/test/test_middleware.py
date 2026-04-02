@@ -1,18 +1,21 @@
 import json
 from datetime import datetime, timedelta
+from typing import cast
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, override_settings
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.http import HttpResponseRedirect
 from django.test import Client as DjangoClient
 from django.urls import reverse
 
 from parameterized import parameterized
 from rest_framework import status
+from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 
 from posthog.api.test.test_organization import create_organization
@@ -24,6 +27,10 @@ from posthog.models.user import User
 from posthog.settings import SITE_URL
 
 from products.dashboards.backend.models.dashboard import Dashboard
+
+
+def _social_auth_backend() -> BaseAuth:
+    return cast(BaseAuth, MagicMock())
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -1390,37 +1397,37 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
             (
                 "oauth_cancelled_on_complete",
                 "/complete/google-oauth2/",
-                AuthCanceled("google-oauth2", "User cancelled"),
+                AuthCanceled(_social_auth_backend(), "User cancelled"),
                 "/login?error_code=oauth_cancelled",
             ),
             (
                 "saml_sso_enforced",
                 "/complete/saml/",
-                AuthFailed("saml", "saml_sso_enforced"),
+                AuthFailed(_social_auth_backend(), "saml_sso_enforced"),
                 "/login?error_code=saml_sso_enforced",
             ),
             (
                 "google_sso_enforced",
                 "/complete/google-oauth2/",
-                AuthFailed("google-oauth2", "google_sso_enforced"),
+                AuthFailed(_social_auth_backend(), "google_sso_enforced"),
                 "/login?error_code=google_sso_enforced",
             ),
             (
                 "github_sso_enforced",
                 "/complete/github/",
-                AuthFailed("github", "github_sso_enforced"),
+                AuthFailed(_social_auth_backend(), "github_sso_enforced"),
                 "/login?error_code=github_sso_enforced",
             ),
             (
                 "gitlab_sso_enforced",
                 "/complete/gitlab/",
-                AuthFailed("gitlab", "gitlab_sso_enforced"),
+                AuthFailed(_social_auth_backend(), "gitlab_sso_enforced"),
                 "/login?error_code=gitlab_sso_enforced",
             ),
             (
                 "generic_sso_enforced",
                 "/complete/saml/",
-                AuthFailed("saml", "sso_enforced"),
+                AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
             ),
         ]
@@ -1430,6 +1437,7 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         response = self.middleware.process_exception(request, exception)
 
         self.assertIsNotNone(response)
+        assert isinstance(response, HttpResponseRedirect)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.url, expected_url)
 
@@ -1438,17 +1446,17 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
             (
                 "auth_failed_generic_on_complete",
                 "/complete/saml/",
-                AuthFailed("saml", "SAML not configured for this user."),
+                AuthFailed(_social_auth_backend(), "SAML not configured for this user."),
             ),
             (
                 "auth_missing_parameter_on_complete",
                 "/complete/saml/",
-                AuthMissingParameter("saml", "email"),
+                AuthMissingParameter(_social_auth_backend(), "email"),
             ),
             (
                 "auth_failed_on_login_path",
                 "/login/saml/",
-                AuthFailed("saml", "SAML not configured for this user."),
+                AuthFailed(_social_auth_backend(), "SAML not configured for this user."),
             ),
         ]
     )
@@ -1457,6 +1465,7 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         response = self.middleware.process_exception(request, exception)
 
         self.assertIsNotNone(response)
+        assert isinstance(response, HttpResponseRedirect)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn("error_code=social_login_failure", response.url)
         self.assertIn("error_detail=", response.url)
@@ -1471,7 +1480,7 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
             (
                 "auth_failed_on_non_oauth_path",
                 "/api/some-endpoint/",
-                AuthFailed("saml", "some error"),
+                AuthFailed(_social_auth_backend(), "some error"),
             ),
         ]
     )
