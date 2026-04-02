@@ -7,7 +7,7 @@ import sys
 def load_result_file(path):
     with open(path) as f:
         raw = json.load(f)
-    if isinstance(raw, list) and raw and raw[0].get("type") == "text":
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and raw[0].get("type") == "text":
         raw = json.loads(raw[0]["text"])
     return raw
 
@@ -18,7 +18,7 @@ def parse_result(raw):
     clusters = []
 
     # Direct clusters array
-    if isinstance(raw, list) and raw and "cluster_id" in raw[0]:
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and "cluster_id" in raw[0]:
         return raw, meta
 
     # SQL result — look for clusters JSON and metadata columns
