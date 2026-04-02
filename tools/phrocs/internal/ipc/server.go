@@ -217,10 +217,10 @@ func dispatch(req request, mgr *process.Manager) any {
 			return map[string]any{"ok": false, "error": "process already exists: " + req.Process}
 		}
 		p := mgr.AddShell(req.Process, req.Shell)
-		send := mgr.Send()
-		go func() { _ = p.Start(send) }()
-		// Notify TUI to refresh process list
-		send(process.StatusMsg{Name: req.Process, Status: process.StatusPending})
+		if send := mgr.Send(); send != nil {
+			go func() { _ = p.Start(send) }()
+			send(process.StatusMsg{Name: req.Process, Status: process.StatusPending})
+		}
 		return map[string]any{"ok": true}
 
 	case "remove-proc":
@@ -252,8 +252,7 @@ func dispatch(req request, mgr *process.Manager) any {
 		}
 		if p.IsRunning() {
 			p.Stop()
-		} else {
-			send := mgr.Send()
+		} else if send := mgr.Send(); send != nil {
 			go func() { _ = p.Start(send) }()
 		}
 		return map[string]any{"ok": true}

@@ -42,7 +42,16 @@ func NewManager(cfg *config.Config) *Manager {
 	return mgr
 }
 
-// Must be called before StartAll
+// UpdateDefaults updates the manager's default scrollback and global shell
+// to match a new config, so that subsequent AddShell calls use the new values.
+func (m *Manager) UpdateDefaults(cfg *config.Config) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.scrollback = cfg.Scrollback
+	m.globalShell = cfg.Shell
+}
+
+// SetSend must be called before StartAll
 func (m *Manager) SetSend(send func(tea.Msg)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -123,7 +132,8 @@ func (m *Manager) Add(name string, pcfg config.ProcConfig, scrollback int, globa
 }
 
 // AddShell creates a new process from a shell command using the manager's
-// default scrollback and global shell. Returns nil if the name already exists.
+// default scrollback and global shell. If a process with the same name already
+// exists, it is a no-op and the existing process is returned.
 func (m *Manager) AddShell(name, shell string) *Process {
 	return m.Add(name, config.ProcConfig{Shell: shell}, m.scrollback, m.globalShell)
 }

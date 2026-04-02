@@ -201,6 +201,7 @@ func (m *Model) applySetupChanges() {
 		}
 	}
 
+	m.mgr.UpdateDefaults(newCfg)
 	m.configPath = newConfigPath
 	m.services = m.mgr.Procs()
 	m.sortServices()
