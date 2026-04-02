@@ -231,7 +231,8 @@ where
             .increment(1.0);
 
         let start = Instant::now();
-        let inner = self.inner.call(request);
+        // Call inner inside the scope so any synchronous work in call() sees CLIENT_NAME.
+        let inner = CLIENT_NAME.sync_scope(client.clone(), || self.inner.call(request));
         let in_flight_guard = InFlightGuard {
             method: method.clone(),
             client: client.clone(),

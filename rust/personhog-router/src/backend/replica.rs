@@ -76,10 +76,7 @@ macro_rules! retry_call {
                 if let Ok(val) = client_name.parse() {
                     request.metadata_mut().insert("x-client-name", val);
                 }
-                client
-                    .$method(request)
-                    .await
-                    .map(|r| r.into_inner())
+                client.$method(request).await.map(|r| r.into_inner())
             }
         })
         .await

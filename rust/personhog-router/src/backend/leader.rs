@@ -198,10 +198,7 @@ impl LeaderOps for LeaderBackend {
                 if let Ok(val) = client_name.parse() {
                     request.metadata_mut().insert("x-client-name", val);
                 }
-                client
-                    .get_person(request)
-                    .await
-                    .map(|r| r.into_inner())
+                client.get_person(request).await.map(|r| r.into_inner())
             }
         })
         .await
