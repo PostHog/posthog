@@ -223,31 +223,29 @@ def evaluate_single_filter_sync(
 
         # If filter matches, create an event for each cohort
         if result:
-            for cohort_id in filter_obj.cohort_ids:
-                event = {
-                    "team_id": inputs.team_id,
-                    "distinct_id": person_id,
-                    "person_id": person_id,
-                    "cohort_id": cohort_id,
-                    "condition_hash": filter_obj.condition_hash,
-                    "property_key": filter_obj.property_key,
-                    "result": result,
-                }
+            event = {
+                "team_id": inputs.team_id,
+                "distinct_id": person_id,
+                "person_id": person_id,
+                "condition": filter_obj.condition_hash,
+                "matches": result,
+                "source": f"cohort_filter_{filter_obj.condition_hash}",
+            }
 
-                # Produce to Kafka and collect ProduceResult objects
-                try:
-                    produce_result = kafka_producer.produce(
-                        topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                        data=event,
-                    )
-                    kafka_results.append(produce_result)
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to produce Kafka message for person {person_id}: {e}",
-                        person_id=person_id,
-                        error=str(e),
-                    )
-                    # Continue processing even if Kafka produce fails
+            # Produce to Kafka and collect ProduceResult objects
+            try:
+                produce_result = kafka_producer.produce(
+                    topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                    data=event,
+                )
+                kafka_results.append(produce_result)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to produce Kafka message for person {person_id}: {e}",
+                    person_id=person_id,
+                    error=str(e),
+                )
+                # Continue processing even if Kafka produce fails
     except Exception as e:
         logger.warning(
             f"Failed to execute filter bytecode for person {person_id}: {e}",
