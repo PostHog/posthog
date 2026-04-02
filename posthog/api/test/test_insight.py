@@ -3652,8 +3652,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
-        base_query_params = {
-            "from_dashboard": dashboard.pk,
+        base_query_params: dict[str, str] = {
+            "from_dashboard": str(dashboard.pk),
             "refresh": "blocking",
             "tile_filters_override": json.dumps({"date_from": "all", "explicitDate": False}),
         }
