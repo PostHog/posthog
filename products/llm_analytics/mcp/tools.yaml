@@ -79,10 +79,36 @@ tools:
         enabled: false
     llm-analytics-sentiment-create:
         operation: llm_analytics_sentiment_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Analyze sentiment
+        description: >
+            Classify sentiment of LLM trace or generation user messages as positive,
+            neutral, or negative. Pass a list of trace or generation IDs and an
+            analysis_level ("trace" or "generation"). Returns per-ID sentiment labels
+            with confidence scores and per-message breakdowns. Results are cached —
+            use force_refresh to recompute. Rate-limited.
     llm-analytics-summarization-create:
         operation: llm_analytics_summarization_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Summarize trace or generation
+        description: >
+            Generate an AI-powered summary of an LLM trace or generation. Pass a
+            trace_id or generation_id with a date_from — the backend fetches the data
+            and returns a structured summary with title, flow diagram, summary bullets,
+            and interesting notes. Results are cached. Use mode "minimal" (default) for
+            3-5 points or "detailed" for 5-10 points. Rate-limited.
     llm-analytics-summarization-batch-check-create:
         operation: llm_analytics_summarization_batch_check_create
         enabled: false

@@ -81,7 +81,7 @@ def collect_bare_fields(node: ast.AST) -> set[str]:
 def get_table_alias_for_lazy_join(lazy_join_type: ast.LazyJoinType) -> str | None:
     table_type = lazy_join_type.table_type
     while table_type:
-        if isinstance(table_type, ast.TableAliasType):
+        if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             return table_type.alias
         if isinstance(table_type, ast.TableType):
             # No alias, use the table name directly
@@ -271,7 +271,7 @@ class LazyTableResolver(TraversingVisitor):
             return
 
         table_type = node.field_type.table_type
-        while isinstance(table_type, ast.TableAliasType) or isinstance(table_type, ast.VirtualTableType):
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
             table_type = table_type.table_type
 
         if isinstance(table_type, ast.LazyJoinType) or isinstance(table_type, ast.LazyTableType):
@@ -286,7 +286,7 @@ class LazyTableResolver(TraversingVisitor):
 
     def visit_field_type(self, node: ast.FieldType):
         table_type: ast.TableOrSelectType | ast.TableAliasType = node.table_type
-        while isinstance(table_type, ast.TableAliasType) or isinstance(table_type, ast.VirtualTableType):
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
             table_type = table_type.table_type
 
         if isinstance(table_type, ast.LazyJoinType) or isinstance(table_type, ast.LazyTableType):
@@ -338,8 +338,9 @@ class LazyTableResolver(TraversingVisitor):
                 fields: list[ast.FieldType | ast.PropertyType] = []
                 for field_or_property in field_collector:
                     if isinstance(field_or_property, ast.FieldType):
-                        if isinstance(field_or_property.table_type, ast.TableAliasType) or isinstance(
-                            field_or_property.table_type, ast.VirtualTableType
+                        if isinstance(
+                            field_or_property.table_type,
+                            (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType),
                         ):
                             if field_or_property.table_type.table_type == join.table.type:
                                 fields.append(field_or_property)
@@ -347,8 +348,9 @@ class LazyTableResolver(TraversingVisitor):
                             if field_or_property.table_type == join.table.type:
                                 fields.append(field_or_property)
                     elif isinstance(field_or_property, ast.PropertyType):
-                        if isinstance(field_or_property.field_type.table_type, ast.TableAliasType) or isinstance(
-                            field_or_property.field_type.table_type, ast.VirtualTableType
+                        if isinstance(
+                            field_or_property.field_type.table_type,
+                            (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType),
                         ):
                             if field_or_property.field_type.table_type.table_type == join.table.type:
                                 fields.append(field_or_property)
@@ -373,9 +375,16 @@ class LazyTableResolver(TraversingVisitor):
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
             # Usually there's just one or two.
-            table_types: list[ast.LazyJoinType | ast.LazyTableType | ast.TableAliasType | ast.VirtualTableType] = []
+            table_types: list[
+                ast.LazyJoinType
+                | ast.LazyTableType
+                | ast.TableAliasType
+                | ast.ColumnAliasedTableType
+                | ast.VirtualTableType
+            ] = []
             while (
                 isinstance(table_type, ast.TableAliasType)
+                or isinstance(table_type, ast.ColumnAliasedTableType)
                 or isinstance(table_type, ast.LazyJoinType)
                 or isinstance(table_type, ast.LazyTableType)
                 or isinstance(table_type, ast.VirtualTableType)
@@ -387,7 +396,7 @@ class LazyTableResolver(TraversingVisitor):
                     table_types.append(table_type)
                     table_type = table_type.table_type
                     continue
-                if isinstance(table_type, ast.TableAliasType):
+                if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                     table_types.append(table_type)
                     table_type = table_type.table_type
                     break
@@ -449,7 +458,7 @@ class LazyTableResolver(TraversingVisitor):
                             new_table.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
                             new_table.fields_accessed[field.name] = chain
-                elif isinstance(table_type, ast.TableAliasType):
+                elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                     if isinstance(table_type.table_type, ast.LazyJoinType):
                         from_table = get_long_table_name(select_type, table_type.table_type)
                         to_table = get_long_table_name(select_type, table_type)
@@ -559,7 +568,7 @@ class LazyTableResolver(TraversingVisitor):
                 if join_ptr.table is not None and (
                     join_ptr.table.type == old_table_type
                     or (
-                        isinstance(old_table_type, ast.TableAliasType)
+                        isinstance(old_table_type, (ast.TableAliasType, ast.ColumnAliasedTableType))
                         and join_ptr.table.type == old_table_type.table_type
                     )
                 ):
