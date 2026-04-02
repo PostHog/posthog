@@ -486,6 +486,49 @@ def get_cluster(
     )
 
 
+# Logical cluster registry: maps names to (host_setting, cluster_setting).
+# When PostHog runs separate ZooKeeper ensembles per cluster, callers use
+# get_cluster_by_name("logs") instead of get_cluster() to bootstrap from
+# the correct host.
+_CLUSTER_REGISTRY: dict[str, tuple[str, str]] = {
+    "main": ("CLICKHOUSE_HOST", "CLICKHOUSE_CLUSTER"),
+    "logs": ("CLICKHOUSE_LOGS_CLUSTER_HOST", "CLICKHOUSE_LOGS_CLUSTER"),
+    "migrations": ("CLICKHOUSE_MIGRATIONS_HOST", "CLICKHOUSE_MIGRATIONS_CLUSTER"),
+    "endpoints": ("CLICKHOUSE_ENDPOINTS_HOST", "CLICKHOUSE_CLUSTER"),
+    "single_shard": ("CLICKHOUSE_HOST", "CLICKHOUSE_SINGLE_SHARD_CLUSTER"),
+    "writable": ("CLICKHOUSE_HOST", "CLICKHOUSE_WRITABLE_CLUSTER"),
+    "primary_replica": ("CLICKHOUSE_HOST", "CLICKHOUSE_PRIMARY_REPLICA_CLUSTER"),
+}
+
+
+def get_cluster_by_name(
+    logical_name: str,
+    **kwargs: Any,
+) -> ClickhouseCluster:
+    """Get a ClickhouseCluster for a logical cluster name (main, logs, etc).
+
+    Resolves the host and cluster name from Django settings based on the
+    registry. Falls back to the default cluster for unknown names.
+    """
+    if logical_name not in _CLUSTER_REGISTRY:
+        return get_cluster(**kwargs)
+
+    host_attr, cluster_attr = _CLUSTER_REGISTRY[logical_name]
+    host = getattr(settings, host_attr, settings.CLICKHOUSE_HOST)
+    cluster_name = getattr(settings, cluster_attr, settings.CLICKHOUSE_CLUSTER)
+    return get_cluster(host=host, cluster=cluster_name, **kwargs)
+
+
+def get_all_logical_clusters() -> list[str]:
+    """Return all registered logical cluster names."""
+    return sorted(_CLUSTER_REGISTRY.keys())
+
+
+def is_known_cluster(name: str) -> bool:
+    """Check if a logical cluster name is registered."""
+    return name in _CLUSTER_REGISTRY
+
+
 @dataclass
 class Query:
     query: str
