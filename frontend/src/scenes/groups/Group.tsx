@@ -28,7 +28,15 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import type { ActionFilter } from '~/types'
-import { ActivityScope, FilterLogicalOperator, GroupsTabType, PersonsTabType, PropertyDefinitionType } from '~/types'
+import {
+    ActivityScope,
+    FilterLogicalOperator,
+    GroupsTabType,
+    PersonsTabType,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
 
@@ -175,6 +183,16 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                         <SessionRecordingsPlaylist
                                             logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
                                             updateSearchParams
+                                            filters={{
+                                                duration: [
+                                                    {
+                                                        type: PropertyFilterType.Recording,
+                                                        key: 'duration',
+                                                        value: 1,
+                                                        operator: PropertyOperator.GreaterThan,
+                                                    },
+                                                ],
+                                            }}
                                             pinnedFilters={{
                                                 type: FilterLogicalOperator.And,
                                                 values: [
