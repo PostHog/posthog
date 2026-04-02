@@ -621,12 +621,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         ],
         aggregationTargetName: [
             (s) => [s.filters, s.aggregationLabel],
-            (filters, aggregationLabel): string => {
-                if (filters.aggregation_group_type_index != null) {
-                    return aggregationLabel(filters.aggregation_group_type_index).plural
-                }
-                return 'users'
-            },
+            (filters, aggregationLabel) =>
+                (conditionGroupTypeIndex?: number | null): string => {
+                    const effectiveIndex = conditionGroupTypeIndex ?? filters.aggregation_group_type_index
+                    if (effectiveIndex != null) {
+                        return aggregationLabel(effectiveIndex).plural
+                    }
+                    return 'users'
+                },
         ],
         taxonomicGroupTypesForCondition: [
             (s) => [s.filters, s.groupTypes],
