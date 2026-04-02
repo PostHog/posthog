@@ -14,6 +14,7 @@ use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::api::{Api, ListParams, Patch, PatchParams, PostParams};
 use kube::config::{KubeConfigOptions, Kubeconfig};
 use kube::Client;
+use serial_test::serial;
 use testcontainers::runners::AsyncRunner;
 use testcontainers::ImageExt;
 use testcontainers_modules::k3s::{K3s, KUBE_SECURE_PORT};
@@ -33,7 +34,7 @@ use common::{start_router, test_store, wait_for_condition, HandoffEvent, POLL_IN
 
 const NAMESPACE: &str = "default";
 const NUM_PARTITIONS: u32 = 8;
-const E2E_TIMEOUT: Duration = Duration::from_secs(30);
+const E2E_TIMEOUT: Duration = Duration::from_secs(60);
 
 // ── K3s helpers ──────────────────────────────────────────
 
@@ -378,6 +379,11 @@ fn start_coordinator_k8s(
 }
 
 // ── Tests ────────────────────────────────────────────────
+//
+// Tests run sequentially via `#[serial]` — each spins up its own k3s
+// container which is dropped (and cleaned up by Docker) when the test ends.
+// This avoids running multiple k3s clusters in parallel which exhausts
+// Docker memory.
 
 /// Full Deployment rollout lifecycle with K8s-aware coordinator.
 ///
@@ -394,6 +400,7 @@ fn start_coordinator_k8s(
 /// 5. Old pods are terminated (SIGTERM) — they have no partitions, drain is instant
 /// 6. Final: only new-gen pods own partitions
 #[tokio::test(flavor = "multi_thread")]
+#[serial]
 async fn deployment_rollout_reassigns_partitions() {
     let (_container, k8s_client, _tmp) = setup_k3s().await;
 
@@ -570,6 +577,7 @@ async fn deployment_rollout_reassigns_partitions() {
 /// 4. Verify: pod exits within seconds (not waiting drain_timeout)
 /// 5. Verify: pod never set status to Draining in etcd
 #[tokio::test(flavor = "multi_thread")]
+#[serial]
 async fn statefulset_rollout_pod_skips_drain() {
     let (_container, k8s_client, _tmp) = setup_k3s().await;
 
@@ -690,6 +698,7 @@ async fn statefulset_rollout_pod_skips_drain() {
 /// 5. Partitions transfer to surviving pod via handoff protocol
 /// 6. Final: single pod owns all partitions
 #[tokio::test(flavor = "multi_thread")]
+#[serial]
 async fn scale_down_pod_drains_normally() {
     let (_container, k8s_client, _tmp) = setup_k3s().await;
 

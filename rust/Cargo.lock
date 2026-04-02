@@ -6545,6 +6545,7 @@ dependencies = [
  "kube",
  "serde",
  "serde_json",
+ "serial_test",
  "tempfile",
  "testcontainers",
  "testcontainers-modules",

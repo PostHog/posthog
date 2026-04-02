@@ -19,6 +19,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 k8s-openapi = { version = "0.24", features = ["latest"] }
 kube = { version = "0.98", features = ["client"] }
+serial_test = "3"
 serde_json = { workspace = true }
 tempfile = "3"
 testcontainers = { workspace = true }
