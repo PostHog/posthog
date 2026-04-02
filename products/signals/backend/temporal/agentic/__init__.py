@@ -17,8 +17,12 @@ def get_or_create_signals_sandbox_env(
     name: str,
     network_access_level: SandboxEnvironment.NetworkAccessLevel,
 ) -> str:
-    """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string."""
-    env, _ = SandboxEnvironment.objects.get_or_create(
+    """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string.
+
+    Uses update_or_create to reassert the expected policy on every call,
+    so manual edits via the API are corrected on next run.
+    """
+    env, _ = SandboxEnvironment.objects.update_or_create(
         team_id=team_id,
         name=name,
         defaults={
