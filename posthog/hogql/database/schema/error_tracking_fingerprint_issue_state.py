@@ -19,10 +19,10 @@ from posthog.hogql.errors import ResolutionError
 ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "fingerprint": StringDatabaseField(name="fingerprint", nullable=False),
-    "issue_id": StringDatabaseField(name="issue_id", nullable=False),
+    "issue_id": StringDatabaseField(name="issue_id", nullable=True),
     "issue_name": StringDatabaseField(name="issue_name", nullable=True),
     "issue_description": StringDatabaseField(name="issue_description", nullable=True),
-    "issue_status": StringDatabaseField(name="issue_status", nullable=False),
+    "issue_status": StringDatabaseField(name="issue_status", nullable=True),
     "assigned_user_id": IntegerDatabaseField(name="assigned_user_id", nullable=True),
     "assigned_role_id": UUIDDatabaseField(name="assigned_role_id", nullable=True),
     "first_seen": DateTimeDatabaseField(name="first_seen", nullable=True),
@@ -57,6 +57,8 @@ def join_with_error_tracking_fingerprint_issue_state_table(
 def select_from_error_tracking_fingerprint_issue_state_table(
     requested_fields: dict[str, list[str | int]],
 ):
+    from posthog.hogql import ast
+
     # Always include issue_id as it's the key used for further joins
     if "issue_id" not in requested_fields:
         requested_fields = {**requested_fields, "issue_id": ["issue_id"]}
@@ -67,6 +69,16 @@ def select_from_error_tracking_fingerprint_issue_state_table(
         argmax_field="version",
         deleted_field="is_deleted",
     )
+    # Wrap non-group-by fields in toNullable() so that unmatched LEFT JOIN rows
+    # produce actual NULLs instead of type defaults (e.g. 00000000-... for UUID).
+    # ClickHouse's join_use_nulls=0 (default) only returns NULL for Nullable columns.
+    group_fields = {"fingerprint"}
+    for i, expr in enumerate(select.select):
+        if isinstance(expr, ast.Alias) and expr.alias not in group_fields:
+            select.select[i] = ast.Alias(
+                alias=expr.alias,
+                expr=ast.Call(name="toNullable", args=[expr.expr]),
+            )
     select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
     return select
 
