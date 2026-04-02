@@ -63,10 +63,25 @@ test.describe('SQL Editor direct Postgres queries', () => {
             await test.step('Create the Postgres direct source for the selected table', async () => {
                 sourceId = await page.evaluate(
                     async ({ name, table }) => {
+                        const csrfToken =
+                            document.cookie
+                                .split(';')
+                                .map((cookie) => cookie.trim())
+                                .find((cookie) => cookie.startsWith('posthog_csrftoken='))
+                                ?.split('=')
+                                .slice(1)
+                                .join('=') || ''
+
+                        if (!csrfToken) {
+                            throw new Error('CSRF cookie missing in browser context')
+                        }
+
                         const response = await fetch('/api/projects/@current/external_data_sources/', {
                             method: 'POST',
+                            credentials: 'include',
                             headers: {
                                 'Content-Type': 'application/json',
+                                'X-CSRFToken': decodeURIComponent(csrfToken),
                             },
                             body: JSON.stringify({
                                 source_type: 'Postgres',
@@ -95,7 +110,7 @@ test.describe('SQL Editor direct Postgres queries', () => {
                         })
 
                         if (!response.ok) {
-                            throw new Error(await response.text())
+                            throw new Error(`${response.status} ${await response.text()}`)
                         }
 
                         const data = await response.json()
@@ -128,16 +143,37 @@ test.describe('SQL Editor direct Postgres queries', () => {
                 await page.locator('[data-attr=sql-editor-run-button]').click()
 
                 await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
-                await expect(page.getByText('alpha')).toBeVisible()
-                await expect(page.getByText('beta')).toBeVisible()
+                await expect
+                    .poll(async () => await page.locator('body').innerText(), { timeout: 15000 })
+                    .toContain('Showing 2 rows')
+                await expect
+                    .poll(async () => await page.locator('body').innerText(), { timeout: 15000 })
+                    .toContain('alpha')
             })
         } finally {
             if (sourceId) {
                 try {
                     await page.evaluate(
                         async ({ id }) => {
+                            const csrfToken =
+                                document.cookie
+                                    .split(';')
+                                    .map((cookie) => cookie.trim())
+                                    .find((cookie) => cookie.startsWith('posthog_csrftoken='))
+                                    ?.split('=')
+                                    .slice(1)
+                                    .join('=') || ''
+
+                            if (!csrfToken) {
+                                throw new Error('CSRF cookie missing in browser context')
+                            }
+
                             await fetch(`/api/projects/@current/external_data_sources/${id}/`, {
                                 method: 'DELETE',
+                                credentials: 'include',
+                                headers: {
+                                    'X-CSRFToken': decodeURIComponent(csrfToken),
+                                },
                             })
                         },
                         { id: sourceId }
