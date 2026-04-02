@@ -7,6 +7,16 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export type SourceTypeEnum =
+    | 'replay'
+    | 'notebook'
+    | 'insight'
+    | 'feature_flag'
+    | 'dashboard'
+    | 'survey'
+    | 'experiment'
+    | 'error_tracking'
+
 export interface NotificationEventApi {
     id: string
     /** @nullable */
@@ -23,7 +33,7 @@ export interface NotificationEventApi {
     resource_id: string
     source_url: string
     /** @nullable */
-    source_type: string | null
+    source_type: SourceTypeEnum | null
     /** @nullable */
     source_id: string | null
     created_at: string

@@ -1,32 +1,57 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog, { JsonRecord } from 'posthog-js'
-
-import { IconBug, IconCheckCircle, IconComment, IconNotification, IconPlug, IconWarning } from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
-import { notificationsMenuLogic } from 'lib/components/NotificationsMenu/notificationsMenuLogic'
+import { showCriticalNotificationToast } from 'lib/components/NotificationsMenu/notificationToasts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { toParams } from 'lib/utils'
+import { retryWithBackoff, toParams } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
+import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { InAppNotification } from '~/types'
+import { InAppNotification, InsightShortId } from '~/types'
+
+import { NotificationEventSourceTypeEnumApi } from 'products/notifications/frontend/generated/api.schemas'
 
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
 const LEGACY_POLL_TIMEOUT = 5 * 60 * 1000
-const MAX_SSE_ERRORS = 3
+const SSE_RETRY_ATTEMPTS = 3
+const SSE_RETRY_INITIAL_DELAY_MS = 30000
+const SSE_RETRY_BACKOFF_MULTIPLIER = 4
+
+const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: string) => string> = {
+    replay: (id) => urls.replaySingle(id),
+    notebook: (id) => urls.notebook(id),
+    insight: (id) => urls.insightView(id as InsightShortId),
+    feature_flag: (id) => urls.featureFlag(id),
+    dashboard: (id) => urls.dashboard(id),
+    survey: (id) => urls.survey(id),
+    experiment: (id) => urls.experiment(id),
+    error_tracking: (id) => urls.errorTrackingIssue(id),
+}
+
+export function buildNotificationSourcePath(notification: InAppNotification): string | null {
+    if (notification.source_type && notification.source_id && notification.source_type in SOURCE_TYPE_TO_PATH) {
+        return SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi](
+            notification.source_id
+        )
+    }
+    return notification.source_url || null
+}
 
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
@@ -46,7 +71,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'currentTeamId'],
+            organizationLogic,
+            ['currentOrganization'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel'], teamLogic, ['loadCurrentTeamSuccess']],
     })),
@@ -68,6 +95,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         notificationReceived: (notification: InAppNotification) => ({ notification }),
         markAsRead: (id: string) => ({ id }),
         toggleRead: (id: string) => ({ id }),
+        navigateToNotification: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
         initialLoadDone: true,
         startSSE: true,
@@ -83,7 +111,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         errorCounter: [
             0,
             {
-                incrementErrorCount: (state) => (state >= MAX_SSE_ERRORS ? MAX_SSE_ERRORS : state + 1),
+                incrementErrorCount: (state) => {
+                    const MAX_LEGACY_ERRORS = 5
+                    return state >= MAX_LEGACY_ERRORS ? MAX_LEGACY_ERRORS : state + 1
+                },
                 clearErrorCount: () => 0,
             },
         ],
@@ -250,83 +281,53 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
 
             posthog.capture('livestream_sse_connecting', { url })
 
-            void api
-                .stream(url, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                    signal: abortController.signal,
-                    onMessage: (event) => {
-                        actions.clearErrorCount()
-                        if (!cache.firstMessageLogged) {
-                            cache.firstMessageLogged = true
-                            posthog.capture('livestream_sse_first_message', { url })
-                        }
-                        if (!values.isInitialLoadComplete) {
-                            return
-                        }
-                        try {
-                            const notification = JSON.parse(event.data) as InAppNotification
+            void retryWithBackoff(
+                () =>
+                    connectToNotificationsSSE(
+                        url,
+                        token,
+                        abortController.signal,
+                        (notification) => {
+                            if (!values.isInitialLoadComplete) {
+                                return
+                            }
                             actions.notificationReceived(notification)
                             if (notification.priority === 'critical') {
-                                const iconMap: Record<string, JSX.Element> = {
-                                    comment_mention: <IconComment className="size-5 text-primary shrink-0" />,
-                                    alert_firing: <IconWarning className="size-5 text-warning shrink-0" />,
-                                    approval_requested: <IconCheckCircle className="size-5 text-success shrink-0" />,
-                                    approval_resolved: <IconCheckCircle className="size-5 text-success shrink-0" />,
-                                    pipeline_failure: <IconPlug className="size-5 text-danger shrink-0" />,
-                                    issue_assigned: <IconBug className="size-5 text-primary shrink-0" />,
-                                }
-                                const icon = iconMap[notification.notification_type] ?? (
-                                    <IconNotification className="size-5 text-secondary shrink-0" />
-                                )
-                                lemonToast.info(
-                                    <div className="flex items-start gap-2">
-                                        {icon}
-                                        <div className="min-w-0">
-                                            <div className="font-semibold text-xs">{notification.title}</div>
-                                            {notification.body && (
-                                                <div className="text-xs text-secondary mt-0.5 line-clamp-1">
-                                                    {notification.body}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>,
-                                    {
-                                        icon: false,
-                                        autoClose: false,
-                                        toastId: `notification-${notification.id}`,
-                                        button: {
-                                            label: 'Open notifications',
-                                            action: () => notificationsMenuLogic.actions.openToUnread(),
-                                        },
-                                    }
-                                )
+                                showCriticalNotificationToast(notification)
                             }
-                        } catch {
-                            // Ignore malformed messages
+                        },
+                        {
+                            // TEMPORARY: livestream SSE lifecycle tracking.
+                            onFirstMessage: () => {
+                                if (!cache.firstMessageLogged) {
+                                    cache.firstMessageLogged = true
+                                    posthog.capture('livestream_sse_first_message', { url })
+                                }
+                            },
+                            onError: (error) => {
+                                posthog.capture('livestream_sse_error', {
+                                    url,
+                                    error_name: (error as Error | undefined)?.name,
+                                    error_message: (error as Error | undefined)?.message,
+                                })
+                            },
                         }
-                    },
-                    onError: (error) => {
-                        // TEMPORARY: livestream SSE lifecycle tracking.
-                        posthog.capture('livestream_sse_error', {
-                            url,
-                            error_name: (error as Error | undefined)?.name,
-                            error_message: (error as Error | undefined)?.message,
-                            error_count: values.errorCounter + 1,
-                        })
-                        actions.incrementErrorCount()
-                        if (values.errorCounter >= MAX_SSE_ERRORS) {
-                            posthog.capture('livestream_sse_max_errors', {
-                                url,
-                                max_errors: MAX_SSE_ERRORS,
-                            })
-                            abortController.abort()
-                            throw new Error(`SSE failed ${MAX_SSE_ERRORS} times, giving up`)
-                        }
-                    },
-                })
-                .catch(() => {})
+                    ),
+                {
+                    maxAttempts: SSE_RETRY_ATTEMPTS,
+                    initialDelayMs: SSE_RETRY_INITIAL_DELAY_MS,
+                    backoffMultiplier: SSE_RETRY_BACKOFF_MULTIPLIER,
+                    signal: abortController.signal,
+                }
+            ).catch((error) => {
+                // TEMPORARY: livestream SSE lifecycle tracking. retryWithBackoff rejects with AbortError on clean shutdown; only log when it actually gave up.
+                if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                    posthog.capture('livestream_sse_max_errors', {
+                        url,
+                        max_attempts: SSE_RETRY_ATTEMPTS,
+                    })
+                }
+            })
         },
         stopSSE: () => {
             // TEMPORARY: livestream SSE lifecycle tracking.
@@ -335,6 +336,21 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             })
             cache.sseConnection?.abort()
             cache.sseConnection = null
+        },
+        navigateToNotification: ({ notification }) => {
+            const path = buildNotificationSourcePath(notification)
+            if (!path) {
+                return
+            }
+            if (!notification.read) {
+                actions.markAsRead(notification.id)
+            }
+            const isOtherProject = notification.team_id !== null && notification.team_id !== values.currentTeamId
+            if (isOtherProject) {
+                window.location.href = urls.project(notification.team_id!, path)
+            } else {
+                router.actions.push(path)
+            }
         },
         markAsRead: async ({ id }) => {
             try {
@@ -457,6 +473,17 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
+        projectNameForNotification: [
+            (s) => [s.currentTeamId, s.currentOrganization],
+            (currentTeamId, currentOrganization) => {
+                return (notification: InAppNotification): string | null => {
+                    if (notification.team_id === null || notification.team_id === currentTeamId) {
+                        return null
+                    }
+                    return currentOrganization?.teams?.find((t) => t.id === notification.team_id)?.name ?? null
+                }
+            },
+        ],
     }),
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
