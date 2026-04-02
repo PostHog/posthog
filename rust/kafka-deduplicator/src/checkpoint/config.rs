@@ -76,9 +76,14 @@ pub struct CheckpointConfig {
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     /// Maximum concurrent S3 file uploads during checkpoint export.
-    /// Less critical than downloads since uploads are already bounded by max_concurrent_checkpoints,
-    /// but provides additional defense in depth.
+    /// Controls the LimitStore semaphore that bounds concurrent S3 HTTP requests.
     pub max_concurrent_checkpoint_file_uploads: usize,
+
+    /// Maximum number of upload futures actively polled (files open with read buffers
+    /// and BufWriters) per partition checkpoint. Controls the `buffer_unordered` window
+    /// to bound memory independently from the S3 HTTP concurrency limit above.
+    /// Each active buffer consumes ~18MB (8MB read buffer + ~10MB BufWriter).
+    pub max_upload_buffers_per_partition: usize,
 
     /// Maximum time allowed for a complete checkpoint import for a single partition.
     /// This includes listing checkpoints, downloading metadata, and downloading all files.
@@ -117,6 +122,7 @@ impl Default for CheckpointConfig {
             checkpoint_import_attempt_depth: 10,
             max_concurrent_checkpoint_file_downloads: 40,
             max_concurrent_checkpoint_file_uploads: 40,
+            max_upload_buffers_per_partition: 40,
             checkpoint_partition_import_timeout: Duration::from_secs(240),
             local_checkpoint_max_staleness: Duration::from_secs(
                 DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,

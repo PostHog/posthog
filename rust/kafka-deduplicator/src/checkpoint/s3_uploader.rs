@@ -236,7 +236,7 @@ impl CheckpointUploader for S3Uploader {
                     Ok::<String, anyhow::Error>(dest)
                 }
             })
-            .buffer_unordered(self.config.max_concurrent_checkpoint_file_uploads);
+            .buffer_unordered(self.config.max_upload_buffers_per_partition);
 
         let mut uploaded_keys = Vec::with_capacity(plan.files_to_upload.len());
         let mut first_error: Option<anyhow::Error> = None;
