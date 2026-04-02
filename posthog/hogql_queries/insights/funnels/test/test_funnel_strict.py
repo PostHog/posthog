@@ -14,7 +14,6 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
@@ -605,8 +604,9 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
     def test_redundant_event_filtering_strict_funnel(self):
         query = FunnelsQuery(
             series=[EventsNode(event="$pageview"), EventsNode(event="insight viewed")],
-            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
             funnelsFilter=FunnelsFilter(funnelOrderType=FunnelOrderType.STRICT),
+            # Breakdown disables the pre-filter so we test the event_array_filter in isolation
+            breakdownFilter=BreakdownFilter(breakdown="$browser"),
         )
 
         _create_person(
@@ -614,28 +614,11 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
             properties={"test": "okay"},
         )
-        # Step events so the person qualifies past the pre-filter
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="many_other_events", timestamp="2021-05-01 01:00:00"
-        )
-        _create_event(
-            team=self.team, event="insight viewed", distinct_id="many_other_events", timestamp="2021-05-01 05:00:00"
-        )
-        # 10 redundant non-step events that should be condensed by the event_array_filter
-        for i in range(10):
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id="many_other_events",
-                timestamp=f"2021-05-01 02:0{i}:00",
-            )
+        for _ in range(10):
+            _create_event(team=self.team, event="user signed up", distinct_id="many_other_events")
 
         runner = FunnelsQueryRunner(query=query, team=self.team)
         inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
-        # When pre-filter is active, _inner_aggregation_query returns a SelectSetQuery (UNION ALL).
-        # Extract the primary UDF query (first branch) to inspect event filtering.
-        if isinstance(inner_aggregation_query, ast.SelectSetQuery):
-            inner_aggregation_query = inner_aggregation_query.initial_select_query
         inner_aggregation_query.select.append(
             parse_expr(f"{runner.funnel_class.event_array_filter()} AS filtered_array")
         )
@@ -650,8 +633,8 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
                 enable_analyzer=True,
             ),
         )
-        # $pageview + 2 boundary "user signed up" events (condensed from 10) + insight viewed = 4
-        self.assertEqual(4, len(response.results[0][-1]))
+        # Make sure the events have been condensed down to two
+        self.assertEqual(2, len(response.results[0][-1]))
 
     def test_different_prop_val_in_strict_filter(self):
         funnels_query = FunnelsQuery(
