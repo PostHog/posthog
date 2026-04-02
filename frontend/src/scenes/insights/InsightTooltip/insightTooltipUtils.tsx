@@ -193,7 +193,7 @@ function getPillValues(
     return pillValues
 }
 
-function getDatumTitle(
+export function getDatumTitle(
     s: SeriesDatum,
     breakdownFilter: BreakdownFilter | null | undefined,
     formatCompareLabel?: (label: string, dateLabel?: string) => string
