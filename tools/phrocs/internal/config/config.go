@@ -14,6 +14,7 @@ type ProcConfig struct {
 	Shell        string            `yaml:"shell"`
 	Capability   string            `yaml:"capability"`
 	Cmd          []string          `yaml:"cmd"`
+	Cwd          string            `yaml:"cwd"`
 	Autostart    *bool             `yaml:"autostart"`
 	Autorestart  bool              `yaml:"autorestart"`
 	Stop         string            `yaml:"stop"` // "SIGINT", "SIGTERM", "SIGKILL", or "hard-kill"

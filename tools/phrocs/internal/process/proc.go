@@ -327,10 +327,14 @@ func (p *Process) buildEnv() []string {
 
 // buildCmd creates the exec.Cmd from either the shell or cmd config.
 func (p *Process) buildCmd() *exec.Cmd {
+	var cmd *exec.Cmd
 	if len(p.Cfg.Cmd) > 0 {
-		return exec.Command(p.Cfg.Cmd[0], p.Cfg.Cmd[1:]...)
+		cmd = exec.Command(p.Cfg.Cmd[0], p.Cfg.Cmd[1:]...)
+	} else {
+		cmd = exec.Command("/bin/bash", "-c", p.Cfg.Shell)
 	}
-	return exec.Command("/bin/bash", "-c", p.Cfg.Shell)
+	cmd.Dir = p.Cfg.Cwd
+	return cmd
 }
 
 // It's safe to call Start concurrently as running process is a no-op
