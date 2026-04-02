@@ -16,6 +16,8 @@ from products.tasks.backend.services.agent_command import validate_sandbox_url
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 
+from ee.hogai.sandbox import is_turn_complete
+
 logger = structlog.get_logger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 30
@@ -293,13 +295,7 @@ def _is_session_update(event_data: dict) -> bool:
     return notification.get("method") == "session/update"
 
 
-def _is_end_of_turn(event_data: dict) -> bool:
-    """Check if an ACP event signals the agent finished a turn."""
-    if event_data.get("type") != "notification":
-        return False
-    notification = event_data.get("notification", {})
-    result = notification.get("result")
-    return isinstance(result, dict) and result.get("stopReason") == "end_turn"
+_is_end_of_turn = is_turn_complete
 
 
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:

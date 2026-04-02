@@ -109,4 +109,6 @@ export type ToolMeta = {
     ui?: ToolUiMeta
     // Legacy flat key for MCP Apps compatibility (ui/resourceUri)
     'ui/resourceUri'?: string
+    /** Return JSON instead of TOON-encoded text. Use for tools whose output is consumed programmatically. */
+    responseFormat?: 'json'
 }

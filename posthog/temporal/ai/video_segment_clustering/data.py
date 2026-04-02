@@ -8,7 +8,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
-from posthog.temporal.ai.session_summary.activities.a5_embed_and_store_segments import SESSION_SEGMENTS_EMBEDDING_MODEL
+from posthog.temporal.session_replay.session_summary.activities.a5_embed_and_store_segments import (
+    SESSION_SEGMENTS_EMBEDDING_MODEL,
+)
 
 MAX_SEGMENTS_RETURNED = 50_000
 PAGE_SIZE = 5_000

@@ -5,13 +5,19 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } fr
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
-import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
+import { MetricConversionWindow } from '../ExperimentForm/MetricsPanel/MetricConversionWindow'
+import { MetricEventDetails } from '../ExperimentForm/MetricsPanel/MetricEventDetails'
+import { MetricGoal } from '../ExperimentForm/MetricsPanel/MetricGoal'
+import { MetricOutlierHandling } from '../ExperimentForm/MetricsPanel/MetricOutlierHandling'
+import { MetricStepOrder } from '../ExperimentForm/MetricsPanel/MetricStepOrder'
+import { getDefaultMetricTitle, getMetricTag } from '../MetricsView/shared/utils'
 import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from '../SharedMetrics/sharedMetricsLogic'
@@ -20,23 +26,44 @@ import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
 function MetricSummary({ metric }: { metric: SharedMetric }): JSX.Element {
+    const experimentMetric = metric.query as ExperimentMetric
+
     return (
-        <div className="deprecated-space-y-2">
-            <div className="flex items-center gap-2">
-                <h3 className="font-semibold m-0 flex items-center">{metric.name}</h3>
-                <Link
-                    target="_blank"
-                    className="font-semibold flex items-center"
-                    to={urls.experimentsSharedMetric(metric.id)}
-                >
-                    <IconOpenInNew fontSize="18" />
-                </Link>
-            </div>
-            {metric.description && <p className="mt-2">{metric.description}</p>}
-            <div className="text-xs text-muted">
-                <p>Type: {metric.query.metric_type}</p>
-                <p>Metric: {getDefaultMetricTitle(metric.query as ExperimentMetric)}</p>
-                <p>Goal: {metric.query.goal}</p>
+        <div className="border rounded bg-surface-primary p-4">
+            <div className="space-y-3">
+                <div className="flex-1 min-w-0 gap-2">
+                    <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-sm break-words">
+                            {metric.name || getDefaultMetricTitle(experimentMetric)}
+                        </span>
+                        <Link
+                            target="_blank"
+                            className="font-semibold flex items-center"
+                            to={urls.experimentsSharedMetric(metric.id)}
+                        >
+                            <IconOpenInNew fontSize="18" />
+                        </Link>
+                    </div>
+                    {metric.description && <p className="text-xs text-muted m-0 mb-2">{metric.description}</p>}
+                    <MetricEventDetails metric={experimentMetric} />
+                    <div className="flex items-center mt-2 gap-1">
+                        <LemonTag type="muted" size="small">
+                            {getMetricTag(experimentMetric)}
+                        </LemonTag>
+                        <LemonTag type="option" size="small">
+                            Shared metric
+                        </LemonTag>
+                    </div>
+                </div>
+
+                <div className="border-t border-border" />
+
+                <div className="space-y-1">
+                    <MetricGoal metric={experimentMetric} />
+                    <MetricConversionWindow metric={experimentMetric} />
+                    <MetricStepOrder metric={experimentMetric} />
+                    <MetricOutlierHandling metric={experimentMetric} />
+                </div>
             </div>
         </div>
     )

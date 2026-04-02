@@ -844,6 +844,20 @@ export interface EventsQueryPersonColumn {
     distinct_id: string
 }
 
+/** An action step definition for matching events without a saved action */
+export interface EventsQueryActionStep {
+    event?: string | null
+    properties?: AnyPropertyFilter[]
+    selector?: string | null
+    tag_name?: string | null
+    text?: string | null
+    text_matching?: 'contains' | 'exact' | 'regex' | null
+    href?: string | null
+    href_matching?: 'contains' | 'exact' | 'regex' | null
+    url?: string | null
+    url_matching?: 'contains' | 'exact' | 'regex' | null
+}
+
 export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
     /** source for querying events for insights */
@@ -874,6 +888,8 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
      * Show events matching a given action
      */
     actionId?: integer
+    /** Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set. */
+    actionSteps?: EventsQueryActionStep[]
     /** Show events for a given person */
     personId?: string
     /** Only fetch events that happened before this timestamp */
@@ -1816,6 +1832,8 @@ export interface EndpointRequest {
     version?: integer
     /** Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month). */
     bucket_overrides?: Record<string, string>
+    /** Set to true to soft-delete this endpoint */
+    deleted?: boolean
 }
 
 /**
@@ -2909,13 +2927,15 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     limit?: integer
     offset?: integer
     orderBy?: 'latest' | 'earliest'
-    searchTerm?: string
+    filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]
     traceId?: string
     rootSpans?: boolean
     /** Cursor for fetching the next page of results */
     after?: string
+    /** Prefetch up to this many spans per trace and include them in results */
+    prefetchSpans?: integer
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -3244,7 +3264,6 @@ export interface ExperimentMetricBaseProperties extends Node {
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
-    only_count_matured_users?: boolean
     goal?: ExperimentMetricGoal
     isSharedMetric?: boolean
     sharedMetricId?: number

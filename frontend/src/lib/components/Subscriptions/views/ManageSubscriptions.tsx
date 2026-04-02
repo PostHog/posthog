@@ -91,6 +91,8 @@ export function ManageSubscriptions({
     const { subscriptions, subscriptionsLoading } = useValues(logic)
     const { deleteSubscription } = useActions(logic)
 
+    const subscriptionResourceNoun = !insightShortId && dashboardId ? 'dashboard' : 'insight'
+
     return (
         <>
             <LemonModal.Header>
@@ -123,7 +125,7 @@ export function ManageSubscriptions({
                     </div>
                 ) : (
                     <div className="flex flex-col p-4 items-center text-center">
-                        <h3>There are no subscriptions for this insight</h3>
+                        <h3>There are no subscriptions for this {subscriptionResourceNoun}</h3>
 
                         <p>Once subscriptions are created they will display here. </p>
 

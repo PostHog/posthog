@@ -140,6 +140,7 @@ export interface AlertCheckApi {
     readonly triggered_dates: unknown | null
     /** @nullable */
     readonly interval: string | null
+    readonly triggered_metadata: unknown | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
@@ -682,6 +683,29 @@ export interface AlertSimulateApi {
 
 export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
 
+export type BreakdownSimulationResultApiSubDetectorScoresItem = { [key: string]: unknown }
+
+export interface BreakdownSimulationResultApi {
+    /** Breakdown value label. */
+    label: string
+    /** Data values for each point. */
+    data: number[]
+    /** Date labels for each point. */
+    dates: string[]
+    /** Anomaly score for each point. */
+    scores: (number | null)[]
+    /** Indices of points flagged as anomalies. */
+    triggered_indices: number[]
+    /** Dates of points flagged as anomalies. */
+    triggered_dates: string[]
+    /** Total number of data points analyzed. */
+    total_points: number
+    /** Number of anomalies detected. */
+    anomaly_count: number
+    /** Per-sub-detector scores for ensemble detectors. */
+    sub_detector_scores?: BreakdownSimulationResultApiSubDetectorScoresItem[]
+}
+
 export interface AlertSimulateResponseApi {
     /** Data values for each point. */
     data: number[]
@@ -704,6 +728,8 @@ export interface AlertSimulateResponseApi {
     anomaly_count: number
     /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
     sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
+    /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
+    breakdown_results?: BreakdownSimulationResultApi[]
 }
 
 export type AlertsListParams = {

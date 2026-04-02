@@ -1,5 +1,6 @@
 import {
     KAFKA_APP_METRICS_2,
+    KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_ERROR_TRACKING_INGESTION_DLQ,
     KAFKA_ERROR_TRACKING_INGESTION_OVERFLOW,
     KAFKA_EVENTS_JSON,
@@ -13,6 +14,7 @@ import {
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
+    TOPHOG_OUTPUT,
 } from '../../common/outputs'
 import { IngestionOutputDefinition } from '../../outputs/resolver'
 import { DEFAULT_PRODUCER, ProducerName } from './producers'
@@ -54,5 +56,11 @@ export const ERROR_TRACKING_OUTPUT_DEFINITIONS: Record<string, IngestionOutputDe
         defaultProducerName: DEFAULT_PRODUCER,
         producerOverrideEnvVar: 'ERROR_TRACKING_OUTPUT_LOG_ENTRIES_PRODUCER',
         topicOverrideEnvVar: 'ERROR_TRACKING_OUTPUT_LOG_ENTRIES_TOPIC',
+    },
+    [TOPHOG_OUTPUT]: {
+        defaultTopic: KAFKA_CLICKHOUSE_TOPHOG,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'ERROR_TRACKING_OUTPUT_TOPHOG_PRODUCER',
+        topicOverrideEnvVar: 'ERROR_TRACKING_OUTPUT_TOPHOG_TOPIC',
     },
 }

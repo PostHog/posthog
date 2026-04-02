@@ -37,7 +37,6 @@ from .serializers import (
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     AutoApproveResultSerializer,
-    CompleteRunInputSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
@@ -219,22 +218,12 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         history = api.get_snapshot_history(run.repo_id, identifier)
         return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
-    @extend_schema(request=CompleteRunInputSerializer, responses={200: RunSerializer})
+    @extend_schema(responses={200: RunSerializer})
     @action(detail=True, methods=["post"])
     def complete(self, request: Request, pk: str, **kwargs) -> Response:
-        """Signal that all artifacts have been uploaded. Triggers diff processing.
-
-        Accepts an optional body for shard flow reconciliation (removed_identifiers,
-        unchanged_count, baseline_hashes). Empty body is backward compatible.
-        """
-        input_data = None
-        if request.data:
-            serializer = CompleteRunInputSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            input_data = serializer.save()
-
+        """Complete a run: detect removals, verify uploads, trigger diff processing."""
         try:
-            run = api.complete_run(UUID(pk), team_id=self.team_id, input=input_data)
+            run = api.complete_run(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RunSerializer(instance=run).data)

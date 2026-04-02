@@ -21,6 +21,11 @@ const templatesTableLogic = dashboardTemplatesLogic({ scope: 'default' })
 
 const POPULAR_TEMPLATE_TOOLTIP = 'One of our most popular templates'
 
+/** Matches backend: global scope + no team means the template is org-wide only and cannot be made team-private. */
+function isBuiltInOfficialTemplate(record: Pick<DashboardTemplateType, 'scope' | 'team_id'>): boolean {
+    return record.scope === 'global' && record.team_id == null
+}
+
 export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { allTemplates, allTemplatesLoading, templateFilter, templateNameOrdering } = useValues(templatesTableLogic)
     const { setTemplateFilter, setTemplateNameOrdering } = useActions(templatesTableLogic)
@@ -84,10 +89,16 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         },
         {
             width: 0,
-            render: (_, { id, scope }: DashboardTemplateType) => {
+            render: (_, record: DashboardTemplateType) => {
                 if (!user?.is_staff) {
                     return null
                 }
+                const { id, scope } = record
+                const builtInOfficial = isBuiltInOfficialTemplate(record)
+                const makePrivateDisabledReason = builtInOfficial
+                    ? 'Built-in official templates cannot be made team-only'
+                    : undefined
+
                 return (
                     <More
                         overlay={
@@ -119,6 +130,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         })
                                     }}
                                     fullWidth
+                                    disabledReason={makePrivateDisabledReason}
                                 >
                                     Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
                                 </LemonButton>
@@ -146,7 +158,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     status="danger"
                                     disabledReason={
                                         scope === 'global'
-                                            ? 'Cannot delete global dashboard templates, make them team only first'
+                                            ? builtInOfficial
+                                                ? 'Built-in official templates cannot be deleted'
+                                                : 'Cannot delete a global template until it is team-only'
                                             : undefined
                                     }
                                 >

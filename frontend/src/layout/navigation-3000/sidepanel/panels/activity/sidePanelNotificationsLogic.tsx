@@ -235,61 +235,64 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             const abortController = new AbortController()
             cache.sseConnection = abortController
 
-            void api.stream(url, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-                signal: abortController.signal,
-                onMessage: (event) => {
-                    if (!values.isInitialLoadComplete) {
-                        return
-                    }
-                    try {
-                        const notification = JSON.parse(event.data) as InAppNotification
-                        actions.notificationReceived(notification)
-                        if (notification.priority === 'critical') {
-                            const iconMap: Record<string, JSX.Element> = {
-                                comment_mention: <IconComment className="size-5 text-primary shrink-0" />,
-                                alert_firing: <IconWarning className="size-5 text-warning shrink-0" />,
-                                approval_requested: <IconCheckCircle className="size-5 text-success shrink-0" />,
-                                approval_resolved: <IconCheckCircle className="size-5 text-success shrink-0" />,
-                                pipeline_failure: <IconPlug className="size-5 text-danger shrink-0" />,
-                                issue_assigned: <IconBug className="size-5 text-primary shrink-0" />,
-                            }
-                            const icon = iconMap[notification.notification_type] ?? (
-                                <IconNotification className="size-5 text-secondary shrink-0" />
-                            )
-                            lemonToast.info(
-                                <div className="flex items-start gap-2">
-                                    {icon}
-                                    <div className="min-w-0">
-                                        <div className="font-semibold text-xs">{notification.title}</div>
-                                        {notification.body && (
-                                            <div className="text-xs text-secondary mt-0.5 line-clamp-1">
-                                                {notification.body}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>,
-                                {
-                                    icon: false,
-                                    autoClose: false,
-                                    toastId: `notification-${notification.id}`,
-                                    button: {
-                                        label: 'Open notifications',
-                                        action: () => notificationsMenuLogic.actions.openToUnread(),
-                                    },
-                                }
-                            )
+            void api
+                .stream(url, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                    signal: abortController.signal,
+                    onMessage: (event) => {
+                        if (!values.isInitialLoadComplete) {
+                            return
                         }
-                    } catch {
-                        // Ignore heartbeat or malformed messages
-                    }
-                },
-                onError: () => {
-                    actions.fallbackToPoll()
-                },
-            })
+                        try {
+                            const notification = JSON.parse(event.data) as InAppNotification
+                            actions.notificationReceived(notification)
+                            if (notification.priority === 'critical') {
+                                const iconMap: Record<string, JSX.Element> = {
+                                    comment_mention: <IconComment className="size-5 text-primary shrink-0" />,
+                                    alert_firing: <IconWarning className="size-5 text-warning shrink-0" />,
+                                    approval_requested: <IconCheckCircle className="size-5 text-success shrink-0" />,
+                                    approval_resolved: <IconCheckCircle className="size-5 text-success shrink-0" />,
+                                    pipeline_failure: <IconPlug className="size-5 text-danger shrink-0" />,
+                                    issue_assigned: <IconBug className="size-5 text-primary shrink-0" />,
+                                }
+                                const icon = iconMap[notification.notification_type] ?? (
+                                    <IconNotification className="size-5 text-secondary shrink-0" />
+                                )
+                                lemonToast.info(
+                                    <div className="flex items-start gap-2">
+                                        {icon}
+                                        <div className="min-w-0">
+                                            <div className="font-semibold text-xs">{notification.title}</div>
+                                            {notification.body && (
+                                                <div className="text-xs text-secondary mt-0.5 line-clamp-1">
+                                                    {notification.body}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>,
+                                    {
+                                        icon: false,
+                                        autoClose: false,
+                                        toastId: `notification-${notification.id}`,
+                                        button: {
+                                            label: 'Open notifications',
+                                            action: () => notificationsMenuLogic.actions.openToUnread(),
+                                        },
+                                    }
+                                )
+                            }
+                        } catch {
+                            // Ignore heartbeat or malformed messages
+                        }
+                    },
+                    onError: () => {
+                        actions.fallbackToPoll()
+                        throw new Error('SSE connection failed, falling back to polling')
+                    },
+                })
+                .catch(() => console.warn('[Notifications] SSE connection failed, using polling fallback'))
         },
         stopSSE: () => {
             cache.sseConnection?.abort()
