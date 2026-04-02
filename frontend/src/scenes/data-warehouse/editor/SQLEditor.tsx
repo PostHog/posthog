@@ -226,7 +226,11 @@ function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
                     </div>
                 ) : editingView ? (
                     <QueryInfo tabId={tabId} />
-                ) : null}
+                ) : (
+                    <div className="flex min-h-64 items-center justify-center">
+                        <Spinner className="text-2xl" />
+                    </div>
+                )}
             </div>
         </LemonModal>
     )

@@ -959,7 +959,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         openMaterializationModal: async ({ view }) => {
-            if (!view || values.editingView?.id === view.id) {
+            if (!view) {
+                actions.closeMaterializationModal()
+                return
+            }
+
+            if (values.editingView?.id === view.id) {
                 return
             }
 
