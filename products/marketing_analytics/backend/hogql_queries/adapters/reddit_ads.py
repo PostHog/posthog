@@ -118,17 +118,33 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
         """Get conversion value (monetary value of conversions)"""
         stats_table_name = self.config.stats_table.name
 
+        # Reddit Ads API: "Divide by 100: CONVERSION*TOTAL_VALUE"
+        # See: https://ads-api.reddit.com/docs/v3/operations/Get%20A%20Report
         purchase_field = ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversion_purchase_total_value"])]),
+                ast.ArithmeticOperation(
+                    left=ast.Call(
+                        name="toFloat",
+                        args=[ast.Field(chain=[stats_table_name, "conversion_purchase_total_value"])],
+                    ),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Constant(value=100),
+                ),
                 ast.Constant(value=0),
             ],
         )
         signup_field = ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversion_signup_total_value"])]),
+                ast.ArithmeticOperation(
+                    left=ast.Call(
+                        name="toFloat",
+                        args=[ast.Field(chain=[stats_table_name, "conversion_signup_total_value"])],
+                    ),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Constant(value=100),
+                ),
                 ast.Constant(value=0),
             ],
         )

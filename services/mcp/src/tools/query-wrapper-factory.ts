@@ -7,6 +7,8 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     schema: T
     kind: string
     uiResourceUri?: string
+    /** Return JSON instead of TOON-encoded text. */
+    responseFormat?: 'json'
 }
 
 export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperConfig<T>): () => ToolBase<T> {
@@ -32,6 +34,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 _posthogUrl: `${baseUrl}/insights/new?q=${queryParam}`,
             }
         },
-        ...(config.uiResourceUri ? { _meta: { ui: { resourceUri: config.uiResourceUri } } } : {}),
+        _meta: {
+            ...(config.uiResourceUri ? { ui: { resourceUri: config.uiResourceUri } } : {}),
+            ...(config.responseFormat ? { responseFormat: config.responseFormat } : {}),
+        },
     })
 }
