@@ -1,5 +1,6 @@
 """Temporal activities for logs alerting."""
 
+import time
 import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
@@ -23,6 +24,7 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.temporal.metrics import increment_checks_total, record_check_duration, record_scheduler_lag
 
 logger = structlog.get_logger(__name__)
 
@@ -96,6 +98,8 @@ def _evaluate_single_alert(
     stats: dict[str, int],
 ) -> None:
     """Run the ClickHouse query, apply state machine, persist, and emit events for a single alert."""
+    start_time = time.perf_counter()
+    original_next_check_at = alert.next_check_at
 
     date_to = now
     date_from = now - timedelta(minutes=alert.window_minutes)
@@ -209,6 +213,27 @@ def _evaluate_single_alert(
 
     if outcome.error_message:
         stats["errored"] += 1
+
+    # Per-alert metrics — must never break alerting
+    try:
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        record_check_duration(elapsed_ms)
+        if original_next_check_at is not None:
+            lag_ms = int((now - original_next_check_at).total_seconds() * 1000)
+            if lag_ms > 0:
+                record_scheduler_lag(lag_ms)
+        if outcome.error_message:
+            increment_checks_total("errored")
+        elif notification_failed:
+            increment_checks_total("errored")
+        elif outcome.notification == NotificationAction.FIRE:
+            increment_checks_total("fired")
+        elif outcome.notification == NotificationAction.RESOLVE:
+            increment_checks_total("resolved")
+        else:
+            increment_checks_total("ok")
+    except Exception:
+        logger.exception("Failed to record alert check metrics", alert_id=str(alert.id))
 
 
 def _emit_alert_event(

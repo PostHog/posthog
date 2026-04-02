@@ -312,6 +312,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         saveAsEndpoint: true,
         saveAsEndpointSubmit: (name: string, description?: string) => ({ name, description }),
         updateInsight: true,
+        closeEditingObject: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
         setDataError: (error: string | null) => ({ error }),
@@ -1209,6 +1210,38 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 router.actions.push(urls.insightView(savedInsight.short_id))
             }
         },
+        closeEditingObject: () => {
+            actions.setInsightLoading(false)
+            actions.setViewLoading(false)
+
+            if (!values.activeTab) {
+                actions.createTab(values.queryInput ?? '')
+                return
+            }
+
+            const nextActiveTab = {
+                ...values.activeTab,
+                name: NEW_QUERY,
+                view: undefined,
+                insight: undefined,
+                draft: undefined,
+            }
+
+            actions.updateTab(nextActiveTab)
+
+            if (!values.isEmbeddedMode) {
+                const nextHash = encodeURIComponent(JSON.stringify(getTabHash({ ...values, activeTab: nextActiveTab })))
+                const currentUrl = new URL(window.location.href)
+                currentUrl.searchParams.delete('open_insight')
+                currentUrl.searchParams.delete('open_view')
+                currentUrl.searchParams.delete('open_draft')
+                window.history.replaceState(
+                    {},
+                    '',
+                    `${urls.sqlEditor()}${currentUrl.searchParams.toString() ? `?${currentUrl.searchParams.toString()}` : ''}#${nextHash}`
+                )
+            }
+        },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             if (values.activeTab?.view) {
                 const updatedView = dataWarehouseSavedQueries.find((v) => v.id === values.activeTab?.view?.id)
@@ -1515,8 +1548,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         titleSectionProps: [
-            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editorSource, s.dashboardId],
-            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId) => {
+            (s) => [
+                s.editingInsight,
+                s.insightLoading,
+                s.editingView,
+                s.viewLoading,
+                s.editorSource,
+                s.dashboardId,
+                s.activeTab,
+            ],
+            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId, activeTab) => {
                 if (editingInsight) {
                     const forceBackTo: Breadcrumb = dashboardId
                         ? {
@@ -1560,19 +1601,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
 
-                const searchParams = new URLSearchParams(window.location.search)
-                const hashParams = new URLSearchParams(window.location.hash.slice(1))
-                if (searchParams.get('open_view') || hashParams.get('view')) {
-                    return {
-                        name: 'Loading view...',
-                        resourceType: { type: 'view' },
+                if (!activeTab) {
+                    const searchParams = new URLSearchParams(window.location.search)
+                    const hashParams = new URLSearchParams(window.location.hash.slice(1))
+                    if (searchParams.get('open_view') || hashParams.get('view')) {
+                        return {
+                            name: 'Loading view...',
+                            resourceType: { type: 'view' },
+                        }
                     }
-                }
 
-                if (searchParams.get('open_insight') || hashParams.get('insight')) {
-                    return {
-                        name: 'Loading insight...',
-                        resourceType: { type: 'insight/hog' },
+                    if (searchParams.get('open_insight') || hashParams.get('insight')) {
+                        return {
+                            name: 'Loading insight...',
+                            resourceType: { type: 'insight/hog' },
+                        }
                     }
                 }
 

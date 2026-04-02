@@ -20,6 +20,7 @@ export function createPersonHogClient(config: PersonHogConfig): PersonHogClient 
 
     return PersonHogClient.fromConfig({
         addr: config.PERSONHOG_ADDR,
+        clientName: config.PLUGIN_SERVER_MODE ?? 'unknown',
         useTls: config.PERSONHOG_TLS,
         timeoutMs: config.PERSONHOG_TIMEOUT_MS,
         readMaxBytes: config.PERSONHOG_READ_MAX_BYTES,
