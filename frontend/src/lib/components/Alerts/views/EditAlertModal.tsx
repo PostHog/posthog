@@ -218,6 +218,31 @@ export function EditAlertModal({
         ]
     )
 
+    const enabledAdvancedOptionsCount = useMemo(() => {
+        let n = 0
+        if (can_check_ongoing_interval && alertForm.config.check_ongoing_interval) {
+            n += 1
+        }
+        if (
+            (alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
+                alertForm.calculation_interval === AlertCalculationInterval.HOURLY) &&
+            alertForm.skip_weekend
+        ) {
+            n += 1
+        }
+        if (quietHoursEnabled && (alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
+            n += 1
+        }
+        return n
+    }, [
+        alertForm.calculation_interval,
+        alertForm.config.check_ongoing_interval,
+        alertForm.schedule_restriction?.blocked_windows?.length,
+        alertForm.skip_weekend,
+        can_check_ongoing_interval,
+        quietHoursEnabled,
+    ])
+
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={750} simple title="">
             {alertLoading ? (
@@ -610,7 +635,24 @@ export function EditAlertModal({
                                     panels={[
                                         {
                                             key: 'advanced',
-                                            header: 'Advanced options',
+                                            header: {
+                                                type: enabledAdvancedOptionsCount > 0 ? 'primary' : 'tertiary',
+                                                children: (
+                                                    <span className="flex w-full min-w-0 items-center justify-between gap-2">
+                                                        <span className="min-w-0">Advanced options</span>
+                                                        {enabledAdvancedOptionsCount > 0 ? (
+                                                            <span
+                                                                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current/20 bg-current/10 text-xs font-semibold tabular-nums leading-none"
+                                                                aria-label={`${enabledAdvancedOptionsCount} advanced option${
+                                                                    enabledAdvancedOptionsCount === 1 ? '' : 's'
+                                                                } on`}
+                                                            >
+                                                                {enabledAdvancedOptionsCount}
+                                                            </span>
+                                                        ) : null}
+                                                    </span>
+                                                ),
+                                            },
                                             content: (
                                                 <div className="space-y-2">
                                                     <Group name={['config']}>

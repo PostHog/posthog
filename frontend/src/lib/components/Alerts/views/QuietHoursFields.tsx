@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type FocusEvent } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
@@ -12,10 +12,11 @@ import { QuietHoursDayTimeline } from './QuietHoursDayTimeline'
 
 const DEFAULT_OVERNIGHT: BlockedWindow = { start: '22:00', end: '07:00' }
 
+/** Canonical HH:MM for persisted values. Use on blur, not on every keystroke — `type="time"` needs a valid value each render. */
 function normalizeTimeInput(v: string): string {
-    const match = /^(\d{1,2}):(\d{2})/.exec(v.trim())
+    const match = /^(\d{1,2}):(\d{1,2})$/.exec(v.trim())
     if (!match) {
-        return v
+        return v.trim()
     }
     const h = Math.min(23, Math.max(0, parseInt(match[1], 10)))
     const mn = Math.min(59, Math.max(0, parseInt(match[2], 10)))
@@ -55,12 +56,12 @@ export function QuietHoursFields({
     }
 
     const updateRow = (index: number, field: keyof BlockedWindow, value: string): void => {
-        const next = windows.map((w, i) => (i === index ? { ...w, [field]: value } : w))
+        const next = windows.map((w: BlockedWindow, i: number) => (i === index ? { ...w, [field]: value } : w))
         setWindows(next)
     }
 
     const removeRow = (index: number): void => {
-        const next = windows.filter((_, i) => i !== index)
+        const next = windows.filter((_: BlockedWindow, i: number) => i !== index)
         setWindows(next)
     }
 
@@ -129,8 +130,9 @@ export function QuietHoursFields({
                     ) : null}
                     {quietIssue ? <LemonBanner type="error">{quietIssue.message}</LemonBanner> : null}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        {windows.map((row, index) => (
-                            <div key={`${row.start}-${row.end}-${index}`} className="min-w-0">
+                        {windows.map((row: BlockedWindow, index: number) => (
+                            // Index-only key: times change while typing; including start/end remounts inputs and drops focus.
+                            <div key={index} className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
                                     <LemonInput
                                         type="time"
@@ -141,7 +143,10 @@ export function QuietHoursFields({
                                                 ? 'danger'
                                                 : 'default'
                                         }
-                                        onChange={(v: string) => updateRow(index, 'start', normalizeTimeInput(v))}
+                                        onChange={(v: string) => updateRow(index, 'start', v)}
+                                        onBlur={(e: FocusEvent<HTMLInputElement>) =>
+                                            updateRow(index, 'start', normalizeTimeInput(e.currentTarget.value))
+                                        }
                                         data-attr={`alertForm-quiet-start-${index}`}
                                     />
                                     <span className="text-muted">to</span>
@@ -154,7 +159,10 @@ export function QuietHoursFields({
                                                 ? 'danger'
                                                 : 'default'
                                         }
-                                        onChange={(v: string) => updateRow(index, 'end', normalizeTimeInput(v))}
+                                        onChange={(v: string) => updateRow(index, 'end', v)}
+                                        onBlur={(e: FocusEvent<HTMLInputElement>) =>
+                                            updateRow(index, 'end', normalizeTimeInput(e.currentTarget.value))
+                                        }
                                         data-attr={`alertForm-quiet-end-${index}`}
                                     />
                                     <LemonButton
