@@ -1,10 +1,10 @@
 ---
 name: exploring-llm-traces
 description: >
-  How to query, inspect, and debug LLM traces using PostHog's MCP tools.
-  Use when the user asks to debug an AI agent trace, investigate LLM behavior,
-  inspect token usage or costs, find why an agent made a decision, or explore
-  AI/LLM observability data.
+    How to query, inspect, and debug LLM traces using PostHog's MCP tools.
+    Use when the user asks to debug an AI agent trace, investigate LLM behavior,
+    inspect token usage or costs, find why an agent made a decision, or explore
+    AI/LLM observability data.
 ---
 
 # Exploring LLM traces with MCP tools
@@ -138,6 +138,26 @@ When presenting findings, always include the relevant PostHog URL so the user ca
 
 ## Finding traces
 
+Use `posthog:query-llm-traces-list` to search and filter traces.
+
+**CRITICAL: Never assume event names, property names, or property values from training data.**
+Every project instruments different custom properties. Always call `posthog:read-data-schema` first
+to discover what properties and values actually exist in the project's data before constructing filters.
+
+### Discovering the schema first
+
+Before filtering traces, discover what's available:
+
+1. **Confirm AI events exist** — call `posthog:read-data-schema` with `kind: "events"` and look for `$ai_*` events
+2. **Find filterable properties** — call `posthog:read-data-schema` with `kind: "event_properties"` and `event_name: "$ai_generation"` (or another AI event) to see what properties are captured
+3. **Get actual values** — call `posthog:read-data-schema` with `kind: "event_property_values"`, `event_name: "$ai_generation"`, and `property_name: "$ai_model"` to see real model names in use
+
+Only then construct the `query-llm-traces-list` call with property filters.
+
+This is especially important for custom properties like `project_id`, `conversation_id`, `user_tier`, etc. — these vary per project and cannot be guessed.
+
+Do not confirm `$ai_*` properties, but confirm any other like `email` of a person.
+
 ### By filters
 
 ```json
@@ -152,10 +172,41 @@ posthog:query-llm-traces-list
 }
 ```
 
+Multiple filters are AND-ed together:
+
+```json
+posthog:query-llm-traces-list
+{
+  "dateRange": {"date_from": "-7d"},
+  "filterTestAccounts": true,
+  "properties": [
+    {"type": "event", "key": "$ai_provider", "value": "anthropic", "operator": "exact"},
+    {"type": "event", "key": "$ai_is_error", "value": ["true"], "operator": "exact"}
+  ]
+}
+```
+
+You can also filter by person properties (discover them via `read-data-schema` with `kind: "entity_properties"` and `entity: "person"`):
+
+```json
+posthog:query-llm-traces-list
+{
+  "dateRange": {"date_from": "-7d"},
+  "filterTestAccounts": true,
+  "properties": [
+    {"type": "person", "key": "email", "value": "@company.com", "operator": "icontains"}
+  ]
+}
+```
+
 ### By external identifiers
 
 Customers often store their own IDs as event or person properties.
-Use `read-data-schema` to discover available properties, then filter:
+Use `posthog:read-data-schema` to discover what custom properties exist, then filter:
+
+1. Call `posthog:read-data-schema` with `kind: "event_properties"` and `event_name: "$ai_trace"` to find custom properties
+2. Review the returned properties and their sample values
+3. Construct the filter using the discovered property key and a known value
 
 ```json
 posthog:query-llm-traces-list
@@ -168,6 +219,8 @@ posthog:query-llm-traces-list
 ```
 
 ### By content (SQL)
+
+When you need text search or complex joins that `query-llm-traces-list` can't express, use SQL:
 
 ```sql
 SELECT
@@ -182,6 +235,11 @@ WHERE
 ORDER BY timestamp DESC
 LIMIT 20
 ```
+
+For full SQL query patterns, see the `query-examples` skill:
+
+- Single trace retrieval: `example-llm-trace.md`
+- Traces list with aggregated metrics: `example-llm-traces-list.md`
 
 ## Parsing large trace results
 
