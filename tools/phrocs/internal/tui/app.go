@@ -309,8 +309,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseClickMsg:
 		return m.handleMouseClick(msg, cmds)
 
+	case tea.MouseWheelMsg:
+		if msg.X < sidebarWidth {
+			delta := 0
+			switch msg.Button {
+			case tea.MouseWheelDown:
+				delta = 1
+			case tea.MouseWheelUp:
+				delta = -1
+			}
+			newCursor := max(0, min(m.servicesCursor+delta, len(m.services)-1))
+			if newCursor != m.servicesCursor {
+				m.servicesCursor = newCursor
+				m.ensureSidebarCursorVisible()
+				m.updateProcKeys()
+				var loadCmds []tea.Cmd
+				m, loadCmds = m.loadActiveProc()
+				cmds = append(cmds, loadCmds...)
+			}
+		} else {
+			var vpCmd tea.Cmd
+			m.viewport, vpCmd = m.viewport.Update(msg)
+			cmds = append(cmds, vpCmd)
+			m.viewportAtBottom = m.viewport.AtBottom()
+		}
+
 	case tea.MouseMsg:
-		// Forward other mouse events (wheel, motion, etc.) to viewport
 		var vpCmd tea.Cmd
 		m.viewport, vpCmd = m.viewport.Update(msg)
 		cmds = append(cmds, vpCmd)
@@ -421,7 +445,7 @@ func (m Model) applySize() Model {
 	// programs that detect terminal width (webpack, Django dev-server) reflow
 	// correctly, and are not affected by copy mode toggling
 	for _, p := range m.services {
-		p.Resize(uint16(ptyW), uint16(contentH))
+		p.Resize(uint16(vpW), uint16(contentH))
 	}
 
 	return m
