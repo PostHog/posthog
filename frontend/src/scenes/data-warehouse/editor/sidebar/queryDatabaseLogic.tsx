@@ -128,6 +128,39 @@ type FieldTraversalOptions = {
     depth?: number
 }
 
+type SearchTreeSourceContext = {
+    allPosthogTables: DatabaseSchemaTable[]
+    systemTables: DatabaseSchemaTable[]
+    dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+    dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+    dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
+    managedViews: DatabaseSchemaManagedViewTable[]
+    allTablesMap: Record<string, DatabaseSchemaTable>
+}
+
+type SearchTreeMatches = {
+    relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
+    relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
+    relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]
+    relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][]
+    relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][]
+    relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][]
+    relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][]
+    relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+}
+
+type TreeDataContext = {
+    allPosthogTables: DatabaseSchemaTable[]
+    posthogTables: DatabaseSchemaTable[]
+    systemTables: DatabaseSchemaTable[]
+    dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+    dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+    dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
+    managedViews: DatabaseSchemaManagedViewTable[]
+    latestEndpointTables: DatabaseSchemaEndpointTable[]
+    allTablesMap: Record<string, DatabaseSchemaTable>
+}
+
 const normalizeTableLookupKey = (tableName?: string | null): string | null => {
     if (!tableName) {
         return null
@@ -1273,7 +1306,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ actions }) => ({
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {
@@ -1407,7 +1440,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return latestEndpointTables.map((table) => [table, null])
             },
         ],
-        searchTreeData: [
+        searchTreeSourceContext: [
             (s) => [
                 s.allPosthogTables,
                 s.systemTables,
@@ -1415,17 +1448,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.effectiveDataWarehouseSavedQueries,
                 s.dataWarehouseSavedQueryFolders,
                 s.managedViews,
-                s.relevantPosthogTables,
-                s.relevantSystemTables,
-                s.relevantDataWarehouseTables,
-                s.relevantSavedQueries,
-                s.relevantSavedQueryFolders,
-                s.relevantManagedViews,
-                s.relevantDrafts,
-                s.relevantEndpointTables,
-                s.searchTerm,
-                s.featureFlags,
-                s.expandedSearchFolders,
                 s.allTablesMap,
             ],
             (
@@ -1435,6 +1457,29 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
                 managedViews: DatabaseSchemaManagedViewTable[],
+                allTablesMap: Record<string, DatabaseSchemaTable>
+            ): SearchTreeSourceContext => ({
+                allPosthogTables,
+                systemTables,
+                dataWarehouseTables,
+                dataWarehouseSavedQueries,
+                dataWarehouseSavedQueryFolders,
+                managedViews,
+                allTablesMap,
+            }),
+        ],
+        searchTreeMatches: [
+            (s) => [
+                s.relevantPosthogTables,
+                s.relevantSystemTables,
+                s.relevantDataWarehouseTables,
+                s.relevantSavedQueries,
+                s.relevantSavedQueryFolders,
+                s.relevantManagedViews,
+                s.relevantDrafts,
+                s.relevantEndpointTables,
+            ],
+            (
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
@@ -1442,15 +1487,56 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
                 relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
-                relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][],
+                relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+            ): SearchTreeMatches => ({
+                relevantPosthogTables,
+                relevantSystemTables,
+                relevantDataWarehouseTables,
+                relevantSavedQueries,
+                relevantSavedQueryFolders,
+                relevantManagedViews,
+                relevantDrafts,
+                relevantEndpointTables,
+            }),
+        ],
+        searchTreeData: [
+            (s) => [
+                s.searchTreeSourceContext,
+                s.searchTreeMatches,
+                s.searchTerm,
+                s.featureFlags,
+                s.expandedSearchFolders,
+            ],
+            (
+                searchTreeSourceContext: SearchTreeSourceContext,
+                searchTreeMatches: SearchTreeMatches,
                 searchTerm: string,
                 featureFlags: FeatureFlagsSet,
-                expandedSearchFolders: string[],
-                allTablesMap: Record<string, DatabaseSchemaTable>
+                expandedSearchFolders: string[]
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
                 }
+
+                const {
+                    allPosthogTables,
+                    systemTables,
+                    dataWarehouseTables,
+                    dataWarehouseSavedQueries,
+                    dataWarehouseSavedQueryFolders,
+                    managedViews,
+                    allTablesMap,
+                } = searchTreeSourceContext
+                const {
+                    relevantPosthogTables,
+                    relevantSystemTables,
+                    relevantDataWarehouseTables,
+                    relevantSavedQueries,
+                    relevantSavedQueryFolders,
+                    relevantManagedViews,
+                    relevantDrafts,
+                    relevantEndpointTables,
+                } = searchTreeMatches
 
                 const tableLookup = createTableLookup({
                     posthogTables: allPosthogTables,
@@ -1602,7 +1688,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return searchResults
             },
         ],
-        treeData: [
+        treeDataContext: [
             (s) => [
                 s.allPosthogTables,
                 s.posthogTables,
@@ -1612,14 +1698,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.dataWarehouseSavedQueryFolders,
                 s.managedViews,
                 s.latestEndpointTables,
-                s.databaseLoading,
-                s.dataWarehouseSavedQueriesLoading,
-                s.drafts,
-                s.draftsResponseLoading,
-                s.hasMoreDrafts,
-                s.featureFlags,
-                s.queryTabState,
-                s.expandedFolders,
                 s.allTablesMap,
             ],
             (
@@ -1631,6 +1709,33 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
                 managedViews: DatabaseSchemaManagedViewTable[],
                 latestEndpointTables: DatabaseSchemaEndpointTable[],
+                allTablesMap: Record<string, DatabaseSchemaTable>
+            ): TreeDataContext => ({
+                allPosthogTables,
+                posthogTables,
+                systemTables,
+                dataWarehouseTables,
+                dataWarehouseSavedQueries,
+                dataWarehouseSavedQueryFolders,
+                managedViews,
+                latestEndpointTables,
+                allTablesMap,
+            }),
+        ],
+        treeData: [
+            (s) => [
+                s.treeDataContext,
+                s.databaseLoading,
+                s.dataWarehouseSavedQueriesLoading,
+                s.drafts,
+                s.draftsResponseLoading,
+                s.hasMoreDrafts,
+                s.featureFlags,
+                s.queryTabState,
+                s.expandedFolders,
+            ],
+            (
+                treeDataContext: TreeDataContext,
                 databaseLoading: boolean,
                 dataWarehouseSavedQueriesLoading: boolean,
                 drafts: DataWarehouseSavedQueryDraft[],
@@ -1638,9 +1743,19 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 hasMoreDrafts: boolean,
                 featureFlags: FeatureFlagsSet,
                 queryTabState: QueryTabState | null,
-                expandedFolders: string[],
-                allTablesMap: Record<string, DatabaseSchemaTable>
+                expandedFolders: string[]
             ): TreeDataItem[] => {
+                const {
+                    allPosthogTables,
+                    posthogTables,
+                    systemTables,
+                    dataWarehouseTables,
+                    dataWarehouseSavedQueries,
+                    dataWarehouseSavedQueryFolders,
+                    managedViews,
+                    latestEndpointTables,
+                    allTablesMap,
+                } = treeDataContext
                 const sourcesChildren: TreeDataItem[] = []
                 const tableLookup = createTableLookup({
                     posthogTables: allPosthogTables,

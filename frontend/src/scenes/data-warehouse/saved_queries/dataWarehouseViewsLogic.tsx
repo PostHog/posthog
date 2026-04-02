@@ -9,7 +9,6 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseSavedQueryFolder } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
@@ -52,7 +51,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     return savedQueries.results
                 },
                 createDataWarehouseSavedQuery: async (
-                    view: Partial<DatabaseSchemaViewTable> & {
+                    view: Partial<DataWarehouseSavedQuery> & {
                         types: string[][]
                         folder_id?: string | null
                     }
@@ -69,7 +68,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
                 updateDataWarehouseSavedQuery: async (
-                    view: Partial<DatabaseSchemaViewTable> & {
+                    view: Partial<DataWarehouseSavedQuery> & {
                         id: string
                         types?: string[][]
                         sync_frequency?: string

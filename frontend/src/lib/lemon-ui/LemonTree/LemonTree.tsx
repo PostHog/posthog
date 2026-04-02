@@ -90,7 +90,10 @@ export type TreeDataItem = {
     /** Order of object in tree */
     visualOrder?: number
 }
-type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
+type LemonTreeBaseProps = Omit<
+    HTMLAttributes<HTMLDivElement>,
+    'onDragStart' | 'onDragOver' | 'onDragEnd' | 'onDragCancel'
+> & {
     /** The data to render in the tree. */
     data: TreeDataItem[]
     /** The ID of the folder/node to select by default. Will expand the node if it has children. */

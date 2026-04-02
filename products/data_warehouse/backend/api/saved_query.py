@@ -28,6 +28,7 @@ from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -184,7 +185,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
-    folder_id = serializers.PrimaryKeyRelatedField(
+    folder_id = TeamScopedPrimaryKeyRelatedField(
         source="folder",
         queryset=DataWarehouseSavedQueryFolder.objects.all(),
         required=False,
