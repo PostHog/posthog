@@ -193,6 +193,7 @@ class ExperimentService:
         filters: dict | None = None,
         scheduling_config: dict | None = None,
         exposure_preaggregation_enabled: bool = False,
+        only_count_matured_users: bool = False,
         archived: bool = False,
         deleted: bool = False,
         conclusion: str | None = None,
@@ -222,10 +223,22 @@ class ExperimentService:
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
         if metrics is not None:
             for metric in metrics:
-                metric["fingerprint"] = compute_metric_fingerprint(metric, start_date, stats_method, exposure_criteria)
+                metric["fingerprint"] = compute_metric_fingerprint(
+                    metric,
+                    start_date,
+                    stats_method,
+                    exposure_criteria,
+                    only_count_matured_users=only_count_matured_users,
+                )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
-                metric["fingerprint"] = compute_metric_fingerprint(metric, start_date, stats_method, exposure_criteria)
+                metric["fingerprint"] = compute_metric_fingerprint(
+                    metric,
+                    start_date,
+                    stats_method,
+                    exposure_criteria,
+                    only_count_matured_users=only_count_matured_users,
+                )
 
         if metrics is not None:
             primary_ordering = list(primary_metrics_ordered_uuids or [])
@@ -264,6 +277,7 @@ class ExperimentService:
             "secondary_metrics_ordered_uuids": secondary_metrics_ordered_uuids,
             "scheduling_config": scheduling_config,
             "exposure_preaggregation_enabled": exposure_preaggregation_enabled,
+            "only_count_matured_users": only_count_matured_users,
             "archived": archived,
             "deleted": deleted,
             "conclusion": conclusion,
@@ -410,6 +424,7 @@ class ExperimentService:
         start_date: datetime | None,
         stats_config: dict | None,
         exposure_criteria: dict | None,
+        only_count_matured_users: bool = False,
     ) -> list[dict]:
         """Recompute fingerprints for a list of metrics. Returns a new list with updated fingerprints."""
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
@@ -417,7 +432,11 @@ class ExperimentService:
         for metric in metrics:
             metric_copy = deepcopy(metric)
             metric_copy["fingerprint"] = compute_metric_fingerprint(
-                metric_copy, start_date, stats_method, exposure_criteria
+                metric_copy,
+                start_date,
+                stats_method,
+                exposure_criteria,
+                only_count_matured_users=only_count_matured_users,
             )
             updated.append(metric_copy)
         return updated
@@ -1114,12 +1133,17 @@ class ExperimentService:
         start_date = update_data.get("start_date", experiment.start_date)
         stats_config = update_data.get("stats_config", experiment.stats_config)
         exposure_criteria = update_data.get("exposure_criteria", experiment.exposure_criteria)
+        only_count_matured_users = update_data.get("only_count_matured_users", experiment.only_count_matured_users)
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
             if metrics:
                 update_data[metric_field] = self._recompute_fingerprints(
-                    metrics, start_date, stats_config, exposure_criteria
+                    metrics,
+                    start_date,
+                    stats_config,
+                    exposure_criteria,
+                    only_count_matured_users=only_count_matured_users,
                 )
 
         # --- metric ordering sync + validation -----------------------------
@@ -1196,6 +1220,7 @@ class ExperimentService:
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "saved_metrics_ids",
+            "only_count_matured_users",
         }
         extra_keys = set(update_data.keys()) - expected_keys
 
@@ -1287,6 +1312,7 @@ class ExperimentService:
             primary_metrics_ordered_uuids=source_experiment.primary_metrics_ordered_uuids,
             secondary_metrics_ordered_uuids=source_experiment.secondary_metrics_ordered_uuids,
             exposure_preaggregation_enabled=source_experiment.exposure_preaggregation_enabled,
+            only_count_matured_users=source_experiment.only_count_matured_users,
             serializer_context=serializer_context,
         )
 

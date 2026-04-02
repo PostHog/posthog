@@ -146,13 +146,17 @@ listing feature flags, running HogQL queries, searching session recordings, etc.
 The MCP server is ready to use today.
 For details on available tools, see [Implementing MCP tools](/handbook/engineering/ai/implementing-mcp-tools).
 
-### Skills (coming soon)
+### Skills
 
 Skills are job-to-be-done templates that teach agents _how_ to compose MCP tools into workflows.
 They provide domain knowledge, query patterns, and step-by-step guidance.
 
-Skills are currently used by PostHog Code and Max.
-Support for sandboxed agents is coming soon.
+Skills are pre-installed in the sandbox base image and available to all sandboxed agents.
+They're copied to three discovery locations during image build:
+
+- `/scripts/plugins/posthog/skills/` – plugin discovery
+- `~/.agents/skills/` – Codex agent discovery
+- `~/.claude/skills/` – Claude Code CLI discovery
 
 For details on writing skills, see [Writing skills](/handbook/engineering/ai/writing-skills).
 

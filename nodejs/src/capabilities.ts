@@ -25,6 +25,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpBatchHogFlow: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronV2Janitor: isDevEnv(),
+    cdpHogflowScheduler: isDevEnv(),
 }
 
 /** Realtime Cohorts - precalculated filters and cohort membership */
@@ -33,19 +34,9 @@ export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
     cdpCohortMembership: true,
 }
 
-/** Logs - log ingestion */
-export const CAPABILITIES_LOGS: PluginServerCapabilities = {
-    logsIngestion: true,
-}
-
 /** Error Tracking - exception event ingestion */
 export const CAPABILITIES_ERROR_TRACKING: PluginServerCapabilities = {
     errorTrackingIngestion: true,
-}
-
-/** Traces - trace ingestion */
-export const CAPABILITIES_TRACES: PluginServerCapabilities = {
-    tracesIngestion: true,
 }
 
 /** Feature Flags - evaluation scheduler for flags and experiments */
@@ -70,8 +61,6 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     cdp: CAPABILITIES_CDP,
     cdp_workflows: CAPABILITIES_CDP_WORKFLOWS,
     realtime_cohorts: CAPABILITIES_REALTIME_COHORTS,
-    logs: CAPABILITIES_LOGS,
-    traces: CAPABILITIES_TRACES,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
@@ -102,11 +91,10 @@ export function getPluginServerCapabilities(
                 return mergeCapabilities(...capabilities)
             }
 
-            // Default local dev: run everything except ingestion and recordings (they run in separate processes)
+            // Default local dev: run everything except ingestion, recordings, logs, and traces (they run in separate processes)
             return mergeCapabilities(
                 CAPABILITIES_CDP_WORKFLOWS,
                 CAPABILITIES_REALTIME_COHORTS,
-                CAPABILITIES_LOGS,
                 CAPABILITIES_ERROR_TRACKING,
                 CAPABILITIES_FEATURE_FLAGS
             )
@@ -159,16 +147,11 @@ export function getPluginServerCapabilities(
                 evaluationScheduler: true,
             }
         case PluginServerMode.ingestion_logs:
-            return {
-                logsIngestion: true,
-            }
+        case PluginServerMode.ingestion_traces:
+            throw new Error(`Mode ${mode} is handled by a dedicated server, not PluginServer`)
         case PluginServerMode.ingestion_error_tracking:
             return {
                 errorTrackingIngestion: true,
-            }
-        case PluginServerMode.ingestion_traces:
-            return {
-                tracesIngestion: true,
             }
         case PluginServerMode.cdp_batch_hogflow_requests:
             return {
@@ -186,7 +169,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
-
+        case PluginServerMode.cdp_hogflow_scheduler:
+            return {
+                cdpHogflowScheduler: true,
+            }
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
         case PluginServerMode.recording_api:
