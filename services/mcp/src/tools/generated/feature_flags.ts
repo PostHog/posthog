@@ -57,7 +57,7 @@ const featureFlagGetAll = (): ToolBase<
             results: result.results.map((item: any) =>
                 pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
             ),
-        }
+        } as typeof result
         return await withPostHogUrl(
             context,
             {
@@ -85,7 +85,14 @@ const featureFlagGetDefinition = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${projectId}/feature_flags/${params.id}/`,
         })
-        const filtered = pickResponseFields(result, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'name',
+            'updated_at',
+            'status',
+            'tags',
+        ]) as typeof result
         return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
     },
 })
