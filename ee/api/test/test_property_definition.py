@@ -11,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.test.test_property_definition import exclude_virtual_properties
 from posthog.models import ActivityLog, EventProperty, Tag
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -139,7 +140,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
+        db_results = [r for r in response_data["results"] if not r.get("name", "").startswith("$virt_")]
+        self.assertEqual(len(db_results), 2)
 
     @parameterized.expand(
         [
@@ -517,9 +519,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(properties))
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = exclude_virtual_properties(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", False, None),
             ("2_when_verified", False, None),
             ("3_when_verified", False, None),
@@ -537,7 +539,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = exclude_virtual_properties(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", True, None),
             ("2_when_verified", True, None),
             ("3_when_verified", True, None),
@@ -552,7 +555,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/?event_names=%5B%22%24pageview%22%5D")
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = exclude_virtual_properties(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("3_when_verified", True, True),
             ("4_when_verified", False, True),
             ("1_when_verified", True, False),

@@ -143,6 +143,7 @@ rules:
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
+                              |MCPAnalyticsSubmission
                               |Node
                               |NotificationEvent
                               |Notebook
