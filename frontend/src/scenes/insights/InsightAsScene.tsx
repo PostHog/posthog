@@ -28,10 +28,11 @@ export interface InsightAsSceneProps {
 export function applySceneQueryUpdate(
     currentQuery: Node | null,
     setInsightQuery: (query: Node | null) => void,
-    q: Node | ((q: Node) => Node)
+    q: Node | ((q: Node) => Node),
+    isSourceUpdate?: boolean
 ): void {
     const node = typeof q === 'function' ? (currentQuery ? q(currentQuery) : null) : q
-    if (node) {
+    if (node && (!isInsightVizNode(node) || isSourceUpdate)) {
         setInsightQuery(node)
     }
 }
@@ -72,8 +73,8 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
-    const setQuery = (q: Node | ((q: Node) => Node)): void => {
-        applySceneQueryUpdate(query, setInsightQuery, q)
+    const setQuery = (q: Node | ((q: Node) => Node), isSourceUpdate?: boolean): void => {
+        applySceneQueryUpdate(query, setInsightQuery, q, isSourceUpdate)
     }
 
     if (accessDeniedToInsight) {
