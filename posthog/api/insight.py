@@ -1565,8 +1565,18 @@ When set, the specified dashboard's filters and date range override will be appl
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        kind = query_data.get("kind")
+
         try:
-            query = schema.InsightVizNode.model_validate(query_data)
+            if kind == "ActorsQuery":
+                query = schema.ActorsQuery.model_validate(query_data)
+                if not query.source or not hasattr(query.source, "source"):
+                    return Response(
+                        {"error": "ActorsQuery must have an insight source (e.g. InsightActorsQuery)"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                query = schema.InsightVizNode.model_validate(query_data)
         except Exception:
             return Response(
                 {"error": "Invalid query format"},

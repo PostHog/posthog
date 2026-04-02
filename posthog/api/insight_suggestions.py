@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     ActionsNode,
+    ActorsQuery,
     EventsNode,
     InsightVizNode,
     IntervalType,
@@ -478,13 +479,42 @@ _NAMING_GUIDANCE: dict[str, str] = {
 }
 
 
-def generate_insight_metadata(query: InsightVizNode, team: Team) -> InsightMetadata:
+def generate_insight_metadata(query: InsightVizNode | ActorsQuery, team: Team) -> InsightMetadata:
     """Generate a concise name and description for an insight based on its query configuration."""
-    try:
-        query_summary = _summarize_query_for_naming(query)
-        query_kind = query.source.kind if query.source else "Unknown"
-        type_guidance = _NAMING_GUIDANCE.get(query_kind, "")
+    if isinstance(query, ActorsQuery):
+        return _generate_actors_metadata(query, team)
 
+    return _generate_insight_viz_metadata(query, team)
+
+
+def _generate_actors_metadata(query: ActorsQuery, team: Team) -> InsightMetadata:
+    inner_source = query.source.source
+    query_kind = inner_source.kind
+    insight_guidance = _NAMING_GUIDANCE.get(query_kind, "")
+
+    viz_query = InsightVizNode(kind="InsightVizNode", source=inner_source)
+    query_summary = f"Actors view for:\n{_summarize_query_for_naming(viz_query)}"
+    type_guidance = (
+        f"This is an ACTORS view — a table of individual users/groups matching an insight's criteria.\n"
+        f"The underlying insight is a {query_kind}. {insight_guidance}\n"
+        f"Prefix the name with 'Actors:' to indicate this is a people list, "
+        f"e.g. 'Actors: Daily Pageviews' or 'Actors: Signup → Purchase Conversion'.\n"
+        f"For the description, mention that it shows the list of actors/users matching the insight criteria."
+    )
+
+    return _request_metadata_from_llm(query_summary, type_guidance, team)
+
+
+def _generate_insight_viz_metadata(query: InsightVizNode, team: Team) -> InsightMetadata:
+    query_summary = _summarize_query_for_naming(query)
+    query_kind = query.source.kind if query.source else "Unknown"
+    type_guidance = _NAMING_GUIDANCE.get(query_kind, "")
+
+    return _request_metadata_from_llm(query_summary, type_guidance, team)
+
+
+def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Team) -> InsightMetadata:
+    try:
         prompt = (
             "Name and describe this product analytics insight for a dashboard. "
             "Optimize for clarity and scanability — a teammate should instantly understand "
