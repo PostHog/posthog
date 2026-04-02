@@ -13,8 +13,9 @@ type keyMap struct {
 	GotoBottom key.Binding
 	NextPane   key.Binding
 	PrevPane   key.Binding
-	Restart    key.Binding
+	Start      key.Binding
 	Stop       key.Binding
+	Restart    key.Binding
 	CopyMode   key.Binding
 	Search     key.Binding
 	SearchNext key.Binding
@@ -70,13 +71,17 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("shift+tab"),
 			key.WithHelp("⇧↹:", "prev pane"),
 		),
+		Start: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s:", "start"),
+		),
+		Stop: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x:", "stop"),
+		),
 		Restart: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r:", "restart"),
-		),
-		Stop: key.NewBinding(
-			key.WithKeys("s"),
-			key.WithHelp("s:", "stop"),
 		),
 		CopyMode: key.NewBinding(
 			key.WithKeys("c"),
@@ -136,7 +141,7 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.KeyDown, k.NextPane, k.Search, k.CopyMode, k.Info, k.Sort, k.Setup, k.Restart, k.Stop, k.Quit, k.Help}
+	return []key.Binding{k.KeyDown, k.NextPane, k.Start, k.Stop, k.Restart, k.Search, k.CopyMode, k.Setup, k.Sort, k.Info, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -144,8 +149,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.KeyDown, k.KeyUp, k.Sort},
 		{k.ScrollUp, k.ScrollDown, k.Setup},
 		{k.GotoTop, k.GotoBottom, k.Info},
-		{k.NextPane, k.PrevPane, k.LazyDocker},
-		{k.Restart, k.Stop, k.ProcViewer},
+		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
+		{k.Start, k.Stop, k.Restart},
 		{k.Search, k.SearchNext, k.SearchPrev},
 		{k.CopyMode, k.Quit, k.Help},
 	}

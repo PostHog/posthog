@@ -145,6 +145,14 @@ func (p *Process) Status() Status {
 	return p.status
 }
 
+func (s Status) IsRunning() bool {
+	return s == StatusRunning || s == StatusPending
+}
+
+func (p *Process) IsRunning() bool {
+	return p.Status().IsRunning()
+}
+
 func (p *Process) SetMetricsEnabled(on bool) {
 	p.metricsEnabled.Store(on)
 }
@@ -257,7 +265,7 @@ func (p *Process) sampleMetrics() {
 	st := p.status
 	p.mu.Unlock()
 
-	if pid == 0 || (st != StatusRunning && st != StatusPending) {
+	if pid == 0 || !st.IsRunning() {
 		return
 	}
 
@@ -710,7 +718,7 @@ func (p *Process) startMetricsSampler(pid int, send func(tea.Msg)) {
 		}
 		p.mu.Unlock()
 
-		if (st != StatusRunning && st != StatusPending) || (currentPID != 0 && currentPID != origPID) {
+		if !st.IsRunning() || (currentPID != 0 && currentPID != origPID) {
 			return
 		}
 

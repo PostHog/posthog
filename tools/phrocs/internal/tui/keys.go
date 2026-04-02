@@ -208,6 +208,22 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 	return m, cmds, true
 }
 
+// updateProcKeys enables/disables start, stop, and restart bindings
+// based on the active process state.
+func (m *Model) updateProcKeys() {
+	p := m.activeProc()
+	if p == nil {
+		m.keys.Start.SetEnabled(false)
+		m.keys.Stop.SetEnabled(false)
+		m.keys.Restart.SetEnabled(false)
+		return
+	}
+	running := p.IsRunning()
+	m.keys.Start.SetEnabled(!running)
+	m.keys.Stop.SetEnabled(running)
+	m.keys.Restart.SetEnabled(running)
+}
+
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	// When the active process is waiting for input, buffer keystrokes and send them on Enter.
 	p := m.activeProc()
@@ -275,6 +291,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 				prev := m.servicesCursor
 				m.servicesCursor++
 				m.ensureSidebarCursorVisible()
+				m.updateProcKeys()
 				m.dbg("proc selected: %d→%d (%s)", prev, m.servicesCursor, m.services[m.servicesCursor].Name)
 				var loadCmds []tea.Cmd
 				m, loadCmds = m.loadActiveProc()
@@ -297,6 +314,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 				prev := m.servicesCursor
 				m.servicesCursor--
 				m.ensureSidebarCursorVisible()
+				m.updateProcKeys()
 				m.dbg("proc selected: %d→%d (%s)", prev, m.servicesCursor, m.services[m.servicesCursor].Name)
 				var loadCmds []tea.Cmd
 				m, loadCmds = m.loadActiveProc()
@@ -330,15 +348,22 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.viewport.GotoBottom()
 		m.viewportAtBottom = true
 
+	case key.Matches(msg, m.keys.Start):
+		if p := m.activeProc(); p != nil && !p.IsRunning() {
+			m.dbg("start: proc=%s", p.Name)
+			send := m.mgr.Send()
+			go func() { _ = p.Start(send) }()
+		}
+
 	case key.Matches(msg, m.keys.Restart):
-		if p := m.activeProc(); p != nil {
+		if p := m.activeProc(); p != nil && p.IsRunning() {
 			m.dbg("restart: proc=%s", p.Name)
 			send := m.mgr.Send()
 			go p.Restart(send)
 		}
 
 	case key.Matches(msg, m.keys.Stop):
-		if p := m.activeProc(); p != nil {
+		if p := m.activeProc(); p != nil && p.IsRunning() {
 			m.dbg("stop: proc=%s", p.Name)
 			p.Stop()
 		}

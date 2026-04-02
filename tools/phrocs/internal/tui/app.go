@@ -95,7 +95,7 @@ type Model struct {
 	setupChecked map[string]bool
 	setupIntents []string // intents selected in step 1
 	setupError   string   // error message from applying changes
-	configPath   string // path to the running config file
+	configPath   string   // path to the running config file
 
 	// Info mode: replaces the output viewport with process stats
 	infoMode bool
@@ -229,6 +229,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.sortServices()
+		m.updateProcKeys()
 
 	// Container-related messages only relevant in docker mode
 	case docker.ContainerListMsg:
@@ -399,6 +400,7 @@ func (m Model) applySize() Model {
 		m.viewport.SetHeight(contentH)
 	}
 
+	m.updateProcKeys()
 	m.ensureSidebarCursorVisible()
 
 	// Keep every pty window size in sync with the sidebar-adjusted width so
