@@ -17,7 +17,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS distributed_sharded_events_recent",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     # Create distributed write table
     run_sql_with_exceptions(

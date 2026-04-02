@@ -97,11 +97,11 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
     selectors({
         endpointNames: [
             (s) => [s.allEndpoints],
-            (allEndpoints: EndpointType[]): string[] =>
-                allEndpoints
-                    .filter((e) => e.last_executed_at)
-                    .map((e) => e.name)
-                    .sort(),
+            (allEndpoints: EndpointType[]): string[] => allEndpoints.map((e) => e.name).sort(),
+        ],
+        activeEndpointNames: [
+            (s) => [s.endpointNames],
+            (endpointNames: string[]): Set<string> => new Set(endpointNames),
         ],
         endpointNamesLoading: [(s) => [s.allEndpointsLoading], (loading: boolean): boolean => loading],
         canRefresh: [(s) => [s.cooldownActive], (cooldownActive: boolean): boolean => !cooldownActive],
@@ -279,7 +279,10 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions }) => ({
-        [urls.endpointsUsage()]: (_, searchParams) => {
+        [urls.endpoints()]: (_, searchParams) => {
+            if (searchParams.tab !== 'usage') {
+                return
+            }
             const { dateFrom, dateTo, endpointFilter, materializationType, interval, breakdownBy } = searchParams
             actions.setDates(dateFrom ?? INITIAL_DATE_FROM, dateTo ?? INITIAL_DATE_TO)
             actions.setEndpointFilter(endpointFilter ? endpointFilter.split(',') : [])
