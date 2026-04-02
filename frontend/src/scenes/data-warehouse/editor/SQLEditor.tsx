@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconBook, IconChevronDown, IconDownload } from '@posthog/icons'
+import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -401,12 +401,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => closeEditingObject()}
+                                    icon={<IconX />}
                                     type="secondary"
                                     size="small"
+                                    //   noPadding
+                                    aria-label="close"
                                     tooltip={closeObjectTooltip}
-                                >
-                                    Close
-                                </LemonButton>
+                                />
                             </>
                         ) : editingInsight ? (
                             <>
@@ -454,12 +455,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => closeEditingObject()}
+                                    icon={<IconX />}
                                     type="secondary"
                                     size="small"
+                                    noPadding
+                                    aria-label="close"
                                     tooltip={closeObjectTooltip}
-                                >
-                                    Close
-                                </LemonButton>
+                                />
                             </>
                         ) : (
                             <LemonButton
