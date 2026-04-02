@@ -53,7 +53,7 @@ class TestFunnelStrictStepsBreakdown(
             series=[EventsNode(event="sign up"), EventsNode(event="play movie")],
             dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-08"),
             breakdownFilter=BreakdownFilter(breakdown="$browser"),
-            funnelsFilter=FunnelsFilter(funnelOrderType=FunnelOrderType.STRICT),
+            funnelsFilter=FunnelsFilter(funnelOrderType=FunnelOrderType.STRICT, funnelWindowInterval=7),
         )
 
         people = journeys_for(
