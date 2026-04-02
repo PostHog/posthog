@@ -6,7 +6,7 @@ import { InsightType, TrendExperimentVariant } from '~/types'
 import { VariantTag } from '../../ExperimentView/components'
 import { legacyCalculateDelta } from '../calculations/legacyExperimentCalculations'
 
-interface VariantTooltipProps {
+interface LegacyVariantTooltipProps {
     tooltipData: {
         x: number
         y: number
@@ -20,7 +20,12 @@ interface VariantTooltipProps {
     credibleIntervalForVariant: (result: any, variant: string, metricType: InsightType) => any
 }
 
-export function VariantTooltip({
+/**
+ * @deprecated
+ * Legacy variant tooltip component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyVariantTooltip({
     tooltipData,
     result,
     metricType,
@@ -28,7 +33,7 @@ export function VariantTooltip({
     countDataForVariant,
     exposureCountDataForVariant,
     credibleIntervalForVariant,
-}: VariantTooltipProps): JSX.Element {
+}: LegacyVariantTooltipProps): JSX.Element {
     return (
         <div
             className="fixed -translate-x-1/2 -translate-y-full bg-[var(--color-bg-surface-primary)] border border-[var(--color-border-primary)] px-3 py-2 rounded-md text-[13px] shadow-md pointer-events-none z-[103] min-w-[300px]"

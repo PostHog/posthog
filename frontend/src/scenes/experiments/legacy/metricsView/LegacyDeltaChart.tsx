@@ -26,10 +26,10 @@ import { LegacyChartModal } from './LegacyChartModal'
 import { useLegacyChartColors } from './legacyColors'
 import { LegacyGridLines } from './LegacyGridLines'
 import { LegacyMetricHeader } from './LegacyMetricHeader'
+import { LegacyVariantTooltip } from './LegacyVariantTooltip'
 import { legacyGenerateViolinPath } from './legacyViolinUtils'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
-import { VariantTooltip } from './VariantTooltip'
 
 // Chart configuration types
 type ChartDimensions = {
@@ -431,7 +431,7 @@ function ChartTooltips(): JSX.Element {
         <>
             {/* Variant result tooltip */}
             {tooltipData && (
-                <VariantTooltip
+                <LegacyVariantTooltip
                     tooltipData={tooltipData}
                     result={result}
                     metricType={metricType}
