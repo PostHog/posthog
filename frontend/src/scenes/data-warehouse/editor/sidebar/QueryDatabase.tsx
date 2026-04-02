@@ -54,7 +54,7 @@ export const QueryDatabase = (): JSX.Element => {
     } = useActions(queryDatabaseLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { setActiveTab, setQueryInput, setSourceQuery } = useActions(sqlEditorLogic)
+    const { openMaterializationModal, setActiveTab, setQueryInput, setSourceQuery } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
@@ -432,6 +432,17 @@ export const QueryDatabase = (): JSX.Element => {
 
                     return (
                         <DropdownMenuGroup>
+                            {item.record.type === 'view' ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openMaterializationModal(item.record?.view)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Materialize</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {

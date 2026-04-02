@@ -349,6 +349,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
+        openMaterializationModal: (view?: DataWarehouseSavedQuery) => ({ view }),
+        closeMaterializationModal: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -407,6 +409,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as number | null,
             {
                 setDashboardId: (_, { dashboardId }) => dashboardId,
+            },
+        ],
+        materializationModalOpen: [
+            false,
+            {
+                openMaterializationModal: () => true,
+                closeMaterializationModal: () => false,
             },
         ],
         editingInsight: [
@@ -713,7 +722,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions._setSuggestionPayload(null)
         },
         editView: ({ query, view }) => {
-            actions.setActiveTab(OutputTab.Materialization)
             actions.createTab(query, view)
         },
         editInsight: ({ query, insight }) => {
@@ -948,6 +956,28 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             } catch {
                 lemonToast.error('Failed to save view')
+            }
+        },
+        openMaterializationModal: async ({ view }) => {
+            if (!view || values.editingView?.id === view.id) {
+                return
+            }
+
+            actions.setViewLoading(true)
+
+            try {
+                let nextView = view
+
+                if (!nextView.query) {
+                    nextView = await api.dataWarehouseSavedQueries.get(view.id)
+                }
+
+                actions.createTab(nextView.query?.query ?? '', nextView)
+            } catch {
+                lemonToast.error('View not found')
+                actions.closeMaterializationModal()
+            } finally {
+                actions.setViewLoading(false)
             }
         },
         saveAsInsight: async () => {
@@ -1722,9 +1752,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Open view
                     const viewId = viewIdFromUrl
 
-                    if (!outputTabFromUrl) {
-                        actions.setActiveTab(OutputTab.Materialization)
-                    }
                     actions.setViewLoading(true)
 
                     if (values.dataWarehouseSavedQueries.length === 0) {

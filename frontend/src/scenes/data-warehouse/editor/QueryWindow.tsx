@@ -222,7 +222,7 @@ export function QueryWindow({
                 }}
             />
 
-            <InternalQueryWindow tabId={tabId} />
+            <InternalQueryWindow />
         </div>
     )
 }
@@ -310,14 +310,14 @@ function RunButton(): JSX.Element {
     )
 }
 
-const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow(): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
 
     if (finishedLoading) {
         return null
     }
 
-    return <OutputPane tabId={tabId} />
+    return <OutputPane />
 })
 
 function CollapsedConnectionSelector({
