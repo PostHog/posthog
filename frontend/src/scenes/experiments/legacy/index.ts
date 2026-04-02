@@ -27,7 +27,7 @@ export * from './calculations/legacyExperimentCalculations'
 // Metrics View
 export { MetricsViewLegacy } from './metricsView/MetricsViewLegacy'
 export { LegacyChartModal } from './metricsView/LegacyChartModal'
-export { DeltaChart } from './metricsView/DeltaChart'
+export { LegacyDeltaChart } from './metricsView/LegacyDeltaChart'
 export { LegacyChartEmptyState } from './metricsView/LegacyChartEmptyState'
 export { LegacyErrorChecklist } from './metricsView/LegacyErrorChecklist'
 export { MetricsChartLayout } from './metricsView/MetricsChartLayout'

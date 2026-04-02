@@ -143,7 +143,11 @@ function hasEnoughDataForResults(variantExposureCount: number, variantMetricValu
     )
 }
 
-// Individual variant bar component
+/**
+ * @deprecated
+ * Legacy variant bar component for DeltaChart.
+ * Frozen copy for legacy experiments - do not modify.
+ */
 function VariantBar({ variant, index }: { variant: any; index: number }): JSX.Element {
     const {
         result,
@@ -441,7 +445,11 @@ function ChartTooltips(): JSX.Element {
     )
 }
 
-// Main chart content component
+/**
+ * @deprecated
+ * Legacy main chart content component for DeltaChart.
+ * Frozen copy for legacy experiments - do not modify.
+ */
 function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement> }): JSX.Element {
     const { result, metric, hasMinimumExposureForResults, resultsLoading, experiment, error, dimensions } =
         useDeltaChartContext()
@@ -472,8 +480,12 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
     )
 }
 
-// Main DeltaChart component
-export function DeltaChart({
+/**
+ * @deprecated
+ * Legacy main DeltaChart component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyDeltaChart({
     isSecondary,
     result,
     error,

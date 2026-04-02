@@ -7,7 +7,7 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { experimentLogic } from '../../experimentLogic'
 import { legacyCredibleIntervalForVariant } from '../calculations/legacyExperimentCalculations'
-import { DeltaChart } from './DeltaChart'
+import { LegacyDeltaChart } from './LegacyDeltaChart'
 import { legacyGetNiceTickValues } from './legacyUtils'
 
 export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
@@ -154,7 +154,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                                                 : ''
                                     }`}
                                 >
-                                    <DeltaChart
+                                    <LegacyDeltaChart
                                         isSecondary={!!isSecondary}
                                         result={result}
                                         error={errors?.[index]}
