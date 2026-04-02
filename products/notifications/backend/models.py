@@ -2,7 +2,7 @@ from django.db import models
 
 from posthog.models.utils import UUIDModel
 
-from products.notifications.backend.facade.enums import NotificationType, Priority, TargetType
+from products.notifications.backend.facade.enums import NotificationType, Priority, SourceType, TargetType
 
 
 class NotificationEvent(UUIDModel):
@@ -15,6 +15,10 @@ class NotificationEvent(UUIDModel):
     resource_type = models.CharField(max_length=64, null=True, blank=True)
     resource_id = models.CharField(max_length=64, blank=True, default="")
     source_url = models.CharField(max_length=512, blank=True, default="")
+    source_type = models.CharField(
+        max_length=64, choices=[(s.value, s.name) for s in SourceType], null=True, blank=True
+    )
+    source_id = models.CharField(max_length=64, null=True, blank=True)
     target_type = models.CharField(max_length=16, choices=[(t.value, t.name) for t in TargetType])
     target_id = models.CharField(max_length=64)
     resolved_user_ids = models.JSONField(default=list)
