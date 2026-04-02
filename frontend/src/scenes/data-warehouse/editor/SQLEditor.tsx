@@ -213,6 +213,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         editingInsight,
         insightLoading,
         sourceQuery,
+        changesToSave,
         inProgressViewEdits,
         isEmbeddedMode,
         titleSectionProps,
@@ -292,12 +293,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return ['Run query to update', IconDownload]
         }
 
-        if (!updateInsightButtonEnabled) {
+        if (!changesToSave) {
             return ['No changes to save', IconDownload]
         }
 
         return [undefined, IconDownload]
-    }, [updatingDataWarehouseSavedQuery, updateInsightButtonEnabled, response])
+    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
     if (isEmbeddedMode) {
         return null
