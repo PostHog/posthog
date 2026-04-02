@@ -1391,3 +1391,56 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["deleted"] == 0
         assert HogFlow.objects.filter(id=flow_id).exists()
+
+    def _base_hog_flow_with_variables(self, variables):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        return {
+            "name": "Test Flow",
+            "actions": [trigger_action],
+            "variables": variables,
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "unique_keys_accepted",
+                [{"key": "name", "value": ""}, {"key": "email", "value": ""}],
+                201,
+                None,
+            ),
+            (
+                "duplicate_keys_rejected",
+                [{"key": "name", "value": ""}, {"key": "name", "value": "other"}],
+                400,
+                "Variable keys must be unique",
+            ),
+            (
+                "exceeding_5kb_rejected",
+                [{"key": f"var_{i}", "value": "x" * 1000} for i in range(6)],
+                400,
+                "Total size of variables definition must be less than 5KB",
+            ),
+            (
+                "just_under_5kb_accepted",
+                [{"key": f"v_{i:02d}", "value": "x" * 1200} for i in range(4)],
+                201,
+                None,
+            ),
+        ]
+    )
+    def test_variables_validation(self, _name, variables, expected_status, expected_error):
+        hog_flow = self._base_hog_flow_with_variables(variables)
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == expected_status, response.json()
+        if expected_error:
+            assert response.json()["detail"] == expected_error
