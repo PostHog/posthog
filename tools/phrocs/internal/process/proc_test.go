@@ -48,18 +48,18 @@ func TestNewProcess_fields(t *testing.T) {
 	}
 }
 
-func TestNewProcess_readyWithoutPattern(t *testing.T) {
-	p := NewProcess("svc", config.ProcConfig{Shell: "true"}, 1000)
-	if !p.ready {
-		t.Error("process with no ready_pattern should start ready")
+func TestNewProcess_notReadyWithPattern(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "started"}, 1000)
+	if p.Status() == StatusRunning {
+		t.Error("process with ready_pattern should not start ready")
+	}
+	if p.readyPattern == nil {
+		t.Error("readyPattern should be compiled")
 	}
 }
 
-func TestNewProcess_notReadyWithPattern(t *testing.T) {
+func TestNewProcess_compilesReadyPattern(t *testing.T) {
 	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "started"}, 1000)
-	if p.ready {
-		t.Error("process with ready_pattern should not start ready")
-	}
 	if p.readyPattern == nil {
 		t.Error("readyPattern should be compiled")
 	}
@@ -91,9 +91,8 @@ func TestSnapshot_initialState(t *testing.T) {
 	if snap.Status != "stopped" {
 		t.Errorf("Status: got %q, want %q", snap.Status, "stopped")
 	}
-	// No ready_pattern means the process is considered ready immediately.
-	if !snap.Ready {
-		t.Error("Ready: expected true when no ready_pattern is configured")
+	if snap.Ready {
+		t.Error("Ready: expected false when process is stopped")
 	}
 	if snap.PID != 0 {
 		t.Errorf("PID: got %d, want 0", snap.PID)
@@ -334,6 +333,202 @@ func TestReadLoop_batchesOutput(t *testing.T) {
 	// significant coalescing (typically <20 messages)
 	if outputMsgCount > totalLines/5 {
 		t.Errorf("batching not effective enough: %d OutputMsgs for %d lines", outputMsgCount, totalLines)
+	}
+}
+
+func TestHasPrompt_partialLine(t *testing.T) {
+	// printf writes a partial line (no trailing \n), which readLoop should
+	// detect and set HasPrompt = true.
+	p := NewProcess("prompt-test", config.ProcConfig{
+		Shell: `printf "Enter name: "`,
+	}, 100)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for HasPrompt")
+		default:
+		}
+		if p.HasPrompt() {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	lines := p.Lines()
+	if len(lines) == 0 {
+		t.Fatal("expected at least one buffered line")
+	}
+	if !strings.Contains(lines[len(lines)-1], "Enter name:") {
+		t.Errorf("expected partial line containing 'Enter name:', got %q", lines[len(lines)-1])
+	}
+}
+
+func TestHasPrompt_completeLine(t *testing.T) {
+	// echo writes a complete line (with trailing \n), so HasPrompt should
+	// be false once the process finishes.
+	p := NewProcess("no-prompt", config.ProcConfig{
+		Shell: `echo "hello"`,
+	}, 100)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for process to finish")
+		default:
+		}
+		st := p.Status()
+		if st == StatusDone || st == StatusCrashed {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if p.HasPrompt() {
+		t.Error("HasPrompt should be false after a complete line")
+	}
+}
+
+func TestWriteInput(t *testing.T) {
+	p := NewProcess("pty-input", config.ProcConfig{
+		Shell: `head -1`,
+	}, 100)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// PTY line discipline translates \r to \n, so head -1 sees a full line
+	if err := p.WriteInput([]byte("hello\r")); err != nil {
+		t.Fatalf("WriteInput failed: %v", err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for process to finish")
+		default:
+		}
+		st := p.Status()
+		if st == StatusDone || st == StatusCrashed {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	lines := p.Lines()
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "hello") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'hello' in output, got lines: %v", lines)
+	}
+}
+
+// Simulates the production backpressure scenario: many processes flood output
+// simultaneously while sends are serialized through a slow bottleneck (like
+// Bubble Tea's unbuffered Program.msgs channel). Without the per-process
+// outCh buffer, readLoops block on send → stop draining chunkCh → PTY buffer
+// fills → child write() blocks → processes hang. With the fix, readLoops
+// send non-blocking to outCh so the PTY is always drained.
+func TestBackpressure_concurrentFloodDoesNotStall(t *testing.T) {
+	const procCount = 10
+	const linesPerProc = 5000
+
+	// Serialize all sends through a mutex with a 2ms delay to simulate the
+	// Bubble Tea unbuffered channel where Program.Send blocks until the
+	// event loop processes the previous message.
+	var bottleneck sync.Mutex
+	slowSend := func(msg tea.Msg) {
+		bottleneck.Lock()
+		time.Sleep(2 * time.Millisecond)
+		bottleneck.Unlock()
+	}
+
+	procs := make([]*Process, procCount)
+	for i := range procs {
+		procs[i] = NewProcess(
+			fmt.Sprintf("flood-%d", i),
+			config.ProcConfig{
+				Shell: fmt.Sprintf(
+					`for i in $(seq 1 %d); do echo "proc-%d line $i xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; done`,
+					linesPerProc, i),
+			},
+			linesPerProc+100,
+		)
+	}
+
+	for _, p := range procs {
+		if err := p.Start(slowSend); err != nil {
+			t.Skipf("skipping: cannot spawn subprocess: %v", err)
+		}
+	}
+
+	// All processes should complete well within 10s. Without the outCh
+	// buffer the serialized sends cause PTY backpressure that hangs the
+	// child processes, triggering this timeout.
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			var stalled []string
+			for _, p := range procs {
+				st := p.Status()
+				if st != StatusDone && st != StatusCrashed {
+					stalled = append(stalled, fmt.Sprintf(
+						"%s (status=%s, lines=%d)", p.Name, st, len(p.Lines())))
+				}
+			}
+			if len(stalled) > 0 {
+				t.Fatalf("timed out — %d/%d processes stalled: %v",
+					len(stalled), procCount, stalled)
+			}
+			return
+		default:
+		}
+
+		allDone := true
+		for _, p := range procs {
+			st := p.Status()
+			if st != StatusDone && st != StatusCrashed {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Verify most output was captured — the PTY teardown race can lose a few
+	// lines at the tail, so we allow up to 5% loss. The important assertion
+	// is that processes completed (above), not exact line counts.
+	for _, p := range procs {
+		lines := p.Lines()
+		if len(lines) < linesPerProc*95/100 {
+			t.Errorf("%s: expected at least %d lines (95%%), got %d", p.Name, linesPerProc*95/100, len(lines))
+		}
 	}
 }
 

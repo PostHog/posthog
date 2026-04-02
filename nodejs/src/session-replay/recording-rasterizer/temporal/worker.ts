@@ -82,7 +82,7 @@ function startMetricsServer(): http.Server {
     const app = express()
     app.get(['/_health'], (_, res) => res.status(200).send('ok'))
     app.get(['/_ready'], (_, res) => res.status(ready ? 200 : 503).send(ready ? 'ok' : 'not ready'))
-    app.get(['/metrics', '/_metrics'], async (_, res) => {
+    app.get('/_metrics', async (_, res) => {
         try {
             res.set('Content-Type', prometheus.register.contentType)
             res.end(await prometheus.register.metrics())

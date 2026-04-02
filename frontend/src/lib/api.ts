@@ -171,6 +171,7 @@ import {
     ProductTourStep,
     ProjectType,
     PropertyDefinition,
+    PropertyGroupFilter,
     PropertyDefinitionType,
     QueryBasedInsightModel,
     QueryTabState,
@@ -229,6 +230,7 @@ import {
     HogFlow,
     HogFlowAction,
     HogFlowBatchJob,
+    HogFlowSchedule,
     HogFlowTemplate,
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -754,7 +756,7 @@ export class ApiRequest {
 
     // # Tracing
     public tracingSpans(): ApiRequest {
-        return this.projectsDetail().addPathComponent('tracing').addPathComponent('spans')
+        return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')
     }
 
     // # Data management
@@ -2129,20 +2131,14 @@ const api = {
             range_pairs: { column: string; variables: string[]; bucket_fn: string }[]
             aggregates: { expression: string; reaggregate_fn: string | null }[]
         }> {
-            const params: Record<string, any> = {}
+            const data: Record<string, any> = {}
             if (version !== undefined) {
-                params.version = version
+                data.version = version
             }
-            if (bucketOverrides) {
-                for (const [col, fn] of Object.entries(bucketOverrides)) {
-                    params[`bucket_overrides[${col}]`] = fn
-                }
+            if (bucketOverrides && Object.keys(bucketOverrides).length > 0) {
+                data.bucket_overrides = bucketOverrides
             }
-            let request = new ApiRequest().endpointDetail(name).withAction('materialization_preview')
-            if (Object.keys(params).length > 0) {
-                request = request.withQueryString(params)
-            }
-            return await request.get()
+            return await new ApiRequest().endpointDetail(name).withAction('materialization_preview').create({ data })
         },
         async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
@@ -2434,6 +2430,7 @@ const api = {
                     ActivityScope.HOG_FLOW,
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
+                    ActivityScope.BATCH_EXPORT,
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
@@ -2580,24 +2577,45 @@ const api = {
 
     tracing: {
         async listSpans(query: {
-            dateRange?: { date_from?: string; date_to?: string }
+            dateRange?: { date_from?: string | null; date_to?: string | null }
             serviceNames?: string[]
             statusCodes?: number[]
-            searchTerm?: string
+            filterGroup?: PropertyGroupFilter
             orderBy?: 'latest' | 'earliest'
             limit?: number
             after?: string
+            prefetchSpans?: number
         }): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextCursor?: string }> {
             return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
         },
         async getTrace(
             traceId: string,
-            dateRange?: { date_from?: string; date_to?: string }
+            dateRange?: { date_from?: string | null; date_to?: string | null }
         ): Promise<{ results: Record<string, any>[] }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({ data: { dateRange: dateRange ?? { date_from: '-24h' } } })
+        },
+        async sparkline(query: {
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+            serviceNames?: string[]
+            statusCodes?: number[]
+            filterGroup?: PropertyGroupFilter
+        }): Promise<{ results: { time: string; service: string; count: number }[] }> {
+            return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
+        },
+        async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
+            return new ApiRequest()
+                .tracingSpans()
+                .withAction('service-names')
+                .withQueryString(
+                    Object.entries(params)
+                        .filter(([, v]) => v !== undefined && v !== '')
+                        .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`)
+                        .join('&')
+                )
+                .get()
         },
     },
 
@@ -3020,6 +3038,10 @@ const api = {
             return new ApiRequest().dashboardsDetail(id).get()
         },
 
+        async generateMetadata(id: number): Promise<{ name: string; description: string }> {
+            return await new ApiRequest().dashboardsDetail(id).withAction('generate_metadata').create({ data: {} })
+        },
+
         async createUnlistedDashboard(tag: string): Promise<DashboardType> {
             return new ApiRequest().dashboards().withAction('create_unlisted_dashboard').create({ data: { tag } })
         },
@@ -3259,6 +3281,14 @@ const api = {
                         distinct_ids: distinctIds,
                     },
                 })
+            return response.results
+        },
+        async getByUUIDs(uuids: string[]): Promise<Record<string, PersonType>> {
+            const response = await new ApiRequest().persons().withAction('batch_by_uuids').create({
+                data: {
+                    uuids,
+                },
+            })
             return response.results
         },
     },
@@ -3697,12 +3727,15 @@ const api = {
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
 
-            async update(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
-                return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
-            },
-
             async delete(id: ErrorTrackingSymbolSet['id']): Promise<void> {
                 return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+            },
+
+            async bulkDelete(ids: ErrorTrackingSymbolSet['id'][]): Promise<void> {
+                return await new ApiRequest()
+                    .errorTrackingSymbolSets()
+                    .withAction('bulk_delete')
+                    .create({ data: { ids } })
             },
         },
 
@@ -5448,6 +5481,29 @@ const api = {
         },
         async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
+        },
+        async getHogFlowSchedules(hogFlowId: HogFlow['id']): Promise<HogFlowSchedule[]> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').get()
+        },
+        async createHogFlowSchedule(
+            hogFlowId: HogFlow['id'],
+            data: { rrule: string; starts_at: string; timezone?: string }
+        ): Promise<HogFlowSchedule> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').create({ data })
+        },
+        async updateHogFlowSchedule(
+            hogFlowId: HogFlow['id'],
+            scheduleId: string,
+            data: Partial<{ rrule: string; starts_at: string; timezone?: string }>
+        ): Promise<HogFlowSchedule> {
+            return await new ApiRequest()
+                .hogFlow(hogFlowId)
+                .withAction('schedules')
+                .withAction(scheduleId)
+                .update({ data })
+        },
+        async deleteHogFlowSchedule(hogFlowId: HogFlow['id'], scheduleId: string): Promise<void> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').withAction(scheduleId).delete()
         },
     },
     hogFlowTemplates: {

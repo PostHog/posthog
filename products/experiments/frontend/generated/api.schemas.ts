@@ -320,6 +320,7 @@ export interface ExperimentApi {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
@@ -385,6 +386,7 @@ export interface PatchedExperimentApi {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object

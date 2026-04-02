@@ -7,6 +7,16 @@ on:
         paths:
             - 'livestream/**'
             - '.github/workflows/livestream-docker-image.yml'
+    pull_request:
+        branches:
+            - master
+        paths:
+            - 'livestream/**'
+            - '.github/workflows/livestream-docker-image.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     build:
@@ -25,43 +35,45 @@ jobs:
             - name: Check out livestream code
               uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'livestream/'
+                  sparse-checkout: |
+                      livestream/
+                      .github/actions/docker-meta/
                   sparse-checkout-cone-mode: false
 
-            - name: Log in to the Container registry
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
               with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-                  logout: false
-
-            - name: Extract metadata (tags, labels) for Docker
-              id: meta
-              uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-              with:
-                  images: ghcr.io/posthog/posthog/livestream
+                  image-name: livestream
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # We don't push to ghcr.io/posthog/livestream due to that being a legacy repo that we can't delete :/
+                  push-to-ghcr: 'false'
+                  # Legacy path — remove once Helm charts are updated to ghcr.io/posthog/<image>
+                  legacy-images: ghcr.io/posthog/posthog/livestream
 
             - name: Set up Depot CLI
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
 
             - name: Build and push Docker image
               id: push
-              if: github.ref == 'refs/heads/master'
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: ./livestream/
                   file: livestream/Dockerfile
                   push: true
                   platforms: linux/amd64,linux/arm64
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
                   project: '87b1ch2t7h'
 
     deploy:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build
+        if: github.ref == 'refs/heads/master'
         steps:
             - name: get deployer token
               id: deployer

@@ -9,6 +9,16 @@ import { SlackChannelType, UserBasicType } from '~/types'
 
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
+export interface EmailConfigStatus {
+    id: string
+    from_email: string
+    from_name: string
+    forwarding_address: string | null
+    domain: string
+    domain_verified: boolean
+    dns_records: Record<string, any> | null
+}
+
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
@@ -48,34 +58,24 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setSlackBotDisplayNameValue: (value: string | null) => ({ value }),
         saveSlackBotSettings: true,
         disconnectSlack: true,
-        // Email channel settings
-        setEmailFromEmail: (value: string) => ({ value }),
-        setEmailFromName: (value: string) => ({ value }),
+        // Email channel settings (multi-config)
+        loadEmailConfigs: true,
+        loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
+        setAddEmailFormVisible: (visible: boolean) => ({ visible }),
+        setNewEmailFromEmail: (value: string) => ({ value }),
+        setNewEmailFromName: (value: string) => ({ value }),
         connectEmail: true,
-        connectEmailDone: (forwardingAddress: string | null, dnsRecords: Record<string, any> | null) => ({
-            forwardingAddress,
-            dnsRecords,
-        }),
-        disconnectEmail: true,
-        loadEmailStatus: true,
-        loadEmailStatusDone: (
-            status: {
-                forwarding_address: string | null
-                from_email: string
-                from_name: string
-                domain_verified: boolean
-                dns_records: Record<string, any> | null
-            } | null
-        ) => ({
-            status,
-        }),
-        verifyEmailDomain: true,
-        verifyEmailDomainDone: (verified: boolean, dnsRecords: Record<string, any> | null) => ({
+        connectEmailDone: (config: EmailConfigStatus | null) => ({ config }),
+        disconnectEmail: (configId: string) => ({ configId }),
+        disconnectEmailDone: (configId: string) => ({ configId }),
+        verifyEmailDomain: (configId: string) => ({ configId }),
+        verifyEmailDomainDone: (configId: string, verified: boolean, dnsRecords: Record<string, any> | null) => ({
+            configId,
             verified,
             dnsRecords,
         }),
-        sendTestEmail: true,
-        sendTestEmailDone: (sentTo: string | null) => ({ sentTo }),
+        sendTestEmail: (configId: string) => ({ configId }),
+        sendTestEmailDone: (configId: string) => ({ configId }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -143,62 +143,66 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setPlaceholderTextValue: (_, { value }) => value,
             },
         ],
-        emailFromEmail: [
-            '' as string,
+        // Email multi-config state
+        emailConfigs: [
+            [] as EmailConfigStatus[],
             {
-                setEmailFromEmail: (_, { value }) => value,
+                loadEmailConfigsDone: (_, { configs }) => configs,
+                connectEmailDone: (state, { config }) => (config ? [...state, config] : state),
+                disconnectEmailDone: (state, { configId }) => state.filter((c) => c.id !== configId),
+                verifyEmailDomainDone: (state, { configId, verified, dnsRecords }) => {
+                    const targetDomain = state.find((t) => t.id === configId)?.domain
+                    if (!targetDomain) {
+                        return state
+                    }
+                    return state.map((c) =>
+                        c.domain === targetDomain
+                            ? { ...c, domain_verified: verified, dns_records: dnsRecords ?? c.dns_records }
+                            : c
+                    )
+                },
             },
         ],
-        emailFromName: [
-            '' as string,
+        addEmailFormVisible: [
+            false,
             {
-                setEmailFromName: (_, { value }) => value,
+                setAddEmailFormVisible: (_, { visible }) => visible,
+                connectEmailDone: (state, { config }) => (config ? false : state),
+            },
+        ],
+        newEmailFromEmail: [
+            '',
+            {
+                setNewEmailFromEmail: (_, { value }) => value,
+                connectEmailDone: (state, { config }) => (config ? '' : state),
+            },
+        ],
+        newEmailFromName: [
+            '',
+            {
+                setNewEmailFromName: (_, { value }) => value,
+                connectEmailDone: (state, { config }) => (config ? '' : state),
             },
         ],
         emailConnecting: [
-            false as boolean,
+            false,
             {
                 connectEmail: () => true,
                 connectEmailDone: () => false,
             },
         ],
-        emailForwardingAddress: [
+        emailVerifyingConfigId: [
             null as string | null,
             {
-                connectEmailDone: (_, { forwardingAddress }) => forwardingAddress,
-                loadEmailStatusDone: (_, { status }) => status?.forwarding_address ?? null,
-                disconnectEmail: () => null,
+                verifyEmailDomain: (_, { configId }) => configId,
+                verifyEmailDomainDone: () => null,
             },
         ],
-        emailDomainVerified: [
-            false as boolean,
+        emailTestingConfigId: [
+            null as string | null,
             {
-                loadEmailStatusDone: (_, { status }) => status?.domain_verified ?? false,
-                verifyEmailDomainDone: (_, { verified }) => verified,
-                disconnectEmail: () => false,
-            },
-        ],
-        emailDnsRecords: [
-            null as Record<string, any> | null,
-            {
-                connectEmailDone: (_, { dnsRecords }) => dnsRecords,
-                loadEmailStatusDone: (_, { status }) => status?.dns_records ?? null,
-                verifyEmailDomainDone: (_, { dnsRecords }) => dnsRecords,
-                disconnectEmail: () => null,
-            },
-        ],
-        emailVerifying: [
-            false as boolean,
-            {
-                verifyEmailDomain: () => true,
-                verifyEmailDomainDone: () => false,
-            },
-        ],
-        emailSendingTest: [
-            false as boolean,
-            {
-                sendTestEmail: () => true,
-                sendTestEmailDone: () => false,
+                sendTestEmail: (_, { configId }) => configId,
+                sendTestEmailDone: () => null,
             },
         ],
         slackTicketEmojiValue: [
@@ -273,10 +277,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_display_name ?? null,
         ],
-        emailConnected: [
-            (s) => [s.currentTeam],
-            (currentTeam): boolean => !!currentTeam?.conversations_settings?.email_enabled,
-        ],
+        emailConnected: [(s) => [s.emailConfigs], (emailConfigs): boolean => emailConfigs.length > 0],
     }),
     listeners(({ values, actions }) => ({
         connectSlack: async ({ nextPath }) => {
@@ -425,72 +426,65 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.success('Bot settings saved')
             }
         },
-        loadEmailStatus: async () => {
+        // Email multi-config listeners
+        loadEmailConfigs: async () => {
             try {
                 const response = await api.get('api/conversations/v1/email/status')
-                if (response.connected) {
-                    actions.loadEmailStatusDone({
-                        forwarding_address: response.forwarding_address,
-                        from_email: response.from_email,
-                        from_name: response.from_name,
-                        domain_verified: response.domain_verified,
-                        dns_records: response.dns_records,
-                    })
-                    actions.setEmailFromEmail(response.from_email || '')
-                    actions.setEmailFromName(response.from_name || '')
-                } else {
-                    actions.loadEmailStatusDone(null)
-                }
+                actions.loadEmailConfigsDone(response.configs || [])
             } catch {
-                actions.loadEmailStatusDone(null)
+                actions.loadEmailConfigsDone([])
             }
         },
         connectEmail: async () => {
-            const { emailFromEmail, emailFromName } = values
-            if (!emailFromEmail || !emailFromName) {
+            const { newEmailFromEmail, newEmailFromName } = values
+            if (!newEmailFromEmail || !newEmailFromName) {
                 lemonToast.error('Please enter both an email address and display name')
-                actions.connectEmailDone(null, null)
+                actions.connectEmailDone(null)
                 return
             }
             try {
                 const response = await api.create('api/conversations/v1/email/connect', {
-                    from_email: emailFromEmail,
-                    from_name: emailFromName,
+                    from_email: newEmailFromEmail,
+                    from_name: newEmailFromName,
                 })
-                actions.connectEmailDone(response.forwarding_address, response.dns_records || null)
+                actions.connectEmailDone(response.config)
                 actions.updateCurrentTeam({
                     conversations_settings: {
                         ...values.currentTeam?.conversations_settings,
                         email_enabled: true,
                     },
                 })
-                lemonToast.success('Email channel connected')
+                lemonToast.success('Email address connected')
             } catch {
                 lemonToast.error('Failed to connect email')
-                actions.connectEmailDone(null, null)
+                actions.connectEmailDone(null)
             }
         },
-        disconnectEmail: async () => {
+        disconnectEmail: async ({ configId }) => {
             try {
-                await api.create('api/conversations/v1/email/disconnect', {})
+                await api.create('api/conversations/v1/email/disconnect', { config_id: configId })
             } catch {
                 lemonToast.error('Failed to disconnect email')
                 return
             }
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    email_enabled: false,
-                },
-            })
-            actions.setEmailFromEmail('')
-            actions.setEmailFromName('')
-            lemonToast.success('Email channel disconnected')
+            const wasLast = values.emailConfigs.length === 1
+            actions.disconnectEmailDone(configId)
+            if (wasLast) {
+                actions.updateCurrentTeam({
+                    conversations_settings: {
+                        ...values.currentTeam?.conversations_settings,
+                        email_enabled: false,
+                    },
+                })
+            }
+            lemonToast.success('Email address disconnected')
         },
-        verifyEmailDomain: async () => {
+        verifyEmailDomain: async ({ configId }) => {
             try {
-                const response = await api.create('api/conversations/v1/email/verify-domain', {})
-                actions.verifyEmailDomainDone(response.domain_verified, response.dns_records || null)
+                const response = await api.create('api/conversations/v1/email/verify-domain', {
+                    config_id: configId,
+                })
+                actions.verifyEmailDomainDone(configId, response.domain_verified, response.dns_records || null)
                 if (response.domain_verified) {
                     lemonToast.success('Domain verified successfully! Outbound email is now active.')
                 } else {
@@ -498,17 +492,19 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 }
             } catch {
                 lemonToast.error('Failed to verify domain')
-                actions.verifyEmailDomainDone(false, null)
+                actions.verifyEmailDomainDone(configId, false, null)
             }
         },
-        sendTestEmail: async () => {
+        sendTestEmail: async ({ configId }) => {
             try {
-                const response = await api.create('api/conversations/v1/email/send-test', {})
-                actions.sendTestEmailDone(response.sent_to)
+                const response = await api.create('api/conversations/v1/email/send-test', {
+                    config_id: configId,
+                })
+                actions.sendTestEmailDone(configId)
                 lemonToast.success(`Test email sent to ${response.sent_to}`)
             } catch {
                 lemonToast.error('Failed to send test email. Check SMTP settings.')
-                actions.sendTestEmailDone(null)
+                actions.sendTestEmailDone(configId)
             }
         },
         disconnectSlack: async () => {
@@ -546,8 +542,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
         }
-        if (values.emailConnected) {
-            actions.loadEmailStatus()
-        }
+        // Always load email configs to populate the list
+        actions.loadEmailConfigs()
     }),
 ])

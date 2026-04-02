@@ -120,6 +120,7 @@ export class ApiClient {
                 ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),
             ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
+            'X-PostHog-Client': 'mcp',
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'

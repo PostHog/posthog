@@ -1,0 +1,363 @@
+from datetime import UTC, datetime
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
+
+from products.logs.backend.alert_check_query import AlertCheckCountResult
+from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.temporal.activities import CheckAlertsOutput, _check_alerts_sync, _evaluate_single_alert
+
+
+def _make_stats() -> dict[str, int]:
+    return {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+
+
+class TestCheckAlertsSync(APIBaseTest):
+    def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
+        defaults = {
+            "team": self.team,
+            "name": "Test Alert",
+            "threshold_count": 10,
+            "threshold_operator": "above",
+            "window_minutes": 5,
+            "filters": {"serviceNames": ["test-service"]},
+            "next_check_at": datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
+        }
+        defaults.update(kwargs)
+        return LogsAlertConfiguration.objects.create(**defaults)
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_no_alerts_returns_zero_stats(self, mock_query_cls):
+        result = _check_alerts_sync()
+        assert result == CheckAlertsOutput(alerts_checked=0, alerts_fired=0, alerts_resolved=0, alerts_errored=0)
+        mock_query_cls.assert_not_called()
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_skips_disabled_alerts(self, mock_query_cls):
+        self._make_alert(enabled=False)
+        result = _check_alerts_sync()
+        assert result.alerts_checked == 0
+        mock_query_cls.assert_not_called()
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_skips_snoozed_alerts(self, mock_query_cls):
+        self._make_alert(
+            state=LogsAlertConfiguration.State.SNOOZED,
+            snooze_until=datetime(2025, 1, 2, 0, 0, 0, tzinfo=UTC),
+        )
+        result = _check_alerts_sync()
+        assert result.alerts_checked == 0
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_picks_up_due_alert(self, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        self._make_alert()
+        result = _check_alerts_sync()
+        assert result.alerts_checked == 1
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_picks_up_null_next_check_at(self, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        self._make_alert(next_check_at=None)
+        result = _check_alerts_sync()
+        assert result.alerts_checked == 1
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_skips_future_next_check_at(self, mock_query_cls):
+        self._make_alert(next_check_at=datetime(2025, 1, 1, 1, 0, 0, tzinfo=UTC))
+        result = _check_alerts_sync()
+        assert result.alerts_checked == 0
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_clickhouse_error_records_errored_check(self, mock_query_cls):
+        mock_query_cls.return_value.execute.side_effect = RuntimeError("boom")
+        self._make_alert()
+        result = _check_alerts_sync()
+        # ClickHouse error is caught inside _evaluate_single_alert, alert is still "checked"
+        assert result.alerts_checked == 1
+        assert result.alerts_errored == 1
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities._evaluate_single_alert", side_effect=RuntimeError("unexpected"))
+    def test_unexpected_error_increments_errored(self, _mock_evaluate):
+        self._make_alert()
+        result = _check_alerts_sync()
+        # Truly unexpected error caught by outer except — not "checked"
+        assert result.alerts_errored == 1
+        assert result.alerts_checked == 0
+
+
+class TestEvaluateSingleAlert(APIBaseTest):
+    def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
+        defaults = {
+            "team": self.team,
+            "name": "Test Alert",
+            "threshold_count": 10,
+            "threshold_operator": "above",
+            "window_minutes": 5,
+            "filters": {"serviceNames": ["test-service"]},
+        }
+        defaults.update(kwargs)
+        return LogsAlertConfiguration.objects.create(**defaults)
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_threshold_breached_transitions_to_firing(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        alert = self._make_alert()
+        stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, stats)
+
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.FIRING
+        assert stats["checked"] == 1
+        assert stats["fired"] == 1
+        mock_produce.assert_called_once()
+        assert mock_produce.call_args.kwargs["event"].event == "$logs_alert_firing"
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_threshold_not_breached_stays_not_firing(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        alert = self._make_alert()
+        stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, stats)
+
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
+        assert stats["checked"] == 1
+        assert stats["fired"] == 0
+        mock_produce.assert_not_called()
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_creates_audit_row(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=250)
+        alert = self._make_alert()
+        stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, stats)
+
+        check = LogsAlertCheck.objects.get(alert=alert)
+        assert check.result_count == 50
+        assert check.threshold_breached is True
+        assert check.state_before == "not_firing"
+        assert check.state_after == "firing"
+        assert check.query_duration_ms == 250
+        assert check.error_message is None
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_advances_next_check_at(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC))
+        stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, stats)
+
+        alert.refresh_from_db()
+        assert alert.next_check_at is not None and alert.next_check_at > now
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_clickhouse_failure_creates_error_audit_row(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.side_effect = Exception("ClickHouse timeout")
+        alert = self._make_alert()
+        stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, stats)
+
+        check = LogsAlertCheck.objects.get(alert=alert)
+        assert check.result_count is None
+        assert check.threshold_breached is False
+        assert check.error_message == "ClickHouse timeout"
+        assert stats["errored"] == 1
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_emit_event_uses_team_distinct_id(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        alert = self._make_alert()
+        stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, stats)
+
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.distinct_id == f"team_{self.team.id}"
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_last_notified_at_set_after_kafka_success(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        alert = self._make_alert()
+        stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, stats)
+
+        alert.refresh_from_db()
+        assert alert.last_notified_at == now
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event", side_effect=Exception("Kafka down"))
+    @patch("products.logs.backend.temporal.activities.capture_exception")
+    def test_last_notified_at_not_set_on_kafka_failure(self, mock_capture, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        alert = self._make_alert()
+        stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, stats)
+
+        alert.refresh_from_db()
+        assert alert.last_notified_at is None
+        mock_capture.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("above_breached", "above", 50, True),
+            ("above_not_breached", "above", 5, False),
+            ("below_breached", "below", 5, True),
+            ("below_not_breached", "below", 50, False),
+        ]
+    )
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_threshold_operators(self, _name, operator, count, should_fire, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=count, query_duration_ms=100)
+        alert = self._make_alert(threshold_operator=operator, threshold_count=10)
+        stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, stats)
+
+        alert.refresh_from_db()
+        if should_fire:
+            assert alert.state == LogsAlertConfiguration.State.FIRING
+            assert stats["fired"] == 1
+        else:
+            assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
+            assert stats["fired"] == 0
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_resolution_emits_resolved_event(self, mock_produce, mock_query_cls):
+        alert = self._make_alert(state=LogsAlertConfiguration.State.FIRING)
+        # First check breached to create an audit row for get_recent_breaches
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC), _make_stats())
+        alert.refresh_from_db()
+        mock_produce.reset_mock()
+
+        # Second check not breached — should resolve
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=0, query_duration_ms=100)
+        stats = _make_stats()
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), stats)
+
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
+        assert stats["resolved"] == 1
+        mock_produce.assert_called_once()
+        assert mock_produce.call_args.kwargs["event"].event == "$logs_alert_resolved"
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_cooldown_suppresses_notification(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        alert = self._make_alert(
+            state=LogsAlertConfiguration.State.FIRING,
+            cooldown_minutes=60,
+            last_notified_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
+        )
+        stats = _make_stats()
+        # 1 minute after last notification, within 60-min cooldown
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), stats)
+
+        alert.refresh_from_db()
+        # State transitions still happen, but no notification emitted
+        assert alert.state == LogsAlertConfiguration.State.FIRING
+        mock_produce.assert_not_called()
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_n_of_m_requires_multiple_breaches_to_fire(self, mock_produce, mock_query_cls):
+        alert = self._make_alert(evaluation_periods=3, datapoints_to_alarm=2)
+
+        # First check: breached but 1-of-3 not enough
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC), _make_stats())
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
+
+        # Second check: not breached, 1-of-3 still not enough
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=0, query_duration_ms=100)
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
+
+        # Third check: breached, now 2-of-3 — should fire
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        stats = _make_stats()
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 2, 0, tzinfo=UTC), stats)
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.FIRING
+        assert stats["fired"] == 1
+        mock_produce.assert_called_once()
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_resolution_within_cooldown_suppresses_resolved_event(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=0, query_duration_ms=100)
+        alert = self._make_alert(
+            state=LogsAlertConfiguration.State.FIRING,
+            cooldown_minutes=60,
+            last_notified_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
+        )
+        # Create an audit row so get_recent_breaches has data
+        LogsAlertCheck.objects.create(
+            alert=alert,
+            result_count=50,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        stats = _make_stats()
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), stats)
+
+        alert.refresh_from_db()
+        # State transitions to NOT_FIRING regardless of cooldown
+        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
+        # But notification is suppressed by cooldown
+        mock_produce.assert_not_called()
