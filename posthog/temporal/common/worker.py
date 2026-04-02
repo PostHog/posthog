@@ -36,6 +36,11 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
 )
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.logs.backend.temporal.metrics import (
+    LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,
+    LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
+    LogsAlertingMetricsInterceptor,
+)
 from products.tasks.backend.temporal.metrics import TASKS_LATENCY_HISTOGRAM_BUCKETS, TASKS_LATENCY_HISTOGRAM_METRICS
 
 logger = get_write_only_logger()
@@ -107,6 +112,7 @@ ALL_INTERCEPTOR_CLASSES = [
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
     SentimentMetricsInterceptor,
+    LogsAlertingMetricsInterceptor,
 ]
 
 
@@ -248,6 +254,12 @@ async def create_worker(
                     zip(
                         DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
                         itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | dict(
+                    zip(
+                        LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
