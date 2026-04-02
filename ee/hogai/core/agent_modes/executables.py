@@ -240,7 +240,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         return {
             "anthropic_api_url": f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{self._get_llm_gateway_product()}",
             "anthropic_api_key": settings.LLM_GATEWAY_API_KEY,
-            "provider": "bedrock",
+            "default_headers": {"X-PostHog-Provider": "bedrock"},
         }
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):

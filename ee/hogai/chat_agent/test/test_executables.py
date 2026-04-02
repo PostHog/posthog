@@ -37,7 +37,7 @@ class TestChatAgentGatewayRouting(BaseTest):
                     call_kwargs = mock_model_init.call_args.kwargs
                     self.assertEqual(call_kwargs["anthropic_api_url"], expected_gateway_url)
                     self.assertEqual(call_kwargs["anthropic_api_key"], "test-key")
-                    self.assertEqual(call_kwargs["provider"], "bedrock")
+                    self.assertEqual(call_kwargs["default_headers"], {"X-PostHog-Provider": "bedrock"})
                     self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
 
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
@@ -63,7 +63,7 @@ class TestChatAgentGatewayRouting(BaseTest):
         call_kwargs = mock_model_init.call_args.kwargs
         self.assertNotIn("anthropic_api_url", call_kwargs)
         self.assertNotIn("anthropic_api_key", call_kwargs)
-        self.assertNotIn("provider", call_kwargs)
+        self.assertNotIn("default_headers", call_kwargs)
         self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
 
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
@@ -93,5 +93,5 @@ class TestChatAgentGatewayRouting(BaseTest):
             call_kwargs = mock_model_init.call_args.kwargs
             self.assertNotIn("anthropic_api_url", call_kwargs)
             self.assertNotIn("anthropic_api_key", call_kwargs)
-            self.assertNotIn("provider", call_kwargs)
+            self.assertNotIn("default_headers", call_kwargs)
             self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
