@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import {
     DangerousOperationResponse,
@@ -16,11 +16,15 @@ import { maxThreadLogic } from '../maxThreadLogic'
 import { Option, OptionSelector } from './OptionSelector'
 import { MultiFieldQuestion, QuestionField, isFieldValid } from './QuestionField'
 
-function isQuestionAnswered(
+function isQuestionComplete(
     q: MultiQuestionFormQuestion,
     answers: Record<string, string | string[]>,
-    confirmedQuestions?: Set<string>
+    confirmedQuestions?: Set<string>,
+    skippedQuestions?: Set<string>
 ): boolean {
+    if (skippedQuestions?.has(q.id)) {
+        return true
+    }
     if (q.fields?.length) {
         // Multi_field questions with defaults (toggles, sliders) can appear "valid" on mount.
         // Require the user to explicitly confirm by clicking the submit button.
@@ -32,19 +36,47 @@ function isQuestionAnswered(
     return answers[q.id] !== undefined
 }
 
+function getClearedAnswersForQuestion(
+    question: MultiQuestionFormQuestion,
+    answers: Record<string, string | string[]>
+): Record<string, string | string[]> {
+    const nextAnswers = { ...answers }
+
+    if (question.fields?.length) {
+        for (const field of question.fields) {
+            delete nextAnswers[field.id]
+        }
+    } else {
+        delete nextAnswers[question.id]
+    }
+
+    return nextAnswers
+}
+
+function removeQuestionFromSet(questionId: string, values: Set<string>): Set<string> {
+    if (!values.has(questionId)) {
+        return values
+    }
+
+    const nextValues = new Set(values)
+    nextValues.delete(questionId)
+    return nextValues
+}
+
 interface MultiQuestionFormInputProps {
     form: MultiQuestionForm
     /** Initial answers for stories/testing */
     initialAnswers?: Record<string, string | string[]>
 }
 
-function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionFormInputProps): JSX.Element | null {
-    const { continueAfterForm } = useActions(maxThreadLogic)
+export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionFormInputProps): JSX.Element | null {
+    const { continueAfterForm, continueAfterFormDismissal } = useActions(maxThreadLogic)
     const questions = form.questions
 
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
     // Track which multi_field questions the user has explicitly confirmed
     const [confirmedQuestions, setConfirmedQuestions] = useState<Set<string>>(() => new Set())
+    const [skippedQuestions, setSkippedQuestions] = useState<Set<string>>(() => new Set())
     const [answers, setAnswers] = useState<Record<string, string | string[]>>(() => {
         const initial = { ...initialAnswers }
         for (const q of questions) {
@@ -64,76 +96,143 @@ function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionForm
         }
         return initial
     })
-    const [isSubmitting, setIsSubmitting] = useState(false)
+    const [submissionState, setSubmissionState] = useState<'idle' | 'submitting' | 'dismissing'>('idle')
 
     const answersRef = useRef(answers)
     answersRef.current = answers
     const confirmedQuestionsRef = useRef(confirmedQuestions)
     confirmedQuestionsRef.current = confirmedQuestions
+    const skippedQuestionsRef = useRef(skippedQuestions)
+    skippedQuestionsRef.current = skippedQuestions
 
     const currentQuestion = questions[currentQuestionIndex]
-    const isLastQuestion = currentQuestionIndex >= questions.length - 1
 
     const contentRef = useRef<HTMLDivElement>(null)
     const { height: contentHeight } = useResizeObserver({ ref: contentRef })
 
-    const allQuestionsAnswered = questions.every((q) => isQuestionAnswered(q, answers, confirmedQuestions))
+    const allQuestionsCompleted = questions.every((q) =>
+        isQuestionComplete(q, answers, confirmedQuestions, skippedQuestions)
+    )
 
     const advanceToNextQuestion = useCallback(
-        (updatedAnswers: Record<string, string | string[]>) => {
-            const confirmed = confirmedQuestionsRef.current
-            const allAnswered = questions.every((q) => isQuestionAnswered(q, updatedAnswers, confirmed))
-            if (allAnswered) {
-                setIsSubmitting(true)
+        (
+            updatedAnswers: Record<string, string | string[]>,
+            nextConfirmedQuestions: Set<string> = confirmedQuestionsRef.current,
+            nextSkippedQuestions: Set<string> = skippedQuestionsRef.current
+        ) => {
+            const allCompleted = questions.every((q) =>
+                isQuestionComplete(q, updatedAnswers, nextConfirmedQuestions, nextSkippedQuestions)
+            )
+            if (allCompleted) {
+                setSubmissionState('submitting')
                 continueAfterForm(updatedAnswers)
-            } else if (isLastQuestion) {
-                const firstMissingQuestion = questions.find((q) => !isQuestionAnswered(q, updatedAnswers, confirmed))
-                if (firstMissingQuestion) {
-                    setCurrentQuestionIndex(questions.indexOf(firstMissingQuestion))
-                }
             } else {
-                setCurrentQuestionIndex((prev) => prev + 1)
+                const nextIncompleteQuestionIndex = questions.findIndex(
+                    (q, index) =>
+                        index > currentQuestionIndex &&
+                        !isQuestionComplete(q, updatedAnswers, nextConfirmedQuestions, nextSkippedQuestions)
+                )
+
+                if (nextIncompleteQuestionIndex !== -1) {
+                    setCurrentQuestionIndex(nextIncompleteQuestionIndex)
+                    return
+                }
+
+                const firstIncompleteQuestionIndex = questions.findIndex(
+                    (q) => !isQuestionComplete(q, updatedAnswers, nextConfirmedQuestions, nextSkippedQuestions)
+                )
+                if (firstIncompleteQuestionIndex !== -1) {
+                    setCurrentQuestionIndex(firstIncompleteQuestionIndex)
+                }
             }
         },
-        [isLastQuestion, questions, continueAfterForm]
+        [continueAfterForm, currentQuestionIndex, questions]
     )
 
     const handleSingleFieldAnswer = useCallback(
         (value: string | string[]) => {
+            const nextSkippedQuestions = removeQuestionFromSet(currentQuestion.id, skippedQuestionsRef.current)
+            if (nextSkippedQuestions !== skippedQuestionsRef.current) {
+                setSkippedQuestions(nextSkippedQuestions)
+                skippedQuestionsRef.current = nextSkippedQuestions
+            }
             const updatedAnswers = { ...answersRef.current, [currentQuestion.id]: value }
             setAnswers(updatedAnswers)
-            advanceToNextQuestion(updatedAnswers)
+            advanceToNextQuestion(updatedAnswers, confirmedQuestionsRef.current, nextSkippedQuestions)
         },
         [currentQuestion, advanceToNextQuestion]
     )
 
-    const handleFieldChange = useCallback((fieldId: string, value: string | string[]) => {
-        setAnswers((prev) => ({ ...prev, [fieldId]: value }))
-    }, [])
+    const handleFieldChange = useCallback(
+        (fieldId: string, value: string | string[]) => {
+            const nextSkippedQuestions = removeQuestionFromSet(currentQuestion.id, skippedQuestionsRef.current)
+            if (nextSkippedQuestions !== skippedQuestionsRef.current) {
+                setSkippedQuestions(nextSkippedQuestions)
+                skippedQuestionsRef.current = nextSkippedQuestions
+            }
+            setAnswers((prev) => ({ ...prev, [fieldId]: value }))
+        },
+        [currentQuestion.id]
+    )
 
     const handleMultiFieldSubmit = useCallback(() => {
-        const updated = new Set(confirmedQuestionsRef.current)
-        updated.add(currentQuestion.id)
-        setConfirmedQuestions(updated)
-        confirmedQuestionsRef.current = updated
-        advanceToNextQuestion(answersRef.current)
+        const nextConfirmedQuestions = new Set(confirmedQuestionsRef.current)
+        nextConfirmedQuestions.add(currentQuestion.id)
+        setConfirmedQuestions(nextConfirmedQuestions)
+        confirmedQuestionsRef.current = nextConfirmedQuestions
+
+        const nextSkippedQuestions = removeQuestionFromSet(currentQuestion.id, skippedQuestionsRef.current)
+        if (nextSkippedQuestions !== skippedQuestionsRef.current) {
+            setSkippedQuestions(nextSkippedQuestions)
+            skippedQuestionsRef.current = nextSkippedQuestions
+        }
+
+        advanceToNextQuestion(answersRef.current, nextConfirmedQuestions, nextSkippedQuestions)
     }, [advanceToNextQuestion, currentQuestion])
+
+    const handleSkipQuestion = useCallback(() => {
+        const updatedAnswers = getClearedAnswersForQuestion(currentQuestion, answersRef.current)
+        setAnswers(updatedAnswers)
+
+        const nextSkippedQuestions = new Set(skippedQuestionsRef.current)
+        nextSkippedQuestions.add(currentQuestion.id)
+        setSkippedQuestions(nextSkippedQuestions)
+        skippedQuestionsRef.current = nextSkippedQuestions
+
+        const nextConfirmedQuestions = removeQuestionFromSet(currentQuestion.id, confirmedQuestionsRef.current)
+        if (nextConfirmedQuestions !== confirmedQuestionsRef.current) {
+            setConfirmedQuestions(nextConfirmedQuestions)
+            confirmedQuestionsRef.current = nextConfirmedQuestions
+        }
+
+        advanceToNextQuestion(updatedAnswers, nextConfirmedQuestions, nextSkippedQuestions)
+    }, [advanceToNextQuestion, currentQuestion])
+
+    const handleDismissForm = useCallback(() => {
+        setSubmissionState('dismissing')
+        continueAfterFormDismissal()
+    }, [continueAfterFormDismissal])
 
     const handleTabClick = useCallback((index: number) => {
         setCurrentQuestionIndex(index)
     }, [])
 
-    if (!currentQuestion || isSubmitting) {
+    if (!currentQuestion || submissionState !== 'idle') {
         return (
             <div className="flex items-center gap-2 text-muted p-3">
                 <Spinner className="size-4" />
-                <span>Submitting answers...</span>
+                <span>{submissionState === 'dismissing' ? 'Dismissing form...' : 'Submitting answers...'}</span>
             </div>
         )
     }
 
     return (
         <div className="flex flex-col gap-2 p-3">
+            <div className="flex justify-end">
+                <LemonButton size="xsmall" type="tertiary" icon={<IconX />} onClick={handleDismissForm}>
+                    Dismiss form
+                </LemonButton>
+            </div>
             {questions.length > 1 && (
                 <div className="w-full">
                     <LemonTabs
@@ -144,7 +243,7 @@ function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionForm
                             return {
                                 key: index,
                                 label: question.title,
-                                completed: isQuestionAnswered(question, answers, confirmedQuestions),
+                                completed: isQuestionComplete(question, answers, confirmedQuestions, skippedQuestions),
                             }
                         })}
                         className="w-[calc(100%+var(--spacing-3))] -mx-3 [&>ul]:pl-3 -mt-2.5"
@@ -177,14 +276,16 @@ function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionForm
                                         answers={answers}
                                         onFieldChange={handleFieldChange}
                                         onSubmit={handleMultiFieldSubmit}
-                                        submitLabel={allQuestionsAnswered ? 'Submit' : 'Next'}
+                                        onSkip={handleSkipQuestion}
+                                        submitLabel={allQuestionsCompleted ? 'Submit' : 'Next'}
                                     />
                                 ) : (
                                     <QuestionField
                                         question={q}
                                         value={answers[q.id]}
                                         onAnswer={handleSingleFieldAnswer}
-                                        submitLabel={allQuestionsAnswered ? 'Submit' : 'Next'}
+                                        onSkip={handleSkipQuestion}
+                                        submitLabel={allQuestionsCompleted ? 'Submit' : 'Next'}
                                     />
                                 )}
                             </div>

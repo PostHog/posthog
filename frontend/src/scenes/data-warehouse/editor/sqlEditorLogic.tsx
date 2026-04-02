@@ -19,7 +19,7 @@ import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
-import { LemonCheckbox, LemonDialog, LemonInput, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -233,7 +233,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById'],
+            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryFolders', 'dataWarehouseSavedQueryMapById'],
             userLogic,
             ['user'],
             draftsLogic,
@@ -251,6 +251,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dataWarehouseViewsLogic,
             [
                 'loadDataWarehouseSavedQueriesSuccess',
+                'loadDataWarehouseSavedQueryFolders',
                 'deleteDataWarehouseSavedQuerySuccess',
                 'createDataWarehouseSavedQuerySuccess',
                 'runDataWarehouseSavedQuery',
@@ -293,11 +294,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         initialize: true,
         loadUpstream: (modelId: string) => ({ modelId }),
         saveAsView: (materializeAfterSave = false, fromDraft?: string) => ({ fromDraft, materializeAfterSave }),
-        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string, isTest = false) => ({
+        saveAsViewSubmit: (
+            name: string,
+            materializeAfterSave = false,
+            fromDraft?: string,
+            isTest = false,
+            folderId?: string | null
+        ) => ({
             fromDraft,
             name,
             materializeAfterSave,
             isTest,
+            folderId,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
@@ -861,9 +869,42 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             const isStaff = values.user?.is_staff ?? false
+            const folderOptions: { value: string | null; label: string }[] = [
+                { value: null, label: 'No folder' },
+                ...values.dataWarehouseSavedQueryFolders.map((folder) => ({
+                    value: folder.id,
+                    label: folder.name,
+                })),
+            ]
+            const createFolderAndSelect = async (onSelect: (newValue: string | null) => void): Promise<void> => {
+                LemonDialog.openForm({
+                    title: 'New folder',
+                    initialValues: { folderName: '' },
+                    content: (
+                        <LemonField name="folderName">
+                            <LemonInput placeholder="Enter a folder name" autoFocus />
+                        </LemonField>
+                    ),
+                    errors: {
+                        folderName: (name) => (!name?.trim() ? 'You must enter a folder name' : undefined),
+                    },
+                    onSubmit: async ({ folderName }) => {
+                        const folder = await api.dataWarehouseSavedQueryFolders.create({ name: folderName.trim() })
+                        folderOptions.splice(folderOptions.length - 1, 0, {
+                            value: folder.id,
+                            label: folder.name,
+                        })
+                        actions.loadDataWarehouseSavedQueryFolders()
+                        onSelect(folder.id)
+                        lemonToast.success('Folder created')
+                    },
+                    shouldAwaitSubmit: true,
+                })
+            }
+
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: values.activeTab?.name || '', isTest: false },
+                initialValues: { viewName: values.activeTab?.name || '', folderId: null, isTest: false },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (isLoading) =>
                     isLoading ? (
@@ -879,6 +920,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     placeholder="Please enter the name of the view"
                                     autoFocus
                                 />
+                            </LemonField>
+                            <LemonField name="folderId" label="Folder" className="mt-2">
+                                {({ value, onChange }) => (
+                                    <LemonSelect<string | null>
+                                        value={value}
+                                        onChange={onChange}
+                                        options={[
+                                            ...folderOptions,
+                                            {
+                                                value: '__add_new_folder__',
+                                                label: '+ Add new folder',
+                                                labelInMenu: () => (
+                                                    <button
+                                                        type="button"
+                                                        className="w-full text-left text-primary px-2 py-1.5"
+                                                        onClick={() => createFolderAndSelect(onChange)}
+                                                    >
+                                                        + Add new folder
+                                                    </button>
+                                                ),
+                                            },
+                                        ]}
+                                        disabled={isLoading}
+                                        placeholder="Select a folder"
+                                        fullWidth
+                                    />
+                                )}
                             </LemonField>
                             {isStaff && (
                                 <LemonField name="isTest" className="mt-2">
@@ -907,13 +975,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                               ? 'Name must be valid'
                               : undefined,
                 },
-                onSubmit: async ({ viewName, isTest }) => {
-                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, isTest)
+                onSubmit: async ({ viewName, folderId, isTest }) => {
+                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, isTest, folderId)
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false }) => {
+        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false, folderId }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = normalizeRawQuerySource({
@@ -933,6 +1001,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     name,
                     query: queryToSave,
                     types,
+                    ...(folderId ? { folder_id: folderId } : {}),
                     ...(isTest ? { is_test: true } : {}),
                 })
 

@@ -5,16 +5,16 @@ from django.db import transaction
 
 import structlog
 import temporalio
-import posthoganalytics
 from pydantic import ValidationError
 
-from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
+    ActionabilityChoice,
+    Priority,
     PriorityAssessment,
     ReportResearchOutput,
     SignalFinding,
@@ -22,7 +22,6 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -33,48 +32,6 @@ from products.tasks.backend.models import SandboxEnvironment
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
 logger = structlog.get_logger(__name__)
-
-SIGNALS_LEGACY_REPORT_GENERATION_FF = "signals-legacy-report-generation"
-
-
-@dataclass
-class SignalsLegacyReportGateInput:
-    team_id: int
-
-
-@temporalio.activity.defn
-async def signals_legacy_report_gate_activity(input: SignalsLegacyReportGateInput) -> bool:
-    """Evaluate whether Signals should use the legacy (non-agentic) report path for a team."""
-    try:
-        team = await Team.objects.only("id", "uuid", "organization_id").aget(id=input.team_id)
-    except Team.DoesNotExist:
-        logger.warning("signals legacy report gate: team does not exist", team_id=input.team_id)
-        return False
-
-    try:
-        return posthoganalytics.feature_enabled(
-            SIGNALS_LEGACY_REPORT_GENERATION_FF,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-        )
-    except Exception:
-        logger.exception(
-            "signals legacy report gate: failed to evaluate feature flag",
-            team_id=input.team_id,
-            flag=SIGNALS_LEGACY_REPORT_GENERATION_FF,
-        )
-        return False
 
 
 @dataclass
