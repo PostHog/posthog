@@ -57,6 +57,7 @@ describe('PropertyFilters recent selections', () => {
                     refreshing: false,
                 },
                 '/api/environments/:team/persons/values': [{ name: 'alice@example.com' }, { name: 'bob@example.com' }],
+                '/api/environments/:team_id/quick_filters/': { results: [] },
                 ...overrides,
             },
             post: {

@@ -61,6 +61,7 @@ export type PersonHogConfig = Pick<
     | 'PERSONHOG_PING_INTERVAL_MS'
     | 'PERSONHOG_PING_TIMEOUT_MS'
     | 'PERSONHOG_PING_IDLE_CONNECTION'
+    | 'PLUGIN_SERVER_MODE'
 >
 
 /** Kafka consumer loop tuning config */

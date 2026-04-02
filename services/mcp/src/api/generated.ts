@@ -608,6 +608,24 @@ export namespace Schemas {
       actionId: number;
     }
 
+    export interface ActionReference {
+      /** Resource type: insight, experiment, cohort, or hog_function */
+      type: string;
+      /** Resource ID (integer or UUID depending on type) */
+      id: string;
+      /** Resource name */
+      name: string;
+      /** Relative URL to the resource */
+      url: string;
+      /**
+       * When the resource was created
+       * @nullable
+       */
+      created_at: string | null;
+      /** User who created the resource */
+      created_by: UserBasic | null;
+    }
+
     export type ActionsNodeKind = typeof ActionsNodeKind[keyof typeof ActionsNodeKind];
 
 
@@ -11603,6 +11621,16 @@ export namespace Schemas {
       readonly last_run_at: string | null;
       /** @nullable */
       readonly managed_viewset_kind: string | null;
+      /**
+       * Optional folder ID used to organize this view in the SQL editor sidebar.
+       * @nullable
+       */
+      folder_id?: string | null;
+      /**
+       * Folder name used to organize this view in the SQL editor sidebar.
+       * @nullable
+       */
+      readonly folder_name: string | null;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -11653,6 +11681,18 @@ export namespace Schemas {
       edited_history_id?: string | null;
     }
 
+    export interface DataWarehouseSavedQueryFolder {
+      readonly id: string;
+      /**
+       * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+       * @maxLength 128
+       */
+      name: string;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly view_count: number;
+    }
+
     export type DataWarehouseSavedQueryMinimalColumnsItem = {[key: string]: unknown};
 
     /**
@@ -11680,6 +11720,10 @@ export namespace Schemas {
       readonly last_run_at: string | null;
       /** @nullable */
       readonly managed_viewset_kind: string | null;
+      /** @nullable */
+      readonly folder_id: string | null;
+      /** @nullable */
+      readonly folder_name: string | null;
       /** @nullable */
       readonly latest_error: string | null;
       /** @nullable */
@@ -22426,6 +22470,16 @@ export namespace Schemas {
       readonly last_run_at?: string | null;
       /** @nullable */
       readonly managed_viewset_kind?: string | null;
+      /**
+       * Optional folder ID used to organize this view in the SQL editor sidebar.
+       * @nullable
+       */
+      folder_id?: string | null;
+      /**
+       * Folder name used to organize this view in the SQL editor sidebar.
+       * @nullable
+       */
+      readonly folder_name?: string | null;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -22474,6 +22528,18 @@ export namespace Schemas {
        * @nullable
        */
       edited_history_id?: string | null;
+    }
+
+    export interface PatchedDataWarehouseSavedQueryFolder {
+      readonly id?: string;
+      /**
+       * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+       * @maxLength 128
+       */
+      name?: string;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      readonly view_count?: number;
     }
 
     export interface PatchedDataset {
@@ -32615,6 +32681,18 @@ export namespace Schemas {
 
 
     export const ActionsDestroyFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type ActionsReferencesListParams = {
+    format?: ActionsReferencesListFormat;
+    };
+
+    export type ActionsReferencesListFormat = typeof ActionsReferencesListFormat[keyof typeof ActionsReferencesListFormat];
+
+
+    export const ActionsReferencesListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
