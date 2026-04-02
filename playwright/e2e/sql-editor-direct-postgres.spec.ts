@@ -10,20 +10,20 @@ test.describe('SQL Editor direct Postgres queries', () => {
         const tableName = `playwright_direct_query_${Date.now()}`
         let sourceId: string | null = null
 
-        execFileSync('psql', [
-            'postgresql://posthog:posthog@127.0.0.1:5432/posthog',
-            '-c',
-            `
-                DROP TABLE IF EXISTS ${tableName};
-                CREATE TABLE ${tableName} (
-                    id integer primary key,
-                    label text not null
-                );
-                INSERT INTO ${tableName} (id, label) VALUES (1, 'alpha'), (2, 'beta');
-            `,
-        ])
-
         try {
+            execFileSync('psql', [
+                'postgresql://posthog:posthog@127.0.0.1:5432/posthog',
+                '-c',
+                `
+                    DROP TABLE IF EXISTS ${tableName};
+                    CREATE TABLE ${tableName} (
+                        id integer primary key,
+                        label text not null
+                    );
+                    INSERT INTO ${tableName} (id, label) VALUES (1, 'alpha'), (2, 'beta');
+                `,
+            ])
+
             await mockFeatureFlags(page, {
                 'dwh-postgres-direct-query': true,
             })
@@ -191,11 +191,15 @@ test.describe('SQL Editor direct Postgres queries', () => {
                     // Best-effort cleanup for the source created during the test.
                 }
             }
-            execFileSync('psql', [
-                'postgresql://posthog:posthog@127.0.0.1:5432/posthog',
-                '-c',
-                `DROP TABLE IF EXISTS ${tableName};`,
-            ])
+            try {
+                execFileSync('psql', [
+                    'postgresql://posthog:posthog@127.0.0.1:5432/posthog',
+                    '-c',
+                    `DROP TABLE IF EXISTS ${tableName};`,
+                ])
+            } catch {
+                // Best-effort cleanup for the table created during the test.
+            }
         }
     })
 })
