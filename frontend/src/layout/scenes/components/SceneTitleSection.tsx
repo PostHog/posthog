@@ -505,8 +505,8 @@ export function SceneName({
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                     e.preventDefault()
-                                    if (saveOnBlur && name !== initialName) {
-                                        onChange?.(name || '')
+                                    if (saveOnBlur && e.currentTarget.value !== initialName) {
+                                        onChange?.(e.currentTarget.value || '')
                                     }
                                 }
                             }}
