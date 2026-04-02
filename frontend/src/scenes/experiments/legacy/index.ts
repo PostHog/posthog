@@ -36,7 +36,7 @@ export { LegacyTickPanel } from './metricsView/LegacyTickPanel'
 export { VariantDeltaTimeseries } from './metricsView/VariantDeltaTimeseries'
 export { LegacyVariantTooltip } from './metricsView/LegacyVariantTooltip'
 export { LegacyViolinPath } from './metricsView/LegacyViolinPath'
-export { WinningVariantText, SignificanceText } from './metricsView/Overview'
+export { LegacyWinningVariantText, LegacySignificanceText } from './metricsView/LegacyOverview'
 export * from './metricsView/legacyViolinUtils'
 
 // Metrics View - Shared (Legacy)

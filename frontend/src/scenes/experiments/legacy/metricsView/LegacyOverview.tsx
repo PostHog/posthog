@@ -5,20 +5,20 @@ import {
     CachedExperimentTrendsQueryResponse,
     CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 
-import { experimentLogic } from '../../experimentLogic'
-import { VariantTag } from '../../ExperimentView/components'
 import {
     legacyGetHighestProbabilityVariant,
     legacyGetIndexForVariant,
 } from '../calculations/legacyExperimentCalculations'
+import { LegacyVariantTag } from '../components/LegacyVariantTag'
 
 /**
  * @deprecated
  * These components support legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).
  * For new experiments, use the modern Overview components.
  */
-export function WinningVariantText({
+export function LegacyWinningVariantText({
     result,
 }: {
     result:
@@ -39,7 +39,7 @@ export function WinningVariantText({
 
         return (
             <div className="items-center inline-flex flex-wrap">
-                <VariantTag variantKey={highestProbabilityVariant} />
+                <LegacyVariantTag variantKey={highestProbabilityVariant} />
                 <span>&nbsp;is winning with a&nbsp;</span>
                 <span className="font-semibold items-center">
                     {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
@@ -57,7 +57,7 @@ export function WinningVariantText({
  * This component supports legacy experiment metrics.
  * For new experiments, use the modern SignificanceText component.
  */
-export function SignificanceText({
+export function LegacySignificanceText({
     metricUuid,
     isSecondary = false,
 }: {

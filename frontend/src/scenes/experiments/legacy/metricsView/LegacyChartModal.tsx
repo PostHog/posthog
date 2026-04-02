@@ -18,7 +18,7 @@ import type { Experiment } from '~/types'
 import { LegacyExploreButton } from '../components/LegacyExploreButton'
 import { LegacyResultsQuery } from '../components/LegacyResultsQuery'
 import { LegacySummaryTable } from '../components/LegacySummaryTable'
-import { SignificanceText, WinningVariantText } from './Overview'
+import { LegacyWinningVariantText, LegacySignificanceText } from './LegacyOverview'
 
 interface LegacyChartModalProps {
     isOpen: boolean
@@ -66,8 +66,8 @@ export function LegacyChartModal({
                     </div>
                     <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                         <div className="items-center inline-flex flex-wrap">
-                            <WinningVariantText result={result} />
-                            <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
+                            <LegacyWinningVariantText result={result} />
+                            <LegacySignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                         </div>
                     </LemonBanner>
                     <LegacySummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
@@ -95,8 +95,8 @@ export function LegacyChartModal({
                             )}
                             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                                 <div className="items-center inline-flex flex-wrap">
-                                    <WinningVariantText result={result} />
-                                    <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
+                                    <LegacyWinningVariantText result={result} />
+                                    <LegacySignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                                 </div>
                             </LemonBanner>
                             <LegacySummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
