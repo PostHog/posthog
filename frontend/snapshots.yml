@@ -36,6 +36,10 @@ snapshots:
         hash: v1.k794b7964.6fac5ece2256942fb6397b58bb384190bc33e3e5f0e36480f569a1e6aab0648e.O6M9DluToAlp9XQYbdSrjTMRoVNJOCIlsglFtwlM-BE
     components-activitylog--without-audit-logs-feaure--light:
         hash: v1.k794b7964.8347360d6450aa7571bb9c779894a2d2da1c4809cd2f13b82d5ab212c2433dfa.Qo3llSLNi5UV65rFMiM3u4YkniDlhPsDmvKpdLa_PhU
+    components-alerts-quiet-hours-fields--default--dark:
+        hash: v1.k794b7964.b1d9dcf611e6103856c1e579471fcc8d15e5ede8d778f58119af30defd021088.yuhFcITo9oT9yqz-ilwd1uzRK-Q9jRg3C9olYPw_hu4
+    components-alerts-quiet-hours-fields--default--light:
+        hash: v1.k794b7964.a2293bde4bb0b7ca27dfd7ee41226407780d9848000a22b9ccd5903674163749.AY5DM6ohNxpR3I4WEpxtTkkrtEij5AAL_VJOYjJXkko
     components-cards-button-tile-card--template--dark:
         hash: v1.k794b7964.ea8f8f9e593a467027450a8ba4241c3b3160387a41dcbd2a7fa6fc3e3299fffa.AE40xjOLMiJfje4e2EC8Mpc00oXcDCL9gVW8xqGnblQ
     components-cards-button-tile-card--template--light:
