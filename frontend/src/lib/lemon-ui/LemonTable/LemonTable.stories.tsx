@@ -503,7 +503,7 @@ export const WithVerticalOverflow: Story = {
 export const WithHorizontalAndVerticalOverflow: Story = {
     render: () => {
         return (
-            <div className="max-w-120 h-80 flex flex-col">
+            <div className="max-w-120 h-60 flex flex-col">
                 <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE} allowContentScroll />
             </div>
         )
