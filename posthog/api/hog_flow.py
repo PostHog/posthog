@@ -528,8 +528,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         return Response(
             {
-                "users_affected": result.users_affected,
-                "total_users": result.total_users,
+                "affected": result.affected,
+                "total": result.total,
             }
         )
 
@@ -640,8 +640,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             result = get_user_blast_radius(team, filters, group_type_index)
             return Response(
                 {
-                    "users_affected": result.users_affected,
-                    "total_users": result.total_users,
+                    "affected": result.affected,
+                    "total": result.total,
                 }
             )
         except Exception as e:
