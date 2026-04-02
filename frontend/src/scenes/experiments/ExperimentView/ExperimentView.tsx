@@ -16,7 +16,7 @@ import {
     LegacyResultsQuery,
     LegacyExploreButton,
     LegacyExperimentHeader,
-    MetricsViewLegacy,
+    LegacyMetricsView,
     VariantDeltaTimeseries,
 } from '~/scenes/experiments/legacy'
 import { ActivityScope } from '~/types'
@@ -149,7 +149,7 @@ const MetricsTab = (): JSX.Element => {
              */}
             {isLegacyExperiment(experiment) || hasLegacyResults ? (
                 <>
-                    <MetricsViewLegacy isSecondary={false} />
+                    <LegacyMetricsView isSecondary={false} />
                     {showResultDetails && (
                         <div>
                             <div className="pb-4">
@@ -208,7 +208,7 @@ const MetricsTab = (): JSX.Element => {
                             )}
                         </div>
                     )}
-                    <MetricsViewLegacy isSecondary={true} />
+                    <LegacyMetricsView isSecondary={true} />
                 </>
             ) : orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (
                 <EmptyMetricsPanel isLaunched={isExperimentLaunched} />

@@ -25,7 +25,7 @@ export { LegacyExploreButton } from './components/LegacyExploreButton'
 export * from './calculations/legacyExperimentCalculations'
 
 // Metrics View
-export { MetricsViewLegacy } from './metricsView/MetricsViewLegacy'
+export { LegacyMetricsView } from './metricsView/LegacyMetricsView'
 export { LegacyChartModal } from './metricsView/LegacyChartModal'
 export { LegacyDeltaChart } from './metricsView/LegacyDeltaChart'
 export { LegacyChartEmptyState } from './metricsView/LegacyChartEmptyState'

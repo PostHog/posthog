@@ -10,7 +10,12 @@ import { legacyCredibleIntervalForVariant } from '../calculations/legacyExperime
 import { LegacyDeltaChart } from './LegacyDeltaChart'
 import { legacyGetNiceTickValues } from './legacyUtils'
 
-export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+/**
+ * @deprecated
+ * Legacy metrics view component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyMetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
         getInsightType,
