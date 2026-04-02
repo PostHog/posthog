@@ -90,8 +90,9 @@ export class InsightPage {
     }
 
     async save(): Promise<void> {
+        const originalUrl = this.page.url()
         await this.saveButton.click()
-        await this.page.waitForURL(/^(?!.*\/new$).+$/)
+        await this.page.waitForURL((url) => url.toString() !== originalUrl, { timeout: 15000 })
         await expect(this.editButton).toBeVisible()
     }
 
