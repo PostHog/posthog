@@ -15,8 +15,9 @@ import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
+import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { DashboardFilter, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -892,6 +893,91 @@ describe('dashboardLogic', () => {
                     .toDispatchActions(['setPageVisibility'])
                     .toNotHaveDispatchedActions(['resetInterval'])
             })
+        })
+    })
+
+    describe('dashboard variables', () => {
+        it('respects persisted null overrides in the dashboard header selector', async () => {
+            const variableId = '019d4e3a-3ae0-0000-0698-96f9eecd74ef'
+            const insightWithVariable = {
+                ...insightOnDashboard(175, [12]),
+                query: {
+                    kind: NodeKind.DataVisualizationNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'select {variables.organization}',
+                        variables: {
+                            [variableId]: {
+                                code_name: 'organization',
+                                variableId,
+                            },
+                        },
+                    },
+                    chartSettings: {},
+                    tableSettings: {},
+                } as any,
+            }
+            const dashboardWithVariableOverride = {
+                ...dashboardResult(12, [tileFromInsight(insightWithVariable)]),
+                persisted_variables: {
+                    [variableId]: {
+                        value: null,
+                        isNull: true,
+                        code_name: 'organization',
+                        variableId,
+                    },
+                },
+            }
+
+            variableDataLogic.mount()
+            logic = dashboardLogic({ id: 12, dashboard: dashboardWithVariableOverride })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(variableDataLogic, () => {
+                variableDataLogic.actions.loadVariablesSuccess([
+                    {
+                        id: variableId,
+                        name: 'Organization',
+                        code_name: 'organization',
+                        type: 'String',
+                        default_value: 'Default org',
+                    },
+                ] as any)
+            }).toMatchValues({
+                variables: [
+                    expect.objectContaining({
+                        id: variableId,
+                        code_name: 'organization',
+                    }),
+                ],
+            })
+
+            expect(logic.values.variables).toEqual([
+                expect.objectContaining({
+                    id: variableId,
+                    code_name: 'organization',
+                }),
+            ])
+            expect(logic.values.dashboard?.tiles[0].insight?.query).toEqual(
+                expect.objectContaining({
+                    kind: NodeKind.DataVisualizationNode,
+                })
+            )
+
+            expect(logic.values.effectiveVariablesAndAssociatedInsights).toEqual([
+                {
+                    variable: expect.objectContaining({
+                        id: variableId,
+                        name: 'Organization',
+                        code_name: 'organization',
+                        value: null,
+                        isNull: true,
+                    }),
+                    insightNames: ['donut'],
+                },
+            ])
         })
     })
 
