@@ -22,7 +22,7 @@ const meta: Meta = {
         mockDate: '2025-01-01',
         pageUrl: urls.revenueSettings(),
         testOptions: {
-            waitForSelector: '[data-attr="open-json-editor-button"]',
+            waitForSelector: ['[data-attr="scene-name"]', '.LemonTabs'],
         },
     },
     decorators: [
