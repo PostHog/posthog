@@ -1452,11 +1452,11 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
     table.fields["issue_assigned_user_id"] = ExpressionField(
         name="issue_assigned_user_id",
-        expr=parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
+        expr=parse_expr("fingerprint_issue_state.assigned_user_id"),
     )
     table.fields["issue_assigned_role_id"] = ExpressionField(
         name="issue_assigned_role_id",
-        expr=parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
+        expr=parse_expr("fingerprint_issue_state.assigned_role_id"),
     )
     table.fields["issue_first_seen"] = ExpressionField(
         name="issue_first_seen",

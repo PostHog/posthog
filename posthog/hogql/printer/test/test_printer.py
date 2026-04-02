@@ -2352,7 +2352,8 @@ class TestPrinter(BaseTest):
 
         # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
         # Find the placeholder that holds our value (index varies with number of joins)
-        trace_param_key = next(k for k, v in context.values.items() if v == "trace123")
+        trace_param_key = next((k for k, v in context.values.items() if v == "trace123"), None)
+        assert trace_param_key is not None, "Expected 'trace123' to be recorded as a parameter value"
         self.assertIn(f"equals(events.`mat_$ai_trace_id`, %({trace_param_key})s)", sql)
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
@@ -2371,8 +2372,10 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id IN ('trace1', 'trace2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        trace1_param_key = next(k for k, v in context.values.items() if v == "trace1")
-        trace2_param_key = next(k for k, v in context.values.items() if v == "trace2")
+        trace1_param_key = next((k for k, v in context.values.items() if v == "trace1"), None)
+        assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
+        trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
+        assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
         self.assertIn(f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
         self.assertNotIn("ifNull(in", sql)
 
@@ -2383,8 +2386,10 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
 
         # Other properties should still have null handling with ifNull wrapping
-        other_prop_param_key = next(k for k, v in context.values.items() if v == "other_prop")
-        value_param_key = next(k for k, v in context.values.items() if v == "value")
+        other_prop_param_key = next((k for k, v in context.values.items() if v == "other_prop"), None)
+        assert other_prop_param_key is not None, "Expected 'other_prop' to be recorded as a parameter value"
+        value_param_key = next((k for k, v in context.values.items() if v == "value"), None)
+        assert value_param_key is not None, "Expected 'value' to be recorded as a parameter value"
         self.assertIn(
             f"ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %({other_prop_param_key})s), ''), 'null'), '^\"|\"$', ''), %({value_param_key})s), 0)",
             sql,
@@ -2412,7 +2417,8 @@ class TestPrinter(BaseTest):
 
         # Should generate: equals(mat_$ai_session_id, 'session123') without ifNull wrapper
         # Find the placeholder that holds our value (index varies with number of joins)
-        session_param_key = next(k for k, v in context.values.items() if v == "session123")
+        session_param_key = next((k for k, v in context.values.items() if v == "session123"), None)
+        assert session_param_key is not None, "Expected 'session123' to be recorded as a parameter value"
         self.assertIn(f"equals(events.`mat_$ai_session_id`, %({session_param_key})s)", sql)
         # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
@@ -2431,8 +2437,10 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id IN ('session1', 'session2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        session1_param_key = next(k for k, v in context.values.items() if v == "session1")
-        session2_param_key = next(k for k, v in context.values.items() if v == "session2")
+        session1_param_key = next((k for k, v in context.values.items() if v == "session1"), None)
+        assert session1_param_key is not None, "Expected 'session1' to be recorded as a parameter value"
+        session2_param_key = next((k for k, v in context.values.items() if v == "session2"), None)
+        assert session2_param_key is not None, "Expected 'session2' to be recorded as a parameter value"
         self.assertIn(
             f"in(events.`mat_$ai_session_id`, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql
         )
