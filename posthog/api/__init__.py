@@ -455,6 +455,12 @@ register_grandfathered_environment_nested_viewset(
     r"warehouse_tables", table.TableViewSet, "environment_warehouse_tables", ["team_id"]
 )
 register_grandfathered_environment_nested_viewset(
+    r"warehouse_saved_query_folders",
+    saved_query.DataWarehouseSavedQueryFolderViewSet,
+    "environment_warehouse_saved_query_folders",
+    ["team_id"],
+)
+register_grandfathered_environment_nested_viewset(
     r"warehouse_saved_queries",
     saved_query.DataWarehouseSavedQueryViewSet,
     "environment_warehouse_saved_queries",

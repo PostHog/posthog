@@ -11603,6 +11603,16 @@ export namespace Schemas {
       readonly last_run_at: string | null;
       /** @nullable */
       readonly managed_viewset_kind: string | null;
+      /**
+       * Optional folder ID used to organize this view in the SQL editor sidebar.
+       * @nullable
+       */
+      folder_id?: string | null;
+      /**
+       * Folder name used to organize this view in the SQL editor sidebar.
+       * @nullable
+       */
+      readonly folder_name: string | null;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -11653,6 +11663,18 @@ export namespace Schemas {
       edited_history_id?: string | null;
     }
 
+    export interface DataWarehouseSavedQueryFolder {
+      readonly id: string;
+      /**
+       * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+       * @maxLength 128
+       */
+      name: string;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly view_count: number;
+    }
+
     export type DataWarehouseSavedQueryMinimalColumnsItem = {[key: string]: unknown};
 
     /**
@@ -11680,6 +11702,10 @@ export namespace Schemas {
       readonly last_run_at: string | null;
       /** @nullable */
       readonly managed_viewset_kind: string | null;
+      /** @nullable */
+      readonly folder_id: string | null;
+      /** @nullable */
+      readonly folder_name: string | null;
       /** @nullable */
       readonly latest_error: string | null;
       /** @nullable */
@@ -22426,6 +22452,16 @@ export namespace Schemas {
       readonly last_run_at?: string | null;
       /** @nullable */
       readonly managed_viewset_kind?: string | null;
+      /**
+       * Optional folder ID used to organize this view in the SQL editor sidebar.
+       * @nullable
+       */
+      folder_id?: string | null;
+      /**
+       * Folder name used to organize this view in the SQL editor sidebar.
+       * @nullable
+       */
+      readonly folder_name?: string | null;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -22474,6 +22510,18 @@ export namespace Schemas {
        * @nullable
        */
       edited_history_id?: string | null;
+    }
+
+    export interface PatchedDataWarehouseSavedQueryFolder {
+      readonly id?: string;
+      /**
+       * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+       * @maxLength 128
+       */
+      name?: string;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      readonly view_count?: number;
     }
 
     export interface PatchedDataset {
