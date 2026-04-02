@@ -8,8 +8,10 @@ import sys
 def load_trace_file(path):
     with open(path) as f:
         raw = json.load(f)
+    # Claude Code persists large MCP tool results as [{"type": "text", "text": "<json>"}] — unwrap to get the actual trace data.
     if isinstance(raw, list) and raw and raw[0].get("type") == "text":
         raw = json.loads(raw[0]["text"])
+    # Both query-llm-trace and query-llm-traces-list return {"results": [...]}, but handle a bare trace object too.
     results = raw.get("results", raw)
     return [results] if isinstance(results, dict) else results
 
