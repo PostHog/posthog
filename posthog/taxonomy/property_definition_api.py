@@ -571,7 +571,7 @@ class PropertyDefinitionViewSet(
             "is_numerical": val["type"] == "Numeric",
             "property_type": val["type"],
             "tags": val.get("tags", []),
-            "is_seen_on_filtered_events": None,
+            "is_seen_on_filtered_events": True,
             "verified": False,
             "hidden": False,
             "virtual": True,
@@ -588,7 +588,7 @@ class PropertyDefinitionViewSet(
             "is_numerical": val["type"] == "Numeric",
             "property_type": val["type"],
             "tags": val.get("tags", []),
-            "is_seen_on_filtered_events": None,
+            "is_seen_on_filtered_events": True,
             "verified": False,
             "hidden": False,
             "virtual": True,
@@ -605,7 +605,7 @@ class PropertyDefinitionViewSet(
             "is_numerical": val["type"] == "Numeric",
             "property_type": val["type"],
             "tags": val.get("tags", []),
-            "is_seen_on_filtered_events": None,
+            "is_seen_on_filtered_events": True,
             "verified": False,
             "hidden": False,
             "virtual": True,
@@ -811,11 +811,6 @@ class PropertyDefinitionViewSet(
 
         # Virtual properties exist for events, persons, and groups
         if v.get("type") not in ["event", "person", "group"]:
-            return False
-
-        # Virtual properties don't have real event associations, so exclude them
-        # when filtering by event names
-        if v.get("filter_by_event_names"):
             return False
 
         # explicit name filter  (?properties=a,b,c)

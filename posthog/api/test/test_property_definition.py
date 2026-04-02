@@ -259,13 +259,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             f"/api/projects/{self.team.pk}/property_definitions/?event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
         )
         assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
         assert sorted(
-            [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]],
+            [(r["name"], r["is_seen_on_filtered_events"]) for r in db_results],
             key=lambda tup: tup[0],
         ) == [
             ("$browser", True),
             ("first_visit", True),
         ]
+        # virtual properties are always included in scoped results
+        virtual_results = [r for r in response.json()["results"] if r.get("virtual")]
+        assert all(r["is_seen_on_filtered_events"] is True for r in virtual_results)
 
         # can combine the filters
         response = self.client.get(
