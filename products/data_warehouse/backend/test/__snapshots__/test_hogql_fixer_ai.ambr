@@ -47,13 +47,13 @@
   - $virt_traffic_type (expression)
   - $virt_traffic_category (expression)
   - $virt_bot_name (expression)
-  - exception_issue_denormalized (lazy_table)
-  - issue_id_denormalized (string)
+  - fingerprint_issue_state (lazy_table)
+  - issue_id_v2 (string)
   - issue_name (string)
   - issue_description (string)
   - issue_status (string)
-  - assigned_user_id (integer)
-  - assigned_role_id (string)
+  - issue_assigned_user_id (integer)
+  - issue_assigned_role_id (string)
   - issue_first_seen (datetime)
   '''
 # ---
@@ -172,15 +172,15 @@
   - $virt_traffic_type (expression)
   - $virt_traffic_category (expression)
   - $virt_bot_name (expression)
-  - exception_issue_denormalized (lazy_table)
-  - issue_id_denormalized (string)
+  - fingerprint_issue_state (lazy_table)
+  - issue_id_v2 (string)
   - issue_name (string)
   - issue_description (string)
   - issue_status (string)
-  - assigned_user_id (integer)
-  - assigned_role_id (string)
+  - issue_assigned_user_id (integer)
+  - issue_assigned_role_id (string)
   - issue_first_seen (datetime)
-  
+
   Below is the current HogQL query and the error message
   
   

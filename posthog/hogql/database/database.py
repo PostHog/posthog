@@ -1428,39 +1428,39 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
         ),
     )
 
-    # Denormalized issue metadata from the fingerprint denormalized table
-    table.fields["exception_issue_denormalized"] = LazyJoin(
+    # Issue metadata from the fingerprint_issue_state table
+    table.fields["fingerprint_issue_state"] = LazyJoin(
         from_field=["fingerprint"],
         join_table=ErrorTrackingFingerprintIssueStateTable(),
         join_function=join_with_error_tracking_fingerprint_issue_state_table,
     )
-    table.fields["issue_id_denormalized"] = ExpressionField(
-        name="issue_id_denormalized",
-        expr=parse_expr("exception_issue_denormalized.issue_id"),
+    table.fields["issue_id_v2"] = ExpressionField(
+        name="issue_id_v2",
+        expr=parse_expr("fingerprint_issue_state.issue_id"),
     )
     table.fields["issue_name"] = ExpressionField(
         name="issue_name",
-        expr=parse_expr("exception_issue_denormalized.issue_name"),
+        expr=parse_expr("fingerprint_issue_state.issue_name"),
     )
     table.fields["issue_description"] = ExpressionField(
         name="issue_description",
-        expr=parse_expr("exception_issue_denormalized.issue_description"),
+        expr=parse_expr("fingerprint_issue_state.issue_description"),
     )
     table.fields["issue_status"] = ExpressionField(
         name="issue_status",
-        expr=parse_expr("exception_issue_denormalized.issue_status"),
+        expr=parse_expr("fingerprint_issue_state.issue_status"),
     )
-    table.fields["assigned_user_id"] = ExpressionField(
-        name="assigned_user_id",
-        expr=parse_expr("exception_issue_denormalized.assigned_user_id", start=None),
+    table.fields["issue_assigned_user_id"] = ExpressionField(
+        name="issue_assigned_user_id",
+        expr=parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
     )
-    table.fields["assigned_role_id"] = ExpressionField(
-        name="assigned_role_id",
-        expr=parse_expr("exception_issue_denormalized.assigned_role_id", start=None),
+    table.fields["issue_assigned_role_id"] = ExpressionField(
+        name="issue_assigned_role_id",
+        expr=parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
     )
     table.fields["issue_first_seen"] = ExpressionField(
         name="issue_first_seen",
-        expr=parse_expr("exception_issue_denormalized.first_seen"),
+        expr=parse_expr("fingerprint_issue_state.first_seen"),
     )
 
 
