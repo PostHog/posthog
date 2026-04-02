@@ -6,6 +6,7 @@ import datetime as dt
 import dataclasses
 from typing import TYPE_CHECKING, Any
 
+import structlog
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
@@ -69,9 +70,9 @@ def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, An
 
 async def flush_kafka_batch_async(
     kafka_results: list,
-    kafka_producer,
+    kafka_producer: _KafkaProducer,
     team_id: int,
-    logger,
+    logger: structlog.BoundLogger,
     flush_duration_metric=None,
 ) -> int:
     """Flush Kafka messages asynchronously and return count of successful messages.
@@ -197,16 +198,18 @@ class BackfillPrecalculatedPersonPropertiesInputs:
         }
 
 
-async def evaluate_single_filter(
+def evaluate_single_filter_sync(
     filter_obj: PersonPropertyFilter,
     hog_globals: dict[str, Any],
     person_id: str,
     inputs: BackfillPrecalculatedPersonPropertiesInputs,
     kafka_producer: _KafkaProducer,
-    logger,
+    logger: structlog.BoundLogger,
 ) -> list[Any]:
     """
     Evaluate a single filter for a person and produce Kafka events if it matches.
+
+    This is a synchronous function that will be run in a thread pool for concurrency.
 
     Returns:
         List of ProduceResult objects from successful Kafka produces
@@ -355,7 +358,8 @@ async def backfill_precalculated_person_properties_activity(
             # Build a single JSONExtract with tuple structure for all properties
             escaped_properties = []
             for prop in person_properties:
-                escaped_prop = prop.replace("'", "''")  # Escape single quotes for SQL safety
+                # Use backtick escaping for identifier names in tuple definition
+                escaped_prop = prop.replace("`", "``")
                 escaped_properties.append(f"`{escaped_prop}` String")
 
             tuple_definition = ",\n        ".join(escaped_properties)
@@ -364,7 +368,9 @@ async def backfill_precalculated_person_properties_activity(
             property_selects = []
             for i, prop in enumerate(person_properties):
                 safe_alias = f"prop_{i}"  # Use safe numeric aliases
-                property_selects.append(f"tupleElement(p, '{prop}') as `{safe_alias}`")
+                # Escape single quotes for string literal in tupleElement
+                string_escaped_prop = prop.replace("'", "''")
+                property_selects.append(f"tupleElement(p, '{string_escaped_prop}') as `{safe_alias}`")
                 property_alias_mapping[safe_alias] = prop
 
             tuple_selects = ",\n                ".join(property_selects)
@@ -443,14 +449,29 @@ async def backfill_precalculated_person_properties_activity(
                         # Fallback format: use full properties JSON
                         parsed_properties = parse_person_properties(row.get("properties"), person_id)
 
-                    # Evaluate all filters concurrently for this person
+                    # Evaluate all filters concurrently for this person using thread pool
                     person_filter_start = time.monotonic()
                     hog_globals = {"person": {"properties": parsed_properties}}
 
+                    # Use a semaphore to limit concurrent filter evaluations
+                    MAX_CONCURRENT_FILTERS = min(20, len(filters))  # Cap at 20 concurrent threads
+                    semaphore = asyncio.Semaphore(MAX_CONCURRENT_FILTERS)
+
+                    async def run_filter_in_thread(filter_obj, hog_globals_bound, person_id_bound, semaphore_bound):
+                        async with semaphore_bound:
+                            return await asyncio.to_thread(
+                                evaluate_single_filter_sync,
+                                filter_obj,
+                                hog_globals_bound,
+                                person_id_bound,
+                                inputs,
+                                kafka_producer,
+                                logger,
+                            )
+
                     # Create tasks for concurrent filter evaluation
                     filter_tasks = [
-                        evaluate_single_filter(filter_obj, hog_globals, person_id, inputs, kafka_producer, logger)
-                        for filter_obj in filters
+                        run_filter_in_thread(filter_obj, hog_globals, person_id, semaphore) for filter_obj in filters
                     ]
 
                     # Execute all filters concurrently
@@ -461,7 +482,13 @@ async def backfill_precalculated_person_properties_activity(
                         if isinstance(result, list):  # Successful result
                             kafka_results.extend(result)
                             total_events_produced += len(result)
-                        # Exceptions are already logged in evaluate_single_filter
+                        elif isinstance(result, Exception):
+                            logger.error(
+                                "Error while evaluating filter for person_id %s: %r",
+                                person_id,
+                                result,
+                            )
+                        # Other non-list results are ignored
 
                     # Periodically flush Kafka batches to avoid memory buildup
                     if len(kafka_results) >= KAFKA_FLUSH_BATCH_SIZE:
