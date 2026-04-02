@@ -119,8 +119,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
-    error_tracking_dual_write_enabled: false,
-    error_tracking_dual_write_sample_rate: 0.0,
+    error_tracking_node_rollout_enabled: false,
+    error_tracking_node_rollout_rate: 0.0,
     continuous_profiling: ContinuousProfilingConfig {
         continuous_profiling_enabled: false,
         pyroscope_server_address: String::new(),

@@ -118,7 +118,7 @@ procs:
             bin/wait-for-docker temporal && \
             bin/temporal-recording-rasterizer-worker
         capability: recording_rasterizer
-        ready_pattern: 'Worker started on queue'
+        ready_pattern: 'worker started'
         env:
             VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
