@@ -240,3 +240,40 @@ export function copyTableToExcel(dataTableRows: DataTableRow[], columns: string[
         lemonToast.error('Copy failed!')
     }
 }
+
+export function copyTableToMarkdown(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
+    try {
+        const tableData = getCsvTableData(dataTableRows, columns, query)
+
+        if (tableData.length === 0) {
+            lemonToast.error('No data to copy!')
+            return
+        }
+
+        const [headers, ...rows] = tableData
+        const escape = (cell: any): string =>
+            String(cell ?? '')
+                .replace(/\n/g, '\\n')
+                .replace(/\r/g, '\\r')
+                .replace(/\|/g, '\\|')
+
+        const escapedHeaders = headers.map(escape)
+        const escapedRows = rows.map((row) => row.map(escape))
+
+        const colWidths = escapedHeaders.map((header, colIndex) =>
+            Math.max(3, header.length, ...escapedRows.map((row) => (row[colIndex] ?? '').length))
+        )
+
+        const pad = (cell: string, width: number): string => cell.padEnd(width)
+
+        const headerRow = `| ${escapedHeaders.map((h, i) => pad(h, colWidths[i])).join(' | ')} |`
+        const separatorRow = `| ${colWidths.map((w) => '-'.repeat(w)).join(' | ')} |`
+        const dataRows = escapedRows.map((row) => `| ${row.map((cell, i) => pad(cell, colWidths[i])).join(' | ')} |`)
+
+        const markdown = [headerRow, separatorRow, ...dataRows].join('\n')
+
+        void copyToClipboard(markdown, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}
