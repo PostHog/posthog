@@ -27,6 +27,13 @@ for trace in traces:
     print(f"\n{'='*80}")
     print(f"Trace: {trace.get('id', '?')}  name={trace.get('traceName', '?')}  latency={trace.get('totalLatency', '?')}s  cost={trace.get('totalCost', '?')}")
     print(f"{'='*80}")
+    # Trace-level input/output state (from $ai_trace event, not in events array)
+    inp = trace.get("inputState")
+    out = trace.get("outputState")
+    if inp:
+        print(f"  Trace input:  {summarize(inp)}")
+    if out:
+        print(f"  Trace output: {summarize(out)}")
     events = sorted(trace.get("events", []), key=lambda e: e.get("createdAt", ""))
     for i, ev in enumerate(events, 1):
         p = ev.get("properties", {})

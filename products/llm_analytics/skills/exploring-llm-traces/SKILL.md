@@ -1,7 +1,7 @@
 ---
 name: exploring-llm-traces
 description: >
-  Debug and inspect LLM/AI agent traces using PostHog's MCP tools.
+  ABSOLUTE MUST to debug and inspect LLM/AI agent traces using PostHog's MCP tools.
   Use when the user pastes a trace URL (e.g. /llm-observability/traces/<id>),
   asks to debug a trace, figure out what went wrong, check if an agent used a tool correctly,
   verify context/files were surfaced, inspect subagent behavior, investigate LLM decisions,
@@ -60,13 +60,28 @@ From the result you get:
 ### Step 2 — Parse large results with scripts
 
 When the result is persisted to a file (large traces with full `$ai_input`/`$ai_output_choices`),
-use the [parsing scripts](./scripts/) to explore it:
+use the [parsing scripts](./scripts/) to explore it.
+
+**Start with the summary** to get the full picture, then drill into specifics:
 
 ```bash
-python3 scripts/print_timeline.py /path/to/persisted-file.json    # event timeline
-python3 scripts/extract_conversation.py /path/to/persisted-file.json  # LLM messages
-SEARCH="keyword" python3 scripts/search_traces.py /path/to/persisted-file.json  # find text
+# 1. Overview: metadata, tool calls, final output, errors
+python3 scripts/print_summary.py /path/to/persisted-file.json
+
+# 2. Timeline: chronological event list with truncated I/O
+python3 scripts/print_timeline.py /path/to/persisted-file.json
+
+# 3. Drill into a specific span's full input/output
+SPAN="tool_name" python3 scripts/extract_span.py /path/to/persisted-file.json
+
+# 4. Full conversation with thinking blocks and tool calls
+python3 scripts/extract_conversation.py /path/to/persisted-file.json
+
+# 5. Search for a keyword across all properties
+SEARCH="keyword" python3 scripts/search_traces.py /path/to/persisted-file.json
 ```
+
+All scripts support `MAX_LEN=N` env var to control truncation (0 = unlimited).
 
 ## Investigation patterns
 
@@ -244,12 +259,14 @@ results (array for list, object for single trace)
 
 ### Available scripts
 
-| Script                                                         | Purpose                                          | Usage                                                    |
-| -------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------- |
-| [`print_timeline.py`](./scripts/print_timeline.py)             | Chronological event timeline with I/O summaries  | `python3 scripts/print_timeline.py FILE`                 |
-| [`extract_conversation.py`](./scripts/extract_conversation.py) | Extract user/assistant messages from generations | `python3 scripts/extract_conversation.py FILE`           |
-| [`search_traces.py`](./scripts/search_traces.py)               | Find a keyword across all event properties       | `SEARCH="keyword" python3 scripts/search_traces.py FILE` |
-| [`show_structure.py`](./scripts/show_structure.py)             | Show JSON keys and types without values          | `cat blob.json \| python3 scripts/show_structure.py`     |
+| Script                                                         | Purpose                                                  | Usage                                                    |
+| -------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------- |
+| [`print_summary.py`](./scripts/print_summary.py)               | Trace metadata, tool calls, errors, and final LLM output | `python3 scripts/print_summary.py FILE`                  |
+| [`print_timeline.py`](./scripts/print_timeline.py)             | Chronological event timeline with I/O summaries          | `python3 scripts/print_timeline.py FILE`                 |
+| [`extract_span.py`](./scripts/extract_span.py)                 | Full input/output of a specific span by name             | `SPAN="name" python3 scripts/extract_span.py FILE`       |
+| [`extract_conversation.py`](./scripts/extract_conversation.py) | LLM messages with thinking blocks and tool calls         | `python3 scripts/extract_conversation.py FILE`           |
+| [`search_traces.py`](./scripts/search_traces.py)               | Find a keyword across all event properties               | `SEARCH="keyword" python3 scripts/search_traces.py FILE` |
+| [`show_structure.py`](./scripts/show_structure.py)             | Show JSON keys and types without values                  | `cat blob.json \| python3 scripts/show_structure.py`     |
 
 ## Tips
 

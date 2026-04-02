@@ -1,6 +1,11 @@
-"""Extract user/assistant messages from LLM generation events in a trace."""
+"""Extract user/assistant messages from LLM generation events in a trace.
+
+Env vars:
+  MAX_LEN  — truncation limit per message (default 500, 0 for unlimited)
+"""
 
 import json
+import os
 import sys
 
 
@@ -15,13 +20,49 @@ def load_trace_file(path):
     return [results] if isinstance(results, dict) else results
 
 
-def extract_text(content):
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return " ".join(p.get("text", p.get("type", "")) for p in content if isinstance(p, dict))
-    return str(content)
+def truncate(text, max_len):
+    if max_len <= 0 or len(text) <= max_len:
+        return text
+    half = max_len // 2
+    return text[:half] + f"\n  ... [{len(text)} chars] ...\n  " + text[-half:]
 
+
+def format_content(content, max_len):
+    """Format message content, preserving thinking/text/tool_use structure."""
+    if isinstance(content, str):
+        return truncate(content, max_len)
+    if not isinstance(content, list):
+        return str(content)
+
+    parts = []
+    for item in content:
+        if not isinstance(item, dict):
+            parts.append(str(item))
+            continue
+        item_type = item.get("type", "")
+        if item_type == "thinking":
+            thinking = item.get("thinking", "")
+            parts.append(f"  [thinking] {truncate(thinking, max_len)}")
+        elif item_type == "text":
+            parts.append(f"  {truncate(item.get('text', ''), max_len)}")
+        elif item_type == "tool_use":
+            name = item.get("name", "?")
+            tool_input = json.dumps(item.get("input", {}), default=str)
+            parts.append(f"  [tool_use: {name}] {truncate(tool_input, max_len)}")
+        elif item_type == "tool_result":
+            tool_id = item.get("tool_use_id", "?")
+            result_content = item.get("content", "")
+            if isinstance(result_content, list):
+                result_content = " ".join(
+                    p.get("text", "") for p in result_content if isinstance(p, dict)
+                )
+            parts.append(f"  [tool_result: {tool_id}] {truncate(str(result_content), max_len)}")
+        else:
+            parts.append(f"  [{item_type}] {truncate(json.dumps(item, default=str), max_len)}")
+    return "\n".join(parts)
+
+
+max_len = int(os.environ.get("MAX_LEN", "500"))
 
 traces = load_trace_file(sys.argv[1])
 for trace in traces:
@@ -38,7 +79,28 @@ for trace in traces:
         print(f"{'='*80}")
         for msg in messages:
             role = msg.get("role", "?")
-            text = extract_text(msg.get("content", ""))
-            if len(text) > 500:
-                text = text[:250] + f"\n  ... [{len(text)} chars] ...\n  " + text[-250:]
-            print(f"\n[{role.upper()}]\n  {text}")
+            content = msg.get("content", "")
+
+            # Show tool_calls on assistant messages
+            tool_calls = msg.get("tool_calls", [])
+
+            print(f"\n[{role.upper()}]")
+            print(format_content(content, max_len))
+
+            if tool_calls:
+                for tc in tool_calls:
+                    fn = tc.get("function", tc)
+                    name = fn.get("name", "?")
+                    args = fn.get("arguments", "{}")
+                    if isinstance(args, str):
+                        args_str = args
+                    else:
+                        args_str = json.dumps(args, default=str)
+                    print(f"  [tool_call: {name}] {truncate(args_str, max_len)}")
+
+        # Show output choices
+        choices = p.get("$ai_output_choices", [])
+        if choices:
+            print(f"\n[ASSISTANT (output)]")
+            for choice in choices:
+                print(format_content(choice.get("content", ""), max_len))
