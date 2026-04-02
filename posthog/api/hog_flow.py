@@ -688,6 +688,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         """
         from django.db import transaction
 
+        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
         from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
         from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
 
@@ -759,15 +760,22 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
                         advance_next_run(schedule, after=schedule.next_run_at)
 
-                        processed.append(
-                            {
-                                "schedule_id": str(schedule.id),
-                                "team_id": schedule.team_id,
-                                "hog_flow_id": str(schedule.hog_flow_id),
-                                "filters": (hog_flow.trigger or {}).get("filters", {}),
-                                "variables": resolve_variables(hog_flow, schedule),
-                            }
+                        variables = resolve_variables(hog_flow, schedule)
+                        filters = (hog_flow.trigger or {}).get("filters", {})
+
+                        # Create a HogFlowBatchJob so the run appears in
+                        # the workflow's Invocations/Metrics tabs. The
+                        # post_save signal dispatches to the CDP API which
+                        # handles the actual batch execution.
+                        HogFlowBatchJob.objects.create(
+                            team_id=schedule.team_id,
+                            hog_flow=hog_flow,
+                            variables=variables,
+                            filters=filters,
+                            status=HogFlowBatchJob.State.QUEUED,
                         )
+
+                        processed.append(str(schedule.id))
                 except Exception:
                     logger.exception("Error processing schedule", schedule_id=str(schedule_id))
                     failed.append(str(schedule_id))
