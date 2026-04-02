@@ -1052,257 +1052,33 @@ const AssistantLifecycleQuery = z.object({
         .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
 })
 
-const DateRange = z.object({
-    date_from: z.string().nullable().optional(),
-    date_to: z.string().nullable().optional(),
-    explicitDate: z.coerce
+const AssistantTracesQuery = z.object({
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
+    filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
+    filterTestAccounts: z.coerce
         .boolean()
-        .nullable()
-        .describe(
-            'Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.'
-        )
+        .describe('Exclude internal and test users by applying the respective filters.')
         .default(false)
         .optional(),
-})
-
-const PropertyOperator = z.enum([
-    'exact',
-    'is_not',
-    'icontains',
-    'not_icontains',
-    'regex',
-    'not_regex',
-    'gt',
-    'gte',
-    'lt',
-    'lte',
-    'is_set',
-    'is_not_set',
-    'is_date_exact',
-    'is_date_before',
-    'is_date_after',
-    'between',
-    'not_between',
-    'min',
-    'max',
-    'in',
-    'not_in',
-    'is_cleaned_path_exact',
-    'flag_evaluates_to',
-    'semver_eq',
-    'semver_neq',
-    'semver_gt',
-    'semver_gte',
-    'semver_lt',
-    'semver_lte',
-    'semver_tilde',
-    'semver_caret',
-    'semver_wildcard',
-    'icontains_multi',
-    'not_icontains_multi',
-])
-
-const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
-
-const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
-
-const EventPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator.default('exact'),
-    type: z.literal('event').describe('Event properties').default('event'),
-    value: PropertyFilterValue.optional(),
-})
-
-const PersonPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('person').describe('Person properties').default('person'),
-    value: PropertyFilterValue.optional(),
-})
-
-const ElementPropertyFilter = z.object({
-    key: z.enum(['tag_name', 'text', 'href', 'selector']),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('element').default('element'),
-    value: PropertyFilterValue.optional(),
-})
-
-const EventMetadataPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('event_metadata').default('event_metadata'),
-    value: PropertyFilterValue.optional(),
-})
-
-const SessionPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('session').default('session'),
-    value: PropertyFilterValue.optional(),
-})
-
-const CohortPropertyFilter = z.object({
-    cohort_name: z.string().optional(),
-    key: z.literal('id').default('id'),
-    label: z.string().optional(),
-    operator: PropertyOperator.default('in'),
-    type: z.literal('cohort').default('cohort'),
-    value: z.coerce.number().int(),
-})
-
-const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
-
-const RecordingPropertyFilter = z.object({
-    key: z.union([DurationType, z.literal('snapshot_source'), z.literal('visited_page'), z.literal('comment_text')]),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('recording').default('recording'),
-    value: PropertyFilterValue.optional(),
-})
-
-const LogEntryPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('log_entry').default('log_entry'),
-    value: PropertyFilterValue.optional(),
-})
-
-const GroupPropertyFilter = z.object({
-    group_key_names: z.object({}).optional(),
-    group_type_index: z.union([z.coerce.number().int(), z.null()]).optional(),
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('group').default('group'),
-    value: PropertyFilterValue.optional(),
-})
-
-const FeaturePropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('feature').describe('Event property with "$feature/" prepended').default('feature'),
-    value: PropertyFilterValue.optional(),
-})
-
-const FlagPropertyFilter = z.object({
-    key: z.string().describe('The key should be the flag ID'),
-    label: z.string().optional(),
-    operator: z
-        .literal('flag_evaluates_to')
-        .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
-        .default('flag_evaluates_to'),
-    type: z.literal('flag').describe('Feature flag dependency').default('flag'),
-    value: z.union([z.coerce.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
-})
-
-const HogQLPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    type: z.literal('hogql').default('hogql'),
-    value: PropertyFilterValue.optional(),
-})
-
-const EmptyPropertyFilter = z.object({
-    type: z.literal('empty').default('empty').optional(),
-})
-
-const DataWarehousePropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('data_warehouse').default('data_warehouse'),
-    value: PropertyFilterValue.optional(),
-})
-
-const DataWarehousePersonPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('data_warehouse_person_property').default('data_warehouse_person_property'),
-    value: PropertyFilterValue.optional(),
-})
-
-const ErrorTrackingIssueFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('error_tracking_issue').default('error_tracking_issue'),
-    value: PropertyFilterValue.optional(),
-})
-
-const LogPropertyFilterType = z.enum(['log', 'log_attribute', 'log_resource_attribute'])
-
-const LogPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: LogPropertyFilterType,
-    value: PropertyFilterValue.optional(),
-})
-
-const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
-
-const SpanPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: SpanPropertyFilterType,
-    value: PropertyFilterValue.optional(),
-})
-
-const RevenueAnalyticsPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('revenue_analytics').default('revenue_analytics'),
-    value: PropertyFilterValue.optional(),
-})
-
-const AnyPropertyFilter = z.union([
-    EventPropertyFilter,
-    PersonPropertyFilter,
-    ElementPropertyFilter,
-    EventMetadataPropertyFilter,
-    SessionPropertyFilter,
-    CohortPropertyFilter,
-    RecordingPropertyFilter,
-    LogEntryPropertyFilter,
-    GroupPropertyFilter,
-    FeaturePropertyFilter,
-    FlagPropertyFilter,
-    HogQLPropertyFilter,
-    EmptyPropertyFilter,
-    DataWarehousePropertyFilter,
-    DataWarehousePersonPropertyFilter,
-    ErrorTrackingIssueFilter,
-    LogPropertyFilter,
-    SpanPropertyFilter,
-    RevenueAnalyticsPropertyFilter,
-])
-
-const TracesQuery = z.object({
-    dateRange: DateRange.optional(),
-    filterSupportTraces: z.coerce.boolean().optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
-    groupKey: z.string().optional(),
-    groupTypeIndex: integer.optional(),
+    groupKey: z.string().describe('Filter traces by group key. Requires `groupTypeIndex` to be set.').optional(),
+    groupTypeIndex: integer.describe('Group type index when filtering by group.').optional(),
     kind: z.literal('TracesQuery').default('TracesQuery'),
-    limit: integer.optional(),
-    offset: integer.optional(),
-    personId: z.string().describe('Person who performed the event').optional(),
-    properties: z.array(AnyPropertyFilter).describe('Properties configurable in the interface').optional(),
+    limit: integer.describe('Maximum number of traces to return.').default(100).optional(),
+    offset: integer.describe('Number of traces to skip for pagination.').default(0).optional(),
+    personId: z.string().describe('Filter traces by a specific person UUID.').optional(),
+    properties: z
+        .array(AssistantPropertyFilter)
+        .describe(
+            'Property filters to narrow results. Use event properties like `$ai_model`, `$ai_provider`, `$ai_trace_id`, etc. to filter traces.'
+        )
+        .default([])
+        .optional(),
     randomOrder: z.coerce
         .boolean()
         .describe(
             'Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.'
         )
+        .default(false)
         .optional(),
 })
 
@@ -1345,5 +1121,9 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
     }),
-    'query-traces-list': createQueryWrapper({ name: 'query-traces-list', schema: TracesQuery, kind: 'TracesQuery' }),
+    'query-llm-traces-list': createQueryWrapper({
+        name: 'query-llm-traces-list',
+        schema: AssistantTracesQuery,
+        kind: 'TracesQuery',
+    }),
 }

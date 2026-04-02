@@ -86,6 +86,7 @@
         "@posthog/products-llm-analytics": "workspace:*",
         "@posthog/products-logs": "workspace:*",
         "@posthog/products-managed-migrations": "workspace:*",
+        "@posthog/products-mcp-analytics": "workspace:*",
         "@posthog/products-mcp-store": "workspace:*",
         "@posthog/products-messaging": "workspace:*",
         "@posthog/products-metrics": "workspace:*",
