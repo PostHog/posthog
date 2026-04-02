@@ -8,7 +8,10 @@
  */
 import * as zod from 'zod'
 
-export const LlmAnalyticsSentimentCreateParams = /* @__PURE__ */ zod.object({
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
+export const LlmAnalyticsClusteringJobsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,20 +19,21 @@ export const LlmAnalyticsSentimentCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const llmAnalyticsSentimentCreateBodyIdsMax = 5
+export const LlmAnalyticsClusteringJobsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
 
-export const llmAnalyticsSentimentCreateBodyAnalysisLevelDefault = `trace`
-export const llmAnalyticsSentimentCreateBodyForceRefreshDefault = false
-
-export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod.array(zod.string()).min(1).max(llmAnalyticsSentimentCreateBodyIdsMax),
-    analysis_level: zod
-        .enum(['trace', 'generation'])
-        .describe('* `trace` - trace\n* `generation` - generation')
-        .default(llmAnalyticsSentimentCreateBodyAnalysisLevelDefault),
-    force_refresh: zod.boolean().default(llmAnalyticsSentimentCreateBodyForceRefreshDefault),
-    date_from: zod.string().nullish(),
-    date_to: zod.string().nullish(),
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
+export const LlmAnalyticsClusteringJobsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this clustering job.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })
 
 /**
