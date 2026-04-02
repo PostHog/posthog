@@ -215,9 +215,7 @@ def evaluate_combined_filters_sync(
         return {}
     except Exception as e:
         LOGGER.warning(
-            "Failed to execute combined filter bytecode for person %s: %s",
-            person_id,
-            e,
+            "Failed to execute combined filter bytecode for person",
             person_id=person_id,
             error=str(e),
         )
