@@ -501,6 +501,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             <ButtonPrimitive
                                                                 iconOnly
                                                                 isSideActionRight
+                                                                aria-label={`${item.name} actions`}
                                                                 className="
                                                                     absolute right-0
                                                                     opacity-0

@@ -80,7 +80,7 @@ test.describe('SQL Editor', () => {
         const viewTreeItem = page.getByRole('treeitem', { name: new RegExp(uniqueViewName) })
         await expect(viewTreeItem).toBeVisible()
         await viewTreeItem.hover()
-        await viewTreeItem.getByRole('button').click()
+        await page.getByRole('button', { name: `${uniqueViewName} actions` }).click()
         await page.getByRole('menuitem', { name: 'Materialize' }).click()
         await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
     })
