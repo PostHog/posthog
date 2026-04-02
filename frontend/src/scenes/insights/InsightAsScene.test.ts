@@ -1,11 +1,11 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { applySceneQueryUpdate } from './InsightAsScene'
 
 describe('applySceneQueryUpdate', () => {
     it('applies full InsightVizNode updates', () => {
         const setInsightQuery = jest.fn()
-        const nextQuery = {
+        const nextQuery: InsightVizNode = {
             kind: NodeKind.InsightVizNode,
             source: {
                 kind: NodeKind.TrendsQuery,
@@ -21,7 +21,7 @@ describe('applySceneQueryUpdate', () => {
 
     it('applies functional query updates for InsightVizNode queries', () => {
         const setInsightQuery = jest.fn()
-        const currentQuery = {
+        const currentQuery: InsightVizNode = {
             kind: NodeKind.InsightVizNode,
             source: {
                 kind: NodeKind.TrendsQuery,
@@ -30,13 +30,17 @@ describe('applySceneQueryUpdate', () => {
             },
         }
 
-        applySceneQueryUpdate(currentQuery, setInsightQuery, (query) => ({
-            ...query,
-            source: {
-                ...query.source,
-                trendsFilter: { decimalPlaces: 2 },
-            },
-        }))
+        applySceneQueryUpdate(currentQuery, setInsightQuery, (query) => {
+            const insightQuery = query as InsightVizNode
+
+            return {
+                ...insightQuery,
+                source: {
+                    ...insightQuery.source,
+                    trendsFilter: { decimalPlaces: 2 },
+                },
+            }
+        })
 
         expect(setInsightQuery).toHaveBeenCalledWith({
             kind: NodeKind.InsightVizNode,
