@@ -26,7 +26,7 @@ const meta: Meta<LLMAnalyticsTraceSceneProps> = {
     render: ({ trace, eventId }) => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [trace] }],
+                '/api/environments/:team_id/query/TraceQuery/': () => [200, { results: [trace] }],
             },
         })
 
