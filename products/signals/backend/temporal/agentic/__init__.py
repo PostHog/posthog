@@ -16,19 +16,26 @@ def get_or_create_signals_sandbox_env(
     team_id: int,
     name: str,
     network_access_level: SandboxEnvironment.NetworkAccessLevel,
+    *,
+    allowed_domains: list[str] | None = None,
+    include_default_domains: bool = False,
 ) -> str:
     """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string.
 
     Uses update_or_create to reassert the expected policy on every call,
     so manual edits via the API are corrected on next run.
     """
+    defaults: dict = {
+        "network_access_level": network_access_level,
+        "private": False,
+    }
+    if allowed_domains is not None:
+        defaults["allowed_domains"] = allowed_domains
+        defaults["include_default_domains"] = include_default_domains
     env, _ = SandboxEnvironment.objects.update_or_create(
         team_id=team_id,
         name=name,
-        defaults={
-            "network_access_level": network_access_level,
-            "private": False,
-        },
+        defaults=defaults,
     )
     return str(env.id)
 
