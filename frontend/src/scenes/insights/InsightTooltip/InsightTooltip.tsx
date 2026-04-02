@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
+import { IconX } from '@posthog/icons'
+
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { dayjs } from 'lib/dayjs'
 import { IconHandClick } from 'lib/lemon-ui/icons'
@@ -84,6 +86,25 @@ function renderDatumToTableCell(
     )
 }
 
+function closeColumn<T extends Record<string, any>>(onClose: () => void): LemonTableColumn<T, keyof T | undefined> {
+    return {
+        key: 'close',
+        className: 'InsightTooltip__close-column',
+        width: 0,
+        title: (
+            <button
+                type="button"
+                className="InsightTooltip__close p-0.5 ml-2 rounded hover:bg-fill-button-tertiary-hover cursor-pointer"
+                style={{ opacity: 0 }}
+                onClick={onClose}
+            >
+                <IconX className="w-3 h-3" />
+            </button>
+        ),
+        render: () => null,
+    }
+}
+
 export function InsightTooltip({
     date,
     timezone = 'UTC',
@@ -105,6 +126,8 @@ export function InsightTooltip({
     dateRange,
     showShiftKeyHint,
     formatCompareLabel,
+    onClose,
+    onRowClick,
 }: InsightTooltipProps): JSX.Element {
     // Display entities as columns if multiple exist (e.g., pageview + autocapture, or multiple formulas)
     // and the insight has a breakdown or compare option enabled. This gives us space for labels
@@ -184,13 +207,24 @@ export function InsightTooltip({
                         const seriesColumnData: SeriesDatum | undefined = datum.seriesData.find(
                             (s) => s.order === colIdx
                         )
-                        return renderDatumToTableCell(
+                        const cell = renderDatumToTableCell(
                             seriesColumnData?.action?.math_property,
                             seriesColumnData?.count,
                             formatPropertyValueForDisplay,
                             renderCount,
                             seriesColumnData?.color
                         )
+                        if (onRowClick && seriesColumnData && numDataPoints > 1) {
+                            return (
+                                <div
+                                    className="cursor-pointer hover:bg-accent-highlight-secondary -mx-2 px-2 -my-1 py-1"
+                                    onClick={() => onRowClick(seriesColumnData)}
+                                >
+                                    {cell}
+                                </div>
+                            )
+                        }
+                        return cell
                     },
                 })
             })
@@ -203,6 +237,10 @@ export function InsightTooltip({
             columns.push(...dataColumns)
         }
 
+        if (onClose) {
+            columns.push(closeColumn(onClose))
+        }
+
         return (
             <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
                 <LemonTable
@@ -212,6 +250,18 @@ export function InsightTooltip({
                     uppercaseHeader={false}
                     rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
                     showHeader={showHeader}
+                    onRow={
+                        onRowClick && numDataPoints === 1
+                            ? (datum) => ({
+                                  onClick: () => {
+                                      const seriesDatum = datum.seriesData[0]
+                                      if (seriesDatum) {
+                                          onRowClick(seriesDatum)
+                                      }
+                                  },
+                              })
+                            : undefined
+                    }
                 />
                 {!hideInspectActorsSection && (
                     <ClickToInspectActors
@@ -277,6 +327,10 @@ export function InsightTooltip({
         },
     })
 
+    if (onClose) {
+        columns.push(closeColumn(onClose))
+    }
+
     return (
         <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
             <LemonTable
@@ -286,6 +340,13 @@ export function InsightTooltip({
                 uppercaseHeader={false}
                 rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
                 showHeader={showHeader}
+                onRow={
+                    onRowClick
+                        ? (datum) => ({
+                              onClick: () => onRowClick(datum),
+                          })
+                        : undefined
+                }
             />
             {!hideInspectActorsSection && (
                 <ClickToInspectActors

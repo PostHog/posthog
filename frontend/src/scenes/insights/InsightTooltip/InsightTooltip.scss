@@ -47,6 +47,23 @@
             overflow-wrap: anywhere;
         }
 
+        th.InsightTooltip__close-column {
+            position: sticky;
+            right: 0;
+            padding: 0.4rem;
+            vertical-align: top;
+            background: linear-gradient(to right, transparent, var(--color-bg-surface-primary) 30%);
+
+            .LemonTable__header-content {
+                opacity: 0;
+            }
+        }
+
+        td.InsightTooltip__close-column {
+            padding: 0;
+            background: transparent;
+        }
+
         .LemonTable__content > table > thead {
             letter-spacing: 0;
 

@@ -2940,7 +2940,7 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
-                    "default": false,
+                    "default": true,
                     "description": "Exclude internal and test users by applying the respective filters.",
                     "type": "boolean"
                 },
@@ -17401,6 +17401,17 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "FormDismissPayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "const": "dismiss_form",
+                    "type": "string"
+                }
+            },
+            "required": ["action"],
+            "type": "object"
+        },
         "FormResumePayload": {
             "additionalProperties": false,
             "properties": {
@@ -30912,6 +30923,9 @@
                 },
                 {
                     "$ref": "#/definitions/FormResumePayload"
+                },
+                {
+                    "$ref": "#/definitions/FormDismissPayload"
                 }
             ]
         },
