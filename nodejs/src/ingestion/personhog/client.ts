@@ -60,8 +60,9 @@ export class PersonHogClient {
         const scheme = config.useTls ? 'https' : 'http'
         const interceptors: Interceptor[] = []
         if (config.clientName) {
+            const clientName = config.clientName
             interceptors.push((next) => async (req) => {
-                req.header.set('x-client-name', config.clientName!)
+                req.header.set('x-client-name', clientName)
                 return await next(req)
             })
         }
