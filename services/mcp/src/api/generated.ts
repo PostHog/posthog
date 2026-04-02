@@ -31973,6 +31973,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type McpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -32109,28 +32131,6 @@ export namespace Schemas {
      * Filter web vitals by pathname
      */
     pathname: string;
-    };
-
-    export type McpAnalyticsFeedbackListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpAnalyticsMissingCapabilitiesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type ListParams = {

@@ -20,7 +20,7 @@ import type {
 /**
  * List MCP feedback submissions for the current project, newest first.
  */
-export const getMcpAnalyticsFeedbackListUrl = (teamId: number, params?: McpAnalyticsFeedbackListParams) => {
+export const getMcpAnalyticsFeedbackListUrl = (projectId: string, params?: McpAnalyticsFeedbackListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -32,16 +32,16 @@ export const getMcpAnalyticsFeedbackListUrl = (teamId: number, params?: McpAnaly
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${teamId}/mcp_analytics/feedback/?${stringifiedParams}`
-        : `/api/environments/${teamId}/mcp_analytics/feedback/`
+        ? `/api/environments/${projectId}/mcp_analytics/feedback/?${stringifiedParams}`
+        : `/api/environments/${projectId}/mcp_analytics/feedback/`
 }
 
 export const mcpAnalyticsFeedbackList = async (
-    teamId: number,
+    projectId: string,
     params?: McpAnalyticsFeedbackListParams,
     options?: RequestInit
 ): Promise<PaginatedMCPAnalyticsSubmissionListApi> => {
-    return apiMutator<PaginatedMCPAnalyticsSubmissionListApi>(getMcpAnalyticsFeedbackListUrl(teamId, params), {
+    return apiMutator<PaginatedMCPAnalyticsSubmissionListApi>(getMcpAnalyticsFeedbackListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -50,16 +50,16 @@ export const mcpAnalyticsFeedbackList = async (
 /**
  * Create a new MCP feedback submission for the current project.
  */
-export const getMcpAnalyticsFeedbackCreateUrl = (teamId: number) => {
-    return `/api/environments/${teamId}/mcp_analytics/feedback/`
+export const getMcpAnalyticsFeedbackCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/mcp_analytics/feedback/`
 }
 
 export const mcpAnalyticsFeedbackCreate = async (
-    teamId: number,
+    projectId: string,
     mCPFeedbackCreateApi: MCPFeedbackCreateApi,
     options?: RequestInit
 ): Promise<MCPAnalyticsSubmissionApi> => {
-    return apiMutator<MCPAnalyticsSubmissionApi>(getMcpAnalyticsFeedbackCreateUrl(teamId), {
+    return apiMutator<MCPAnalyticsSubmissionApi>(getMcpAnalyticsFeedbackCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -71,7 +71,7 @@ export const mcpAnalyticsFeedbackCreate = async (
  * List missing capability reports for the current project, newest first.
  */
 export const getMcpAnalyticsMissingCapabilitiesListUrl = (
-    teamId: number,
+    projectId: string,
     params?: McpAnalyticsMissingCapabilitiesListParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -85,17 +85,17 @@ export const getMcpAnalyticsMissingCapabilitiesListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${teamId}/mcp_analytics/missing_capabilities/?${stringifiedParams}`
-        : `/api/environments/${teamId}/mcp_analytics/missing_capabilities/`
+        ? `/api/environments/${projectId}/mcp_analytics/missing_capabilities/?${stringifiedParams}`
+        : `/api/environments/${projectId}/mcp_analytics/missing_capabilities/`
 }
 
 export const mcpAnalyticsMissingCapabilitiesList = async (
-    teamId: number,
+    projectId: string,
     params?: McpAnalyticsMissingCapabilitiesListParams,
     options?: RequestInit
 ): Promise<PaginatedMCPAnalyticsSubmissionListApi> => {
     return apiMutator<PaginatedMCPAnalyticsSubmissionListApi>(
-        getMcpAnalyticsMissingCapabilitiesListUrl(teamId, params),
+        getMcpAnalyticsMissingCapabilitiesListUrl(projectId, params),
         {
             ...options,
             method: 'GET',
@@ -106,16 +106,16 @@ export const mcpAnalyticsMissingCapabilitiesList = async (
 /**
  * Create a new missing capability report for the current project.
  */
-export const getMcpAnalyticsMissingCapabilitiesCreateUrl = (teamId: number) => {
-    return `/api/environments/${teamId}/mcp_analytics/missing_capabilities/`
+export const getMcpAnalyticsMissingCapabilitiesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/mcp_analytics/missing_capabilities/`
 }
 
 export const mcpAnalyticsMissingCapabilitiesCreate = async (
-    teamId: number,
+    projectId: string,
     mCPMissingCapabilityCreateApi: MCPMissingCapabilityCreateApi,
     options?: RequestInit
 ): Promise<MCPAnalyticsSubmissionApi> => {
-    return apiMutator<MCPAnalyticsSubmissionApi>(getMcpAnalyticsMissingCapabilitiesCreateUrl(teamId), {
+    return apiMutator<MCPAnalyticsSubmissionApi>(getMcpAnalyticsMissingCapabilitiesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
