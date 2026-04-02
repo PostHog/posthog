@@ -1,11 +1,24 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.core.cache import cache
 
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task
+
+
+PR_AUTHORSHIP_MODE_USER = "user"
+PR_AUTHORSHIP_MODE_BOT = "bot"
+RUN_SOURCE_MANUAL = "manual"
+RUN_SOURCE_SIGNAL_REPORT = "signal_report"
+GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -90,6 +103,38 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
+def _github_user_token_cache_key(run_id: str) -> str:
+    return f"task-run-github-user-token:{run_id}"
+
+
+def cache_github_user_token(run_id: str, github_user_token: str) -> None:
+    cache.set(_github_user_token_cache_key(run_id), github_user_token, timeout=GITHUB_USER_TOKEN_CACHE_TTL_SECONDS)
+
+
+def get_cached_github_user_token(run_id: str) -> str | None:
+    token = cache.get(_github_user_token_cache_key(run_id))
+    return token if isinstance(token, str) and token else None
+
+
+def get_sandbox_github_token(
+    github_integration_id: int | None, *, run_id: str, state: dict[str, Any] | None = None
+) -> str | None:
+    authorship_mode = (state or {}).get("pr_authorship_mode")
+    if authorship_mode == PR_AUTHORSHIP_MODE_USER:
+        github_user_token = get_cached_github_user_token(run_id)
+        if not github_user_token:
+            raise ValueError(
+                f"Missing GitHub user token for user-authored run {run_id} "
+                f"(token may have expired after {GITHUB_USER_TOKEN_CACHE_TTL_SECONDS // 3600}h TTL)"
+            )
+        return github_user_token
+
+    if github_integration_id is None:
+        return None
+
+    return get_github_token(github_integration_id)
+
+
 def format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
     preview = ", ".join(domains[:limit])
     remaining = len(domains) - limit
@@ -117,12 +162,12 @@ def build_sandbox_environment_variables(
 
     env_vars: dict[str, str] = {}
 
-    # Apply user-provided vars first so system vars always take precedence
     if sandbox_environment and sandbox_environment.environment_variables:
         env_vars.update(sandbox_environment.environment_variables)
 
     if github_token:
         env_vars["GITHUB_TOKEN"] = github_token
+        env_vars["GH_TOKEN"] = github_token
 
     env_vars.update(
         {
@@ -137,3 +182,47 @@ def build_sandbox_environment_variables(
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     return env_vars
+
+
+def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> str:
+    """Return the effective PR authorship mode for a run.
+
+    Newer cloud runs store the mode in ``TaskRun.state``. Older user-created
+    runs fall back to user authorship so they still get a human git identity.
+    """
+    from products.tasks.backend.models import Task as TaskModel
+
+    mode = (state or {}).get("pr_authorship_mode")
+    if mode in {PR_AUTHORSHIP_MODE_USER, PR_AUTHORSHIP_MODE_BOT}:
+        return mode
+
+    return (
+        PR_AUTHORSHIP_MODE_USER
+        if task.origin_product == TaskModel.OriginProduct.USER_CREATED
+        else PR_AUTHORSHIP_MODE_BOT
+    )
+
+
+def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -> dict[str, str]:
+    """Return git author/committer env vars for the sandbox.
+
+    Runs with user authorship are attributed to the user who created the task.
+    Bot-authored runs fall back to the Dockerfile defaults ("PostHog Code" /
+    code@posthog.com).
+    """
+    if get_pr_authorship_mode(task, state) != PR_AUTHORSHIP_MODE_USER:
+        return {}
+
+    user = task.created_by
+    if user is None:
+        return {}
+
+    name = user.get_full_name() or user.first_name or "PostHog User"
+    email = user.email
+
+    return {
+        "GIT_AUTHOR_NAME": name,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_COMMITTER_NAME": name,
+        "GIT_COMMITTER_EMAIL": email,
+    }
