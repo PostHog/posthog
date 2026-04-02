@@ -102,6 +102,7 @@ class ClickhouseCluster:
         logger: logging.Logger | None = None,
         client_settings: Mapping[str, str] | None = None,
         cluster: str | None = None,
+        satellite_clusters: Sequence[str] | None = None,
         retry_policy: RetryPolicy | None = None,
         connection_overrides: Mapping[str, Any] | None = None,
     ) -> None:
@@ -111,7 +112,8 @@ class ClickhouseCluster:
         self.__shards: dict[int, set[HostInfo]] = defaultdict(set)
         self.__extra_hosts: set[HostInfo] = set()
 
-        cluster_hosts = self.__get_cluster_hosts(bootstrap_client, cluster or settings.CLICKHOUSE_CLUSTER, retry_policy)
+        migrations_cluster = cluster or settings.CLICKHOUSE_CLUSTER
+        cluster_hosts = self.__get_cluster_hosts(bootstrap_client, migrations_cluster, retry_policy)
 
         for row in cluster_hosts:
             (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
@@ -128,6 +130,24 @@ class ClickhouseCluster:
                 host_cluster_role,
             )
             (self.__shards[shard_num] if host_info.shard_num is not None else self.__extra_hosts).add(host_info)
+
+        for satellite_name in satellite_clusters or []:
+            satellite_hosts = self.__get_satellite_cluster_hosts(
+                bootstrap_client, satellite_name, migrations_cluster, retry_policy
+            )
+            for row in satellite_hosts:
+                (host_name, port, _shard_num, _replica_num, host_cluster_type, host_cluster_role) = row
+                host_info = HostInfo(
+                    ConnectionInfo(
+                        host_name,
+                        port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
+                    ),
+                    shard_num=None,
+                    replica_num=None,
+                    host_cluster_type=host_cluster_type,
+                    host_cluster_role=host_cluster_role,
+                )
+                self.__extra_hosts.add(host_info)
 
         if extra_hosts is not None and len(extra_hosts) > 0:
             self.__extra_hosts.update(
@@ -164,6 +184,28 @@ class ClickhouseCluster:
             get_cluster_hosts_fn = retry_policy(get_cluster_hosts_fn)
 
         return get_cluster_hosts_fn(client)
+
+    def __get_satellite_cluster_hosts(
+        self,
+        client: Client,
+        satellite_cluster: str,
+        migrations_cluster: str,
+        retry_policy: RetryPolicy | None = None,
+    ):
+        get_hosts_fn = lambda client: client.execute(
+            """
+            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            FROM clusterAllReplicas(%(satellite_name)s, system.clusters)
+            WHERE is_local AND cluster = %(migrations_cluster)s
+            ORDER BY shard_num, replica_num
+            """,
+            {"satellite_name": satellite_cluster, "migrations_cluster": migrations_cluster},
+        )
+
+        if retry_policy is not None:
+            get_hosts_fn = retry_policy(get_hosts_fn)
+
+        return get_hosts_fn(client)
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
@@ -419,6 +461,7 @@ def get_cluster(
     logger: logging.Logger | None = None,
     client_settings: Mapping[str, str] | None = None,
     cluster: str | None = None,
+    satellite_clusters: Sequence[str] | None = None,
     retry_policy: RetryPolicy | None = None,
     host: str = settings.CLICKHOUSE_HOST,
     connection_overrides: Mapping[str, Any] | None = None,
@@ -433,6 +476,7 @@ def get_cluster(
         logger=logger,
         client_settings=client_settings,
         cluster=cluster,
+        satellite_clusters=satellite_clusters,
         retry_policy=retry_policy,
         connection_overrides=connection_overrides,
     )

@@ -304,6 +304,100 @@ def test_map_hosts_by_role() -> None:
         times_called.clear()
 
 
+def test_map_hosts_with_satellite_clusters() -> None:
+    main_cluster_hosts = [
+        ("host1", "9000", "1", "1", "online", "data"),
+        ("host2", "9000", "1", "2", "online", "coordinator"),
+    ]
+    aux_cluster_hosts = [
+        ("aux-host1", "9000", "1", "1", "online", "aux"),
+        ("aux-host2", "9000", "1", "2", "online", "aux"),
+    ]
+    sessions_cluster_hosts = [
+        ("sessions-host1", "9000", "1", "1", "online", "sessions"),
+    ]
+
+    bootstrap_client_mock = Mock()
+    call_count = 0
+
+    def mock_execute(query, params):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return main_cluster_hosts
+        elif call_count == 2:
+            return aux_cluster_hosts
+        else:
+            return sessions_cluster_hosts
+
+    bootstrap_client_mock.execute = Mock(side_effect=mock_execute)
+
+    cluster = ClickhouseCluster(
+        bootstrap_client_mock,
+        satellite_clusters=["aux", "sessions"],
+    )
+
+    assert bootstrap_client_mock.execute.call_count == 3
+
+    times_called: defaultdict[str, int] = defaultdict(int)
+
+    def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
+        times_called[host.host_cluster_role or "unknown"] += 1
+        return lambda: fn(Mock())
+
+    with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.AUX).result()
+        assert times_called["aux"] == 2
+        assert times_called["data"] == 0
+        assert times_called["sessions"] == 0
+        times_called.clear()
+
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.SESSIONS).result()
+        assert times_called["sessions"] == 1
+        assert times_called["aux"] == 0
+        times_called.clear()
+
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
+        assert times_called["data"] == 1
+        assert times_called["coordinator"] == 1
+        assert times_called["aux"] == 2
+        assert times_called["sessions"] == 1
+        times_called.clear()
+
+
+def test_satellite_cluster_hosts_have_no_shard_info() -> None:
+    bootstrap_client_mock = Mock()
+    call_count = 0
+
+    def mock_execute(query, params):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return [("host1", "9000", "1", "1", "online", "data")]
+        else:
+            return [("aux-host1", "9000", "1", "1", "online", "aux")]
+
+    bootstrap_client_mock.execute = Mock(side_effect=mock_execute)
+
+    cluster = ClickhouseCluster(
+        bootstrap_client_mock,
+        satellite_clusters=["aux"],
+    )
+
+    assert cluster.num_shards == 1
+
+    times_called: defaultdict[str, int] = defaultdict(int)
+
+    def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
+        assert host.shard_num is None, f"Satellite host {host.connection_info.host} should have shard_num=None"
+        times_called[host.host_cluster_role or "unknown"] += 1
+        return lambda: fn(Mock())
+
+    with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.AUX).result()
+        assert times_called["aux"] == 1
+
+
 def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
