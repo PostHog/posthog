@@ -185,8 +185,13 @@ def generate_insight_metadata(query: InsightVizNode | ActorsQuery, team: Team) -
     return _generate_insight_viz_metadata(query, team)
 
 
+SupportedActorSource = InsightActorsQuery | FunnelsActorsQuery | StickinessActorsQuery
+SUPPORTED_ACTOR_SOURCES = (InsightActorsQuery, FunnelsActorsQuery, StickinessActorsQuery)
+
+
 def _generate_actors_metadata(query: ActorsQuery, team: Team) -> InsightMetadata:
     actor_source = query.source
+    assert isinstance(actor_source, SUPPORTED_ACTOR_SOURCES)
     inner_source = _narrow_to_selected_series(actor_source, actor_source.source)
     query_kind = inner_source.kind
     insight_guidance = _NAMING_GUIDANCE.get(query_kind, "")

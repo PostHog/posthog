@@ -41,7 +41,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_metadata import generate_insight_metadata
+from posthog.api.insight_metadata import SUPPORTED_ACTOR_SOURCES, generate_insight_metadata
 from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
@@ -227,13 +227,6 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
     except Exception as e:
         logging.exception(f"Error in capture_legacy_api_call: {e}")
         pass
-
-
-SUPPORTED_METADATA_ACTOR_SOURCES = (
-    schema.InsightActorsQuery,
-    schema.FunnelsActorsQuery,
-    schema.StickinessActorsQuery,
-)
 
 
 class QuerySchemaParser(JSONParser):
@@ -1577,14 +1570,16 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             if kind == "ActorsQuery":
-                query = schema.ActorsQuery.model_validate(query_data)
-                if not isinstance(query.source, SUPPORTED_METADATA_ACTOR_SOURCES):
+                validated_query: schema.InsightVizNode | schema.ActorsQuery = schema.ActorsQuery.model_validate(
+                    query_data
+                )
+                if not isinstance(validated_query.source, SUPPORTED_ACTOR_SOURCES):
                     return Response(
                         {"error": "ActorsQuery must have a supported insight source (e.g. InsightActorsQuery)"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
             else:
-                query = schema.InsightVizNode.model_validate(query_data)
+                validated_query = schema.InsightVizNode.model_validate(query_data)
         except Exception:
             return Response(
                 {"error": "Invalid query format"},
@@ -1592,7 +1587,7 @@ When set, the specified dashboard's filters and date range override will be appl
             )
 
         try:
-            metadata = generate_insight_metadata(query, self.team)
+            metadata = generate_insight_metadata(validated_query, self.team)
         except Exception:
             return Response(
                 {"error": "Failed to generate insight metadata. Please try again."},
