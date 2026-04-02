@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -721,5 +722,323 @@ func TestSort_infoSortsAlphabetically(t *testing.T) {
 		if n != want[i] {
 			t.Errorf("index %d: got %q, want %q (full: %v)", i, n, want[i], got)
 		}
+	}
+}
+
+// ── Setup mode ──────────────────────────────────────────────────────────────
+
+func setupModel(t *testing.T) Model {
+	t.Helper()
+	m := readyModel(t, "backend", "frontend")
+	m.setupMode = true
+	m.setupStep = 1
+	m.setupEntries = []config.Intent{
+		{Name: "web", Description: "Web app"},
+		{Name: "analytics", Description: "Analytics pipeline"},
+		{Name: "api", Description: "API server"},
+	}
+	m.setupCursor = 0
+	m.setupOffset = 0
+	m.setupChecked = map[string]bool{"web": true}
+	m.setupError = ""
+	return m
+}
+
+func TestSetup_navigation(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, keypress('j'))
+	if m.setupCursor != 1 {
+		t.Errorf("j: cursor want 1, got %d", m.setupCursor)
+	}
+	m = update(m, keypress('j'))
+	if m.setupCursor != 2 {
+		t.Errorf("j j: cursor want 2, got %d", m.setupCursor)
+	}
+	m = update(m, keypress('j'))
+	if m.setupCursor != 2 {
+		t.Errorf("j at bottom: cursor should clamp at 2, got %d", m.setupCursor)
+	}
+	m = update(m, keypress('k'))
+	if m.setupCursor != 1 {
+		t.Errorf("k: cursor want 1, got %d", m.setupCursor)
+	}
+}
+
+func TestSetup_arrowKeys(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, specialKey(tea.KeyDown))
+	if m.setupCursor != 1 {
+		t.Errorf("down: cursor want 1, got %d", m.setupCursor)
+	}
+	m = update(m, specialKey(tea.KeyUp))
+	if m.setupCursor != 0 {
+		t.Errorf("up: cursor want 0, got %d", m.setupCursor)
+	}
+}
+
+func TestSetup_clampsAtTop(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, keypress('k'))
+	if m.setupCursor != 0 {
+		t.Errorf("k at top: cursor should stay 0, got %d", m.setupCursor)
+	}
+}
+
+func TestSetup_toggle(t *testing.T) {
+	m := setupModel(t)
+	if !m.setupChecked["web"] {
+		t.Fatal("web should be checked initially")
+	}
+	// Toggle web off
+	m = update(m, specialKey(tea.KeySpace))
+	if m.setupChecked["web"] {
+		t.Error("space should uncheck web")
+	}
+	// Toggle web back on
+	m = update(m, specialKey(tea.KeySpace))
+	if !m.setupChecked["web"] {
+		t.Error("second space should check web")
+	}
+}
+
+func TestSetup_toggleDifferentEntry(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, keypress('j')) // move to analytics
+	m = update(m, specialKey(tea.KeySpace))
+	if !m.setupChecked["analytics"] {
+		t.Error("space on analytics should check it")
+	}
+	if !m.setupChecked["web"] {
+		t.Error("web should remain checked")
+	}
+}
+
+func TestSetup_escExitsFromStep1(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, specialKey(tea.KeyEscape))
+	if m.setupMode {
+		t.Error("esc from step 1 should exit setup mode")
+	}
+	if m.focusedPane != focusServices {
+		t.Error("exiting setup should focus sidebar")
+	}
+}
+
+func TestSetup_escFromStep2GoesBackToStep1(t *testing.T) {
+	m := setupModel(t)
+	m.setupStep = 2
+	m.setupEntries = []config.Intent{{Name: "proc1"}, {Name: "proc2"}}
+	m.setupChecked = map[string]bool{"proc1": true, "proc2": true}
+	// Esc should go back to step 1 (re-enter setup), not exit entirely
+	m = update(m, specialKey(tea.KeyEscape))
+	if !m.setupMode {
+		t.Error("esc from step 2 should stay in setup mode")
+	}
+	// enterSetupMode will fail to load intent-map (not in test env), so
+	// it should show an error but remain in setup mode
+	if !m.setupMode {
+		t.Error("should remain in setup mode even with error")
+	}
+}
+
+func TestSetup_gotoTopAndBottom(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, specialKey(tea.KeyEnd))
+	if m.setupCursor != 2 {
+		t.Errorf("end: cursor want 2, got %d", m.setupCursor)
+	}
+	m = update(m, specialKey(tea.KeyHome))
+	if m.setupCursor != 0 {
+		t.Errorf("home: cursor want 0, got %d", m.setupCursor)
+	}
+}
+
+func TestSetup_isFullScreen(t *testing.T) {
+	m := setupModel(t)
+	if !m.isFullScreen() {
+		t.Error("setup mode should be full screen")
+	}
+}
+
+func TestSetup_handleListUnitsMsg(t *testing.T) {
+	m := setupModel(t)
+	m.handleListUnitsMsg(listUnitsMsg{
+		units:    []string{"backend", "celery", "frontend"},
+		intents:  []string{"web"},
+		excluded: map[string]bool{"celery": true},
+	})
+	if m.setupStep != 2 {
+		t.Errorf("step: want 2, got %d", m.setupStep)
+	}
+	if len(m.setupEntries) != 3 {
+		t.Fatalf("entries: want 3, got %d", len(m.setupEntries))
+	}
+	if !m.setupChecked["backend"] {
+		t.Error("backend should be checked")
+	}
+	if m.setupChecked["celery"] {
+		t.Error("celery should be unchecked (excluded)")
+	}
+	if !m.setupChecked["frontend"] {
+		t.Error("frontend should be checked")
+	}
+	if len(m.setupIntents) != 1 || m.setupIntents[0] != "web" {
+		t.Errorf("intents: want [web], got %v", m.setupIntents)
+	}
+}
+
+func TestSetup_handleListUnitsMsgError(t *testing.T) {
+	m := setupModel(t)
+	m.handleListUnitsMsg(listUnitsMsg{err: fmt.Errorf("hogli failed")})
+	if m.setupError == "" {
+		t.Error("error message should be set")
+	}
+	if m.setupStep != 1 {
+		t.Error("should remain on step 1 after error")
+	}
+}
+
+func TestSetup_handleDevApplyMsgError(t *testing.T) {
+	m := setupModel(t)
+	m.handleDevApplyMsg(devApplyMsg{err: fmt.Errorf("apply failed")})
+	if m.setupError == "" {
+		t.Error("error message should be set")
+	}
+	if !m.setupMode {
+		t.Error("should remain in setup mode after error")
+	}
+}
+
+// ── Hedgehog mode ───────────────────────────────────────────────────────────
+
+func TestHedgehog_enterAndExit(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('h'))
+	if !m.hedgehogMode {
+		t.Error("h should enter hedgehog mode")
+	}
+	if m.hedgehogX != 0 {
+		t.Errorf("initial X: got %d, want 0", m.hedgehogX)
+	}
+	if m.hedgehogDir != 1 {
+		t.Errorf("initial dir: got %d, want 1 (right)", m.hedgehogDir)
+	}
+	m = update(m, keypress('h'))
+	if m.hedgehogMode {
+		t.Error("second h should exit hedgehog mode")
+	}
+}
+
+func TestHedgehog_exitWithEscape(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('h'))
+	if !m.hedgehogMode {
+		t.Fatal("should be in hedgehog mode")
+	}
+	m = update(m, specialKey(tea.KeyEscape))
+	if m.hedgehogMode {
+		t.Error("esc should exit hedgehog mode")
+	}
+}
+
+func TestHedgehog_jump(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('h'))
+	if m.hedgehogY != 0 {
+		t.Fatalf("initial Y: got %d, want 0", m.hedgehogY)
+	}
+	m = update(m, specialKey(tea.KeySpace))
+	if m.hedgehogY != 1 {
+		t.Errorf("Y after jump: got %d, want 1", m.hedgehogY)
+	}
+	if m.hedgehogVelY != 1 {
+		t.Errorf("velY after jump: got %d, want 1", m.hedgehogVelY)
+	}
+}
+
+func TestHedgehog_jumpOnlyFromGround(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('h'))
+	// First jump
+	m = update(m, specialKey(tea.KeySpace))
+	y := m.hedgehogY
+	vel := m.hedgehogVelY
+	// Second jump while airborne should be ignored
+	m = update(m, specialKey(tea.KeySpace))
+	if m.hedgehogY != y || m.hedgehogVelY != vel {
+		t.Error("space while airborne should not change Y or velY")
+	}
+}
+
+func TestHedgehog_advanceMoves(t *testing.T) {
+	m := readyModel(t, "backend")
+	m.hedgehogMode = true
+	m.hedgehogDir = 1
+	m.hedgehogX = 0
+	m.hedgehogFrame = 0
+
+	m.advanceHedgehog()
+	if m.hedgehogX != 1 {
+		t.Errorf("X after advance: got %d, want 1", m.hedgehogX)
+	}
+	if m.hedgehogFrame != 1 {
+		t.Errorf("frame after advance: got %d, want 1", m.hedgehogFrame)
+	}
+}
+
+func TestHedgehog_bounceAtEdge(t *testing.T) {
+	m := readyModel(t, "backend")
+	m.hedgehogMode = true
+	spriteW := len(hedgehogFramesRight[0][0])
+	m.hedgehogX = m.viewport.Width() - spriteW
+	m.hedgehogDir = 1
+
+	m.advanceHedgehog()
+	if m.hedgehogDir != -1 {
+		t.Errorf("dir after hitting right edge: got %d, want -1", m.hedgehogDir)
+	}
+}
+
+func TestHedgehog_bounceAtLeftEdge(t *testing.T) {
+	m := readyModel(t, "backend")
+	m.hedgehogMode = true
+	m.hedgehogX = 0
+	m.hedgehogDir = -1
+
+	m.advanceHedgehog()
+	if m.hedgehogDir != 1 {
+		t.Errorf("dir after hitting left edge: got %d, want 1", m.hedgehogDir)
+	}
+}
+
+func TestHedgehog_gravity(t *testing.T) {
+	m := readyModel(t, "backend")
+	m.hedgehogMode = true
+	m.hedgehogY = 2
+	m.hedgehogVelY = 0
+	m.hedgehogDir = 1
+
+	m.advanceHedgehog()
+	if m.hedgehogY != 2 {
+		t.Errorf("Y with velY=0 at Y=2: got %d, want 2", m.hedgehogY)
+	}
+	// Y>0 and velY=0 means gravity pulls down: velY becomes -1
+	if m.hedgehogVelY != -1 {
+		t.Errorf("velY should decrease by 1, got %d", m.hedgehogVelY)
+	}
+
+	m.advanceHedgehog()
+	// Y=2+(-1)=1, velY=-1-1=-2
+	if m.hedgehogY != 1 {
+		t.Errorf("Y after gravity: got %d, want 1", m.hedgehogY)
+	}
+
+	m.advanceHedgehog()
+	// Y=1+(-2)=-1 → clamped to 0
+	if m.hedgehogY != 0 {
+		t.Errorf("Y should clamp to 0, got %d", m.hedgehogY)
+	}
+	if m.hedgehogVelY != 0 {
+		t.Errorf("velY should reset to 0 on landing, got %d", m.hedgehogVelY)
 	}
 }

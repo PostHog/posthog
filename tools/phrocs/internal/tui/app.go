@@ -245,6 +245,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case listUnitsMsg:
+		m.handleListUnitsMsg(msg)
+
+	case devApplyMsg:
+		m.handleDevApplyMsg(msg)
+
 	// Container-related messages only relevant in docker mode
 	case docker.ContainerListMsg:
 		if m.isDockerMode() {

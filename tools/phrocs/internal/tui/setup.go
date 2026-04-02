@@ -12,6 +12,21 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
+// Result of async hogli dev:list-units call.
+type listUnitsMsg struct {
+	units    []string
+	intents  []string
+	excluded map[string]bool
+	err      error
+}
+
+// Result of async hogli dev:apply call.
+type devApplyMsg struct {
+	configPath string
+	cfg        *config.Config
+	err        error
+}
+
 func (m Model) enterSetupMode() Model {
 	intentMap, err := config.LoadIntentMap()
 	if err != nil {
@@ -58,10 +73,16 @@ func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea
 	case msg.Code == tea.KeyEnter:
 		if m.setupStep == 1 {
 			m.dbg("setup mode: advance to step 2")
-			m.advanceToUnitSelection()
+			cmd := m.startListUnits()
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		} else {
 			m.dbg("setup mode: apply")
-			m.applySetupChanges()
+			cmd := m.startDevApply()
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 
 	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
@@ -99,10 +120,9 @@ func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea
 	return m, cmds, true
 }
 
-// advanceToUnitSelection resolves the selected intents into autostart
-// units and transitions to step 2 where the user can exclude individual
-// processes. Previously excluded units appear unchecked.
-func (m *Model) advanceToUnitSelection() {
+// startListUnits kicks off an async hogli dev:list-units call.
+// Returns nil if validation fails (error set on m.setupError).
+func (m *Model) startListUnits() tea.Cmd {
 	var selected []string
 	for _, entry := range m.setupEntries {
 		if m.setupChecked[entry.Name] {
@@ -111,17 +131,10 @@ func (m *Model) advanceToUnitSelection() {
 	}
 	if len(selected) == 0 {
 		m.setupError = "select at least one product"
-		return
+		return nil
 	}
 
-	// Resolve intents into the full autostart unit list
-	units, err := runHogliListUnits(selected)
-	if err != nil {
-		m.setupError = err.Error()
-		return
-	}
-
-	// Read previously excluded units from the current config
+	// Read previously excluded units before the async call
 	excluded := make(map[string]bool)
 	if m.configPath != "" {
 		if phCfg, err := config.LoadPosthogConfig(m.configPath); err == nil && phCfg != nil {
@@ -131,14 +144,28 @@ func (m *Model) advanceToUnitSelection() {
 		}
 	}
 
-	entries := make([]config.Intent, 0, len(units))
-	checked := make(map[string]bool)
-	for _, name := range units {
-		entries = append(entries, config.Intent{Name: name})
-		checked[name] = !excluded[name]
+	m.setupError = "resolving intents…"
+	return func() tea.Msg {
+		units, err := runHogliListUnits(selected)
+		return listUnitsMsg{units: units, intents: selected, excluded: excluded, err: err}
+	}
+}
+
+// handleListUnitsMsg processes the result of an async dev:list-units call.
+func (m *Model) handleListUnitsMsg(msg listUnitsMsg) {
+	if msg.err != nil {
+		m.setupError = msg.err.Error()
+		return
 	}
 
-	m.setupIntents = selected
+	entries := make([]config.Intent, 0, len(msg.units))
+	checked := make(map[string]bool)
+	for _, name := range msg.units {
+		entries = append(entries, config.Intent{Name: name})
+		checked[name] = !msg.excluded[name]
+	}
+
+	m.setupIntents = msg.intents
 	m.setupStep = 2
 	m.setupEntries = entries
 	m.setupCursor = 0
@@ -147,9 +174,9 @@ func (m *Model) advanceToUnitSelection() {
 	m.setupError = ""
 }
 
-// applySetupChanges runs hogli dev:apply with the selected intents and excludes,
-// then updates the manager's processes to match the generated config.
-func (m *Model) applySetupChanges() {
+// startDevApply kicks off an async hogli dev:apply call.
+// Returns nil if there's nothing to do.
+func (m *Model) startDevApply() tea.Cmd {
 	var excludeUnits []string
 	for _, entry := range m.setupEntries {
 		if !m.setupChecked[entry.Name] {
@@ -158,18 +185,26 @@ func (m *Model) applySetupChanges() {
 		}
 	}
 
-	newConfigPath, err := runHogliDevApply(m.setupIntents, excludeUnits)
-	if err != nil {
-		m.setupError = err.Error()
-		return
+	intents := m.setupIntents
+	m.setupError = "applying config…"
+	return func() tea.Msg {
+		configPath, err := runHogliDevApply(intents, excludeUnits)
+		if err != nil {
+			return devApplyMsg{err: err}
+		}
+		cfg, err := config.Load(configPath)
+		return devApplyMsg{configPath: configPath, cfg: cfg, err: err}
 	}
-	m.dbg("setup: hogli dev:apply output: %s", newConfigPath)
+}
 
-	newCfg, err := config.Load(newConfigPath)
-	if err != nil {
-		m.setupError = fmt.Sprintf("load new config: %v", err)
+// handleDevApplyMsg processes the result of an async dev:apply call.
+func (m *Model) handleDevApplyMsg(msg devApplyMsg) {
+	if msg.err != nil {
+		m.setupError = msg.err.Error()
 		return
 	}
+
+	newCfg := msg.cfg
 
 	// Snapshot current process names before applying changes
 	oldNames := make(map[string]bool)
@@ -202,7 +237,7 @@ func (m *Model) applySetupChanges() {
 	}
 
 	m.mgr.UpdateDefaults(newCfg)
-	m.configPath = newConfigPath
+	m.configPath = msg.configPath
 	m.services = m.mgr.Procs()
 	m.sortServices()
 	m.setupMode = false
@@ -291,9 +326,9 @@ func (m Model) renderSetupView() string {
 	rows = append(rows, "")
 
 	if m.setupStep == 1 {
-		rows = append(rows, titleStyle.Render("  Choose the product(s) you're currently working on"))
+		rows = append(rows, titleStyle.Render("  Configure which services to start based on the products you're working on"))
 	} else {
-		rows = append(rows, titleStyle.Render("  Check the services to run (uncheck to disable)"))
+		rows = append(rows, titleStyle.Render("  Uncheck processes you want to exclude"))
 	}
 	rows = append(rows, "")
 
