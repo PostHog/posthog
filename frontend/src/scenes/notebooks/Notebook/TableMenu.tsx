@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconDrag, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -44,7 +44,7 @@ function GripHandle({
 }): JSX.Element {
     const wrapperRef = useRef<HTMLDivElement>(null)
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const wrapper = wrapperRef.current
         if (!wrapper) {
             return
@@ -68,7 +68,7 @@ function GripHandle({
                 break
             }
         }
-    })
+    }, [hoveredCell, mode])
 
     return (
         // Wrapper extends from the icon to the table edge, bridging the hover gap
