@@ -231,9 +231,7 @@ class ScoreDefinitionViewSet(
         definition.create_new_version(config=config, created_by=cast(User, self.request.user))
         return definition
 
-    def _update_definition_metadata(
-        self, definition: ScoreDefinition, validated_data: dict[str, Any]
-    ) -> list[str]:
+    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> list[str]:
         definition_data = dict(validated_data)
         changed_fields: list[str] = []
 
