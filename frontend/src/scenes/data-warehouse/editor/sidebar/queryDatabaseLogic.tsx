@@ -1273,7 +1273,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     })),
-    selectors(({ actions }) => ({
+    selectors(() => ({
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {

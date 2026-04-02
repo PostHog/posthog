@@ -71,7 +71,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 updateDataWarehouseSavedQuery: async (
                     view: Partial<DatabaseSchemaViewTable> & {
                         id: string
-                        types: string[][]
+                        types?: string[][]
                         sync_frequency?: string
                         lifecycle?: string
                         shouldRematerialize?: boolean

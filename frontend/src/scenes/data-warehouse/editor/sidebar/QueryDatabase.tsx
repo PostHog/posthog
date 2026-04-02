@@ -1,4 +1,4 @@
-import { DragEndEvent } from '@dnd-kit/core'
+import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
@@ -267,10 +267,10 @@ export const QueryDatabase = (): JSX.Element => {
                 ((item.record?.type === 'folder' && item.record?.folderType === 'view-folder') ||
                     item.record?.type === 'views')
             }
-            onDragStart={(dragEvent) => {
+            onDragStart={(dragEvent: DragStartEvent) => {
                 setActiveDraggedViewId(String(dragEvent.active.id))
             }}
-            onDragOver={(dragEvent) => {
+            onDragOver={(dragEvent: DragOverEvent) => {
                 const nextFolderId = getFolderIdFromDropTarget(dragEvent.over?.id ? String(dragEvent.over.id) : null)
                 setHighlightedDropFolderId(nextFolderId ?? null)
                 setHighlightViewsSectionDrop(nextFolderId === null)
@@ -564,6 +564,8 @@ export const QueryDatabase = (): JSX.Element => {
                 }
 
                 if (item.record?.type === 'folder' && item.record?.folderType === 'view-folder') {
+                    const folder = item.record.folder
+
                     return (
                         <DropdownMenuGroup>
                             <DropdownMenuItem
@@ -584,7 +586,7 @@ export const QueryDatabase = (): JSX.Element => {
                                         },
                                         onSubmit: ({ folderName }) =>
                                             updateDataWarehouseSavedQueryFolder({
-                                                id: item.record.folder.id,
+                                                id: folder.id,
                                                 name: folderName.trim(),
                                             }),
                                     })
@@ -603,7 +605,7 @@ export const QueryDatabase = (): JSX.Element => {
                                         primaryButton: {
                                             status: 'danger',
                                             children: 'Delete folder',
-                                            onClick: () => deleteDataWarehouseSavedQueryFolder(item.record.folder.id),
+                                            onClick: () => deleteDataWarehouseSavedQueryFolder(folder.id),
                                         },
                                         secondaryButton: {
                                             children: 'Cancel',
