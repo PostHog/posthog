@@ -1,6 +1,7 @@
 import dns from 'dns/promises'
 import { range } from 'lodash'
 
+import { parseJSON } from './json-parse'
 import { SecureRequestError, fetch, legacyFetch, raiseIfUserProvidedUrlUnsafe } from './request'
 
 const realDnsLookup = jest.requireActual('dns/promises').lookup
@@ -314,5 +315,16 @@ describe('_fetch response body handling', () => {
     it('should parse headers', async () => {
         const response = await fetch('http://example.com')
         expect(response.headers['content-type']).toBeDefined()
+    })
+
+    it('should fully read streamed/chunked response bodies', async () => {
+        const response = await fetch('https://httpbin.org/stream/50')
+        const text = await response.text()
+        const lines = text.trim().split('\n')
+        expect(lines.length).toBe(50)
+        // Each line should be valid JSON — if the body was truncated, this would throw
+        for (const line of lines) {
+            expect(() => parseJSON(line)).not.toThrow()
+        }
     })
 })
