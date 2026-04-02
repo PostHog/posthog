@@ -12,6 +12,8 @@ from asgiref.sync import sync_to_async
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
 
+    from posthog.temporal.oauth import PosthogMcpScopes
+
 logger = logging.getLogger(__name__)
 
 # Type for an optional output callback (e.g. management command's self.stdout.write)
@@ -29,6 +31,8 @@ class CustomPromptSandboxContext:
     team_id: int
     user_id: int
     repository: str
+    sandbox_environment_id: str | None = None
+    posthog_mcp_scopes: PosthogMcpScopes | None = None
 
 
 def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandboxContext:
@@ -97,17 +101,22 @@ async def _create_task_and_trigger(
 
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
-    task = await sync_to_async(Task.create_and_run)(
-        team=team,
-        title=title,
-        description=description,
-        origin_product=Task.OriginProduct.USER_CREATED,
-        user_id=context.user_id,
-        repository=context.repository,
-        create_pr=False,
-        mode="background",
-        branch=branch if branch and branch != "master" else None,
-    )
+    kwargs: dict = {
+        "team": team,
+        "title": title,
+        "description": description,
+        "origin_product": Task.OriginProduct.USER_CREATED,
+        "user_id": context.user_id,
+        "repository": context.repository,
+        "create_pr": False,
+        "mode": "background",
+        "branch": branch if branch and branch != "master" else None,
+    }
+    if context.sandbox_environment_id is not None:
+        kwargs["sandbox_environment_id"] = context.sandbox_environment_id
+    if context.posthog_mcp_scopes is not None:
+        kwargs["posthog_mcp_scopes"] = context.posthog_mcp_scopes
+    task = await sync_to_async(Task.create_and_run)(**kwargs)
     task_run = await sync_to_async(lambda: task.latest_run)()
     if not task_run:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")

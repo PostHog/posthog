@@ -4,7 +4,30 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.tasks.backend.models import SandboxEnvironment
+
 logger = structlog.get_logger(__name__)
+
+SIGNALS_REPO_DISCOVERY_ENV_NAME = "SIGNALS_REPO_DISCOVERY"
+SIGNALS_REPORT_RESEARCH_ENV_NAME = "SIGNALS_REPORT_RESEARCH"
+
+
+def get_or_create_signals_sandbox_env(
+    team_id: int,
+    name: str,
+    network_access_level: SandboxEnvironment.NetworkAccessLevel,
+) -> str:
+    """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string."""
+    env = SandboxEnvironment.objects.filter(team_id=team_id, name=name).first()
+    if env is not None:
+        return str(env.id)
+    env = SandboxEnvironment.objects.create(
+        team_id=team_id,
+        name=name,
+        network_access_level=network_access_level,
+        private=False,
+    )
+    return str(env.id)
 
 
 def resolve_user_id_for_team(team_id: int) -> int:
