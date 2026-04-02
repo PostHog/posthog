@@ -45,6 +45,7 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
 
     from posthog.schema import HogQLFilters
 
+    from posthog.hogql import ast
     from posthog.hogql.filters import replace_filters
     from posthog.hogql.placeholders import replace_placeholders
     from posthog.hogql.printer.utils import to_printed_hogql
@@ -58,7 +59,7 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
             return _render_recordings_query(query_dict, _cached_team)
 
         runner = get_query_runner(query_dict, _cached_team)
-        ast_query = runner.to_query()
+        ast_query: ast.Expr = runner.to_query()
 
         from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 
