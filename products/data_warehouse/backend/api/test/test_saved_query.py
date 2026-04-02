@@ -39,6 +39,45 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(saved_query["folder_id"], str(folder.id))
         self.assertEqual(saved_query["folder_name"], "Marketing")
 
+    def test_create_with_other_team_folder_id_matches_nonexistent_folder_error(self):
+        other_team = self.create_team_with_organization(organization=self.organization)
+        other_team_folder = DataWarehouseSavedQueryFolder.objects.create(
+            team=other_team, name="Other team folder", created_by=self.user
+        )
+        missing_folder_id = uuid.uuid4()
+
+        other_team_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "folder_id": str(other_team_folder.id),
+            },
+        )
+        missing_folder_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "folder_id": str(missing_folder_id),
+            },
+        )
+
+        self.assertEqual(other_team_response.status_code, 400, other_team_response.content)
+        self.assertEqual(missing_folder_response.status_code, 400, missing_folder_response.content)
+        self.assertEqual(other_team_response.json()["attr"], "folder_id")
+        self.assertEqual(missing_folder_response.json()["attr"], "folder_id")
+        self.assertEqual(other_team_response.json()["code"], "does_not_exist")
+        self.assertEqual(missing_folder_response.json()["code"], "does_not_exist")
+        self.assertTrue(other_team_response.json()["detail"].endswith("- object does not exist."))
+        self.assertTrue(missing_folder_response.json()["detail"].endswith("- object does not exist."))
+
     def test_create(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
