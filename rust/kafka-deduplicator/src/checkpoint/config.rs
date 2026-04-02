@@ -115,8 +115,8 @@ impl Default for CheckpointConfig {
             s3_attempt_timeout: Duration::from_secs(20),
             s3_max_retries: 3,
             checkpoint_import_attempt_depth: 10,
-            max_concurrent_checkpoint_file_downloads: 1000,
-            max_concurrent_checkpoint_file_uploads: 1000,
+            max_concurrent_checkpoint_file_downloads: 40,
+            max_concurrent_checkpoint_file_uploads: 40,
             checkpoint_partition_import_timeout: Duration::from_secs(240),
             local_checkpoint_max_staleness: Duration::from_secs(
                 DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
