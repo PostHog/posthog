@@ -1181,7 +1181,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
 
     start_time = timezone.now()
 
-    tag_queries(product=Product.FEATURE_FLAGS, name="sync_feature_flag_last_called")
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="sync_feature_flag_last_called")
 
     # Create metrics gauges for this task run
     updated_count_gauge = Gauge(

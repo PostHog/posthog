@@ -4,6 +4,7 @@ import json
 from typing import Annotated, Any
 
 import asyncpg
+import structlog
 from fastapi import Depends, HTTPException, Request, status
 
 from llm_gateway.auth.models import AuthenticatedUser
@@ -13,6 +14,8 @@ from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 from llm_gateway.request_context import get_request_id, set_throttle_context
+
+logger = structlog.get_logger(__name__)
 
 
 async def get_db_pool(request: Request) -> "asyncpg.Pool[asyncpg.Record]":  # noqa: UP037
@@ -141,6 +144,15 @@ async def enforce_throttles(
     result = await runner.check(context)
 
     if not result.allowed:
+        logger.warning(
+            "request_rate_limited",
+            user_id=user.user_id,
+            team_id=user.team_id,
+            product=product,
+            reason=result.detail,
+            retry_after=result.retry_after,
+            status_code=result.status_code,
+        )
         headers = {"Retry-After": str(result.retry_after)} if result.retry_after is not None else None
         detail = {
             "error": {
