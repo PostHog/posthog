@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from posthog.models.organization_integration import OrganizationIntegration
 
+from ee.billing.billing_manager import BillingServiceOpenInvoicesError
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.utils import expect_vercel_user_claim
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
@@ -139,6 +140,11 @@ class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin
         try:
             response_data = VercelIntegration.delete_installation(installation_id)
             self.invalidate_installation_cache(installation_id)
+        except BillingServiceOpenInvoicesError as e:
+            return Response(
+                {"error": e.message, "code": "open_invoices_error"},
+                status=409,
+            )
         except exceptions.NotFound:
             logger.info(
                 "Installation already deleted",
