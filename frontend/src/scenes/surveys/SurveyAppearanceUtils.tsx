@@ -154,6 +154,7 @@ export function HTMLEditor({
     activeTab,
     textPlaceholder,
     textMinRows = 2,
+    className,
 }: {
     value?: string
     onChange: (value: any) => void
@@ -161,6 +162,7 @@ export function HTMLEditor({
     activeTab: SurveyQuestionDescriptionContentType
     textPlaceholder?: string
     textMinRows?: number
+    className?: string
 }): JSX.Element {
     return (
         <>
@@ -177,6 +179,7 @@ export function HTMLEditor({
                                 value={value}
                                 onChange={(v) => onChange(v)}
                                 placeholder={textPlaceholder}
+                                className={className}
                             />
                         ),
                     },

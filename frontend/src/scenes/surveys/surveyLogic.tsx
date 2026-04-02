@@ -2445,6 +2445,33 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.translationValidationErrors],
             (errors): boolean => errors.length > 0,
         ],
+        translationErrorsByQuestion: [
+            (s) => [s.translationValidationErrors, s.editingLanguage],
+            (
+                errors: Array<{ language: string; questionIndex: number; field: string; error: string }>,
+                editingLanguage: string | null
+            ): ((questionIndex: number) => typeof errors) => {
+                return (questionIndex: number) => {
+                    const targetLanguage = editingLanguage === null ? 'default' : editingLanguage
+                    return errors.filter((e) => e.questionIndex === questionIndex && e.language === targetLanguage)
+                }
+            },
+        ],
+        translationErrorsForField: [
+            (s) => [s.translationValidationErrors, s.editingLanguage],
+            (
+                errors: Array<{ language: string; questionIndex: number; field: string; error: string }>,
+                editingLanguage: string | null
+            ): ((questionIndex: number, fieldPath: string) => (typeof errors)[0] | undefined) => {
+                return (questionIndex: number, fieldPath: string) => {
+                    const targetLanguage = editingLanguage === null ? 'default' : editingLanguage
+                    return errors.find(
+                        (e) =>
+                            e.questionIndex === questionIndex && e.field === fieldPath && e.language === targetLanguage
+                    )
+                }
+            },
+        ],
         surveyAsInsightURL: [
             (s) => [s.survey],
             (survey) => {

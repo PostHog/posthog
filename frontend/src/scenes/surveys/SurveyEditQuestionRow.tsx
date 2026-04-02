@@ -5,7 +5,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -33,6 +33,10 @@ type SurveyQuestionHeaderProps = {
     survey: Survey | NewSurvey
     setSelectedPageIndex: (index: number) => void
     setSurveyValue: (key: string, value: any) => void
+    translationValidationErrors?: Array<{ language: string; questionIndex: number; field: string; error: string }>
+    translationErrorsByQuestion?: (
+        questionIndex: number
+    ) => Array<{ language: string; questionIndex: number; field: string; error: string }>
 }
 
 const MAX_NUMBER_OF_OPTIONS = 15
@@ -42,12 +46,16 @@ export function SurveyEditQuestionHeader({
     survey,
     setSelectedPageIndex,
     setSurveyValue,
+    translationErrorsByQuestion,
 }: SurveyQuestionHeaderProps): JSX.Element {
     const { hasBranchingLogic, editingLanguage } = useValues(surveyLogic)
     const { deleteBranchingLogic } = useActions(surveyLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
+
+    // Get errors for this specific question in current language
+    const questionErrors = translationErrorsByQuestion ? translationErrorsByQuestion(index) : []
 
     return (
         <div
@@ -72,49 +80,58 @@ export function SurveyEditQuestionHeader({
                         : survey.questions[index].question}
                 </b>
             </div>
-            {survey.questions.length > 1 && (
-                <LemonButton
-                    icon={<IconTrash />}
-                    size="xsmall"
-                    data-attr={`delete-survey-question-${index}`}
-                    onClick={(e) => {
-                        const deleteQuestion = (): void => {
-                            e.stopPropagation()
-                            setSelectedPageIndex(index <= 0 ? 0 : index - 1)
-                            setSurveyValue(
-                                'questions',
-                                survey.questions.filter((_, i) => i !== index)
-                            )
-                        }
+            <div className="flex items-center gap-1">
+                {questionErrors.length > 0 && (
+                    <Tooltip
+                        title={`${questionErrors.length} translation validation issue${questionErrors.length > 1 ? 's' : ''}`}
+                    >
+                        <IconWarning className="text-warning" />
+                    </Tooltip>
+                )}
+                {survey.questions.length > 1 && (
+                    <LemonButton
+                        icon={<IconTrash />}
+                        size="xsmall"
+                        data-attr={`delete-survey-question-${index}`}
+                        onClick={(e) => {
+                            const deleteQuestion = (): void => {
+                                e.stopPropagation()
+                                setSelectedPageIndex(index <= 0 ? 0 : index - 1)
+                                setSurveyValue(
+                                    'questions',
+                                    survey.questions.filter((_, i) => i !== index)
+                                )
+                            }
 
-                        if (hasBranchingLogic) {
-                            LemonDialog.open({
-                                title: 'Your survey has active branching logic',
-                                description: (
-                                    <p className="py-2">
-                                        Deleting the question will remove your branching logic. Are you sure you want to
-                                        continue?
-                                    </p>
-                                ),
-                                primaryButton: {
-                                    children: 'Continue',
-                                    status: 'danger',
-                                    onClick: () => {
-                                        deleteBranchingLogic()
-                                        deleteQuestion()
+                            if (hasBranchingLogic) {
+                                LemonDialog.open({
+                                    title: 'Your survey has active branching logic',
+                                    description: (
+                                        <p className="py-2">
+                                            Deleting the question will remove your branching logic. Are you sure you
+                                            want to continue?
+                                        </p>
+                                    ),
+                                    primaryButton: {
+                                        children: 'Continue',
+                                        status: 'danger',
+                                        onClick: () => {
+                                            deleteBranchingLogic()
+                                            deleteQuestion()
+                                        },
                                     },
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                },
-                            })
-                        } else {
-                            deleteQuestion()
-                        }
-                    }}
-                    tooltipPlacement="top-end"
-                />
-            )}
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                            } else {
+                                deleteQuestion()
+                            }
+                        }}
+                        tooltipPlacement="top-end"
+                    />
+                )}
+            </div>
         </div>
     )
 }
@@ -129,7 +146,7 @@ function canQuestionSkipSubmitButton(
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
-    const { survey, descriptionContentType, editingLanguage } = useValues(surveyLogic)
+    const { survey, descriptionContentType, editingLanguage, translationErrorsForField } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
         useActions(surveyLogic)
 
@@ -180,6 +197,28 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
 
     const getFieldName = (key: string): string =>
         editingLanguage === null ? key : `translations.${editingLanguage}.${key}`
+
+    const getFieldError = (
+        fieldKey: string
+    ): { language: string; questionIndex: number; field: string; error: string } | undefined => {
+        return translationErrorsForField ? translationErrorsForField(index, fieldKey) : undefined
+    }
+
+    const getChoiceError = (
+        choiceIndex: number
+    ): { language: string; questionIndex: number; field: string; error: string } | undefined => {
+        return translationErrorsForField ? translationErrorsForField(index, `choices[${choiceIndex}]`) : undefined
+    }
+
+    const getFieldErrorClass = (fieldKey: string): string => {
+        const fieldError = getFieldError(fieldKey)
+        return fieldError ? 'border border-warning hover:border-primary' : ''
+    }
+
+    const getChoiceErrorClass = (choiceIndex: number): string => {
+        const choiceError = getChoiceError(choiceIndex)
+        return choiceError ? 'border border-warning hover:border-primary' : ''
+    }
 
     const displayQuestion = editingLanguage
         ? {
@@ -375,24 +414,38 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     )}
                 </LemonField>
                 <LemonField name={getFieldName('question')} label="Label">
-                    <LemonInput
-                        data-attr={`survey-question-label-${index}`}
-                        value={displayQuestion.question || ''}
-                        placeholder={editingLanguage ? question.question : undefined}
-                    />
+                    {(() => {
+                        const fieldError = getFieldError('question')
+                        return (
+                            <Tooltip title={fieldError?.error || ''} placement="top">
+                                <LemonInput
+                                    data-attr={`survey-question-label-${index}`}
+                                    value={displayQuestion.question || ''}
+                                    placeholder={editingLanguage ? question.question : undefined}
+                                    onChange={(val) => handleQuestionValueChange('question', val)}
+                                    className={getFieldErrorClass('question')}
+                                />
+                            </Tooltip>
+                        )
+                    })()}
                 </LemonField>
                 <LemonField name={getFieldName('description')} label="Description (optional)">
-                    {({ value, onChange }) => (
-                        <HTMLEditor
-                            value={value}
-                            onChange={(val) => {
-                                onChange(val)
-                                handleQuestionValueChange('description', val)
-                            }}
-                            onTabChange={handleTabChange}
-                            activeTab={initialDescriptionContentType}
-                        />
-                    )}
+                    {(() => {
+                        const fieldError = getFieldError('description')
+                        return (
+                            <Tooltip title={fieldError?.error || ''} placement="top">
+                                <HTMLEditor
+                                    value={displayQuestion.description}
+                                    onChange={(val) => {
+                                        handleQuestionValueChange('description', val)
+                                    }}
+                                    onTabChange={handleTabChange}
+                                    activeTab={initialDescriptionContentType}
+                                    className={getFieldErrorClass('description')}
+                                />
+                            </Tooltip>
+                        )
+                    })()}
                 </LemonField>
                 {survey.questions.length > 1 && (
                     <LemonField name="optional" className="my-2">
@@ -442,12 +495,23 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         label="Link"
                         info="Only https:// or mailto: links are supported."
                     >
-                        <LemonInput
-                            value={displayQuestion.link || ''}
-                            placeholder={
-                                editingLanguage ? question.link || 'https://posthog.com' : 'https://posthog.com'
-                            }
-                        />
+                        {(() => {
+                            const fieldError = getFieldError('link')
+                            return (
+                                <Tooltip title={fieldError?.error || ''} placement="top">
+                                    <LemonInput
+                                        value={displayQuestion.link || ''}
+                                        placeholder={
+                                            editingLanguage
+                                                ? question.link || 'https://posthog.com'
+                                                : 'https://posthog.com'
+                                        }
+                                        onChange={(val) => handleQuestionValueChange('link', val)}
+                                        className={getFieldErrorClass('link')}
+                                    />
+                                </Tooltip>
+                            )
+                        })()}
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Rating && (
@@ -508,20 +572,42 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                     label="Lower bound label"
                                     className="w-1/2"
                                 >
-                                    <LemonInput
-                                        value={displayQuestion.lowerBoundLabel || ''}
-                                        placeholder={editingLanguage ? question.lowerBoundLabel : undefined}
-                                    />
+                                    {(() => {
+                                        const fieldError = getFieldError('lowerBoundLabel')
+                                        return (
+                                            <Tooltip title={fieldError?.error || ''} placement="top">
+                                                <LemonInput
+                                                    value={displayQuestion.lowerBoundLabel || ''}
+                                                    placeholder={editingLanguage ? question.lowerBoundLabel : undefined}
+                                                    onChange={(val) =>
+                                                        handleQuestionValueChange('lowerBoundLabel', val)
+                                                    }
+                                                    className={getFieldErrorClass('lowerBoundLabel')}
+                                                />
+                                            </Tooltip>
+                                        )
+                                    })()}
                                 </LemonField>
                                 <LemonField
                                     name={getFieldName('upperBoundLabel')}
                                     label="Upper bound label"
                                     className="w-1/2"
                                 >
-                                    <LemonInput
-                                        value={displayQuestion.upperBoundLabel || ''}
-                                        placeholder={editingLanguage ? question.upperBoundLabel : undefined}
-                                    />
+                                    {(() => {
+                                        const fieldError = getFieldError('upperBoundLabel')
+                                        return (
+                                            <Tooltip title={fieldError?.error || ''} placement="top">
+                                                <LemonInput
+                                                    value={displayQuestion.upperBoundLabel || ''}
+                                                    placeholder={editingLanguage ? question.upperBoundLabel : undefined}
+                                                    onChange={(val) =>
+                                                        handleQuestionValueChange('upperBoundLabel', val)
+                                                    }
+                                                    className={getFieldErrorClass('upperBoundLabel')}
+                                                />
+                                            </Tooltip>
+                                        )
+                                    })()}
                                 </LemonField>
                             </div>
                         )}
@@ -564,25 +650,33 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                 {(value || []).map((choice: string, index: number) => {
                                                     const isOpenChoice = hasOpenChoice && index === value?.length - 1
                                                     const originalChoices = (question.choices || []) as string[]
+                                                    const choiceError = getChoiceError(index)
                                                     return (
                                                         <div className="flex flex-row gap-2 relative" key={index}>
-                                                            <LemonInput
-                                                                value={choice}
-                                                                fullWidth
-                                                                onChange={(val) => {
-                                                                    const newChoices = [...value]
-                                                                    newChoices[index] = val
-                                                                    handleChoicesChange(newChoices)
-                                                                }}
-                                                                placeholder={
-                                                                    editingLanguage ? originalChoices[index] : undefined
-                                                                }
-                                                                suffix={
-                                                                    isOpenChoice && (
-                                                                        <LemonTag type="highlight">open-ended</LemonTag>
-                                                                    )
-                                                                }
-                                                            />
+                                                            <Tooltip title={choiceError?.error || ''} placement="top">
+                                                                <LemonInput
+                                                                    value={choice}
+                                                                    fullWidth
+                                                                    onChange={(val) => {
+                                                                        const newChoices = [...value]
+                                                                        newChoices[index] = val
+                                                                        handleChoicesChange(newChoices)
+                                                                    }}
+                                                                    placeholder={
+                                                                        editingLanguage
+                                                                            ? originalChoices[index]
+                                                                            : undefined
+                                                                    }
+                                                                    className={getChoiceErrorClass(index)}
+                                                                    suffix={
+                                                                        isOpenChoice && (
+                                                                            <LemonTag type="highlight">
+                                                                                open-ended
+                                                                            </LemonTag>
+                                                                        )
+                                                                    }
+                                                                />
+                                                            </Tooltip>
                                                             <Tooltip
                                                                 title={
                                                                     editingLanguage
@@ -703,21 +797,30 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     }
                 >
                     <>
-                        {(!canSkipSubmitButton || (canSkipSubmitButton && !question.skipSubmitButton)) && (
-                            <LemonInput
-                                value={
-                                    displayQuestion.buttonText === undefined
-                                        ? (survey.appearance?.submitButtonText ?? 'Submit')
-                                        : displayQuestion.buttonText
-                                }
-                                onChange={(val) => handleQuestionValueChange('buttonText', val)}
-                                placeholder={
-                                    editingLanguage
-                                        ? (question.buttonText ?? survey.appearance?.submitButtonText ?? 'Submit')
-                                        : undefined
-                                }
-                            />
-                        )}
+                        {(!canSkipSubmitButton || (canSkipSubmitButton && !question.skipSubmitButton)) &&
+                            (() => {
+                                const fieldError = getFieldError('buttonText')
+                                return (
+                                    <Tooltip title={fieldError?.error || ''} placement="top">
+                                        <LemonInput
+                                            value={
+                                                displayQuestion.buttonText === undefined
+                                                    ? (survey.appearance?.submitButtonText ?? 'Submit')
+                                                    : displayQuestion.buttonText
+                                            }
+                                            onChange={(val) => handleQuestionValueChange('buttonText', val)}
+                                            placeholder={
+                                                editingLanguage
+                                                    ? (question.buttonText ??
+                                                      survey.appearance?.submitButtonText ??
+                                                      'Submit')
+                                                    : undefined
+                                            }
+                                            className={getFieldErrorClass('buttonText')}
+                                        />
+                                    </Tooltip>
+                                )
+                            })()}
                         {canSkipSubmitButton && (
                             <LemonField
                                 name="skipSubmitButton"
