@@ -153,7 +153,6 @@ import {
     LogEntryRequestParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
-    type OAuthApplicationPublicMetadata,
     ObjectMediaPreview,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
@@ -230,6 +229,7 @@ import {
     HogFlow,
     HogFlowAction,
     HogFlowBatchJob,
+    HogFlowSchedule,
     HogFlowTemplate,
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -1830,10 +1830,6 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
     }
 
-    public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
-        return this.addPathComponent('oauth_application').addPathComponent('metadata').addPathComponent(clientId)
-    }
-
     public hogFlows(): ApiRequest {
         return this.environments().current().addPathComponent('hog_flows')
     }
@@ -3035,6 +3031,10 @@ const api = {
 
         async get(id: number): Promise<DashboardType> {
             return new ApiRequest().dashboardsDetail(id).get()
+        },
+
+        async generateMetadata(id: number): Promise<{ name: string; description: string }> {
+            return await new ApiRequest().dashboardsDetail(id).withAction('generate_metadata').create({ data: {} })
         },
 
         async createUnlistedDashboard(tag: string): Promise<DashboardType> {
@@ -4987,6 +4987,9 @@ const api = {
         async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
             await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
         },
+        async cancel(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('cancel').create()
+        },
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
         },
@@ -5419,11 +5422,6 @@ const api = {
                 .get()
         },
     },
-    oauthApplication: {
-        async getPublicMetadata(clientId: string): Promise<OAuthApplicationPublicMetadata> {
-            return await new ApiRequest().oauthApplicationPublicMetadata(clientId).get()
-        },
-    },
     hogFlows: {
         async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
             return await new ApiRequest().hogFlows().get()
@@ -5476,6 +5474,29 @@ const api = {
         },
         async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
+        },
+        async getHogFlowSchedules(hogFlowId: HogFlow['id']): Promise<HogFlowSchedule[]> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').get()
+        },
+        async createHogFlowSchedule(
+            hogFlowId: HogFlow['id'],
+            data: { rrule: string; starts_at: string; timezone?: string }
+        ): Promise<HogFlowSchedule> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').create({ data })
+        },
+        async updateHogFlowSchedule(
+            hogFlowId: HogFlow['id'],
+            scheduleId: string,
+            data: Partial<{ rrule: string; starts_at: string; timezone?: string }>
+        ): Promise<HogFlowSchedule> {
+            return await new ApiRequest()
+                .hogFlow(hogFlowId)
+                .withAction('schedules')
+                .withAction(scheduleId)
+                .update({ data })
+        },
+        async deleteHogFlowSchedule(hogFlowId: HogFlow['id'], scheduleId: string): Promise<void> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').withAction(scheduleId).delete()
         },
     },
     hogFlowTemplates: {

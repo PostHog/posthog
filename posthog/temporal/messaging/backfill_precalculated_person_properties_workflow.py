@@ -22,7 +22,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.filter_storage import get_filters_and_properties
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
-from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.execute import BytecodeResult, execute_bytecode
 
 if TYPE_CHECKING:
     pass
@@ -372,11 +372,12 @@ async def backfill_precalculated_person_properties_activity(
 
                     # Evaluate each filter for this person
                     person_filter_start = time.monotonic()
+                    hog_globals = {"person": {"properties": parsed_properties}}
                     for filter_obj in filters:
                         # Execute the filter bytecode to get the result
                         try:
-                            # Execute bytecode with person properties
-                            result = execute_bytecode(filter_obj.bytecode, parsed_properties)
+                            bytecode_result: BytecodeResult = execute_bytecode(filter_obj.bytecode, hog_globals)
+                            result = bytecode_result.result
 
                             # If filter matches, create an event for each cohort
                             if result:

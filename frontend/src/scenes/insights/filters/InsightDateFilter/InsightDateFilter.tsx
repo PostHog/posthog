@@ -13,7 +13,7 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { isTrends, dateRange } = useValues(insightVizDataLogic(insightProps))
+    const { dateRange } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
 
@@ -33,7 +33,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
                 updateDateRange({ date_from, date_to, explicitDate: explicit_date }, ignoreDebounce)
             }}
             dateOptions={dateMapping}
-            allowedRollingDateOptions={isTrends ? ['hours', 'days', 'weeks', 'months', 'years'] : undefined}
+            allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
             resolvedDateRange={insightData?.resolved_date_range}
             makeLabel={(key) => (
                 <>

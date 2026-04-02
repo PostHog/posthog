@@ -28,7 +28,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
     payload = models.JSONField(default=dict)
     scheduled_at = models.DateTimeField()
     executed_at = models.DateTimeField(null=True, blank=True)
-    failure_reason = models.CharField(max_length=400, null=True, blank=True)
+    failure_reason = models.TextField(null=True, blank=True)
     failure_count = models.IntegerField(default=0)
     is_recurring = models.BooleanField(default=False)
     recurrence_interval = models.CharField(
