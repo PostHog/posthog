@@ -413,7 +413,6 @@ class TestMiddlewareVerification(BaseTest):
         request = self.factory.get(path)
         request.user = self.user
         request.session = SessionStore()
-        request.META["HTTP_HOST"] = "localhost"
 
         middleware = AdminOAuth2Middleware(get_response=lambda r: HttpResponse("OK"))
         response = middleware(request)
