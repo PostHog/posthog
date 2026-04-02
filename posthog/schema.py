@@ -2014,6 +2014,13 @@ class FlagPropertyFilter(BaseModel):
     value: bool | str = Field(..., description="The value can be true, false, or a variant name")
 
 
+class FormDismissPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["dismiss_form"] = "dismiss_form"
+
+
 class FunnelConversionWindowTimeUnit(StrEnum):
     SECOND = "second"
     MINUTE = "minute"
@@ -5518,7 +5525,7 @@ class AssistantTracesQuery(BaseModel):
     )
     filterSupportTraces: bool | None = Field(default=False, description="Exclude support impersonation traces.")
     filterTestAccounts: bool | None = Field(
-        default=False,
+        default=True,
         description=("Exclude internal and test users by applying the respective filters."),
     )
     groupKey: str | None = Field(
@@ -6927,8 +6934,8 @@ class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomiza
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
 
-class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload]):
-    root: ApprovalResumePayload | FormResumePayload
+class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload]):
+    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload
 
 
 class RetentionResult(BaseModel):

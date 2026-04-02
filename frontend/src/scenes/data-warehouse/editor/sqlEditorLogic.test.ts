@@ -194,6 +194,92 @@ describe('sqlEditorLogic', () => {
 
             expect(logic.values.titleSectionProps.name).toEqual('Loading insight...')
         })
+
+        it('closes an insight into an unsaved query without clearing SQL or visualization settings', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            window.history.replaceState(
+                {},
+                '',
+                `${urls.sqlEditor()}?open_insight=${MOCK_INSIGHT.short_id}#${JSON.stringify({ insight: MOCK_INSIGHT.short_id })}`
+            )
+            logic.actions.createTab(MOCK_INSIGHT_QUERY.source.query, undefined, MOCK_INSIGHT)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setSourceQuery({
+                ...MOCK_INSIGHT_QUERY,
+                display: ChartDisplayType.BoldNumber,
+            })
+            logic.actions.setInsightLoading(true)
+            logic.actions.closeEditingObject()
+
+            await expectLogic(logic)
+                .toDispatchActions(['closeEditingObject', 'setInsightLoading', 'setViewLoading', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: null,
+                    insightLoading: false,
+                    queryInput: MOCK_INSIGHT_QUERY.source.query,
+                    titleSectionProps: partial({
+                        name: 'New SQL query',
+                    }),
+                    sourceQuery: partial({
+                        display: ChartDisplayType.BoldNumber,
+                    }),
+                })
+
+            expect(window.location.hash).not.toContain('insight')
+            expect(window.location.search).not.toContain('open_insight')
+        })
+
+        it('closes a view into an unsaved query without clearing SQL or visualization settings', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            window.history.replaceState(
+                {},
+                '',
+                `${urls.sqlEditor()}?open_view=${MOCK_VIEW.id}#${JSON.stringify({ view: MOCK_VIEW.id })}`
+            )
+            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: MOCK_VIEW.query.query,
+                },
+                display: ChartDisplayType.ActionsBar,
+            })
+            logic.actions.setViewLoading(true)
+            logic.actions.closeEditingObject()
+
+            await expectLogic(logic)
+                .toDispatchActions(['closeEditingObject', 'setInsightLoading', 'setViewLoading', 'updateTab'])
+                .toMatchValues({
+                    editingView: undefined,
+                    viewLoading: false,
+                    queryInput: MOCK_VIEW.query.query,
+                    titleSectionProps: partial({
+                        name: 'New SQL query',
+                    }),
+                    sourceQuery: partial({
+                        display: ChartDisplayType.ActionsBar,
+                    }),
+                })
+
+            expect(window.location.hash).not.toContain('view')
+            expect(window.location.search).not.toContain('open_view')
+        })
     })
 
     describe('getDisplayTypeToSaveInsight', () => {
