@@ -174,12 +174,12 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
         if len(keys) != len(set(keys)):
             raise serializers.ValidationError("Variable keys must be unique")
 
-        # Make sure entire variables definition is less than 1KB
+        # Make sure entire variables definition is less than 5KB
         # This is just a check for massive keys / default values, we also have a check for dynamically
         # set variables during execution
         total_size = sum(len(json.dumps(item)) for item in attrs)
-        if total_size > 1024:
-            raise serializers.ValidationError("Total size of variables definition must be less than 1KB")
+        if total_size > 5120:
+            raise serializers.ValidationError("Total size of variables definition must be less than 5KB")
 
         return super().validate(attrs)
 
