@@ -189,6 +189,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                 funnelVizType=FunnelVizType.TIME_TO_CONVERT,
                 funnelFromStep=0,
                 funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
             ),
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
@@ -281,6 +283,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                 funnelFromStep=0,
                 funnelToStep=1,
                 binCount=7,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
             ),
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
@@ -372,7 +376,11 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
             ],
             dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
             interval=IntervalType.DAY,
-            funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
+            ),
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
@@ -406,6 +414,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                 funnelVizType=FunnelVizType.TIME_TO_CONVERT,
                 funnelFromStep=0,
                 funnelToStep=2,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
             ),
         )
         results_steps_specified = FunnelsQueryRunner(query=query, team=self.team).calculate().results
@@ -479,6 +489,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                 funnelOrderType=StepOrderValue.UNORDERED,
                 funnelFromStep=0,
                 funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
             ),
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
@@ -605,6 +617,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                 funnelOrderType=StepOrderValue.STRICT,
                 funnelFromStep=0,
                 funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
             ),
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
