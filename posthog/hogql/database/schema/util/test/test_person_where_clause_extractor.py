@@ -61,7 +61,6 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(new_select, ast.SelectQuery)
         assert isinstance(new_select.select_from, ast.JoinExpr)
 
-        # Walk the join chain to find events__pdi by name (not position)
         pdi_join = new_select.select_from.next_join
         while pdi_join is not None and pdi_join.alias != "events__pdi":
             pdi_join = pdi_join.next_join
