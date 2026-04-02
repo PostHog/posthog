@@ -14,11 +14,11 @@ a single AI interaction — from the top-level agent invocation down to individu
 
 ## Available tools
 
-| Tool                            | Purpose                                                   |
-| ------------------------------- | --------------------------------------------------------- |
-| `posthog:query-llm-traces-list` | Search and list traces (compact — no large content)       |
-| `posthog:query-llm-trace`       | Get a single trace by ID with configurable content detail |
-| `posthog:execute-sql`           | Ad-hoc SQL for complex trace analysis                     |
+| Tool                            | Purpose                                             |
+| ------------------------------- | --------------------------------------------------- |
+| `posthog:query-llm-traces-list` | Search and list traces (compact — no large content) |
+| `posthog:query-llm-trace`       | Get a single trace by ID with full event tree       |
+| `posthog:execute-sql`           | Ad-hoc SQL for complex trace analysis               |
 
 ## Event hierarchy
 
@@ -35,21 +35,20 @@ Events are linked via `$ai_parent_id` → parent's `$ai_span_id` or `$ai_trace_i
 
 ## Workflow: debug a trace from a URL
 
-### Step 1 — Get a structural overview (cheap)
-
-Load the trace with `contentDetail: "none"` to see the event tree without large properties.
-This is small enough to read inline.
+### Step 1 — Fetch the trace
 
 ```json
 posthog:query-llm-trace
 {
   "traceId": "<trace_id>",
-  "dateRange": {"date_from": "-30d"},
-  "contentDetail": "none"
+  "dateRange": {"date_from": "-7d"}
 }
 ```
 
-From this you get:
+The result contains the full event tree with all properties.
+The response may be large — when it exceeds the inline limit, Claude Code auto-persists it to a file.
+
+From the result you get:
 
 - Every event with its type (`$ai_span`, `$ai_generation`, etc.)
 - Span names (`$ai_span_name`) — these are the tool/step names
@@ -57,36 +56,10 @@ From this you get:
 - Parent-child relationships via `$ai_parent_id`
 - `_posthogUrl` — **always include this in your response** so the user can click through to the UI
 
-### Step 2 — Preview the interesting parts
+### Step 2 — Parse large results with scripts
 
-Once you've identified the suspicious event(s), re-fetch with `"preview"` to see
-truncated input/output (first/last 300 chars). This is usually enough to understand
-what happened without blowing up the context.
-
-```json
-posthog:query-llm-trace
-{
-  "traceId": "<trace_id>",
-  "dateRange": {"date_from": "-30d"},
-  "contentDetail": "preview"
-}
-```
-
-### Step 3 — Deep dive into full content (dump to file)
-
-Only when you need to read actual messages or full tool outputs.
-The result will be large — it auto-persists to a file.
-
-```json
-posthog:query-llm-trace
-{
-  "traceId": "<trace_id>",
-  "dateRange": {"date_from": "-30d"},
-  "contentDetail": "full"
-}
-```
-
-Then use the [parsing scripts](./scripts/) on the persisted file:
+When the result is persisted to a file (large traces with full `$ai_input`/`$ai_output_choices`),
+use the [parsing scripts](./scripts/) to explore it:
 
 ```bash
 python3 scripts/print_timeline.py /path/to/persisted-file.json    # event timeline
@@ -163,7 +136,7 @@ Do not confirm `$ai_*` properties, but confirm any other like `email` of a perso
 ```json
 posthog:query-llm-traces-list
 {
-  "dateRange": {"date_from": "-7d"},
+  "dateRange": {"date_from": "-1h"},
   "filterTestAccounts": true,
   "limit": 20,
   "properties": [
@@ -177,7 +150,7 @@ Multiple filters are AND-ed together:
 ```json
 posthog:query-llm-traces-list
 {
-  "dateRange": {"date_from": "-7d"},
+  "dateRange": {"date_from": "-1h"},
   "filterTestAccounts": true,
   "properties": [
     {"type": "event", "key": "$ai_provider", "value": "anthropic", "operator": "exact"},
@@ -191,7 +164,7 @@ You can also filter by person properties (discover them via `read-data-schema` w
 ```json
 posthog:query-llm-traces-list
 {
-  "dateRange": {"date_from": "-7d"},
+  "dateRange": {"date_from": "-1h"},
   "filterTestAccounts": true,
   "properties": [
     {"type": "person", "key": "email", "value": "@company.com", "operator": "icontains"}
@@ -218,9 +191,9 @@ posthog:query-llm-traces-list
 }
 ```
 
-### By content (SQL)
+### By SQL (for full-text search or custom aggregations)
 
-When you need text search or complex joins that `query-llm-traces-list` can't express, use SQL:
+Use SQL when you need something `query-llm-traces-list` can't express — typically full-text search across message content or custom aggregations.
 
 ```sql
 SELECT
@@ -230,16 +203,16 @@ SELECT
 FROM events
 WHERE
     event = '$ai_generation'
-    AND timestamp >= now() - INTERVAL 7 DAY
+    AND timestamp >= now() - INTERVAL 1 HOUR
     AND properties.$ai_input ILIKE '%search term%'
 ORDER BY timestamp DESC
 LIMIT 20
 ```
 
-For full SQL query patterns, see the `query-examples` skill:
+For more complex SQL patterns, read these references:
 
-- Single trace retrieval: `example-llm-trace.md`
-- Traces list with aggregated metrics: `example-llm-traces-list.md`
+- [Single trace retrieval](./references/example-llm-trace.md.j2) — fetches a single trace by ID with all events and properties (renders the `TraceQuery` HogQL)
+- [Traces list with aggregated metrics](./references/example-llm-traces-list.md) — two-phase query: find trace IDs first, then fetch aggregated latency, tokens, costs, and error counts
 
 ## Parsing large trace results
 
@@ -258,7 +231,7 @@ results (array for list, object for single trace)
   ├── id, traceName, createdAt, totalLatency, totalCost
   ├── inputState, outputState (trace-level state)
   └── events[]
-        ├── event ($ai_trace | $ai_span | $ai_generation | $ai_embedding)
+        ├── event ($ai_span | $ai_generation | $ai_embedding | $ai_metric | $ai_feedback)
         ├── id, createdAt
         └── properties
               ├── $ai_span_name, $ai_latency, $ai_is_error
@@ -279,9 +252,9 @@ results (array for list, object for single trace)
 
 ## Tips
 
-- Always set `dateRange` — queries without a time range are slow
-- Use progressive content detail: `none` → `preview` → `full` (dumped to file)
+- Always set `dateRange` — queries without a time range are slow. Use narrow windows (`-30m`, `-1h`) for broad listing queries; wider windows (`-7d`, `-30d`) are fine for narrow queries filtered by trace ID or specific property values
 - Always include the `_posthogUrl` in your response so the user can click through
 - `$ai_input_state` / `$ai_output_state` on spans contain tool call inputs and outputs
-- `$ai_input` / `$ai_output_choices` on generations contain the full LLM conversation — can be megabytes, always dump to file
+- `$ai_input` / `$ai_output_choices` on generations contain the full LLM conversation — can be megabytes; when the result is persisted to a file, use the parsing scripts
 - Use `filterTestAccounts: true` to exclude internal/test traffic when searching
+- `$ai_trace` events are NOT in the `events` array — their data is surfaced via trace-level `inputState`, `outputState`, and `traceName`
