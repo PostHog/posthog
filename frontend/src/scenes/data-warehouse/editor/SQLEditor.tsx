@@ -224,6 +224,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const {
         updateView,
         updateInsight,
+        closeEditingObject,
         saveAsInsight,
         saveAsView,
         saveAsEndpoint,
@@ -305,6 +306,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     }
 
     const isMaterializedView = editingView?.is_materialized === true
+    const closeObjectTooltip = editingInsight
+        ? 'Close this insight and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
+        : editingView
+          ? 'Close this view and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
+          : 'Reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
 
     return (
         <>
@@ -393,50 +399,68 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                                 </LemonButton>
+                                <LemonButton
+                                    onClick={() => closeEditingObject()}
+                                    type="secondary"
+                                    size="small"
+                                    tooltip={closeObjectTooltip}
+                                >
+                                    Close
+                                </LemonButton>
                             </>
                         ) : editingInsight ? (
-                            <LemonButton
-                                disabledReason={
-                                    !isSourceQueryLastRun
-                                        ? 'Run latest query changes before saving'
-                                        : !updateInsightButtonEnabled
-                                          ? 'No updates to save'
-                                          : undefined
-                                }
-                                loading={insightLoading}
-                                type="primary"
-                                size="small"
-                                onClick={() => updateInsight()}
-                                sideAction={{
-                                    icon: <IconChevronDown />,
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        overlay: (
-                                            <LemonMenuOverlay
-                                                items={[
-                                                    {
-                                                        label: 'Save as new insight...',
-                                                        disabledReason: saveAsDisabledReason,
-                                                        onClick: () => saveAsInsight(),
-                                                    },
-                                                    {
-                                                        label: 'Save as new view...',
-                                                        disabledReason: saveAsDisabledReason,
-                                                        onClick: () => saveAsView(),
-                                                    },
-                                                    {
-                                                        label: 'Save as endpoint...',
-                                                        disabledReason: saveAsDisabledReason,
-                                                        onClick: () => saveAsEndpoint(),
-                                                    },
-                                                ]}
-                                            />
-                                        ),
-                                    },
-                                }}
-                            >
-                                Update insight
-                            </LemonButton>
+                            <>
+                                <LemonButton
+                                    disabledReason={
+                                        !isSourceQueryLastRun
+                                            ? 'Run latest query changes before saving'
+                                            : !updateInsightButtonEnabled
+                                              ? 'No updates to save'
+                                              : undefined
+                                    }
+                                    loading={insightLoading}
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => updateInsight()}
+                                    sideAction={{
+                                        icon: <IconChevronDown />,
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={[
+                                                        {
+                                                            label: 'Save as new insight...',
+                                                            disabledReason: saveAsDisabledReason,
+                                                            onClick: () => saveAsInsight(),
+                                                        },
+                                                        {
+                                                            label: 'Save as new view...',
+                                                            disabledReason: saveAsDisabledReason,
+                                                            onClick: () => saveAsView(),
+                                                        },
+                                                        {
+                                                            label: 'Save as endpoint...',
+                                                            disabledReason: saveAsDisabledReason,
+                                                            onClick: () => saveAsEndpoint(),
+                                                        },
+                                                    ]}
+                                                />
+                                            ),
+                                        },
+                                    }}
+                                >
+                                    Update insight
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() => closeEditingObject()}
+                                    type="secondary"
+                                    size="small"
+                                    tooltip={closeObjectTooltip}
+                                >
+                                    Close
+                                </LemonButton>
+                            </>
                         ) : (
                             <LemonButton
                                 type="primary"
