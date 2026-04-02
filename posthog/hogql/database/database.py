@@ -1436,31 +1436,31 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
     table.fields["issue_id_v2"] = ExpressionField(
         name="issue_id_v2",
-        expr=parse_expr("fingerprint_issue_state.issue_id"),
+        expr=parse_expr("fingerprint_issue_state.issue_id", start=None),
     )
     table.fields["issue_name"] = ExpressionField(
         name="issue_name",
-        expr=parse_expr("fingerprint_issue_state.issue_name"),
+        expr=parse_expr("fingerprint_issue_state.issue_name", start=None),
     )
     table.fields["issue_description"] = ExpressionField(
         name="issue_description",
-        expr=parse_expr("fingerprint_issue_state.issue_description"),
+        expr=parse_expr("fingerprint_issue_state.issue_description", start=None),
     )
     table.fields["issue_status"] = ExpressionField(
         name="issue_status",
-        expr=parse_expr("fingerprint_issue_state.issue_status"),
+        expr=parse_expr("fingerprint_issue_state.issue_status", start=None),
     )
     table.fields["issue_assigned_user_id"] = ExpressionField(
         name="issue_assigned_user_id",
-        expr=parse_expr("fingerprint_issue_state.assigned_user_id"),
+        expr=parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
     )
     table.fields["issue_assigned_role_id"] = ExpressionField(
         name="issue_assigned_role_id",
-        expr=parse_expr("fingerprint_issue_state.assigned_role_id"),
+        expr=parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
     )
     table.fields["issue_first_seen"] = ExpressionField(
         name="issue_first_seen",
-        expr=parse_expr("fingerprint_issue_state.first_seen"),
+        expr=parse_expr("fingerprint_issue_state.first_seen", start=None),
     )
 
 
