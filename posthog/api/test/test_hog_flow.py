@@ -1391,3 +1391,56 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["deleted"] == 0
         assert HogFlow.objects.filter(id=flow_id).exists()
+
+    def _base_hog_flow_with_variables(self, variables):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        return {
+            "name": "Test Flow",
+            "actions": [trigger_action],
+            "variables": variables,
+        }
+
+    def test_variables_with_unique_keys_accepted(self):
+        hog_flow = self._base_hog_flow_with_variables(
+            [
+                {"key": "name", "value": ""},
+                {"key": "email", "value": ""},
+            ]
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert len(response.json()["variables"]) == 2
+
+    def test_variables_with_duplicate_keys_rejected(self):
+        hog_flow = self._base_hog_flow_with_variables(
+            [
+                {"key": "name", "value": ""},
+                {"key": "name", "value": "other"},
+            ]
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["detail"] == "Variable keys must be unique"
+
+    def test_variables_exceeding_5kb_rejected(self):
+        hog_flow = self._base_hog_flow_with_variables([{"key": f"var_{i}", "value": "x" * 1000} for i in range(6)])
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["detail"] == "Total size of variables definition must be less than 5KB"
+
+    def test_variables_just_under_5kb_accepted(self):
+        # Each item: {"key": "v_XX", "value": "x..."} — about 30 bytes overhead per item
+        # 4 items with ~1200 char values ≈ 4920 bytes, under 5120
+        hog_flow = self._base_hog_flow_with_variables([{"key": f"v_{i:02d}", "value": "x" * 1200} for i in range(4)])
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
