@@ -1207,7 +1207,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
-                external_status = source.get_external_webhook_info(config, webhook_url)
+                external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
             except Exception as e:
                 capture_exception(e)
 

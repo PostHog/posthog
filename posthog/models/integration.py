@@ -775,8 +775,6 @@ class OauthIntegration:
         # Stripe OAuth returns stripe_user_id but no account name — fetch it from the Accounts API
         if kind == "stripe" and integration_id:
             try:
-                from stripe import StripeClient
-
                 stripe_client = StripeClient(oauth_config.client_secret)
                 account = stripe_client.accounts.retrieve(str(integration_id))
                 business_profile = getattr(account, "business_profile", None)

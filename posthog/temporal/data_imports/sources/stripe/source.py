@@ -318,13 +318,18 @@ Once created, copy the **Signing secret** from the webhook details page and add 
         return WebhookSourceManager(inputs, inputs.logger)
 
     def create_webhook(self, config: StripeSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
-        return create_webhook(config, webhook_url)
+        api_key = self._get_api_key(config, team_id)
+        return create_webhook(api_key, config.stripe_account_id, webhook_url)
 
-    def get_external_webhook_info(self, config: StripeSourceConfig, webhook_url: str) -> ExternalWebhookInfo:
-        return get_external_webhook_info(config, webhook_url)
+    def get_external_webhook_info(
+        self, config: StripeSourceConfig, webhook_url: str, team_id: int
+    ) -> ExternalWebhookInfo:
+        api_key = self._get_api_key(config, team_id)
+        return get_external_webhook_info(api_key, config.stripe_account_id, webhook_url)
 
-    def delete_webhook(self, config: StripeSourceConfig, webhook_url: str) -> WebhookDeletionResult:
-        return delete_webhook(config, webhook_url)
+    def delete_webhook(self, config: StripeSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+        api_key = self._get_api_key(config, team_id)
+        return delete_webhook(api_key, config.stripe_account_id, webhook_url)
 
     def source_for_pipeline(
         self,
