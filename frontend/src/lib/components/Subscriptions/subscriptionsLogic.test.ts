@@ -103,4 +103,67 @@ describe('subscriptionsLogic', () => {
             subscriptionsLoading: false,
         })
     })
+
+    describe('deliverSubscription', () => {
+        it('sets deliveringSubscriptionId and clears on success', async () => {
+            logic = subscriptionsLogic({ insightShortId: Insight2 })
+            logic.mount()
+            await expectLogic(logic).toFinishListeners()
+
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/subscriptions/:id/test-delivery': () => [200, {}],
+                },
+            })
+
+            logic.actions.deliverSubscription(1)
+            expect(logic.values.deliveringSubscriptionId).toBe(1)
+
+            await expectLogic(logic)
+                .toDispatchActions(['deliverSubscriptionSuccess'])
+                .toMatchValues({ deliveringSubscriptionId: null })
+        })
+
+        it('handles 409 conflict gracefully', async () => {
+            logic = subscriptionsLogic({ insightShortId: Insight2 })
+            logic.mount()
+            await expectLogic(logic).toFinishListeners()
+
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/subscriptions/:id/test-delivery': () => [
+                        409,
+                        { detail: 'Delivery already in progress' },
+                    ],
+                },
+            })
+
+            logic.actions.deliverSubscription(1)
+
+            await expectLogic(logic)
+                .toDispatchActions(['deliverSubscriptionFailure'])
+                .toMatchValues({ deliveringSubscriptionId: null })
+        })
+
+        it('handles generic error gracefully', async () => {
+            logic = subscriptionsLogic({ insightShortId: Insight2 })
+            logic.mount()
+            await expectLogic(logic).toFinishListeners()
+
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/subscriptions/:id/test-delivery': () => [
+                        500,
+                        { detail: 'Failed to deliver subscription' },
+                    ],
+                },
+            })
+
+            logic.actions.deliverSubscription(1)
+
+            await expectLogic(logic)
+                .toDispatchActions(['deliverSubscriptionFailure'])
+                .toMatchValues({ deliveringSubscriptionId: null })
+        })
+    })
 })

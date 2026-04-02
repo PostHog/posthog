@@ -5209,6 +5209,9 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()
         },
+        async testDelivery(subscriptionId: SubscriptionType['id']): Promise<void> {
+            await new ApiRequest().subscription(subscriptionId).withAction('test-delivery').create()
+        },
     },
 
     integrations: {

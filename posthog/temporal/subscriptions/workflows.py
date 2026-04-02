@@ -32,6 +32,7 @@ from posthog.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionInfo,
+    SubscriptionTriggerType,
     TrackedSubscriptionInputs,
 )
 
@@ -107,6 +108,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     subscription_id=sub.subscription_id,
                     team_id=sub.team_id,
                     distinct_id=sub.distinct_id,
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
                     slo=SloConfig(
                         operation=SloOperation.SUBSCRIPTION_DELIVERY,
                         area=SloArea.ANALYTIC_PLATFORM,
@@ -218,8 +220,8 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # a "failed to generate" placeholder in the email/Slack message)
             delivery_asset_ids = prepare_result.exported_asset_ids
 
-            # is_new is true when previous_value is set (target change), false for scheduled delivery
-            is_new = inputs.previous_value is not None
+            # is_new is true for target change triggers, false for scheduled and manual sends
+            is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
 
             await temporalio.workflow.execute_activity(
                 deliver_subscription,
@@ -251,7 +253,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
         finally:
             # Advance schedule — always for scheduled deliveries, even on failure
-            if inputs.previous_value is None:
+            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 await temporalio.workflow.execute_activity(
                     advance_next_delivery_date,
                     inputs.subscription_id,
@@ -297,6 +299,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
             distinct_id=inputs.distinct_id,
             previous_value=inputs.previous_value,
             invite_message=inputs.invite_message,
+            trigger_type=inputs.trigger_type,
             slo=SloConfig(
                 operation=SloOperation.SUBSCRIPTION_DELIVERY,
                 area=SloArea.ANALYTIC_PLATFORM,
@@ -305,10 +308,11 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
                 distinct_id=inputs.distinct_id,
             ),
         )
+        child_id = f"process-subscription-{inputs.trigger_type}-{inputs.subscription_id}"
         await temporalio.workflow.execute_child_workflow(
             ProcessSubscriptionWorkflow.run,
             tracked,
-            id=f"process-subscription-change-{inputs.subscription_id}",
+            id=child_id,
             parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
             execution_timeout=dt.timedelta(hours=2),
         )
