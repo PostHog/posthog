@@ -137,23 +137,25 @@ export class LazyLoader<T> {
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
-        for (const [key, value] of Object.entries(map)) {
+        const now = Date.now()
+        const keys = Object.keys(map)
+        for (const key of keys) {
+            const value = map[key] ?? null
             // Track if this is a new key being added
             const isNewKey = !(key in this.cache)
-            this.cache[key] = value ?? null
+            this.cache[key] = value
             if (isNewKey) {
                 this.cacheSize++
             }
             // Always update the lastUsed time
-            this.lastUsed[key] = Date.now()
-            const valueOrNull = value ?? null
+            this.lastUsed[key] = now
             const jitter = Math.floor(Math.random() * this.refreshJitterMs)
-            this.cacheUntil[key] =
-                Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshAgeMs) + jitter
+            const refreshAge = value === null ? this.refreshNullAgeMs : this.refreshAgeMs
+            this.cacheUntil[key] = now + refreshAge + jitter
 
             if (this.refreshBackgroundAgeMs) {
-                this.backgroundRefreshAfter[key] =
-                    Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
+                const bgAge = value === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs
+                this.backgroundRefreshAfter[key] = now + bgAge + jitter
             }
         }
         this.evictLRU()
@@ -281,15 +283,15 @@ export class LazyLoader<T> {
             keyPromises.push(pendingLoad)
         }
 
-        const results = await Promise.all(keyPromises)
-        const mappedResults = keys.reduce((acc, key, index) => {
-            acc[key] = results[index] ?? null
-            return acc
-        }, {} as LazyLoaderMap<T>)
+        await Promise.all(keyPromises)
 
-        this.setValues(mappedResults)
-
-        return mappedResults
+        // Values are already in the cache via the buffer's setValues call,
+        // so just build the return map from the cache
+        const result: LazyLoaderMap<T> = {}
+        for (const key of keys) {
+            result[key] = this.cache[key] ?? null
+        }
+        return result
     }
 
     private evictLRU(): void {
@@ -300,13 +302,14 @@ export class LazyLoader<T> {
         // Calculate how many to evict
         const toEvict = this.cacheSize - this.maxSize
 
-        // Sort entries by lastUsed time (oldest first) and take the N oldest
-        const entries = Object.entries(this.lastUsed).filter(([key]) => key in this.cache)
-        entries.sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0))
-        const keysToEvict = entries.slice(0, toEvict).map(([key]) => key)
+        // Build a sortable array of [key, lastUsed] without intermediate tuple allocations
+        const cacheKeys = Object.keys(this.cache)
+        cacheKeys.sort((a, b) => (this.lastUsed[a] ?? 0) - (this.lastUsed[b] ?? 0))
 
         // Evict the least recently used entries
-        for (const key of keysToEvict) {
+        const evictCount = Math.min(toEvict, cacheKeys.length)
+        for (let i = 0; i < evictCount; i++) {
+            const key = cacheKeys[i]
             delete this.cache[key]
             delete this.lastUsed[key]
             delete this.cacheUntil[key]
