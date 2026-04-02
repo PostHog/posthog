@@ -204,11 +204,9 @@ from products.event_definitions.backend.models.property_definition import (
 # Make sure freezegun ignores our utils class that times functions
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
-
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
 persons_ordering_int: int = 0
-
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
@@ -838,12 +836,13 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
                 conn = connections[db_name]
                 with conn.cursor() as cursor:
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE '_sqlx_%'
-                        AND tablename NOT LIKE '_persons_migrations'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE '_sqlx_%'
+                                     AND tablename NOT LIKE '_persons_migrations'
+                                   """)
                     tables = [row[0] for row in cursor.fetchall()]
                     if tables:
                         cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
@@ -869,19 +868,21 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
             with conn.cursor() as cursor:
                 if db_name in ("persons_db_writer", "persons_db_reader"):
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE '_sqlx_%'
-                        AND tablename NOT LIKE '_persons_migrations'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE '_sqlx_%'
+                                     AND tablename NOT LIKE '_persons_migrations'
+                                   """)
                 else:
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE 'django_%'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE 'django_%'
+                                   """)
                 tables = [row[0] for row in cursor.fetchall()]
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
@@ -1472,6 +1473,16 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
         with patch_clickhouse_client_execute(execute_wrapper):
             yield queries
+
+    @contextmanager
+    def snapshot_select_queries(self):
+        with self.capture_select_queries() as queries:
+            yield queries
+
+        replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):
