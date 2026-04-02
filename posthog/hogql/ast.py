@@ -282,6 +282,55 @@ class TableAliasType(BaseTableType):
 
 
 @dataclass(kw_only=True)
+class ColumnAliasedTableType(BaseTableType):
+    """Table binding with renamed columns, e.g. ``FROM events AS e(a, b, c)``.
+
+    ``alias_to_original`` maps visible (aliased) column names to the
+    underlying database column names.  Resolution uses the aliased names;
+    the printer decides which name to emit based on dialect.
+    """
+
+    alias: str
+    table_type: TableType | LazyTableType
+    alias_to_original: dict[str, str]
+
+    def resolve_database_table(self, context: HogQLContext) -> Table | LazyTable:
+        return self.table_type.table
+
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        if name == "*":
+            return True
+        original = self.alias_to_original.get(name)
+        if original is None:
+            return False
+        return self.table_type.has_child(original, context)
+
+    def get_child(self, name: str, context: HogQLContext) -> "Type":
+        if name == "*":
+            return AsteriskType(table_type=self)
+        original = self.alias_to_original.get(name)
+        if original is None:
+            raise QueryError(f"Field not found: {name}")
+        # Delegate to the underlying table using the original column name,
+        # but keep *this* type as the table_type so the printer can detect
+        # the column-alias context.
+        child = self.table_type.get_child(original, context)
+        if isinstance(child, FieldType):
+            return FieldType(name=name, table_type=self)
+        if isinstance(child, ExpressionFieldType):
+            # Expression fields contain HogQL referencing original column names.
+            # Force isolate_scope so the expression resolves against the
+            # original table rather than the aliased scope.
+            return ExpressionFieldType(
+                table_type=child.table_type,
+                name=child.name,
+                expr=child.expr,
+                isolate_scope=True,
+            )
+        return child
+
+
+@dataclass(kw_only=True)
 class VirtualTableType(BaseTableType):
     table_type: TableOrSelectType
     field: str
@@ -601,7 +650,11 @@ class FieldType(Type):
         if isinstance(self.table_type, BaseTableType):
             table = self.table_type.resolve_database_table(context)
             if table is not None:
-                return table.get_field(self.name)
+                field_name = self.name
+                # Map aliased name back to the original DB column name
+                if isinstance(self.table_type, ColumnAliasedTableType):
+                    field_name = self.table_type.alias_to_original.get(field_name, field_name)
+                return table.get_field(field_name)
         return None
 
     def is_nullable(self, context: HogQLContext) -> bool:
@@ -616,7 +669,10 @@ class FieldType(Type):
 
         table: Table = self.table_type.resolve_database_table(context)
 
-        database_field = table.get_field(self.name)
+        field_name = self.name
+        if isinstance(self.table_type, ColumnAliasedTableType):
+            field_name = self.table_type.alias_to_original.get(field_name, field_name)
+        database_field = table.get_field(field_name)
         if isinstance(database_field, DatabaseField):
             return database_field.get_constant_type()
 

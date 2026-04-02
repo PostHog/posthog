@@ -690,6 +690,10 @@ const SAVED_INSIGHTS_COPY = {
         title: 'There are no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
     },
+    [`${SavedInsightsTabs.Yours}`]: {
+        title: 'You have no insights $CONDITION.',
+        description: 'Once you create an insight, it will show up here.',
+    },
 }
 
 export function SavedInsightsEmptyState({

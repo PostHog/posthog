@@ -167,7 +167,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(url)
 
         assert response.status_code == status.HTTP_200_OK
-        assert sorted([r["name"] for r in response.json()["results"]]) == expected_names
+        assert sorted([r["name"] for r in exclude_virtual_properties(response.json()["results"])]) == expected_names
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
