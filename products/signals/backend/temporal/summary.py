@@ -541,6 +541,7 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
             data=message,
             key=input.report_id,
         )
+        await asyncio.to_thread(producer.flush)
         logger.debug(
             f"Published report_completed for report {input.report_id}",
             report_id=input.report_id,
