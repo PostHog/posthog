@@ -5,7 +5,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from asgiref.sync import sync_to_async
 
@@ -101,7 +101,7 @@ async def _create_task_and_trigger(
 
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
-    kwargs: dict = {
+    kwargs: dict[str, Any] = {
         "team": team,
         "title": title,
         "description": description,
