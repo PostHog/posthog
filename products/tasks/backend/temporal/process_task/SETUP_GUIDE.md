@@ -127,6 +127,48 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 
 To test changes to `@posthog/agent` before publishing:
 
+### Modal credentials
+
+Both `MODAL_DOCKER` and `modal` providers require a Modal API token.
+Look up **"Modal Development Token"** in 1Password and add the values to your `.env`:
+
+```bash
+MODAL_TOKEN_ID=<token_id>
+MODAL_TOKEN_SECRET=<token_secret>
+```
+
+### Tunnel gateway and API
+
+Since Modal sandboxes run in the cloud and can't reach `localhost` directly,
+you'll need to expose the Django API and LLM gateway via a tunnel (e.g. ngrok or Cloudflare Tunnel).
+
+With ngrok, add tunnels to your ngrok config (`~/.config/ngrok/ngrok.yml` or `~/Library/Application Support/ngrok/ngrok.yml`):
+
+```yaml
+tunnels:
+  django:
+    proto: http
+    addr: 8000
+  gateway:
+    proto: http
+    addr: 3308
+```
+
+Then start both tunnels:
+
+```bash
+ngrok start --all
+```
+
+Set the resulting URLs in your `.env`:
+
+```bash
+SANDBOX_API_URL=https://<django-subdomain>.ngrok-free.app
+SANDBOX_LLM_GATEWAY_URL=https://<gateway-subdomain>.ngrok-free.app
+```
+
+### Local agent packages
+
 ```bash
 # In your .env:
 SANDBOX_PROVIDER=MODAL_DOCKER

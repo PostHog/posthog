@@ -1,7 +1,9 @@
 import asyncio
 from collections.abc import Mapping, Sequence
-from typing import Literal, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 from uuid import uuid4
+
+from django.conf import settings
 
 import structlog
 import posthoganalytics
@@ -46,6 +48,7 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
+from ee.hogai.utils.feature_flags import has_llm_gateway_feature_flag
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -221,6 +224,25 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             for tool_call in last_message.tool_calls
         ]
 
+    def _get_llm_gateway_product(self) -> str:
+        return "django"
+
+    def _get_bedrock_kwargs(self) -> dict[str, Any]:
+        if not has_llm_gateway_feature_flag(self._team, self._user):
+            return {}
+        if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+            logger.warning(
+                "llm_gateway settings are not configured",
+                product=self._get_llm_gateway_product(),
+                team_id=self._team.id,
+            )
+            return {}
+        return {
+            "anthropic_api_url": f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{self._get_llm_gateway_product()}",
+            "anthropic_api_key": settings.LLM_GATEWAY_API_KEY,
+            "default_headers": {"X-PostHog-Provider": "bedrock"},
+        }
+
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         model_name = "claude-sonnet-4-6"
         if self._has_legacy_summarize_sessions_messages(state.messages):
@@ -246,6 +268,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             model_kwargs={"output_config": {"effort": "medium"}} if not is_sonnet_4_5 else {},
             conversation_start_dt=state.start_dt,
             billable=True,
+            **self._get_bedrock_kwargs(),
         )
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.

@@ -1134,7 +1134,7 @@ export interface AssistantTracesQuery {
 
     /**
      * Exclude internal and test users by applying the respective filters.
-     * @default false
+     * @default true
      */
     filterTestAccounts?: boolean
 

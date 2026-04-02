@@ -1058,7 +1058,7 @@ const AssistantTracesQuery = z.object({
     filterTestAccounts: z.coerce
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters.')
-        .default(false)
+        .default(true)
         .optional(),
     groupKey: z.string().describe('Filter traces by group key. Requires `groupTypeIndex` to be set.').optional(),
     groupTypeIndex: integer.describe('Group type index when filtering by group.').optional(),

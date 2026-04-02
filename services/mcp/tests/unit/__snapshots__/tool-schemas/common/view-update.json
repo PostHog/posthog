@@ -12,6 +12,17 @@
             ],
             "description": "Activity log ID from the last known edit. Used for conflict detection."
         },
+        "folder_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional folder ID used to organize this view in the SQL editor sidebar."
+        },
         "id": {
             "description": "A UUID string identifying this data warehouse saved query.",
             "type": "string"
