@@ -23,7 +23,7 @@ import {
     ScheduledChangesPartialUpdateParams,
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams
@@ -52,12 +52,18 @@ const featureFlagGetAll = (): ToolBase<
                 type: params.type,
             },
         })
+        const filtered = {
+            ...result,
+            results: result.results.map((item: any) =>
+                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+            ),
+        }
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...filtered,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
+                    filtered.results.map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
                 ),
             },
             '/feature_flags'
@@ -79,7 +85,8 @@ const featureFlagGetDefinition = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${projectId}/feature_flags/${params.id}/`,
         })
-        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+        const filtered = pickResponseFields(result, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
     },
 })
 
