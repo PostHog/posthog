@@ -54,6 +54,7 @@ class SignalReportSummaryWorkflow:
     4. Select a repository for the agentic research
     5. Run the agentic report research flow
     6. Apply the resulting actionability decision to transition the report
+    7. If new signals arrived during the run, loop back to step 1
     """
 
     @staticmethod
@@ -67,6 +68,16 @@ class SignalReportSummaryWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        # If new signals arrived after the report was generated - loop back to process them also
+        while True:
+            # Loop internally rather than spawning new workflows because summary workflows are
+            # fire-and-forget (ParentClosePolicy.ABANDON), so there's no external caller to wait/restart them.
+            should_loop = await self._run_once(inputs)
+            if not should_loop:
+                return
+
+    async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs) -> bool:
+        """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
         # 1. Fetch signals for the report
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
@@ -82,13 +93,13 @@ class SignalReportSummaryWorkflow:
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            return
+            # No loop, as no signals to process
+            return False
+        signal_count = len(fetch_result.signals)
         # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
         await workflow.execute_activity(
             mark_report_in_progress_activity,
-            MarkReportInProgressInput(
-                team_id=inputs.team_id, report_id=inputs.report_id, signal_count=len(fetch_result.signals)
-            ),
+            MarkReportInProgressInput(team_id=inputs.team_id, report_id=inputs.report_id, signal_count=signal_count),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -116,7 +127,8 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                return
+                # No loop, as report is unsafe
+                return False
             # 4. Select repository for the agentic research
             repo_result: RepoSelectionResult = await workflow.execute_activity(
                 select_repository_activity,
@@ -168,7 +180,8 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                return
+                # No loop, as report is not actionable
+                return False
             if decision.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT:
                 workflow.logger.info(f"Report {inputs.report_id} requires human input: {decision.explanation}")
                 await workflow.execute_activity(
@@ -183,18 +196,25 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                return
-            await workflow.execute_activity(
+                # No loop, human input is required
+                return False
+            # 6. Mark ready and check if new signals arrived during the run
+            has_new_signals: bool = await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
                     title=decision.title,
                     summary=decision.summary,
+                    processed_signal_count=signal_count,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            # 7. If new signals arrived during the run - loop back to the start
+            if has_new_signals:
+                workflow.logger.info(f"Report {inputs.report_id} has new signals since run started, looping")
+            return has_new_signals
         except Exception as e:
             await workflow.execute_activity(
                 mark_report_failed_activity,
@@ -337,25 +357,35 @@ class MarkReportReadyInput:
     report_id: str
     title: str
     summary: str
+    processed_signal_count: int
 
 
 @temporalio.activity.defn
-async def mark_report_ready_activity(input: MarkReportReadyInput) -> None:
-    """Mark a report as ready after successful summarization and judge checks."""
+async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
+    """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
 
         @transaction.atomic
-        def do_update():
+        def do_update() -> bool:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             report.save(update_fields=updated_fields)
+            has_new_signals = report.signal_count > input.processed_signal_count
+            if has_new_signals:
+                # If more signals arrived while the report was being processed, we want to
+                # re-promote it back to candidate and loop to also process new signals
+                candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+                report.save(update_fields=candidate_fields)
+            return has_new_signals
 
-        await database_sync_to_async(do_update, thread_sensitive=False)()
+        has_new_signals = await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
             f"Marked report {input.report_id} as ready",
             report_id=input.report_id,
             title=input.title,
+            has_new_signals=has_new_signals,
         )
+        return has_new_signals
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as ready: {e}",
