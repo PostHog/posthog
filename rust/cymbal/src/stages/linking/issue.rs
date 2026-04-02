@@ -10,7 +10,7 @@ use crate::{
     assignment_rules::{try_assignment_rules, Assignment},
     error::UnhandledError,
     issue_resolution::{
-        send_issue_created_alert, send_fingerprint_issue_state, send_issue_reopened_alert,
+        send_fingerprint_issue_state, send_issue_created_alert, send_issue_reopened_alert,
         send_new_fingerprint_event, Issue, IssueFingerprintOverride,
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
