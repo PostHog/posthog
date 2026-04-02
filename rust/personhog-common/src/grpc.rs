@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
@@ -23,25 +24,27 @@ const CLIENT_NAME_HEADER: &str = "x-client-name";
 tokio::task_local! {
     /// Per-request client name, set by `GrpcMetricsLayer` and readable
     /// anywhere in the request's async call chain via `current_client_name()`.
-    pub static CLIENT_NAME: String;
+    pub static CLIENT_NAME: Arc<str>;
 }
 
 /// Get the current client name from the task-local, or `"unknown"` if not set.
-pub fn current_client_name() -> String {
+/// Returns `Arc<str>` so cloning is a cheap refcount bump rather than a
+/// heap allocation + memcpy on every call.
+pub fn current_client_name() -> Arc<str> {
     CLIENT_NAME
         .try_with(|c| c.clone())
-        .unwrap_or_else(|_| "unknown".to_string())
+        .unwrap_or_else(|_| Arc::from("unknown"))
 }
 
 /// Extract the client name from HTTP headers, defaulting to `"unknown"`.
-fn extract_client_name<B>(request: &Request<B>) -> String {
+fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
     request
         .headers()
         .get(CLIENT_NAME_HEADER)
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .unwrap_or("unknown")
-        .to_string()
+        .into()
 }
 
 // ============================================================
@@ -149,13 +152,13 @@ pub fn tracked_tcp_incoming(
 /// ensuring cancellation-safety for outbound request tracking.
 pub struct ClientInFlightGuard {
     pub backend: &'static str,
-    client: String,
+    client: Arc<str>,
 }
 
 impl ClientInFlightGuard {
     pub fn new(backend: &'static str) -> Self {
         let client = current_client_name();
-        gauge!("personhog_router_client_requests_in_flight", "backend" => backend, "client" => client.clone())
+        gauge!("personhog_router_client_requests_in_flight", "backend" => backend, "client" => client.to_string())
             .increment(1.0);
         Self { backend, client }
     }
@@ -163,7 +166,7 @@ impl ClientInFlightGuard {
 
 impl Drop for ClientInFlightGuard {
     fn drop(&mut self) {
-        gauge!("personhog_router_client_requests_in_flight", "backend" => self.backend, "client" => self.client.clone())
+        gauge!("personhog_router_client_requests_in_flight", "backend" => self.backend, "client" => self.client.to_string())
             .decrement(1.0);
     }
 }
@@ -227,7 +230,7 @@ where
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
         let method = extract_grpc_method(request.uri().path());
         let client = extract_client_name(&request);
-        gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.clone())
+        gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.to_string())
             .increment(1.0);
 
         let start = Instant::now();
@@ -243,9 +246,9 @@ where
             let result = inner.await;
             let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-            counter!("grpc_server_requests_total", "method" => method.clone(), "client" => client.clone())
+            counter!("grpc_server_requests_total", "method" => method.clone(), "client" => client.to_string())
                 .increment(1);
-            histogram!("grpc_server_request_duration_ms", "method" => method, "client" => client)
+            histogram!("grpc_server_request_duration_ms", "method" => method, "client" => client.to_string())
                 .record(duration_ms);
 
             result
@@ -257,12 +260,12 @@ where
 /// or is cancelled.
 struct InFlightGuard {
     method: String,
-    client: String,
+    client: Arc<str>,
 }
 
 impl Drop for InFlightGuard {
     fn drop(&mut self) {
-        gauge!("grpc_server_requests_in_flight", "method" => self.method.clone(), "client" => self.client.clone())
+        gauge!("grpc_server_requests_in_flight", "method" => self.method.clone(), "client" => self.client.to_string())
             .decrement(1.0);
     }
 }

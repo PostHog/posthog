@@ -86,7 +86,7 @@ impl PostgresStorage {
                 ("pool".to_string(), pool_label.to_string()),
                 (
                     "client".to_string(),
-                    personhog_common::grpc::current_client_name(),
+                    personhog_common::grpc::current_client_name().to_string(),
                 ),
             ],
             elapsed_ms,

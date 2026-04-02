@@ -42,7 +42,7 @@ impl FeatureFlagStorage for PostgresStorage {
                 "get_hash_key_override_context".to_string(),
             ),
             ("pool".to_string(), pool_label.to_string()),
-            ("client".to_string(), client.clone()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -103,7 +103,7 @@ impl FeatureFlagStorage for PostgresStorage {
                     "operation".to_string(),
                     "get_hash_key_override_context".to_string(),
                 ),
-                ("client".to_string(), client),
+                ("client".to_string(), client.to_string()),
             ],
             rows.len() as f64,
         );
@@ -157,7 +157,7 @@ impl FeatureFlagStorage for PostgresStorage {
                 "upsert_hash_key_overrides".to_string(),
             ),
             ("pool".to_string(), "primary".to_string()),
-            ("client".to_string(), client),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -196,7 +196,7 @@ impl FeatureFlagStorage for PostgresStorage {
                 "delete_hash_key_overrides_by_teams".to_string(),
             ),
             ("pool".to_string(), "primary".to_string()),
-            ("client".to_string(), client),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 

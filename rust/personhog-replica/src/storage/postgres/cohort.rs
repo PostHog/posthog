@@ -29,7 +29,7 @@ impl CohortStorage for PostgresStorage {
                 "check_cohort_membership".to_string(),
             ),
             ("pool".to_string(), pool_label.to_string()),
-            ("client".to_string(), client),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 

@@ -23,7 +23,7 @@ impl PersonLookup for PostgresStorage {
         let labels = [
             ("operation".to_string(), "get_person_by_id".to_string()),
             ("pool".to_string(), POOL_LABEL.to_string()),
-            ("client".to_string(), client),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -54,7 +54,7 @@ impl PersonLookup for PostgresStorage {
         let labels = [
             ("operation".to_string(), "get_person_by_uuid".to_string()),
             ("pool".to_string(), POOL_LABEL.to_string()),
-            ("client".to_string(), client),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -93,7 +93,7 @@ impl PersonLookup for PostgresStorage {
         let labels = [
             ("operation".to_string(), "get_persons_by_ids".to_string()),
             ("pool".to_string(), POOL_LABEL.to_string()),
-            ("client".to_string(), client.clone()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -120,7 +120,7 @@ impl PersonLookup for PostgresStorage {
             DB_ROWS_RETURNED,
             &[
                 ("operation".to_string(), "get_persons_by_ids".to_string()),
-                ("client".to_string(), client),
+                ("client".to_string(), client.to_string()),
             ],
             rows.len() as f64,
         );
@@ -141,7 +141,7 @@ impl PersonLookup for PostgresStorage {
         let labels = [
             ("operation".to_string(), "get_persons_by_uuids".to_string()),
             ("pool".to_string(), POOL_LABEL.to_string()),
-            ("client".to_string(), client.clone()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -168,7 +168,7 @@ impl PersonLookup for PostgresStorage {
             DB_ROWS_RETURNED,
             &[
                 ("operation".to_string(), "get_persons_by_uuids".to_string()),
-                ("client".to_string(), client),
+                ("client".to_string(), client.to_string()),
             ],
             rows.len() as f64,
         );
@@ -188,7 +188,7 @@ impl PersonLookup for PostgresStorage {
                 "get_person_by_distinct_id".to_string(),
             ),
             ("pool".to_string(), POOL_LABEL.to_string()),
-            ("client".to_string(), client),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -232,7 +232,7 @@ impl PersonLookup for PostgresStorage {
                 "get_persons_by_distinct_ids_in_team".to_string(),
             ),
             ("pool".to_string(), POOL_LABEL.to_string()),
-            ("client".to_string(), client.clone()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -265,7 +265,7 @@ impl PersonLookup for PostgresStorage {
                     "operation".to_string(),
                     "get_persons_by_distinct_ids_in_team".to_string(),
                 ),
-                ("client".to_string(), client),
+                ("client".to_string(), client.to_string()),
             ],
             rows.len() as f64,
         );
@@ -311,7 +311,7 @@ impl PersonLookup for PostgresStorage {
                 "get_persons_by_distinct_ids_cross_team".to_string(),
             ),
             ("pool".to_string(), POOL_LABEL.to_string()),
-            ("client".to_string(), client.clone()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -348,7 +348,7 @@ impl PersonLookup for PostgresStorage {
                     "operation".to_string(),
                     "get_persons_by_distinct_ids_cross_team".to_string(),
                 ),
-                ("client".to_string(), client),
+                ("client".to_string(), client.to_string()),
             ],
             rows.len() as f64,
         );

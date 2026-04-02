@@ -24,7 +24,7 @@ impl DistinctIdLookup for PostgresStorage {
                 "get_distinct_ids_for_person".to_string(),
             ),
             ("pool".to_string(), pool_label.to_string()),
-            ("client".to_string(), client.clone()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -71,7 +71,7 @@ impl DistinctIdLookup for PostgresStorage {
                     "operation".to_string(),
                     "get_distinct_ids_for_person".to_string(),
                 ),
-                ("client".to_string(), client),
+                ("client".to_string(), client.to_string()),
             ],
             rows.len() as f64,
         );
@@ -98,7 +98,7 @@ impl DistinctIdLookup for PostgresStorage {
                 "get_distinct_ids_for_persons".to_string(),
             ),
             ("pool".to_string(), pool_label.to_string()),
-            ("client".to_string(), client.clone()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -149,7 +149,7 @@ impl DistinctIdLookup for PostgresStorage {
                     "operation".to_string(),
                     "get_distinct_ids_for_persons".to_string(),
                 ),
-                ("client".to_string(), client),
+                ("client".to_string(), client.to_string()),
             ],
             rows.len() as f64,
         );

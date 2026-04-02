@@ -16,7 +16,7 @@ pub fn log_and_convert_error(err: storage::StorageError, operation: &str) -> Sta
                 &[
                     ("error_type".to_string(), "connection".to_string()),
                     ("operation".to_string(), operation.to_string()),
-                    ("client".to_string(), client),
+                    ("client".to_string(), client.to_string()),
                 ],
                 1,
             );
@@ -29,7 +29,7 @@ pub fn log_and_convert_error(err: storage::StorageError, operation: &str) -> Sta
                 &[
                     ("error_type".to_string(), "pool_exhausted".to_string()),
                     ("operation".to_string(), operation.to_string()),
-                    ("client".to_string(), client),
+                    ("client".to_string(), client.to_string()),
                 ],
                 1,
             );
@@ -42,7 +42,7 @@ pub fn log_and_convert_error(err: storage::StorageError, operation: &str) -> Sta
                 &[
                     ("error_type".to_string(), "query".to_string()),
                     ("operation".to_string(), operation.to_string()),
-                    ("client".to_string(), client),
+                    ("client".to_string(), client.to_string()),
                 ],
                 1,
             );

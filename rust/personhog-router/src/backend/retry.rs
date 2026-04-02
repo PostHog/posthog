@@ -61,7 +61,7 @@ where
                     "personhog_router_backend_retries_total",
                     "method" => method,
                     "status_code" => code_str,
-                    "client" => client
+                    "client" => client.to_string()
                 )
                 .increment(1);
 
