@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from posthog.temporal.oauth import PosthogMcpScopes
+
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
-
-    from posthog.temporal.oauth import PosthogMcpScopes
 
 logger = logging.getLogger(__name__)
 
