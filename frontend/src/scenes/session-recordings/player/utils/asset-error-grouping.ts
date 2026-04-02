@@ -20,6 +20,7 @@ export interface DoctorDiagnostics {
     assetErrors: Record<string, Record<string, number> | string>
     assetErrorTotal: number
     assetErrorTypeNames: string
+    rrwebWarningCount: number
     rrwebWarningSummary: Record<string, number>
 }
 

@@ -670,7 +670,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.setPause()
 
                 logic.actions.incrementClickCount()
-                logic.actions.incrementWarningCount(2)
+                logic.cache.rrwebWarningCount = 2
                 logic.actions.incrementErrorCount()
 
                 logic.unmount()

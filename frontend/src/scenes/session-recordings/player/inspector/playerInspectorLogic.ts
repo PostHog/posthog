@@ -374,7 +374,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'uuidToIndex',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerTime', 'skipToFirstMatchingEvent', 'doctorDiagnostics', 'warningCount'],
+            ['currentPlayerTime', 'skipToFirstMatchingEvent', 'doctorDiagnostics'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
             featureFlagLogic,
@@ -804,12 +804,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         runtimeDoctorEvents: [
-            (s) => [s.start, s.doctorDiagnostics, s.warningCount],
-            (
-                start: Dayjs | null,
-                doctorDiagnostics: DoctorDiagnostics | null,
-                warningCount: number
-            ): InspectorListItemDoctor[] => {
+            (s) => [s.start, s.doctorDiagnostics],
+            (start: Dayjs | null, doctorDiagnostics: DoctorDiagnostics | null): InspectorListItemDoctor[] => {
                 if (!start) {
                     return []
                 }
@@ -829,8 +825,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     })
                 }
 
-                if (warningCount > 0) {
-                    const summary = doctorDiagnostics?.rrwebWarningSummary ?? {}
+                const warningCount = doctorDiagnostics?.rrwebWarningCount ?? 0
+                if (doctorDiagnostics && warningCount > 0) {
+                    const summary = doctorDiagnostics.rrwebWarningSummary ?? {}
                     items.push({
                         type: 'doctor',
                         timestamp: start,

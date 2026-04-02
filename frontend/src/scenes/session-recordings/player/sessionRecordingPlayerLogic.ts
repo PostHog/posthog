@@ -443,6 +443,7 @@ function scheduleDiagnosticsFlush(
                           .join(', ')
                           .toLowerCase()
                     : '',
+                rrwebWarningCount: cache.rrwebWarningCount || 0,
                 rrwebWarningSummary: cache.rrwebWarningSummary ? { ...cache.rrwebWarningSummary } : {},
             })
         }, 2000)
@@ -538,7 +539,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
         incrementErrorCount: true,
-        incrementWarningCount: (count: number = 1) => ({ count }),
         caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => ({ errorDetails }),
         flushDoctorDiagnostics: (diagnostics: DoctorDiagnostics) => ({ diagnostics }),
         syncSnapshotsWithPlayer: true,
@@ -758,7 +758,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
         errorCount: [0, { incrementErrorCount: (prevErrorCount) => prevErrorCount + 1 }],
-        warningCount: [0, { incrementWarningCount: (prevWarningCount, { count }) => prevWarningCount + count }],
         doctorDiagnostics: [
             null as DoctorDiagnostics | null,
             {
@@ -1270,7 +1269,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const logging =
                 props.mode === SessionRecordingPlayerMode.Standard
                     ? makeLogger((category) => {
-                          actions.incrementWarningCount(1)
+                          cache.rrwebWarningCount = (cache.rrwebWarningCount || 0) + 1
                           if (!cache.rrwebWarningSummary) {
                               cache.rrwebWarningSummary = {}
                           }
@@ -1521,6 +1520,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         initializePlayerFromStart: () => {
             cache.groupedAssetErrors = null
             cache.rrwebWarningSummary = null
+            cache.rrwebWarningCount = 0
             if (cache.diagnosticsFlushTimer) {
                 clearTimeout(cache.diagnosticsFlushTimer)
                 cache.diagnosticsFlushTimer = null
@@ -2284,7 +2284,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     ? Math.floor(now().diff(values.sessionPlayerData.start, 'millisecond') ?? 0)
                     : undefined,
             recording_retention_period_days: values.sessionPlayerData.sessionRetentionPeriodDays ?? undefined,
-            rrweb_warning_count: values.warningCount,
+            rrweb_warning_count: cache.rrwebWarningCount || 0,
             error_count_during_recording_playback: values.errorCount,
             engagement_score: values.clickCount,
             avg_fps:
