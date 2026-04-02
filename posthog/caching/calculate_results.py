@@ -14,7 +14,6 @@ from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Insight, Team, User
 from posthog.models.insight import generate_insight_filters_hash
-from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -79,7 +78,7 @@ def calculate_for_query_based_insight(
     if tile_filters_override is not None and tile_filters_override != {}:
         dashboard_filters_json = tile_filters_override
 
-    query_json: dict | None = upgrade(query_override) if query_override is not None else insight.query
+    query_json: dict | None = query_override if query_override is not None else insight.query
     if query_json is None:
         raise ValueError("Insight has no query and no query_override was provided")
 
