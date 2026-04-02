@@ -1398,6 +1398,40 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p1.uuid] == [r[0] for r in res]
 
+    @also_test_with_materialized_columns(person_properties=["$some_prop"])
+    @snapshot_clickhouse_queries
+    def test_is_set_operator_excludes_null_values_for_materialized_columns(self):
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"$some_prop": "a_value"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={},
+        )
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$some_prop",
+                            "type": "person",
+                            "operator": "is_set",
+                            "value": "is_set",
+                        },
+                    ],
+                }
+            }
+        )
+        flush_persons_and_events()
+
+        res, q, params = execute(filter, self.team)
+
+        assert [p1.uuid] == [r[0] for r in res]
+
     def test_earliest_date_clause(self):
         filter = Filter(
             data={
