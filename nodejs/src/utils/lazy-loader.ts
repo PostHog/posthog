@@ -283,12 +283,22 @@ export class LazyLoader<T> {
             keyPromises.push(pendingLoad)
         }
 
-        await Promise.all(keyPromises)
+        const results = await Promise.all(keyPromises)
 
-        // Values are already in the cache via the buffer's setValues call,
-        // so just build the return map from the cache
+        // Values are already in the cache via the buffer's setValues call.
+        // For keys the loader omitted (resolved to null), cache null so
+        // repeated "not found" lookups don't hit the DB again.
+        const now = Date.now()
         const result: LazyLoaderMap<T> = {}
-        for (const key of keys) {
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i]
+            if (!(key in this.cache) && results[i] === null) {
+                this.cache[key] = null
+                this.cacheSize++
+                this.lastUsed[key] = now
+                const jitter = Math.floor(Math.random() * this.refreshJitterMs)
+                this.cacheUntil[key] = now + this.refreshNullAgeMs + jitter
+            }
             result[key] = this.cache[key] ?? null
         }
         return result
