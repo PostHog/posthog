@@ -15,18 +15,21 @@ Generate an AI-powered summary of an LLM trace or event.
 This endpoint analyzes the provided trace/event, generates a line-numbered text
 representation, and uses an LLM to create a concise summary with line references.
 
+**Two ways to use this endpoint:**
+
+1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
+   The backend fetches the data automatically. `summarize_type` is inferred.
+2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
+   This is how the frontend uses it.
+
 **Summary Format:**
-- 5-10 bullet points covering main flow and key decisions
+- Title (concise, max 10 words)
+- Mermaid flow diagram showing the main flow
+- 3-10 summary bullets with line references
 - "Interesting Notes" section for failures, successes, or unusual patterns
 - Line references in [L45] or [L45-52] format pointing to relevant sections
 
-**Use Cases:**
-- Quick understanding of complex traces
-- Identifying key events and patterns
-- Debugging with AI-assisted analysis
-- Documentation and reporting
-
-The response includes the summary text and optional metadata.
+The response includes the structured summary, the text representation, and metadata.
         
  */
 export const LlmAnalyticsSummarizationCreateParams = /* @__PURE__ */ zod.object({
@@ -44,7 +47,10 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
     summarize_type: zod
         .enum(['trace', 'event'])
         .describe('* `trace` - trace\n* `event` - event')
-        .describe('Type of entity to summarize\n\n* `trace` - trace\n* `event` - event'),
+        .optional()
+        .describe(
+            'Type of entity to summarize. Inferred automatically when using trace_id or generation_id.\n\n* `trace` - trace\n* `event` - event'
+        ),
     mode: zod
         .enum(['minimal', 'detailed'])
         .describe('* `minimal` - minimal\n* `detailed` - detailed')
@@ -52,10 +58,32 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points\n\n* `minimal` - minimal\n* `detailed` - detailed"
         ),
-    data: zod.unknown().describe('Data to summarize. For traces: {trace, hierarchy}. For events: {event}.'),
+    data: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id.'
+        ),
     force_refresh: zod
         .boolean()
         .default(llmAnalyticsSummarizationCreateBodyForceRefreshDefault)
         .describe('Force regenerate summary, bypassing cache'),
     model: zod.string().nullish().describe('LLM model to use (defaults based on provider)'),
+    trace_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Trace ID to summarize. The backend fetches the trace data automatically. Requires date_from for efficient lookup.'
+        ),
+    generation_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Generation event UUID to summarize. The backend fetches the event data automatically. Requires date_from for efficient lookup.'
+        ),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe("Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."),
+    date_to: zod.string().nullish().describe('End of date range for ID-based lookup. Defaults to now.'),
 })

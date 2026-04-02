@@ -31,6 +31,18 @@ const llmAnalyticsSummarizationCreate = (): ToolBase<
         if (params.model !== undefined) {
             body['model'] = params.model
         }
+        if (params.trace_id !== undefined) {
+            body['trace_id'] = params.trace_id
+        }
+        if (params.generation_id !== undefined) {
+            body['generation_id'] = params.generation_id
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        if (params.date_to !== undefined) {
+            body['date_to'] = params.date_to
+        }
         const result = await context.api.request<Schemas.SummarizeResponse>({
             method: 'POST',
             path: `/api/environments/${projectId}/llm_analytics/summarization/`,

@@ -7937,6 +7937,11 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
     }
 
+    export interface DashboardGeneratedMetadata {
+      name: string;
+      description: string;
+    }
+
     /**
      * * `team` - Only team
     * `global` - Global
@@ -9217,6 +9222,53 @@ export namespace Schemas {
       Empty: 'empty',
     } as const;
 
+    export type HrefMatching = typeof HrefMatching[keyof typeof HrefMatching];
+
+
+    export const HrefMatching = {
+      Contains: 'contains',
+      Exact: 'exact',
+      Regex: 'regex',
+    } as const;
+
+    export type TextMatching = typeof TextMatching[keyof typeof TextMatching];
+
+
+    export const TextMatching = {
+      Contains: 'contains',
+      Exact: 'exact',
+      Regex: 'regex',
+    } as const;
+
+    export type UrlMatching = typeof UrlMatching[keyof typeof UrlMatching];
+
+
+    export const UrlMatching = {
+      Contains: 'contains',
+      Exact: 'exact',
+      Regex: 'regex',
+    } as const;
+
+    export interface EventsQueryActionStep {
+      /** @nullable */
+      event?: string | null;
+      /** @nullable */
+      href?: string | null;
+      href_matching?: HrefMatching | null;
+      /** @nullable */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      /** @nullable */
+      selector?: string | null;
+      /** @nullable */
+      tag_name?: string | null;
+      /** @nullable */
+      text?: string | null;
+      text_matching?: TextMatching | null;
+      /** @nullable */
+      url?: string | null;
+      url_matching?: UrlMatching | null;
+    }
+
     export type EventsQueryKind = typeof EventsQueryKind[keyof typeof EventsQueryKind];
 
 
@@ -9265,6 +9317,11 @@ export namespace Schemas {
        * @nullable
        */
       actionId?: number | null;
+      /**
+       * Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.
+       * @nullable
+       */
+      actionSteps?: EventsQueryActionStep[] | null;
       /**
        * Only fetch events that happened after this timestamp
        * @nullable
@@ -29185,18 +29242,18 @@ export namespace Schemas {
     } as const;
 
     export interface SummarizeRequest {
-      /** Type of entity to summarize
+      /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
 
     * `trace` - trace
     * `event` - event */
-      summarize_type: SummarizeTypeEnum;
+      summarize_type?: SummarizeTypeEnum;
       /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
     * `minimal` - minimal
     * `detailed` - detailed */
       mode?: Mode02aEnum;
-      /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
-      data: unknown;
+      /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
+      data?: unknown;
       /** Force regenerate summary, bypassing cache */
       force_refresh?: boolean;
       /**
@@ -29204,6 +29261,20 @@ export namespace Schemas {
        * @nullable
        */
       model?: string | null;
+      /** Trace ID to summarize. The backend fetches the trace data automatically. Requires date_from for efficient lookup. */
+      trace_id?: string;
+      /** Generation event UUID to summarize. The backend fetches the event data automatically. Requires date_from for efficient lookup. */
+      generation_id?: string;
+      /**
+       * Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+       * @nullable
+       */
+      date_from?: string | null;
+      /**
+       * End of date range for ID-based lookup. Defaults to now.
+       * @nullable
+       */
+      date_to?: string | null;
     }
 
     export interface SummarizeResponse {
@@ -30323,6 +30394,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsCopyTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsGenerateMetadataCreateParams = {
+    format?: EnvironmentsDashboardsGenerateMetadataCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsGenerateMetadataCreateFormat = typeof EnvironmentsDashboardsGenerateMetadataCreateFormat[keyof typeof EnvironmentsDashboardsGenerateMetadataCreateFormat];
+
+
+    export const EnvironmentsDashboardsGenerateMetadataCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -33007,6 +33090,18 @@ export namespace Schemas {
 
 
     export const DashboardsCopyTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsGenerateMetadataCreateParams = {
+    format?: DashboardsGenerateMetadataCreateFormat;
+    };
+
+    export type DashboardsGenerateMetadataCreateFormat = typeof DashboardsGenerateMetadataCreateFormat[keyof typeof DashboardsGenerateMetadataCreateFormat];
+
+
+    export const DashboardsGenerateMetadataCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
