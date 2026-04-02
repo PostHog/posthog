@@ -1,9 +1,8 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from parameterized import parameterized
 from rest_framework import status
-
-from posthog.test.base import APIBaseTest
 
 from products.llm_analytics.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 

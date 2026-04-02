@@ -424,7 +424,12 @@ export function TraceReviewButton({
                             <div className="text-sm text-muted">
                                 There are no active scorers yet. You can still mark this trace as reviewed and add
                                 reasoning.{' '}
-                                <Link to={scorersUrl} target="_blank" targetBlankIcon data-attr="llma-trace-review-open-scorers">
+                                <Link
+                                    to={scorersUrl}
+                                    target="_blank"
+                                    targetBlankIcon
+                                    data-attr="llma-trace-review-open-scorers"
+                                >
                                     Open scorers
                                 </Link>
                             </div>
