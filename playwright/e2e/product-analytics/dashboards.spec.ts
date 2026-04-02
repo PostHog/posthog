@@ -62,9 +62,9 @@ test.describe('Dashboards', () => {
         await test.step('navigate to dashboard and verify the updated insight', async () => {
             await page.goto(dashboardUrl, { waitUntil: 'domcontentloaded' })
             await expect(page).toHaveURL(/\/dashboard\//)
-            await expect(dashboard.insightCards.first().locator('[data-attr="insight-card-title"]')).toContainText(
-                updatedName
-            )
+            await expect(dashboard.insightCards.first()).toBeVisible()
+            const updatedCard = await dashboard.findCardByTitle(updatedName)
+            await expect(updatedCard.locator('[data-attr="insight-card-title"]')).toContainText(updatedName)
         })
     })
 
@@ -161,6 +161,7 @@ test.describe('Dashboards', () => {
             await page.keyboard.type('SELECT {variables.test_number}', { delay: 10 })
 
             await page.getByRole('button', { name: 'Run' }).click()
+            await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
             await expect(page.getByRole('button', { name: 'Save as insight' })).toBeEnabled({ timeout: 30000 })
             await page.getByRole('button', { name: 'Save as insight' }).click()
 
