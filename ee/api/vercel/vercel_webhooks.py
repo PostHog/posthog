@@ -149,14 +149,13 @@ def vercel_webhook(request: Request) -> Response:
                 try:
                     VercelIntegration.delete_installation(config_id)
                 except BillingServiceOpenInvoicesError as e:
+                    # Vercel ignores non-200 from webhooks and shows "Integration Deleted" regardless.
+                    # The marketplace DELETE API endpoint handles the actual blocking with 409.
+                    # Log the warning but return 200 to avoid misleading error tracking noise.
                     logger.warning(
                         "vercel_webhook_deauthorize_blocked_by_open_invoices",
                         config_id=config_id,
                         reason=e.message,
-                    )
-                    return Response(
-                        {"error": e.message, "code": "open_invoices_error"},
-                        status=status.HTTP_409_CONFLICT,
                     )
                 except Exception as e:
                     logger.exception("vercel_webhook_deauthorize_delete_failed", config_id=config_id)

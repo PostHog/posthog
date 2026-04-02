@@ -142,7 +142,15 @@ class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin
             self.invalidate_installation_cache(installation_id)
         except BillingServiceOpenInvoicesError as e:
             return Response(
-                {"error": e.message, "code": "open_invoices_error"},
+                {
+                    "error": {
+                        "code": "open_invoices_error",
+                        "message": e.message,
+                        "user": {
+                            "message": "This integration has unpaid invoices that must be resolved before uninstalling. Please contact support@posthog.com for help.",
+                        },
+                    }
+                },
                 status=409,
             )
         except exceptions.NotFound:
