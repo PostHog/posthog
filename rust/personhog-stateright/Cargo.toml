@@ -1,0 +1,9 @@
+[package]
+name = "personhog-stateright"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+stateright = "0.30"
+serde = { version = "1.0", features = ["derive"] }

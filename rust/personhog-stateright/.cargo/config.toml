@@ -1,0 +1,4 @@
+# Override workspace config to drop -fuse-ld=lld (requires flox's lld).
+# This crate has no tokio dependency, so we don't need tokio_unstable either.
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))']
+rustflags = []
