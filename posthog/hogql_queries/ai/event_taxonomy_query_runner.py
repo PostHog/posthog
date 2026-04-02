@@ -121,18 +121,22 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             r"\$ip",
             # feature flags and experiments
             r"\$feature\/",
+            r"\$feature_enrollment\/",
+            r"\$feature_interaction\/",
+            # product tours
+            r"\$product_tour",
             # flatten-properties-plugin
             "__",
+            # surveys
+            "survey_dismiss",
+            "survey_responded",
             # other metadata
             "phjs",
-            "survey_dismissed",
-            "survey_responded",
             "partial_filter_chosen",
             "changed_action",
             "window-id",
             "changed_event",
             "partial_filter",
-            "distinct_id",
         ]
         regex_conditions = "|".join(omit_list)
 

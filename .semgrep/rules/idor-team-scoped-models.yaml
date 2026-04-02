@@ -89,6 +89,7 @@ rules:
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
                               |DataWarehouseSavedQueryDraft
+                              |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
@@ -98,6 +99,7 @@ rules:
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
+                              |EventFilterConfig
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
@@ -142,6 +144,7 @@ rules:
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
+                              |MCPAnalyticsSubmission
                               |Node
                               |NotificationEvent
                               |Notebook
@@ -175,7 +178,7 @@ rules:
                               |Tag
                               |Task
                               |TaskRun
-                              |TeamConversationsEmailConfig
+                              |EmailChannel
                               |Text
                               |Threshold
                               |Ticket
@@ -273,6 +276,7 @@ rules:
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryDraft
+                        |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
@@ -282,6 +286,7 @@ rules:
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
+                        |EventFilterConfig
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
@@ -357,7 +362,7 @@ rules:
                         |Tag
                         |Task
                         |TaskRun
-                        |TeamConversationsEmailConfig
+                        |EmailChannel
                         |Text
                         |Threshold
                         |Ticket

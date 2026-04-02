@@ -19,7 +19,7 @@ import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
-import { LemonCheckbox, LemonDialog, LemonInput, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -207,6 +207,25 @@ export function getDisplayTypeToSaveInsight(
     return effectiveVisualizationType || ChartDisplayType.ActionsLineGraph
 }
 
+export function activeTabMatchesUrlTarget(
+    activeTab: QueryTab | null,
+    target: { draftId?: string; insightShortId?: string; viewId?: string }
+): boolean {
+    if (target.draftId) {
+        return activeTab?.draft?.id === target.draftId
+    }
+
+    if (target.viewId) {
+        return activeTab?.view?.id === target.viewId
+    }
+
+    if (target.insightShortId) {
+        return activeTab?.insight?.short_id === target.insightShortId
+    }
+
+    return !activeTab?.draft && !activeTab?.view && !activeTab?.insight
+}
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
@@ -214,7 +233,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById'],
+            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryFolders', 'dataWarehouseSavedQueryMapById'],
             userLogic,
             ['user'],
             draftsLogic,
@@ -232,6 +251,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dataWarehouseViewsLogic,
             [
                 'loadDataWarehouseSavedQueriesSuccess',
+                'loadDataWarehouseSavedQueryFolders',
                 'deleteDataWarehouseSavedQuerySuccess',
                 'createDataWarehouseSavedQuerySuccess',
                 'runDataWarehouseSavedQuery',
@@ -274,17 +294,25 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         initialize: true,
         loadUpstream: (modelId: string) => ({ modelId }),
         saveAsView: (materializeAfterSave = false, fromDraft?: string) => ({ fromDraft, materializeAfterSave }),
-        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string, isTest = false) => ({
+        saveAsViewSubmit: (
+            name: string,
+            materializeAfterSave = false,
+            fromDraft?: string,
+            isTest = false,
+            folderId?: string | null
+        ) => ({
             fromDraft,
             name,
             materializeAfterSave,
             isTest,
+            folderId,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         saveAsEndpoint: true,
         saveAsEndpointSubmit: (name: string, description?: string) => ({ name, description }),
         updateInsight: true,
+        closeEditingObject: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
         setDataError: (error: string | null) => ({ error }),
@@ -842,9 +870,42 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             const isStaff = values.user?.is_staff ?? false
+            const folderOptions: { value: string | null; label: string }[] = [
+                { value: null, label: 'No folder' },
+                ...values.dataWarehouseSavedQueryFolders.map((folder) => ({
+                    value: folder.id,
+                    label: folder.name,
+                })),
+            ]
+            const createFolderAndSelect = async (onSelect: (newValue: string | null) => void): Promise<void> => {
+                LemonDialog.openForm({
+                    title: 'New folder',
+                    initialValues: { folderName: '' },
+                    content: (
+                        <LemonField name="folderName">
+                            <LemonInput placeholder="Enter a folder name" autoFocus />
+                        </LemonField>
+                    ),
+                    errors: {
+                        folderName: (name) => (!name?.trim() ? 'You must enter a folder name' : undefined),
+                    },
+                    onSubmit: async ({ folderName }) => {
+                        const folder = await api.dataWarehouseSavedQueryFolders.create({ name: folderName.trim() })
+                        folderOptions.splice(folderOptions.length - 1, 0, {
+                            value: folder.id,
+                            label: folder.name,
+                        })
+                        actions.loadDataWarehouseSavedQueryFolders()
+                        onSelect(folder.id)
+                        lemonToast.success('Folder created')
+                    },
+                    shouldAwaitSubmit: true,
+                })
+            }
+
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: values.activeTab?.name || '', isTest: false },
+                initialValues: { viewName: values.activeTab?.name || '', folderId: null, isTest: false },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (isLoading) =>
                     isLoading ? (
@@ -860,6 +921,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     placeholder="Please enter the name of the view"
                                     autoFocus
                                 />
+                            </LemonField>
+                            <LemonField name="folderId" label="Folder" className="mt-2">
+                                {({ value, onChange }) => (
+                                    <LemonSelect<string | null>
+                                        value={value}
+                                        onChange={onChange}
+                                        options={[
+                                            ...folderOptions,
+                                            {
+                                                value: '__add_new_folder__',
+                                                label: '+ Add new folder',
+                                                labelInMenu: () => (
+                                                    <button
+                                                        type="button"
+                                                        className="w-full text-left text-primary px-2 py-1.5"
+                                                        onClick={() => createFolderAndSelect(onChange)}
+                                                    >
+                                                        + Add new folder
+                                                    </button>
+                                                ),
+                                            },
+                                        ]}
+                                        disabled={isLoading}
+                                        placeholder="Select a folder"
+                                        fullWidth
+                                    />
+                                )}
                             </LemonField>
                             {isStaff && (
                                 <LemonField name="isTest" className="mt-2">
@@ -888,13 +976,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                               ? 'Name must be valid'
                               : undefined,
                 },
-                onSubmit: async ({ viewName, isTest }) => {
-                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, isTest)
+                onSubmit: async ({ viewName, folderId, isTest }) => {
+                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, isTest, folderId)
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false }) => {
+        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false, folderId }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = normalizeRawQuerySource({
@@ -914,6 +1002,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     name,
                     query: queryToSave,
                     types,
+                    ...(folderId ? { folder_id: folderId } : {}),
                     ...(isTest ? { is_test: true } : {}),
                 })
 
@@ -1119,6 +1208,38 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
                 )
                 router.actions.push(urls.insightView(savedInsight.short_id))
+            }
+        },
+        closeEditingObject: () => {
+            actions.setInsightLoading(false)
+            actions.setViewLoading(false)
+
+            if (!values.activeTab) {
+                actions.createTab(values.queryInput ?? '')
+                return
+            }
+
+            const nextActiveTab = {
+                ...values.activeTab,
+                name: NEW_QUERY,
+                view: undefined,
+                insight: undefined,
+                draft: undefined,
+            }
+
+            actions.updateTab(nextActiveTab)
+
+            if (!values.isEmbeddedMode) {
+                const nextHash = encodeURIComponent(JSON.stringify(getTabHash({ ...values, activeTab: nextActiveTab })))
+                const currentUrl = new URL(window.location.href)
+                currentUrl.searchParams.delete('open_insight')
+                currentUrl.searchParams.delete('open_view')
+                currentUrl.searchParams.delete('open_draft')
+                window.history.replaceState(
+                    {},
+                    '',
+                    `${urls.sqlEditor()}${currentUrl.searchParams.toString() ? `?${currentUrl.searchParams.toString()}` : ''}#${nextHash}`
+                )
             }
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
@@ -1427,8 +1548,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         titleSectionProps: [
-            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editorSource, s.dashboardId],
-            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId) => {
+            (s) => [
+                s.editingInsight,
+                s.insightLoading,
+                s.editingView,
+                s.viewLoading,
+                s.editorSource,
+                s.dashboardId,
+                s.activeTab,
+            ],
+            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId, activeTab) => {
                 if (editingInsight) {
                     const forceBackTo: Breadcrumb = dashboardId
                         ? {
@@ -1472,19 +1601,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
 
-                const searchParams = new URLSearchParams(window.location.search)
-                const hashParams = new URLSearchParams(window.location.hash.slice(1))
-                if (searchParams.get('open_view') || hashParams.get('view')) {
-                    return {
-                        name: 'Loading view...',
-                        resourceType: { type: 'view' },
+                if (!activeTab) {
+                    const searchParams = new URLSearchParams(window.location.search)
+                    const hashParams = new URLSearchParams(window.location.hash.slice(1))
+                    if (searchParams.get('open_view') || hashParams.get('view')) {
+                        return {
+                            name: 'Loading view...',
+                            resourceType: { type: 'view' },
+                        }
                     }
-                }
 
-                if (searchParams.get('open_insight') || hashParams.get('insight')) {
-                    return {
-                        name: 'Loading insight...',
-                        resourceType: { type: 'insight/hog' },
+                    if (searchParams.get('open_insight') || hashParams.get('insight')) {
+                        return {
+                            name: 'Loading insight...',
+                            resourceType: { type: 'insight/hog' },
+                        }
                     }
                 }
 
@@ -1662,8 +1793,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
                     actions.setActiveTab(outputTabFromUrl)
                 }
-                if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
-                    const draftId = searchParams.open_draft || hashParams.draft
+                const draftIdFromUrl = searchParams.open_draft || hashParams.draft
+                const viewIdFromUrl = searchParams.open_view || hashParams.view
+                const insightShortIdFromUrl = searchParams.open_insight || hashParams.insight
+
+                if (
+                    draftIdFromUrl &&
+                    (searchParams.open_draft ||
+                        !activeTabMatchesUrlTarget(values.activeTab, {
+                            draftId: draftIdFromUrl,
+                        }))
+                ) {
+                    const draftId = draftIdFromUrl
                     const draft = values.drafts.find((draft) => {
                         return draft.id === draftId
                     })
@@ -1683,9 +1824,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.createTab(draft.query.query, associatedView, undefined, draft)
                     }
                     return
-                } else if (searchParams.open_view || (hashParams.view && values.queryInput === null)) {
+                } else if (
+                    viewIdFromUrl &&
+                    (searchParams.open_view ||
+                        !activeTabMatchesUrlTarget(values.activeTab, {
+                            viewId: viewIdFromUrl,
+                        }))
+                ) {
                     // Open view
-                    const viewId = searchParams.open_view || hashParams.view
+                    const viewId = viewIdFromUrl
 
                     if (!outputTabFromUrl) {
                         actions.setActiveTab(OutputTab.Materialization)
@@ -1724,14 +1871,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setViewLoading(false)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
-                } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {
+                } else if (
+                    insightShortIdFromUrl &&
+                    (searchParams.open_insight ||
+                        !activeTabMatchesUrlTarget(values.activeTab, {
+                            insightShortId: insightShortIdFromUrl,
+                        }))
+                ) {
                     // reset current tab
                     if (values.activeTab) {
                         actions.updateTab({ ...values.activeTab, insight: undefined })
                     }
                     actions._setSuggestionPayload(null)
 
-                    const shortId = searchParams.open_insight || hashParams.insight
+                    const shortId = insightShortIdFromUrl
                     if (shortId === 'new') {
                         // Add new blank tab
                         actions.createTab()
@@ -1794,8 +1947,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
-                } else if (hashParams.q && values.queryInput === null) {
-                    // only when opening the tab
+                } else if (
+                    hashParams.q &&
+                    !draftIdFromUrl &&
+                    !viewIdFromUrl &&
+                    !insightShortIdFromUrl &&
+                    (values.queryInput === null ||
+                        !activeTabMatchesUrlTarget(values.activeTab, {}) ||
+                        values.queryInput !== hashParams.q)
+                ) {
                     actions.createTab(hashParams.q)
                     tabAdded = true
                 } else if (values.queryInput === null) {

@@ -50,7 +50,6 @@ RECOMMENDED_SERVERS = [
         "url": "https://mcp.linear.app/mcp",
         "description": "Manage Linear issues, projects, and teams.",
         "auth_type": "oauth",
-        "oauth_provider_kind": "linear",
     },
     {
         "name": "Monday",
@@ -71,7 +70,6 @@ class MCPServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     name = models.CharField(max_length=200)
     url = models.URLField(max_length=2048, unique=True)  # OAuth issuer URL
     description = models.TextField(blank=True, default="")
-    oauth_provider_kind = models.CharField(max_length=50, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
     oauth_client_id = models.CharField(max_length=500, blank=True, default="")
 

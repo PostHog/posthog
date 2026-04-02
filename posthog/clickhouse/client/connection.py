@@ -33,6 +33,10 @@ class NodeRole(StrEnum):
     ENDPOINTS = "endpoints"
     LOGS = "logs"
 
+    OPS = "ops"
+    AI_EVENTS = "ai_events"
+    AUX = "aux"
+
 
 _default_workload = Workload.ONLINE
 

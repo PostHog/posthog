@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import PropertyOperator
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property
 from posthog.models.team.team import Team
@@ -84,6 +85,7 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
     select_query = _build_person_query(team, filter, return_count=True)
 
     # Execute the query
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
         query=select_query,
         team=team,
@@ -172,6 +174,7 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
     select_query = _build_group_query(team, filter, group_type_index, return_count=True)
 
     # Execute the query with OFFLINE workload (groups queries can be massive)
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
         query=select_query,
         team=team,
@@ -411,6 +414,7 @@ def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optiona
     # Build the SELECT query to get person IDs
     select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
 
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
         query=select_query,
         team=team,
@@ -439,6 +443,7 @@ def _get_group_blast_radius_persons(
     # Build the SELECT query to get group keys
     select_query = _build_group_query(team, filter, group_type_index, return_count=False, cursor=cursor)
 
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
         query=select_query,
         team=team,

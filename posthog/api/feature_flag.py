@@ -5,6 +5,7 @@ import json
 import math
 import time
 import logging
+import functools
 from datetime import datetime
 from typing import Any, Optional, cast
 
@@ -59,6 +60,7 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.evaluation_context import normalize_context_name
 from posthog.models.feature_flag import (
@@ -92,6 +94,53 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
+
+REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
+
+
+def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
+    """Check whether the realtime cohort flag targeting feature is enabled for this request."""
+    try:
+        user = getattr(request, "user", None)
+        if user is None or user.is_anonymous:
+            return False
+        return posthoganalytics.feature_enabled(
+            REALTIME_COHORT_FLAG_TARGETING_FLAG,
+            user.distinct_id,
+            groups={"organization": str(user.organization.id)},
+            group_properties={"organization": {"id": str(user.organization.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return False
+
+
+def _validate_behavioral_cohort_for_feature_flag(cohort: Cohort, *, allow_realtime_backfilled: bool = False) -> None:
+    """
+    Raises a validation error unless the cohort is flag-compatible.
+
+    When allow_realtime_backfilled is True, realtime cohorts that have been backfilled
+    are permitted. Otherwise all behavioral cohorts are rejected.
+    """
+    if allow_realtime_backfilled:
+        if cohort.is_flag_compatible:
+            return
+        if cohort.cohort_type != CohortType.REALTIME:
+            raise serializers.ValidationError(
+                detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
+                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+            )
+        raise serializers.ValidationError(
+            detail=f"Cohort '{cohort.name}' is still being backfilled and cannot be used in feature flags yet. It will become available once its initial backfill completes.",
+            code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+        )
+
+    raise serializers.ValidationError(
+        detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
+        code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+    )
+
 
 # Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
 # None means "no operator specified" which defaults to exact.
@@ -760,6 +809,15 @@ class FeatureFlagSerializer(
             is_create=self.instance is None,
         )
 
+    @functools.cached_property
+    def _allow_realtime_backfilled(self) -> bool:
+        """Lazily check whether realtime cohort flag targeting is enabled.
+
+        This avoids a potentially expensive feature_enabled() call for flags that don't
+        reference any cohort properties.
+        """
+        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
+
     def validate_filters(self, filters):
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
         # If we see this, just return the current filters
@@ -932,9 +990,8 @@ class FeatureFlagSerializer(
                         dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
                         for cohort in [initial_cohort, *dependency_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
-                                raise serializers.ValidationError(
-                                    detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
-                                    code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+                                _validate_behavioral_cohort_for_feature_flag(
+                                    cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
@@ -1194,7 +1251,12 @@ class FeatureFlagSerializer(
             return  # Skip validation for flag dependencies
 
         try:
-            check_flag_evaluation_query_is_ok(temporary_flag, team_id, project_id)
+            check_flag_evaluation_query_is_ok(
+                temporary_flag,
+                team_id,
+                project_id,
+                allow_realtime_backfilled=self._allow_realtime_backfilled,
+            )
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
@@ -1212,6 +1274,22 @@ class FeatureFlagSerializer(
 
         should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
         self._update_filters(validated_data)
+
+        # Set default filters for remote config flags to 100% rollout
+        if validated_data.get("is_remote_configuration", False):
+            filters = validated_data.get("filters", {}) or {}
+            groups = filters.get("groups", [])
+
+            # If no groups exist, create one with 100% rollout
+            if not groups:
+                filters["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": None}]
+                validated_data["filters"] = filters
+            else:
+                # If groups exist, update any with 0% or None rollout to 100%
+                for group in groups:
+                    if group.get("rollout_percentage") in [0, None]:
+                        group["rollout_percentage"] = 100
+
         encrypt_flag_payloads(validated_data)
 
         try:
@@ -1781,6 +1859,11 @@ class UserBlastRadiusResponseSerializer(serializers.Serializer):
     total_users = serializers.IntegerField(help_text="Total number of users in the project")
 
 
+# HYPERCACHE CONTRACT: This serializer defines the JSON schema that the Rust feature-flags
+# service deserializes. Field changes (renames, removals, type changes) must follow the
+# expand-and-contract pattern. Run the contract tests to verify compatibility:
+#   pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+# See also: rust/feature-flags/src/flags/flag_models.rs (FeatureFlag struct)
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     evaluation_contexts = serializers.SerializerMethodField()

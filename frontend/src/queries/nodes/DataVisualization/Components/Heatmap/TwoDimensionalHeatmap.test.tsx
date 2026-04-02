@@ -11,6 +11,13 @@ import { dataNodeLogic } from '../../../DataNode/dataNodeLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { TwoDimensionalHeatmap } from './TwoDimensionalHeatmap'
 
+// Prevent loadData from completing (success or failure) so Kea's loader never
+// dispatches loadDataFailure and clears the response set via setResponse.
+jest.mock('~/queries/query', () => ({
+    ...jest.requireActual('~/queries/query'),
+    performQuery: jest.fn().mockImplementation(() => new Promise(() => {})),
+}))
+
 const dataNodeCollectionId = 'new-test-SQL-heatmap'
 let logicCounter = 0
 

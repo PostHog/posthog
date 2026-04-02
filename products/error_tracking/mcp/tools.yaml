@@ -7,6 +7,17 @@
 category: Error tracking
 feature: error_tracking
 url_prefix: /error_tracking
+ui_apps:
+    error-details:
+        type: detail
+        view_prop: data
+    error-issue:
+        type: detail
+        view_prop: issue
+    error-issue-list:
+        type: list
+        detail_tool: error-tracking-issues-retrieve
+        click_prop: onIssueClick
 tools:
     error-tracking-assignment-rules-list:
         operation: error_tracking_assignment_rules_list
@@ -62,8 +73,7 @@ tools:
         description: >
             List all error tracking issues in the project. Returns issues with status, volume, first/last seen
             timestamps, and assignee info.
-
-        ui_resource_uri: ui://posthog/error-issue-list.html
+        ui_app: error-issue-list
     error-tracking-issues-create:
         operation: error_tracking_issues_create
         enabled: false
@@ -81,8 +91,7 @@ tools:
         description: >
             Get a specific error tracking issue by ID. Returns full issue details including status, description, volume,
             and metadata.
-
-        ui_resource_uri: ui://posthog/error-issue.html
+        ui_app: error-issue
     error-tracking-issues-update:
         operation: error_tracking_issues_update
         enabled: false
@@ -100,7 +109,7 @@ tools:
         description: >
             Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or
             update description.
-        ui_resource_uri: ui://posthog/error-issue.html
+        ui_app: error-issue
     error-tracking-issues-destroy:
         operation: error_tracking_issues_destroy
         enabled: false
@@ -253,4 +262,7 @@ tools:
         enabled: false
     error-tracking-spike-events-list:
         operation: error_tracking_spike_events_list
+        enabled: false
+    error-tracking-symbol-sets-bulk-delete-create:
+        operation: error_tracking_symbol_sets_bulk_delete_create
         enabled: false
