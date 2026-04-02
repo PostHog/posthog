@@ -1214,7 +1214,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 affectedCounts={affectedCounts}
                                 totalCounts={totalCounts}
                                 aggregationTargetName={aggregationTargetName}
-                                aggregationLabel={aggregationLabel}
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}
