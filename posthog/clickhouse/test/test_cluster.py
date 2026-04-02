@@ -392,6 +392,37 @@ def test_satellite_cluster_hosts_have_no_shard_info() -> None:
         assert times_called["aux"] == 1
 
 
+def test_satellite_dedup_same_physical_host() -> None:
+    """In local dev, satellite clusters point to the same ClickHouse node as the main cluster.
+    NodeRole.ALL should not execute on the same physical host twice."""
+    bootstrap_client_mock = Mock()
+
+    def mock_execute(query, params):
+        # All clusters return the same physical host (like Docker dev setup)
+        if "satellite_name" not in params:
+            return [("clickhouse", "9000", "1", "1", "online", "data")]
+        else:
+            return [("clickhouse", "9000", "1", "1", "online", "data")]
+
+    bootstrap_client_mock.execute = Mock(side_effect=mock_execute)
+
+    cluster = ClickhouseCluster(
+        bootstrap_client_mock,
+        satellite_clusters=["aux", "sessions"],
+    )
+
+    times_called = 0
+
+    def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
+        nonlocal times_called
+        times_called += 1
+        return lambda: fn(Mock())
+
+    with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
+        assert times_called == 1, f"Expected 1 execution on the single physical host, got {times_called}"
+
+
 def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100

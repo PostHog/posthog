@@ -234,12 +234,16 @@ class ClickhouseCluster:
     def __hosts_by_roles(
         self, hosts: set[HostInfo], node_roles: list[NodeRole], workload: Workload = Workload.DEFAULT
     ) -> set[HostInfo]:
-        return {
-            host
-            for host in hosts
-            if (host.host_cluster_role in node_roles or NodeRole.ALL in node_roles)
-            and (host.host_cluster_type == workload.value.lower() or workload == Workload.DEFAULT)
-        }
+        # Deduplicate by connection_info to avoid executing on the same physical node twice
+        # (e.g. in local dev where satellite clusters point to the same ClickHouse instance)
+        seen: dict[ConnectionInfo, HostInfo] = {}
+        for host in hosts:
+            if (host.host_cluster_role in node_roles or NodeRole.ALL in node_roles) and (
+                host.host_cluster_type == workload.value.lower() or workload == Workload.DEFAULT
+            ):
+                if host.connection_info not in seen:
+                    seen[host.connection_info] = host
+        return set(seen.values())
 
     @property
     def __hosts(self) -> set[HostInfo]:
