@@ -41,6 +41,7 @@ from products.conversations.backend.api.serializers import (
 from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
+    get_person_distinct_ids,
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
@@ -142,7 +143,8 @@ class WidgetMessageView(APIView):
                 ticket = Ticket.objects.get(id=ticket_id, team=team)
 
                 if verified_distinct_id is not None:
-                    if ticket.distinct_id != verified_distinct_id:
+                    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+                    if ticket.distinct_id not in allowed_ids:
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
                     # Migrate old tickets to the deterministic widget_session_id
                     if ticket.widget_session_id != widget_session_id:
@@ -295,7 +297,8 @@ class WidgetMessagesView(APIView):
         # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
         verified_distinct_id = _verify_identity(query_serializer.validated_data, team)
         if verified_distinct_id is not None:
-            if ticket.distinct_id != verified_distinct_id:
+            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+            if ticket.distinct_id not in allowed_ids:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         elif "widget_session_id" in query_serializer.validated_data:
             widget_session_id = str(query_serializer.validated_data["widget_session_id"])
@@ -423,7 +426,8 @@ class WidgetTicketsView(APIView):
 
         # Build query
         if verified_distinct_id is not None:
-            tickets_query = Ticket.objects.filter(team=team, distinct_id=verified_distinct_id)
+            all_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+            tickets_query = Ticket.objects.filter(team=team, distinct_id__in=all_ids)
         else:
             tickets_query = Ticket.objects.filter(team=team, widget_session_id=cache_key_id)
 
@@ -502,7 +506,8 @@ class WidgetMarkReadView(APIView):
         # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
         verified_distinct_id = _verify_identity(body_serializer.validated_data, team)
         if verified_distinct_id is not None:
-            if ticket.distinct_id != verified_distinct_id:
+            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+            if ticket.distinct_id not in allowed_ids:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
             cache_invalidation_key = f"iv:{verified_distinct_id}"
         elif "widget_session_id" in body_serializer.validated_data:
