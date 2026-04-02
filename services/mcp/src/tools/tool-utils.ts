@@ -72,7 +72,7 @@ function copyAtPath(source: unknown, target: Record<string, unknown>, segments: 
             return
         }
         if (target[head] === undefined) {
-            target[head] = Array.isArray(src) ? new Array(src.length).fill(undefined).map(() => ({})) : {}
+            target[head] = Array.isArray(src) ? [] : {}
         }
         copyAtPath(src, target[head] as Record<string, unknown>, rest)
     }
