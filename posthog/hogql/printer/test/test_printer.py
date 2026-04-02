@@ -2350,10 +2350,10 @@ class TestPrinter(BaseTest):
 
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id = 'trace123'", context)
 
-        # Should generate: equals(mat_$ai_trace_id, 'value') without ifNull wrapper
+        # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
         # Find the placeholder that holds our value (index varies with number of joins)
-        trace_val = next(k for k, v in context.values.items() if v == "trace123")
-        self.assertIn(f"equals(events.`mat_$ai_trace_id`, %({trace_val})s)", sql)
+        trace_param_key = next(k for k, v in context.values.items() if v == "trace123")
+        self.assertIn(f"equals(events.`mat_$ai_trace_id`, %({trace_param_key})s)", sql)
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
@@ -2371,9 +2371,9 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id IN ('trace1', 'trace2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        trace1_value = next(k for k, v in context.values.items() if v == "trace1")
-        trace2_value = next(k for k, v in context.values.items() if v == "trace2")
-        self.assertIn(f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_value})s, %({trace2_value})s))", sql)
+        trace1_param_key = next(k for k, v in context.values.items() if v == "trace1")
+        trace2_param_key = next(k for k, v in context.values.items() if v == "trace2")
+        self.assertIn(f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
         self.assertNotIn("ifNull(in", sql)
 
         # Verify other properties still get normal treatment
@@ -2383,10 +2383,10 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
 
         # Other properties should still have null handling with ifNull wrapping
-        other_prop_value = next(k for k, v in context.values.items() if v == "other_prop")
-        value_value = next(k for k, v in context.values.items() if v == "value")
+        other_prop_param_key = next(k for k, v in context.values.items() if v == "other_prop")
+        value_param_key = next(k for k, v in context.values.items() if v == "value")
         self.assertIn(
-            f"ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %({other_prop_value})s), ''), 'null'), '^\"|\"$', ''), %({value_value})s), 0)",
+            f"ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %({other_prop_param_key})s), ''), 'null'), '^\"|\"$', ''), %({value_param_key})s), 0)",
             sql,
         )
 
@@ -2410,10 +2410,10 @@ class TestPrinter(BaseTest):
 
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id = 'session123'", context)
 
-        # Should generate: equals(mat_$ai_session_id, 'value') without ifNull wrapper
+        # Should generate: equals(mat_$ai_session_id, 'session123') without ifNull wrapper
         # Find the placeholder that holds our value (index varies with number of joins)
-        session_val = next(k for k, v in context.values.items() if v == "session123")
-        self.assertIn(f"equals(events.`mat_$ai_session_id`, %({session_val})s)", sql)
+        session_param_key = next(k for k, v in context.values.items() if v == "session123")
+        self.assertIn(f"equals(events.`mat_$ai_session_id`, %({session_param_key})s)", sql)
         # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
@@ -2431,9 +2431,11 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id IN ('session1', 'session2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        session1_value = next(k for k, v in context.values.items() if v == "session1")
-        session2_value = next(k for k, v in context.values.items() if v == "session2")
-        self.assertIn(f"in(events.`mat_$ai_session_id`, tuple(%({session1_value})s, %({session2_value})s))", sql)
+        session1_param_key = next(k for k, v in context.values.items() if v == "session1")
+        session2_param_key = next(k for k, v in context.values.items() if v == "session2")
+        self.assertIn(
+            f"in(events.`mat_$ai_session_id`, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql
+        )
         self.assertNotIn("ifNull(in", sql)
 
     def test_field_nullable_like(self):
