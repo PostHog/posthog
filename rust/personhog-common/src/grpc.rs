@@ -8,9 +8,10 @@ use std::time::Instant;
 use futures::stream::unfold;
 use http::{Request, Response};
 use metrics::{counter, gauge, histogram};
-use pin_project::pin_project;
+use pin_project::{pin_project, pinned_drop};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::task::futures::TaskLocalFuture;
 use tonic::transport::server::Connected;
 use tower::{Layer, Service};
 
@@ -221,7 +222,7 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = GrpcMetricsFuture<S::Future>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -236,36 +237,67 @@ where
         let start = Instant::now();
         // Call inner inside the scope so any synchronous work in call() sees CLIENT_NAME.
         let inner = CLIENT_NAME.sync_scope(client.clone(), || self.inner.call(request));
-        let in_flight_guard = InFlightGuard {
-            method: method.clone(),
-            client: client.clone(),
-        };
 
-        Box::pin(CLIENT_NAME.scope(client.clone(), async move {
-            let _guard = in_flight_guard;
-            let result = inner.await;
-            let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-            counter!("grpc_server_requests_total", "method" => method.clone(), "client" => client.to_string())
-                .increment(1);
-            histogram!("grpc_server_request_duration_ms", "method" => method, "client" => client.to_string())
-                .record(duration_ms);
-
-            result
-        }))
+        GrpcMetricsFuture {
+            inner: CLIENT_NAME.scope(client.clone(), inner),
+            method,
+            client,
+            start,
+        }
     }
 }
 
-/// Drop guard that decrements the in-flight gauge when a request completes
-/// or is cancelled.
-struct InFlightGuard {
+/// Future returned by [`GrpcMetricsService`].
+///
+/// Wraps the inner service future with task-local client name propagation
+/// and records request metrics (counter, histogram, in-flight gauge) on
+/// completion or cancellation. Lives inline in the caller's async state
+/// machine — no heap allocation or dynamic dispatch.
+#[pin_project(PinnedDrop)]
+pub struct GrpcMetricsFuture<F> {
+    #[pin]
+    inner: TaskLocalFuture<Arc<str>, F>,
     method: String,
     client: Arc<str>,
+    start: Instant,
 }
 
-impl Drop for InFlightGuard {
-    fn drop(&mut self) {
-        gauge!("grpc_server_requests_in_flight", "method" => self.method.clone(), "client" => self.client.to_string())
+impl<F, ResBody, E> Future for GrpcMetricsFuture<F>
+where
+    F: Future<Output = Result<Response<ResBody>, E>>,
+{
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        match this.inner.poll(cx) {
+            Poll::Ready(result) => {
+                let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
+                counter!("grpc_server_requests_total",
+                    "method" => this.method.clone(),
+                    "client" => this.client.to_string())
+                    .increment(1);
+                histogram!("grpc_server_request_duration_ms",
+                    "method" => this.method.clone(),
+                    "client" => this.client.to_string())
+                    .record(duration_ms);
+                Poll::Ready(result)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+/// Decrement the in-flight gauge when the future is dropped (on both
+/// normal completion and cancellation), matching the original
+/// `InFlightGuard` behavior.
+#[pinned_drop]
+impl<F> PinnedDrop for GrpcMetricsFuture<F> {
+    fn drop(self: Pin<&mut Self>) {
+        let this = self.project();
+        gauge!("grpc_server_requests_in_flight",
+            "method" => this.method.clone(),
+            "client" => this.client.to_string())
             .decrement(1.0);
     }
 }
