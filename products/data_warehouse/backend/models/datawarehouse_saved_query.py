@@ -106,6 +106,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         blank=True,
         related_name="saved_queries",
     )
+    folder = models.ForeignKey(
+        "data_warehouse.DataWarehouseSavedQueryFolder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="saved_queries",
+        help_text="Optional folder used to organize this saved query in the SQL editor sidebar.",
+    )
 
     origin = models.CharField(
         choices=Origin.choices, help_text="Where this SavedQuery is created.", default=None, null=True, blank=True

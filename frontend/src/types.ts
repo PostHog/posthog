@@ -899,6 +899,7 @@ export enum PropertyOperator {
 export enum SavedInsightsTabs {
     Home = 'home',
     All = 'all',
+    Yours = 'yours',
     History = 'history',
     Alerts = 'alerts',
 }
@@ -5477,6 +5478,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
+    folder_id?: string | null
+    folder_name?: string | null
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
@@ -5487,6 +5490,14 @@ export interface DataWarehouseSavedQuery {
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean
     expires_at?: string
+}
+
+export interface DataWarehouseSavedQueryFolder {
+    /** UUID */
+    id: string
+    name: string
+    created_at?: string
+    view_count?: number
 }
 
 export interface DataWarehouseSavedQueryDraft {

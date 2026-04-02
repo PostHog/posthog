@@ -123,6 +123,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/experiments/eligible_feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/stats/': MOCK_EXPERIMENTS_STATS_RESPONSE,
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/warehouse_saved_query_folders/': [],
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
