@@ -532,11 +532,7 @@ remoteConfig?.let { config ->
 }`}
                 </CodeSnippet>
                 <div className="mt-2">
-                    <Link
-                        to="https://posthog.com/tutorials/android-remote-config"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
+                    <Link to="https://posthog.com/tutorials/android-remote-config" target="_blank">
                         View complete Android remote config tutorial
                     </Link>
                 </div>
@@ -587,11 +583,7 @@ if (remoteConfig != null) {
 }`}
                 </CodeSnippet>
                 <div className="mt-2">
-                    <Link
-                        to="https://posthog.com/tutorials/flutter-remote-config"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
+                    <Link to="https://posthog.com/tutorials/flutter-remote-config" target="_blank">
                         View complete Flutter remote config tutorial
                     </Link>
                 </div>
@@ -643,11 +635,7 @@ if let payload = result.payload {
 }`}
                 </CodeSnippet>
                 <div className="mt-2">
-                    <Link
-                        to="https://posthog.com/tutorials/ios-remote-config"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
+                    <Link to="https://posthog.com/tutorials/ios-remote-config" target="_blank">
                         View complete iOS remote config tutorial
                     </Link>
                 </div>
@@ -704,11 +692,7 @@ const MyComponent = () => {
 }`}
                 </CodeSnippet>
                 <div className="mt-2">
-                    <Link
-                        to="https://posthog.com/tutorials/react-native-remote-config"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
+                    <Link to="https://posthog.com/tutorials/react-native-remote-config" target="_blank">
                         View complete React Native remote config tutorial
                     </Link>
                 </div>
