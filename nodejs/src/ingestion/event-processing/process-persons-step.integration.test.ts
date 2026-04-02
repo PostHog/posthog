@@ -13,11 +13,16 @@ import {
     getTeam,
     resetTestDatabase,
 } from '../../../tests/helpers/sql'
+import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../config/kafka-topics'
 import { Hub, Person, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
 import { UUIDT } from '../../utils/utils'
+import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
+import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 import { ProcessPersonsInput, createProcessPersonsStep } from './process-persons-step'
 
@@ -29,6 +34,7 @@ describe('createProcessPersonsStep', () => {
     let timestamp: DateTime
     let personRepository: PostgresPersonRepository
     let personsStore: BatchWritingPersonsStore
+    let personOutputs: PersonOutputs
 
     const options: EventPipelineRunnerOptions = {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
@@ -47,7 +53,15 @@ describe('createProcessPersonsStep', () => {
         team = (await getTeam(hub.postgres, teamId))!
 
         personRepository = new PostgresPersonRepository(hub.postgres)
-        personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
+        personOutputs = new IngestionOutputs({
+            [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: hub.kafkaProducer },
+            [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer },
+            [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer },
+        })
+        const ingestionWarningsOutputs = new IngestionOutputs({
+            [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer },
+        })
+        personsStore = new BatchWritingPersonsStore(personRepository, ingestionWarningsOutputs)
 
         pluginEvent = {
             distinct_id: 'my_id',
@@ -100,7 +114,7 @@ describe('createProcessPersonsStep', () => {
     }
 
     it('creates person with $set properties', async () => {
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(createInput())
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -137,7 +151,7 @@ describe('createProcessPersonsStep', () => {
         const normalizedEvent = normalizeProcessPerson(normalizeEvent(event), processPerson)
         const normalizedTimestamp = parseEventTimestamp(normalizedEvent)
 
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(createInput({ normalizedEvent, timestamp: normalizedTimestamp }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -184,7 +198,7 @@ describe('createProcessPersonsStep', () => {
             created_at: DateTime.fromISO('1970-01-01T00:00:05.000Z'),
         }
 
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(createInput({ personlessPerson }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -206,7 +220,7 @@ describe('createProcessPersonsStep', () => {
             force_upgrade: true,
         }
 
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(createInput({ personlessPerson }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -221,7 +235,7 @@ describe('createProcessPersonsStep', () => {
     })
 
     it('preserves additional input fields in the output', async () => {
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const input = { ...createInput(), extraField: 'preserved' }
 
         const result = await step(input)
@@ -252,7 +266,7 @@ describe('createProcessPersonsStep', () => {
             PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
         }
 
-        const step = createProcessPersonsStep(limitOptions, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(limitOptions, personOutputs, personsStore)
         const result = await step(
             createInput({
                 normalizedEvent: identifyEvent,
@@ -280,7 +294,7 @@ describe('createProcessPersonsStep', () => {
             uuid: new UUIDT().toString(),
         }
 
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(
             createInput({
                 normalizedEvent: laterEvent,
@@ -323,7 +337,7 @@ describe('createProcessPersonsStep', () => {
             uuid: new UUIDT().toString(),
         }
 
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(
             createInput({
                 normalizedEvent: laterEvent,
@@ -358,7 +372,7 @@ describe('createProcessPersonsStep', () => {
             PERSON_MERGE_ASYNC_ENABLED: true,
         }
 
-        const step = createProcessPersonsStep(asyncOptions, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(asyncOptions, personOutputs, personsStore)
         const result = await step(
             createInput({
                 normalizedEvent: identifyEvent,

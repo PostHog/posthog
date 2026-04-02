@@ -295,8 +295,9 @@ export function EditAlertModal({
                                 <div className="deprecated-space-y-5">
                                     {isBreakdownValid && (
                                         <LemonBanner type="warning">
-                                            For trends with breakdown, the alert will fire if any of the breakdown
-                                            values breaches the threshold.
+                                            {alertMode === 'detector'
+                                                ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
+                                                : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'}
                                         </LemonBanner>
                                     )}
                                     <div className="flex gap-4 items-center">
@@ -327,8 +328,9 @@ export function EditAlertModal({
                                                     }
                                                     disabledReason={
                                                         isBreakdownValid &&
-                                                        `For trends with breakdown, the alert will fire if any of the breakdown
-                                            values breaches the threshold.`
+                                                        (alertMode === 'detector'
+                                                            ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
+                                                            : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.')
                                                     }
                                                 />
                                             </LemonField>

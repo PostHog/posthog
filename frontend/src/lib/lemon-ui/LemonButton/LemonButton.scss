@@ -99,6 +99,7 @@
         align-items: center;
         justify-content: flex-start;
         width: 100%;
+        min-width: 0;
         height: 100%;
         min-height: var(--lemon-button-height);
         padding: var(--lemon-button-padding-vertical) var(--lemon-button-padding-horizontal);
@@ -116,6 +117,7 @@
             display: flex;
             flex: 1;
             align-items: center;
+            min-width: 0;
             line-height: initial;
         }
 

@@ -71,7 +71,7 @@ export class DashboardPage {
     }
 
     async addInsightToNewDashboard(insightName?: string): Promise<void> {
-        await this.page.getByRole('button', { name: 'Add insight' }).first().click()
+        await this.page.getByTestId('dashboard-add-graph-header').click()
         const row = insightName
             ? this.page.locator('.LemonModal .LemonTable tbody tr').filter({ hasText: insightName }).first()
             : this.page.locator('.LemonModal .LemonTable tbody tr').first()

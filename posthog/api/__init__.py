@@ -160,7 +160,7 @@ from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
-from .oauth import OAuthApplicationPublicMetadataViewSet, OrganizationOAuthApplicationViewSet
+from .oauth import OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
 from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
@@ -183,7 +183,6 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
-router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
 router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
@@ -287,6 +286,12 @@ project_features_router = projects_router.register(
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+projects_router.register(
+    r"sandbox_environments",
+    tasks.SandboxEnvironmentViewSet,
+    "project_sandbox_environments",
+    ["team_id"],
+)
 
 # PostHog Code invites (not project-scoped)
 router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
@@ -1157,11 +1162,11 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(
+environments_router.register(
     r"tracing/spans",
     TracingSpansViewSet,
-    "project_tracing_spans",
-    ["project_id"],
+    "environment_tracing_spans",
+    ["team_id"],
 )
 
 environments_router.register(

@@ -60,13 +60,13 @@
             "dependsOn": ["^build"],
             "persistent": true,
             "cache": false,
-            "passThroughEnv": ["SKIP_TYPEGEN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "SSL_CERT_FILE"]
+            "passThroughEnv": ["SKIP_TYPEGEN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "SSL_CERT_FILE", "JS_URL"]
         },
         "start-vite": {
             "dependsOn": ["^build"],
             "persistent": true,
             "cache": false,
-            "passThroughEnv": ["SKIP_TYPEGEN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "SSL_CERT_FILE"]
+            "passThroughEnv": ["SKIP_TYPEGEN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "SSL_CERT_FILE", "JS_URL"]
         },
         "dev": {
             "dependsOn": ["^build"],

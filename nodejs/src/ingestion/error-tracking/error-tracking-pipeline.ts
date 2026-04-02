@@ -6,7 +6,14 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { DlqOutput, EVENTS_OUTPUT, EventOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import {
+    DlqOutput,
+    EVENTS_OUTPUT,
+    EventOutput,
+    IngestionWarningsOutput,
+    OverflowOutput,
+    TophogOutput,
+} from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -44,7 +51,9 @@ export interface ErrorTrackingPipelineInput {
  */
 export type ErrorTrackingPipelineOutput = void
 
-export type ErrorTrackingOutputs = IngestionOutputs<EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput>
+export type ErrorTrackingOutputs = IngestionOutputs<
+    EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput
+>
 
 export interface ErrorTrackingPipelineConfig {
     outputs: ErrorTrackingOutputs
@@ -171,8 +180,10 @@ export function createErrorTrackingPipeline(
                                     // Process through Cymbal as a batch (before enrichment - Cymbal only
                                     // needs raw exception data, not person/geoip/group data).
                                     // Retry on transient failures (5xx, timeout, network errors).
+                                    // 10 tries with 100ms base sleep and 2x backoff (capped at 10s)
+                                    // gives ~30s total budget to ride out a Cymbal restart.
                                     .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
-                                        tries: 3,
+                                        tries: 10,
                                         sleepMs: 100,
                                     })
                                     // Enrich, prepare, create, and emit events
