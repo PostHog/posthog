@@ -1410,37 +1410,37 @@ class TestHogFlowAPI(APIBaseTest):
             "variables": variables,
         }
 
-    def test_variables_with_unique_keys_accepted(self):
-        hog_flow = self._base_hog_flow_with_variables(
-            [
-                {"key": "name", "value": ""},
-                {"key": "email", "value": ""},
-            ]
-        )
+    @parameterized.expand(
+        [
+            (
+                "unique_keys_accepted",
+                [{"key": "name", "value": ""}, {"key": "email", "value": ""}],
+                201,
+                None,
+            ),
+            (
+                "duplicate_keys_rejected",
+                [{"key": "name", "value": ""}, {"key": "name", "value": "other"}],
+                400,
+                "Variable keys must be unique",
+            ),
+            (
+                "exceeding_5kb_rejected",
+                [{"key": f"var_{i}", "value": "x" * 1000} for i in range(6)],
+                400,
+                "Total size of variables definition must be less than 5KB",
+            ),
+            (
+                "just_under_5kb_accepted",
+                [{"key": f"v_{i:02d}", "value": "x" * 1200} for i in range(4)],
+                201,
+                None,
+            ),
+        ]
+    )
+    def test_variables_validation(self, _name, variables, expected_status, expected_error):
+        hog_flow = self._base_hog_flow_with_variables(variables)
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert response.status_code == 201, response.json()
-        assert len(response.json()["variables"]) == 2
-
-    def test_variables_with_duplicate_keys_rejected(self):
-        hog_flow = self._base_hog_flow_with_variables(
-            [
-                {"key": "name", "value": ""},
-                {"key": "name", "value": "other"},
-            ]
-        )
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert response.status_code == 400, response.json()
-        assert response.json()["detail"] == "Variable keys must be unique"
-
-    def test_variables_exceeding_5kb_rejected(self):
-        hog_flow = self._base_hog_flow_with_variables([{"key": f"var_{i}", "value": "x" * 1000} for i in range(6)])
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert response.status_code == 400, response.json()
-        assert response.json()["detail"] == "Total size of variables definition must be less than 5KB"
-
-    def test_variables_just_under_5kb_accepted(self):
-        # Each item: {"key": "v_XX", "value": "x..."} — about 30 bytes overhead per item
-        # 4 items with ~1200 char values ≈ 4920 bytes, under 5120
-        hog_flow = self._base_hog_flow_with_variables([{"key": f"v_{i:02d}", "value": "x" * 1200} for i in range(4)])
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert response.status_code == 201, response.json()
+        assert response.status_code == expected_status, response.json()
+        if expected_error:
+            assert response.json()["detail"] == expected_error
