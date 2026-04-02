@@ -49,36 +49,20 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
     # Fetch one extra row to check if there's more data
     query_limit = limit + 1
 
+    after_clause = "AND id > %(after_person_id)s" if inputs.after_person_id is not None else ""
+    query = f"""
+        SELECT id as person_id
+        FROM person FINAL
+        WHERE team_id = %(team_id)s
+          AND is_deleted = 0
+          {after_clause}
+        ORDER BY id
+        LIMIT %(limit)s
+        FORMAT JSONEachRow
+    """
+    query_params: dict[str, object] = {"team_id": inputs.team_id, "limit": query_limit}
     if inputs.after_person_id is not None:
-        query = """
-            SELECT id as person_id
-            FROM person FINAL
-            WHERE team_id = %(team_id)s
-              AND is_deleted = 0
-              AND id > %(after_person_id)s
-            ORDER BY id
-            LIMIT %(limit)s
-            FORMAT JSONEachRow
-        """
-        query_params: dict[str, object] = {
-            "team_id": inputs.team_id,
-            "after_person_id": inputs.after_person_id,
-            "limit": query_limit,
-        }
-    else:
-        query = """
-            SELECT id as person_id
-            FROM person FINAL
-            WHERE team_id = %(team_id)s
-              AND is_deleted = 0
-            ORDER BY id
-            LIMIT %(limit)s
-            FORMAT JSONEachRow
-        """
-        query_params = {
-            "team_id": inputs.team_id,
-            "limit": query_limit,
-        }
+        query_params["after_person_id"] = inputs.after_person_id
 
     ranges: list[tuple[str, str]] = []
     current_batch_start: str | None = None
