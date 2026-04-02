@@ -439,14 +439,17 @@ def export_image(
 
                 if query_override:
                     # query_override is upgraded inside calculate_for_query_based_insight,
-                    # so we skip upgrade_query (which only upgrades insight.query we won't use)
+                    # so we skip upgrade_query (which only upgrades insight.query we won't use).
+                    # variables_override is None because query_override already encodes the
+                    # user's full current state — applying saved dashboard variables on top
+                    # would clobber unsaved variable selections.
                     result = calculate_for_query_based_insight(
                         exported_asset.insight,
                         team=exported_asset.team,
                         dashboard=exported_asset.dashboard,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                         user=None,
-                        variables_override=dashboard_variables,
+                        variables_override=None,
                         tile_filters_override=tile_filters_override,
                         query_override=query_override,
                         analytics_props=export_analytics_props,

@@ -331,6 +331,22 @@ class TestImageExporter(APIBaseTest):
                 True,
             ),
             (
+                "source_vars_not_overridden_by_dashboard_vars",
+                {
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "SELECT 1",
+                        "variables": {"var_1": {"code_name": "eventName", "value": "$pageview"}},
+                    }
+                },
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT 1",
+                    "variables": {"var_1": {"code_name": "eventName", "value": "$pageview"}},
+                },
+                True,
+            ),
+            (
                 "without_export_context",
                 None,
                 None,
@@ -386,7 +402,11 @@ class TestImageExporter(APIBaseTest):
         else:
             assert "query_override" not in call_kwargs
 
-        if variable:
+        if expected_query_override is not None:
+            # When query_override is present, variables_override must be None —
+            # the user's current state is already embedded in query_override
+            assert call_kwargs["variables_override"] is None
+        elif variable:
             variable_id = str(variable.id)
             assert call_kwargs["variables_override"] == {
                 variable_id: {
