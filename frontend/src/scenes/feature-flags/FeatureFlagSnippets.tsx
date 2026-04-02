@@ -520,7 +520,7 @@ export function AndroidSnippet({
     const clientSuffix = 'PostHog.'
 
     if (remoteConfiguration) {
-        const warning = encryptedPayload ? `// ${ENCRYPTED_PAYLOAD_REMINDER}` : ''
+        const warning = `// ${REMOTE_CONFIG_REMINDER}` + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
 
         return (
             <>
@@ -571,7 +571,7 @@ export function FlutterSnippet({
     const clientSuffix = 'await Posthog().'
 
     if (remoteConfiguration) {
-        const warning = encryptedPayload ? `// ${ENCRYPTED_PAYLOAD_REMINDER}` : ''
+        const warning = `// ${REMOTE_CONFIG_REMINDER}` + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
 
         return (
             <>
@@ -623,7 +623,7 @@ export function iOSSnippet({
     const clientSuffix = 'PostHogSDK.shared.'
 
     if (remoteConfiguration) {
-        const warning = encryptedPayload ? `// ${ENCRYPTED_PAYLOAD_REMINDER}` : ''
+        const warning = `// ${REMOTE_CONFIG_REMINDER}` + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
 
         return (
             <>
@@ -646,11 +646,7 @@ if let payload = result.payload {
     if (payload) {
         return (
             <CodeSnippet language={Language.Swift} wrap>
-                {`let result = ${clientSuffix}getFeatureFlagResult("${flagKey}")
-if let payload = result.payload {
-    // Handle the payload
-    print("Payload: \\(payload)")
-}`}
+                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
             </CodeSnippet>
         )
     }
@@ -677,7 +673,7 @@ export function ReactNativeSnippet({
     const clientSuffix = 'posthog.'
 
     if (remoteConfiguration) {
-        const warning = encryptedPayload ? `// ${ENCRYPTED_PAYLOAD_REMINDER}` : ''
+        const warning = `// ${REMOTE_CONFIG_REMINDER}` + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
 
         return (
             <>
