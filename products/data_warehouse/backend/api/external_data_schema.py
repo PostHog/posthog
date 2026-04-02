@@ -396,6 +396,33 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.save()
         return Response(status=status.HTTP_200_OK)
 
+    @action(methods=["POST"], detail=True)
+    def cancel(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSchema = self.get_object()
+
+        latest_running_job = (
+            ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not latest_running_job or latest_running_job.status != "Running" or not latest_running_job.workflow_id:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"detail": "No running sync to cancel."},
+            )
+
+        try:
+            cancel_external_data_workflow(latest_running_job.workflow_id)
+        except temporalio.service.RPCError as e:
+            logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
+            )
+
+        return Response(status=status.HTTP_200_OK)
+
     @action(methods=["DELETE"], detail=True)
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
