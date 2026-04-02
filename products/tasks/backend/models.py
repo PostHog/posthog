@@ -241,6 +241,7 @@ class Task(DeletedMetaFields, models.Model):
         branch: str | None = None,
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
+        internal: bool = False,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -266,6 +267,7 @@ class Task(DeletedMetaFields, models.Model):
             created_by=created_by,
             github_integration=github_integration,
             repository=repository,
+            internal=internal,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
