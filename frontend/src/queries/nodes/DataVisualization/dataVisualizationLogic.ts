@@ -503,7 +503,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[index] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[index]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -516,7 +516,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[seriesIndex] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[seriesIndex]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -583,7 +583,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[seriesIndex] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[seriesIndex]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -601,7 +601,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[index] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[index]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },

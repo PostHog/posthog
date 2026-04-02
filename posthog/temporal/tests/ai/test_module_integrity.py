@@ -213,7 +213,6 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
-            "actionability_judge_activity",
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
@@ -233,6 +232,7 @@ class TestSignalsProductModuleIntegrity:
             "mark_report_in_progress_activity",
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
+            "publish_report_completed_activity",
             "reingest_signals_activity",
             "reset_report_to_potential_activity",
             "run_agentic_report_activity",
@@ -240,11 +240,9 @@ class TestSignalsProductModuleIntegrity:
             "report_safety_judge_activity",
             "safety_filter_activity",
             "select_repository_activity",
-            "signals_legacy_report_gate_activity",
             "soft_delete_report_signals_activity",
             "verify_match_specificity_activity",
             "wait_for_signal_in_clickhouse_activity",
-            "summarize_signals_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

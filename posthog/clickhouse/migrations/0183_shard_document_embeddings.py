@@ -42,7 +42,7 @@ operations = [
     # 5. Create distributed read table for the sharded data
     run_sql_with_exceptions(
         DISTRIBUTED_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     # 6. Create new writable distributed table pointing to sharded tables
     run_sql_with_exceptions(
