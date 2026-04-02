@@ -45,7 +45,9 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
 
     from posthog.schema import HogQLFilters
 
+    from posthog.hogql import ast
     from posthog.hogql.filters import replace_filters
+    from posthog.hogql.placeholders import replace_placeholders
     from posthog.hogql.printer.utils import to_printed_hogql
 
     from posthog.hogql_queries.query_runner import get_query_runner
@@ -57,7 +59,9 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
             return _render_recordings_query(query_dict, _cached_team)
 
         runner = get_query_runner(query_dict, _cached_team)
-        ast_query = runner.to_query()
+        ast_query: ast.Expr = runner.to_query()
+
+        from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 
         from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
         from products.logs.backend.logs_query_runner import LogsQueryRunner
@@ -67,6 +71,10 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
             hogql_filters = runner._builder.hogql_filters()
         elif isinstance(runner, LogsQueryRunner):
             hogql_filters = HogQLFilters(dateRange=runner.query.dateRange)
+
+        if isinstance(runner, TraceQueryRunner):
+            ast_query = replace_placeholders(ast_query, {"filter_conditions": runner._get_where_clause()})
+
         ast_query = replace_filters(ast_query, hogql_filters, _cached_team)
 
         return to_printed_hogql(ast_query, _cached_team)

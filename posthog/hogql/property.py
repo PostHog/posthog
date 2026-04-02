@@ -233,6 +233,18 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
     if value != "true" and value != "false":
         return value
+
+    # Virtual event properties (e.g. $virt_is_bot) don't have PropertyDefinition
+    # records, so we check the taxonomy directly for boolean type
+    if property.key and property.key.startswith("$virt_"):
+        from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+        for group_defs in CORE_FILTER_DEFINITIONS_BY_GROUP.values():
+            prop_def = group_defs.get(property.key)
+            if prop_def and prop_def.get("type") == "Boolean":
+                return value == "true"
+        return value
+
     if property.type == "person":
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
