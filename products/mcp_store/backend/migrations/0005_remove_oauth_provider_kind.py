@@ -12,6 +12,9 @@ class Migration(migrations.Migration):
         # Phase 1: Remove the field from Django's state only, keeping the column in
         # the database so that old code still works during the rollout window.
         # Phase 2 (future PR): DROP COLUMN via RunSQL with drop-column-ignore.
+        #
+        # We must also add a database-level DEFAULT so that inserts from new code
+        # (which no longer mention the column) don't violate the NOT NULL constraint.
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.RemoveField(
@@ -19,6 +22,11 @@ class Migration(migrations.Migration):
                     name="oauth_provider_kind",
                 ),
             ],
-            database_operations=[],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="ALTER TABLE mcp_store_mcpserver ALTER COLUMN oauth_provider_kind SET DEFAULT '';",
+                    reverse_sql="ALTER TABLE mcp_store_mcpserver ALTER COLUMN oauth_provider_kind DROP DEFAULT;",
+                ),
+            ],
         ),
     ]
