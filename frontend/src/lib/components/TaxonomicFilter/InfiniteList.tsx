@@ -6,7 +6,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCheck,
+    IconTriangleRight,
+    IconTriangleRightFilled,
+    IconPlus,
+    IconSearch,
+} from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -474,9 +481,9 @@ export const InfiniteListRow = ({
             : undefined
         const shouldShowPinIcon = isPinnable && (isHighlighted || isCurrentRowPinned)
         const pinIcon = isCurrentRowPinned ? (
-            <IconPinFilled className="size-4 text-warning" />
+            <IconTriangleRightFilled className="size-4 text-warning" />
         ) : (
-            <IconPin className="size-4 text-secondary" />
+            <IconTriangleRight className="size-4 text-secondary" />
         )
 
         const { listGroupType: resolvedListGroupType, itemGroup: resolvedItemGroup } = resolveItemRendering({
