@@ -707,7 +707,7 @@ def provisioning_resources_create(request: Request) -> Response:
 
     # Store Stripe Shared Payment Token if provided (pay_as_you_go plan)
     payment_credentials = request.data.get("payment_credentials")
-    if payment_credentials and payment_credentials.get("type") == "stripe_payment_token":
+    if isinstance(payment_credentials, dict) and payment_credentials.get("type") == "stripe_payment_token":
         spt_token = payment_credentials.get("stripe_payment_token")
         if spt_token:
             _store_shared_payment_token(team, spt_token)
