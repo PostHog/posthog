@@ -139,8 +139,8 @@ class SignalReportSummaryWorkflow:
                     report_id=inputs.report_id,
                     signals=fetch_result.signals,
                 ),
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
             )
             if repo_result.repository is None:
                 workflow.logger.warning(f"Report {inputs.report_id} no repository selected: {repo_result.reason}")
