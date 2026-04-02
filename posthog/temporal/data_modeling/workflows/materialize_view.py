@@ -272,7 +272,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 get_node_finished_metric("completed").add(1)
                 get_node_duration_metric().record(duration_seconds)
                 get_node_rows_materialized_metric().record(materialize_result.row_count)
-                if storage_result.storage_delta_mib is not None:
+                if storage_result.storage_delta_mib is not None and storage_result.storage_delta_mib >= 0:
                     get_node_storage_delta_mib_metric().record(storage_result.storage_delta_mib)
                 if storage_result.total_storage_mib is not None:
                     get_node_total_storage_mib_metric().record(storage_result.total_storage_mib)
@@ -430,9 +430,10 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 get_duckgres_shadow_row_count_match_metric(row_count_matched).add(1)
                 if shadow_result.file_size_bytes > 0:
                     get_duckgres_shadow_storage_mib_metric().record(shadow_result.file_size_bytes / (1024 * 1024))
-                    get_duckgres_shadow_storage_delta_mib_metric().record(
-                        shadow_result.file_size_delta_bytes / (1024 * 1024)
-                    )
+                    if shadow_result.file_size_delta_bytes >= 0:
+                        get_duckgres_shadow_storage_delta_mib_metric().record(
+                            shadow_result.file_size_delta_bytes / (1024 * 1024)
+                        )
 
             # structured log for detailed comparison
             temporalio.workflow.logger.info(

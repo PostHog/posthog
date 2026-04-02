@@ -351,6 +351,7 @@ export function InsightVizDisplay({
                     <InsightsTable
                         // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
                         isLegend={display !== ChartDisplayType.WorldMap}
+                        embedded={embedded}
                         editMode={editMode}
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
                         canEditSeriesNameInline={!hasFormula && editMode}
@@ -440,7 +441,7 @@ export function InsightVizDisplay({
                             ) : supportsDisplay && showLegend ? (
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                                    <div className="InsightVizDisplay__content__right">
+                                    <div className="InsightVizDisplay__content__right empty:hidden">
                                         {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>
