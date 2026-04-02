@@ -275,11 +275,17 @@ const sharedInsecureAgent = new InsecureAgent()
  * undici holds onto these buffers until GC, and V8 never returns the ~64MB
  * ArrayBuffer arenas they live in to the OS.
  */
+function destroyBody(body: Dispatcher.ResponseData['body']): void {
+    // Swallow the error event that undici's BodyReadable emits on destroy
+    body.on('error', () => {})
+    body.destroy()
+}
+
 async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promise<string> {
     try {
         return await body.text()
     } finally {
-        body.destroy()
+        destroyBody(body)
     }
 }
 
@@ -334,7 +340,7 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         dump: () => {
             if (!bodyPromise) {
                 bodyPromise = Promise.resolve('')
-                result.body.destroy()
+                destroyBody(result.body)
             }
             return Promise.resolve()
         },
