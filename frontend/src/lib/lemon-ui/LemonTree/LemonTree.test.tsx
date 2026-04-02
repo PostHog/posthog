@@ -24,6 +24,14 @@ describe('LemonTree virtualization', () => {
         return viewport
     }
 
+    const flushAnimationFrame = async (): Promise<void> => {
+        await act(async () => {
+            await new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve())
+            })
+        })
+    }
+
     it('renders only the visible window while scrolling', async () => {
         const data: TreeDataItem[] = [
             {
@@ -185,6 +193,7 @@ describe('LemonTree virtualization', () => {
             viewport.scrollTop = 40 * 30
             viewport.dispatchEvent(new Event('scroll'))
         })
+        await flushAnimationFrame()
 
         await waitFor(() => {
             expect(within(container).getByLabelText('tree item: child-30')).toBeInTheDocument()

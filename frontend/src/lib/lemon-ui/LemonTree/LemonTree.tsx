@@ -229,6 +229,8 @@ type VirtualWindow = {
     viewportHeight: number
 }
 
+type ScrollDirection = 'forward' | 'backward' | 'idle'
+
 type LemonTreeItemRowProps = LemonTreeNodeProps & {
     item: TreeDataItem
     ariaSetSize: number
@@ -661,7 +663,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             disableScroll = false,
             virtualized = false,
             virtualizedRowHeight = 31,
-            virtualizedOverscan = 10,
+            virtualizedOverscan = 20,
             virtualizationScrollContainerRef,
             ...props
         },
@@ -683,6 +685,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         })
         const sensors = useSensors(mouseSensor, touchSensor)
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
+        const scrollRafRef = useRef<number | null>(null)
 
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
@@ -703,7 +706,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             viewportHeight: 0,
         })
         const virtualWindowRef = useRef<VirtualWindow>(virtualWindow)
-        const virtualMetricsRef = useRef({ scrollTop: 0, viewportHeight: 0 })
+        const virtualMetricsRef = useRef({
+            scrollTop: 0,
+            viewportHeight: 0,
+            scrollDirection: 'idle' as ScrollDirection,
+        })
+        const externalViewportOffsetRef = useRef<number>(0)
 
         // Add new state for type-ahead
         function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
@@ -851,15 +859,29 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         }, [])
 
         const computeVirtualWindow = useCallback(
-            (scrollTop: number, viewportHeight: number, focusId?: string): VirtualWindow => {
+            (
+                scrollTop: number,
+                viewportHeight: number,
+                focusId?: string,
+                scrollDirection: ScrollDirection = 'idle'
+            ): VirtualWindow => {
                 const focusedIndex = focusId ? flattenedVisibleItems.findIndex(({ item }) => item.id === focusId) : -1
-                const viewportStartIndex = Math.max(
-                    0,
-                    Math.floor(scrollTop / virtualizedRowHeight) - virtualizedOverscan
-                )
+                const overscanBehind =
+                    scrollDirection === 'forward'
+                        ? Math.max(1, Math.floor(virtualizedOverscan / 2))
+                        : scrollDirection === 'backward'
+                          ? virtualizedOverscan * 2
+                          : virtualizedOverscan
+                const overscanAhead =
+                    scrollDirection === 'forward'
+                        ? virtualizedOverscan * 2
+                        : scrollDirection === 'backward'
+                          ? Math.max(1, Math.floor(virtualizedOverscan / 2))
+                          : virtualizedOverscan
+                const viewportStartIndex = Math.max(0, Math.floor(scrollTop / virtualizedRowHeight) - overscanBehind)
                 const viewportEndIndex = Math.min(
                     flattenedVisibleItems.length,
-                    Math.ceil((scrollTop + viewportHeight) / virtualizedRowHeight) + virtualizedOverscan
+                    Math.ceil((scrollTop + viewportHeight) / virtualizedRowHeight) + overscanAhead
                 )
                 const focusStartIndex =
                     focusedIndex >= 0 ? Math.max(0, focusedIndex - virtualizedOverscan) : viewportStartIndex
@@ -1306,14 +1328,23 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 return
             }
 
+            const recomputeExternalViewportOffset = (): void => {
+                if (!virtualizationScrollContainerRef?.current || !virtualizationAnchorRef.current) {
+                    externalViewportOffsetRef.current = 0
+                    return
+                }
+
+                const viewportBounds = viewport.getBoundingClientRect()
+                const anchorBounds = virtualizationAnchorRef.current.getBoundingClientRect()
+                externalViewportOffsetRef.current = anchorBounds.top - viewportBounds.top + viewport.scrollTop
+            }
+
             const updateViewportState = (): void => {
                 let nextScrollTop = viewport.scrollTop
                 let nextViewportHeight = viewport.clientHeight
 
                 if (virtualizationScrollContainerRef?.current && virtualizationAnchorRef.current) {
-                    const viewportBounds = viewport.getBoundingClientRect()
-                    const anchorBounds = virtualizationAnchorRef.current.getBoundingClientRect()
-                    const treeTopInScroll = anchorBounds.top - viewportBounds.top + viewport.scrollTop
+                    const treeTopInScroll = externalViewportOffsetRef.current
                     nextScrollTop = Math.max(0, viewport.scrollTop - treeTopInScroll)
                     const localViewportBottom = Math.max(
                         0,
@@ -1322,12 +1353,26 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     nextViewportHeight = Math.max(0, localViewportBottom - nextScrollTop)
                 }
 
+                const previousMetrics = virtualMetricsRef.current
+                const scrollDirection: ScrollDirection =
+                    nextScrollTop > previousMetrics.scrollTop
+                        ? 'forward'
+                        : nextScrollTop < previousMetrics.scrollTop
+                          ? 'backward'
+                          : previousMetrics.scrollDirection
+
                 virtualMetricsRef.current = {
                     scrollTop: nextScrollTop,
                     viewportHeight: nextViewportHeight,
+                    scrollDirection,
                 }
 
-                const nextWindow = computeVirtualWindow(nextScrollTop, nextViewportHeight, focusedItemId)
+                const nextWindow = computeVirtualWindow(
+                    nextScrollTop,
+                    nextViewportHeight,
+                    focusedItemId,
+                    scrollDirection
+                )
                 const previousWindow = virtualWindowRef.current
 
                 if (
@@ -1339,16 +1384,36 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 }
             }
 
+            const scheduleViewportStateUpdate = (): void => {
+                if (scrollRafRef.current !== null) {
+                    return
+                }
+
+                scrollRafRef.current = requestAnimationFrame(() => {
+                    scrollRafRef.current = null
+                    updateViewportState()
+                })
+            }
+
+            recomputeExternalViewportOffset()
             updateViewportState()
-            viewport.addEventListener('scroll', updateViewportState)
+            viewport.addEventListener('scroll', scheduleViewportStateUpdate, { passive: true })
 
             const resizeObserver = new ResizeObserver(() => {
-                updateViewportState()
+                recomputeExternalViewportOffset()
+                scheduleViewportStateUpdate()
             })
             resizeObserver.observe(viewport)
+            if (virtualizationAnchorRef.current) {
+                resizeObserver.observe(virtualizationAnchorRef.current)
+            }
 
             return () => {
-                viewport.removeEventListener('scroll', updateViewportState)
+                viewport.removeEventListener('scroll', scheduleViewportStateUpdate)
+                if (scrollRafRef.current !== null) {
+                    cancelAnimationFrame(scrollRafRef.current)
+                    scrollRafRef.current = null
+                }
                 resizeObserver.disconnect()
             }
         }, [computeVirtualWindow, focusedItemId, virtualizationScrollContainerRef])
@@ -1357,7 +1422,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             const nextWindow = computeVirtualWindow(
                 virtualMetricsRef.current.scrollTop,
                 virtualMetricsRef.current.viewportHeight,
-                focusedItemId
+                focusedItemId,
+                virtualMetricsRef.current.scrollDirection
             )
             if (
                 nextWindow.startIndex !== virtualWindowRef.current.startIndex ||
@@ -1370,38 +1436,54 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         const virtualizedStartIndex = virtualWindow.startIndex
         const virtualizedEndIndex = virtualWindow.endIndex
-        const indexByItemId = new Map(flattenedVisibleItems.map((visibleItem, index) => [visibleItem.item.id, index]))
-        const renderedIndexes = new Set<number>()
+        const indexByItemId = useMemo(
+            () => new Map(flattenedVisibleItems.map((visibleItem, index) => [visibleItem.item.id, index])),
+            [flattenedVisibleItems]
+        )
+        const parentIndexesByIndex = useMemo(
+            () =>
+                flattenedVisibleItems.map((visibleItem) =>
+                    visibleItem.parentId !== undefined ? indexByItemId.get(visibleItem.parentId) : undefined
+                ),
+            [flattenedVisibleItems, indexByItemId]
+        )
+        const sortedRenderedIndexes = useMemo(() => {
+            const renderedIndexes = new Set<number>()
 
-        for (let index = virtualizedStartIndex; index < virtualizedEndIndex; index++) {
-            renderedIndexes.add(index)
+            for (let index = virtualizedStartIndex; index < virtualizedEndIndex; index++) {
+                renderedIndexes.add(index)
 
-            let parentId = flattenedVisibleItems[index]?.parentId
-            while (parentId) {
-                const parentIndex = indexByItemId.get(parentId)
-                if (parentIndex === undefined || renderedIndexes.has(parentIndex)) {
-                    break
+                let parentIndex = parentIndexesByIndex[index]
+                while (parentIndex !== undefined) {
+                    if (renderedIndexes.has(parentIndex)) {
+                        break
+                    }
+                    renderedIndexes.add(parentIndex)
+                    parentIndex = parentIndexesByIndex[parentIndex]
                 }
-                renderedIndexes.add(parentIndex)
-                parentId = flattenedVisibleItems[parentIndex]?.parentId
             }
-        }
 
-        const virtualizedSegments: { startIndex: number; items: FlattenedTreeItem[] }[] = []
-        const sortedIndexes = [...renderedIndexes].sort((left, right) => left - right)
+            return [...renderedIndexes].sort((left, right) => left - right)
+        }, [parentIndexesByIndex, virtualizedEndIndex, virtualizedStartIndex])
 
-        if (sortedIndexes.length > 0) {
-            let segmentStart = sortedIndexes[0]
-            let previousIndex = sortedIndexes[0]
+        const virtualizedSegments = useMemo((): { startIndex: number; items: FlattenedTreeItem[] }[] => {
+            const segments: { startIndex: number; items: FlattenedTreeItem[] }[] = []
 
-            for (let index = 1; index < sortedIndexes.length; index++) {
-                const currentIndex = sortedIndexes[index]
+            if (sortedRenderedIndexes.length === 0) {
+                return segments
+            }
+
+            let segmentStart = sortedRenderedIndexes[0]
+            let previousIndex = sortedRenderedIndexes[0]
+
+            for (let index = 1; index < sortedRenderedIndexes.length; index++) {
+                const currentIndex = sortedRenderedIndexes[index]
                 if (currentIndex === previousIndex + 1) {
                     previousIndex = currentIndex
                     continue
                 }
 
-                virtualizedSegments.push({
+                segments.push({
                     startIndex: segmentStart,
                     items: flattenedVisibleItems.slice(segmentStart, previousIndex + 1),
                 })
@@ -1410,11 +1492,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 previousIndex = currentIndex
             }
 
-            virtualizedSegments.push({
+            segments.push({
                 startIndex: segmentStart,
                 items: flattenedVisibleItems.slice(segmentStart, previousIndex + 1),
             })
-        }
+
+            return segments
+        }, [flattenedVisibleItems, sortedRenderedIndexes])
 
         const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
             for (const item of items) {
