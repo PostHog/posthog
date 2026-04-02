@@ -291,10 +291,11 @@
                 font-style: italic;
             }
 
-            // Horizontal rule
+            // Horizontal rule - match inline table borders
             > hr {
                 margin: 1.25em 0;
-                border-top-width: 1px;
+                border: 0;
+                border-top: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
             }
 
             // Images

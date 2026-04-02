@@ -48,6 +48,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
+from posthog.models.action.action import ActionStepJSON
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
@@ -232,6 +233,18 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
     if value != "true" and value != "false":
         return value
+
+    # Virtual event properties (e.g. $virt_is_bot) don't have PropertyDefinition
+    # records, so we check the taxonomy directly for boolean type
+    if property.key and property.key.startswith("$virt_"):
+        from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+        for group_defs in CORE_FILTER_DEFINITIONS_BY_GROUP.values():
+            prop_def = group_defs.get(property.key)
+            if prop_def and prop_def.get("type") == "Boolean":
+                return value == "true"
+        return value
+
     if property.type == "person":
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
@@ -1021,9 +1034,7 @@ def property_to_expr(
     )
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
-    steps = action.steps
-
+def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
     if len(steps) == 0:
         return ast.Constant(value=True)
 
@@ -1127,7 +1138,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
             exprs.append(expr)
 
         if step.properties:
-            exprs.append(property_to_expr(step.properties, action.team))
+            exprs.append(property_to_expr(step.properties, team))
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])
@@ -1140,6 +1151,10 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
         return or_queries[0]
     else:
         return ast.Or(exprs=or_queries)
+
+
+def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
+    return steps_to_expr(action.steps, action.team, events_alias)
 
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:

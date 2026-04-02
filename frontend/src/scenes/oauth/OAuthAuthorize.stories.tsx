@@ -20,14 +20,6 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/oauth_application/metadata/test-client-id/': {
-                    id: '123',
-                    client_id: 'test-client-id',
-                    name: 'Test OAuth Application',
-                    description: 'This is a test OAuth application for development',
-                    created_at: '2023-01-01T00:00:00Z',
-                    updated_at: '2023-01-01T00:00:00Z',
-                },
                 '/api/projects/': {
                     results: [
                         {

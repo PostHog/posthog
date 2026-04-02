@@ -2017,6 +2017,11 @@ export type PropertyDefinitionsListParams = {
  * @minLength 1
  */
     type?: PropertyDefinitionsListType
+    /**
+     * Filter by verified status. True returns only verified, false returns only unverified.
+     * @nullable
+     */
+    verified?: boolean | null
 }
 
 export type PropertyDefinitionsListType = (typeof PropertyDefinitionsListType)[keyof typeof PropertyDefinitionsListType]
