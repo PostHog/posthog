@@ -493,7 +493,7 @@ export const WithHorizontalOverflow: Story = {
 export const WithVerticalOverflow: Story = {
     render: () => {
         return (
-            <div className="max-h-60 flex flex-col overflow-auto">
+            <div className="flex h-60 w-[309px] flex-col overflow-auto">
                 <LemonTable columns={WIDE_COLUMNS.slice(0, 2)} dataSource={MANY_PEOPLE} />
             </div>
         )
@@ -503,7 +503,7 @@ export const WithVerticalOverflow: Story = {
 export const WithHorizontalAndVerticalOverflow: Story = {
     render: () => {
         return (
-            <div className="max-w-120 max-h-60 flex flex-col overflow-auto">
+            <div className="flex h-60 w-[480px] flex-col overflow-auto">
                 <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE} />
             </div>
         )

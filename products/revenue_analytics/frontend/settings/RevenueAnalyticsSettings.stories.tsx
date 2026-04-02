@@ -19,7 +19,11 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        mockDate: '2025-01-01',
         pageUrl: urls.revenueSettings(),
+        testOptions: {
+            waitForSelector: '[data-attr="open-json-editor-button"]',
+        },
     },
     decorators: [
         mswDecorator({
