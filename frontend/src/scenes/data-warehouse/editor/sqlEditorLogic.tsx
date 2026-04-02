@@ -162,6 +162,9 @@ function getCurrentVisualizationQuery(
     dataLogicKey: string,
     fallbackQuery: DataVisualizationNode
 ): DataVisualizationNode {
+    // This reads the mounted visualization state so save/update actions can include in-flight
+    // axis/display edits. Those edits are also synced back through props.setQuery -> setSourceQuery,
+    // so sourceQuery remains the durable fallback when the visualization logic is unmounted.
     const mountedVisualizationLogic = dataVisualizationLogic.findMounted({
         key: dataLogicKey,
     } as any)
