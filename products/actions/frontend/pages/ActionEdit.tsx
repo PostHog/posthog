@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
@@ -14,17 +15,20 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -40,7 +44,13 @@ import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLo
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
-import { ActionEditLogicProps, DEFAULT_ACTION_STEP, actionEditLogic } from '../logics/actionEditLogic'
+import type { ActionReferenceApi } from '../generated/api.schemas'
+import {
+    ActionEditLogicProps,
+    DEFAULT_ACTION_STEP,
+    REFERENCE_TYPE_LABELS,
+    actionEditLogic,
+} from '../logics/actionEditLogic'
 import { actionLogic } from '../logics/actionLogic'
 
 const RESOURCE_TYPE = 'action'
@@ -56,7 +66,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     }
     const { isComplete } = useValues(actionLogic({ id }))
     const logic = actionEditLogic(logicProps)
-    const { action, actionChanged } = useValues(logic)
+    const { action, actionChanged, analyticsReferences } = useValues(logic)
     const { submitAction, deleteAction, setActionValue, setAction } = useActions(logic)
 
     // Sync the loaded action prop with the logic's internal state
@@ -243,133 +253,229 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     }
                 />
 
-                <SceneSection
-                    title="Match groups"
-                    className="@container"
-                    description={
-                        <>
-                            Your action will be triggered whenever <b>any of your match groups</b> are received.
-                        </>
-                    }
-                >
-                    {actionLoading ? (
-                        <div className="flex gap-2">
-                            <LemonSkeleton className="w-1/2 h-[261px]" />
-                            <LemonSkeleton className="w-1/2 h-[261px]" />
-                        </div>
-                    ) : (
-                        <LemonField name="steps">
-                            {({ value: stepsValue, onChange }) => (
-                                <div className="grid @4xl:grid-cols-2 gap-3">
-                                    {stepsValue.map((step: ActionStepType, index: number) => {
-                                        const identifier = String(JSON.stringify(step))
-                                        return (
-                                            <ActionStep
-                                                key={index}
-                                                identifier={identifier}
-                                                index={index}
-                                                step={step}
-                                                actionId={action.id || 0}
-                                                isOnlyStep={!!stepsValue && stepsValue.length === 1}
-                                                disabledReason={cannotEditReason ?? undefined}
-                                                onDelete={() => {
-                                                    const newSteps = [...stepsValue]
-                                                    newSteps.splice(index, 1)
-                                                    onChange(newSteps)
-                                                }}
-                                                onChange={(newStep) => {
-                                                    const newSteps = [...stepsValue]
-                                                    newSteps.splice(index, 1, newStep)
-                                                    onChange(newSteps)
-                                                }}
-                                            />
-                                        )
-                                    })}
-
-                                    <div>
-                                        <LemonButton
-                                            icon={<IconPlus />}
-                                            type="secondary"
-                                            onClick={() => {
-                                                onChange([...(action.steps || []), DEFAULT_ACTION_STEP])
-                                            }}
-                                            center
-                                            className="w-full h-full"
-                                            disabledReason={cannotEditReason ?? undefined}
-                                        >
-                                            Add match group
-                                        </LemonButton>
+                <LemonCollapse
+                    defaultActiveKey="match-groups"
+                    panels={[
+                        {
+                            key: 'match-groups',
+                            header: {
+                                children: (
+                                    <div className="py-1">
+                                        <div className="font-semibold">Match groups</div>
+                                        <div className="text-secondary text-sm font-normal">
+                                            Your action will be triggered whenever <b>any of your match groups</b> are
+                                            received.
+                                        </div>
                                     </div>
+                                ),
+                            },
+                            content: actionLoading ? (
+                                <div className="flex gap-2">
+                                    <LemonSkeleton className="w-1/2 h-[261px]" />
+                                    <LemonSkeleton className="w-1/2 h-[261px]" />
                                 </div>
-                            )}
-                        </LemonField>
-                    )}
-                </SceneSection>
+                            ) : (
+                                <LemonField name="steps">
+                                    {({ value: stepsValue, onChange }) => (
+                                        <div className="@container grid @4xl:grid-cols-2 gap-3">
+                                            {stepsValue.map((step: ActionStepType, index: number) => {
+                                                const identifier = String(JSON.stringify(step))
+                                                return (
+                                                    <ActionStep
+                                                        key={index}
+                                                        identifier={identifier}
+                                                        index={index}
+                                                        step={step}
+                                                        actionId={action.id || 0}
+                                                        isOnlyStep={!!stepsValue && stepsValue.length === 1}
+                                                        disabledReason={cannotEditReason ?? undefined}
+                                                        onDelete={() => {
+                                                            const newSteps = [...stepsValue]
+                                                            newSteps.splice(index, 1)
+                                                            onChange(newSteps)
+                                                        }}
+                                                        onChange={(newStep) => {
+                                                            const newSteps = [...stepsValue]
+                                                            newSteps.splice(index, 1, newStep)
+                                                            onChange(newSteps)
+                                                        }}
+                                                    />
+                                                )
+                                            })}
+
+                                            <div>
+                                                <LemonButton
+                                                    icon={<IconPlus />}
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        onChange([...(action.steps || []), DEFAULT_ACTION_STEP])
+                                                    }}
+                                                    center
+                                                    className="w-full h-full"
+                                                    disabledReason={cannotEditReason ?? undefined}
+                                                >
+                                                    Add match group
+                                                </LemonButton>
+                                            </div>
+                                        </div>
+                                    )}
+                                </LemonField>
+                            ),
+                        },
+                    ]}
+                />
             </Form>
-            <SceneDivider />
             <ActionHogFunctions />
-            <SceneDivider />
+            {id && analyticsReferences.length > 0 && (
+                <LemonCollapse
+                    defaultActiveKey="used-in-analytics"
+                    panels={[
+                        {
+                            key: 'used-in-analytics',
+                            header: {
+                                children: (
+                                    <div className="py-1">
+                                        <div className="font-semibold">Used in analytics</div>
+                                        <div className="text-secondary text-sm font-normal">
+                                            Insights, experiments, and cohorts that reference this action.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                            content: <ReferencesList logicProps={logicProps} />,
+                        },
+                    ]}
+                />
+            )}
             {(id || action.steps?.length) && (
-                <SceneSection
-                    className="@container"
-                    title="Matching events"
-                    description={
-                        <>
-                            This is the list of <strong>recent</strong> events that match this action.
-                        </>
-                    }
-                >
-                    {id && !isComplete && !actionChanged ? (
-                        <div className="flex items-center">
-                            <Spinner className="mr-4" />
-                            Calculating action, please hold on...
-                        </div>
-                    ) : (
-                        <Query
-                            query={{
-                                kind: NodeKind.DataTableNode,
-                                source: {
-                                    kind: NodeKind.EventsQuery,
-                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                    ...(id && !actionChanged
-                                        ? { actionId: id }
-                                        : {
-                                              actionSteps: action.steps?.map(
-                                                  ({
-                                                      event,
-                                                      properties,
-                                                      selector,
-                                                      tag_name,
-                                                      text,
-                                                      text_matching,
-                                                      href,
-                                                      href_matching,
-                                                      url,
-                                                      url_matching,
-                                                  }) => ({
-                                                      event,
-                                                      properties,
-                                                      selector,
-                                                      tag_name,
-                                                      text,
-                                                      text_matching,
-                                                      href,
-                                                      href_matching,
-                                                      url,
-                                                      url_matching,
-                                                  })
-                                              ),
-                                          }),
-                                    after: '-24h',
-                                },
-                                full: true,
-                                showEventFilter: false,
-                                showPropertyFilter: false,
-                            }}
-                        />
-                    )}
-                </SceneSection>
+                <LemonCollapse
+                    defaultActiveKey="matching-events"
+                    panels={[
+                        {
+                            key: 'matching-events',
+                            header: {
+                                children: (
+                                    <div className="py-1">
+                                        <div className="font-semibold">Matching events</div>
+                                        <div className="text-secondary text-sm font-normal">
+                                            Recent events that match this action.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                            content: (
+                                <MatchingEvents
+                                    id={id}
+                                    isComplete={isComplete}
+                                    actionChanged={actionChanged}
+                                    steps={action.steps}
+                                />
+                            ),
+                        },
+                    ]}
+                />
             )}
         </SceneContent>
+    )
+}
+
+const REFERENCES_COLUMNS: LemonTableColumns<ActionReferenceApi> = [
+    {
+        title: 'Name',
+        dataIndex: 'name',
+        render: function RenderName(_, ref) {
+            return <LemonTableLink title={ref.name} to={ref.url} />
+        },
+    },
+    {
+        title: 'Type',
+        dataIndex: 'type',
+        render: function RenderType(_, ref) {
+            return REFERENCE_TYPE_LABELS[ref.type] ?? ref.type
+        },
+    },
+    createdByColumn() as LemonTableColumns<ActionReferenceApi>[number],
+    createdAtColumn() as LemonTableColumns<ActionReferenceApi>[number],
+]
+
+function MatchingEvents({
+    id,
+    isComplete,
+    actionChanged,
+    steps,
+}: {
+    id?: number
+    isComplete: boolean
+    actionChanged: boolean
+    steps?: ActionStepType[]
+}): JSX.Element {
+    const { filterTestAccountsDefault } = useValues(filterTestAccountsDefaultsLogic)
+
+    const query = useMemo(() => {
+        const source: Record<string, any> = {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            after: '-24h',
+            filterTestAccounts: filterTestAccountsDefault,
+        }
+        if (id && !actionChanged) {
+            source.actionId = id
+        } else {
+            source.actionSteps = steps?.map(
+                ({
+                    event,
+                    properties,
+                    selector,
+                    tag_name,
+                    text,
+                    text_matching,
+                    href,
+                    href_matching,
+                    url,
+                    url_matching,
+                }) => ({
+                    event,
+                    properties,
+                    selector,
+                    tag_name,
+                    text,
+                    text_matching,
+                    href,
+                    href_matching,
+                    url,
+                    url_matching,
+                })
+            )
+        }
+        return {
+            kind: NodeKind.DataTableNode as const,
+            source,
+            full: true,
+            showEventFilter: false,
+            showPropertyFilter: false,
+        }
+    }, [id, actionChanged, steps, filterTestAccountsDefault])
+
+    if (id && !isComplete && !actionChanged) {
+        return (
+            <div className="flex items-center">
+                <Spinner className="mr-4" />
+                Calculating action, please hold on...
+            </div>
+        )
+    }
+
+    return <Query query={query} />
+}
+
+function ReferencesList({ logicProps }: { logicProps: ActionEditLogicProps }): JSX.Element {
+    const { filteredReferences, referencesSearch } = useValues(actionEditLogic(logicProps))
+    const { setReferencesSearch } = useActions(actionEditLogic(logicProps))
+
+    return (
+        <div className="flex flex-col gap-4">
+            <LemonInput type="search" placeholder="Search..." value={referencesSearch} onChange={setReferencesSearch} />
+            <LemonTable dataSource={filteredReferences} columns={REFERENCES_COLUMNS} pagination={{ pageSize: 10 }} />
+        </div>
     )
 }
