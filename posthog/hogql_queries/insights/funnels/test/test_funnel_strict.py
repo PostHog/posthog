@@ -692,14 +692,14 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
         self.assertEqual(1, results[-1]["count"])
 
-    def test_pre_filter_strict_basic(self):
+    def test_pre_filter_strict(self):
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
         _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
         _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
         # user_1: step one -> step two (strict match)
         _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2021-05-01 01:00:00")
         _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2021-05-01 02:00:00")
-        # user_2: only step one — should be handled by synthetic branch
+        # user_2: only step one — handled by synthetic branch
         _create_event(team=self.team, event="step one", distinct_id="user_2", timestamp="2021-05-01 01:00:00")
         # user_3: step one -> intervening event -> step two (strict fail, but has both step events)
         _create_event(team=self.team, event="step one", distinct_id="user_3", timestamp="2021-05-01 01:00:00")
@@ -715,35 +715,9 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(FunnelUDF(context=context)._should_apply_pre_filter())
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-        # All 3 users entered step one
-        self.assertEqual(results[0]["count"], 3)
-        # Only user_1 converted (user_2 never did step two, user_3 had intervening event)
-        self.assertEqual(results[1]["count"], 1)
+        self.assertEqual(results[0]["count"], 3)  # all 3 entered step one
+        self.assertEqual(results[1]["count"], 1)  # only user_1 converted
 
-    def test_pre_filter_strict_actors_dropoff(self):
-        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
-        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
-        # user_1: strict conversion
-        _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2021-05-01 01:00:00")
-        _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2021-05-01 02:00:00")
-        # user_2: only step one — synthetic branch dropoff
-        _create_event(team=self.team, event="step one", distinct_id="user_2", timestamp="2021-05-01 01:00:00")
-        # user_3: has both steps but intervening event breaks strict — UDF dropoff
-        _create_event(team=self.team, event="step one", distinct_id="user_3", timestamp="2021-05-01 01:00:00")
-        _create_event(team=self.team, event="blah", distinct_id="user_3", timestamp="2021-05-01 01:30:00")
-        _create_event(team=self.team, event="step two", distinct_id="user_3", timestamp="2021-05-01 02:00:00")
-
-        query = FunnelsQuery(
-            series=[EventsNode(event="step one"), EventsNode(event="step two")],
-            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
-            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.STRICT),
-        )
-        context = FunnelQueryContext(query=query, team=self.team)
-        self.assertTrue(FunnelUDF(context=context)._should_apply_pre_filter())
-
-        # Step 2 dropoff (funnelStep=-2): persons who did step 1 but not step 2
-        actors = get_actors(query, self.team, funnel_step=-2)
-        actor_ids = {val[0] for val in actors}
-        # Both user_2 (no step_two events) and user_3 (strict fail) dropped off
+        # Step 2 dropoff: both user_2 (no step_two events) and user_3 (strict fail) dropped off
+        actor_ids = {val[0] for val in get_actors(query, self.team, funnel_step=-2)}
         self.assertEqual(len(actor_ids), 2)
