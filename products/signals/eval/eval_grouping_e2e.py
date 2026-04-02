@@ -447,8 +447,7 @@ class EvalGroupingPipeline:
             return
 
         try:
-            dominant_group = GROUP_DATA[report.true_group_index]
-            expected_safe = dominant_group.safe
+            expected_safe = all(GROUP_DATA[g].safe for g in report.true_signal_groups)
 
             safety_result = await judge_report_safety(signals=signals)
 
