@@ -301,6 +301,9 @@ projects_router.register(r"signal_reports", signals.SignalReportViewSet, "projec
 projects_router.register(
     r"signal_source_configs", signals.SignalSourceConfigViewSet, "project_signal_source_configs", ["team_id"]
 )
+projects_router.register(
+    r"signal_processing", signals.SignalProcessingViewSet, "project_signal_processing", ["team_id"]
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -450,6 +453,12 @@ legacy_project_batch_exports_router.register(
 
 register_grandfathered_environment_nested_viewset(
     r"warehouse_tables", table.TableViewSet, "environment_warehouse_tables", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
+    r"warehouse_saved_query_folders",
+    saved_query.DataWarehouseSavedQueryFolderViewSet,
+    "environment_warehouse_saved_query_folders",
+    ["team_id"],
 )
 register_grandfathered_environment_nested_viewset(
     r"warehouse_saved_queries",

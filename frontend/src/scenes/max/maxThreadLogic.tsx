@@ -246,6 +246,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         continueAfterForm: (formAnswers: MultiQuestionFormAnswers) => ({
             formAnswers,
         }),
+        continueAfterFormDismissal: true,
         continueAfterApproval: (proposalId: string) => ({ proposalId }),
         continueAfterRejection: (proposalId: string, feedback?: string) => ({
             proposalId,
@@ -1284,6 +1285,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 false // Don't add to thread - no human message to show
             )
         },
+        continueAfterFormDismissal: () => {
+            actions.streamConversation(
+                {
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
+                    content: null,
+                    conversation: values.conversationId,
+                    resume_payload: { action: 'dismiss_form' },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
+        },
         continueAfterApproval: ({ proposalId }) => {
             actions.clearQueuedMessages()
             // Persist the approved status so the card can display it
@@ -1630,7 +1644,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
 
                 if (multiQuestionFormPending) {
-                    return 'Please answer the questions above'
+                    return 'Please answer, skip, or dismiss the form above'
                 }
 
                 // Prevent submission if too many active streaming threads (limit: 10)

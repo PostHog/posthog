@@ -1058,7 +1058,7 @@ const AssistantTracesQuery = z.object({
     filterTestAccounts: z.coerce
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters.')
-        .default(false)
+        .default(true)
         .optional(),
     groupKey: z.string().describe('Filter traces by group key. Requires `groupTypeIndex` to be set.').optional(),
     groupTypeIndex: integer.describe('Group type index when filtering by group.').optional(),
@@ -1080,6 +1080,19 @@ const AssistantTracesQuery = z.object({
         )
         .default(false)
         .optional(),
+})
+
+const AssistantTraceQuery = z.object({
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
+    kind: z.literal('TraceQuery').default('TraceQuery'),
+    properties: z
+        .array(AssistantPropertyFilter)
+        .describe('Property filters to narrow events within the trace.')
+        .default([])
+        .optional(),
+    traceId: z
+        .string()
+        .describe('The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).'),
 })
 
 // --- Tool registrations ---
@@ -1125,5 +1138,12 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
         kind: 'TracesQuery',
+        responseFormat: 'json',
+    }),
+    'query-llm-trace': createQueryWrapper({
+        name: 'query-llm-trace',
+        schema: AssistantTraceQuery,
+        kind: 'TraceQuery',
+        responseFormat: 'json',
     }),
 }
