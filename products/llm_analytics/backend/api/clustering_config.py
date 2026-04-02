@@ -29,7 +29,7 @@ class ClusteringConfigSerializer(serializers.ModelSerializer):
 class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level clustering configuration (event filters for automated pipelines)."""
 
-    scope_object = "INTERNAL"
+    scope_object = "llm_analytics"
     permission_classes = [IsAuthenticated]
 
     @llma_track_latency("llma_clustering_config_list")
