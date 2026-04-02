@@ -18927,6 +18927,8 @@ export namespace Schemas {
 
     export interface NotificationEvent {
       id: string;
+      /** @nullable */
+      team_id: number | null;
       notification_type: string;
       priority: string;
       title: string;
@@ -18938,6 +18940,10 @@ export namespace Schemas {
       resource_type: string | null;
       resource_id: string;
       source_url: string;
+      /** @nullable */
+      source_type: string | null;
+      /** @nullable */
+      source_id: string | null;
       created_at: string;
     }
 
