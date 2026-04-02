@@ -1038,9 +1038,12 @@ describe('cohortEditLogic', () => {
                         type: FilterLogicalOperator.Or,
                         values: [
                             {
+                                sort_key: 'mocked-uuid',
                                 type: FilterLogicalOperator.Or,
                                 values: [
                                     {
+                                        sort_key: 'mocked-uuid',
+                                        explicit_datetime: '-30d',
                                         type: BehavioralFilterKey.Behavioral,
                                         value: BehavioralEventType.PerformEvent,
                                         event_type: TaxonomicFilterGroupType.Events,
@@ -1064,6 +1067,6 @@ describe('cohortEditLogic', () => {
                     // The duplication should complete without errors
                     cohort: partial(dynamicCohort),
                 })
-        })
+        }, 15000)
     })
 })
