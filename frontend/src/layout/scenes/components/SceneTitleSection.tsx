@@ -448,6 +448,13 @@ export function SceneName({
         onChange?.(value)
     }, renameDebounceMs)
 
+    useEffect(() => {
+        return () => {
+            debouncedOnBlurSave.flush()
+            debouncedOnChange.flush()
+        }
+    }, [debouncedOnBlurSave, debouncedOnChange])
+
     const handleBlur = (e: React.FocusEvent): void => {
         const relatedTarget = e.relatedTarget as HTMLElement | null
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
@@ -498,6 +505,9 @@ export function SceneName({
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                     e.preventDefault()
+                                    if (saveOnBlur && name !== initialName) {
+                                        onChange?.(name || '')
+                                    }
                                 }
                             }}
                         />
@@ -638,6 +648,13 @@ function SceneDescription({
     const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
         onChange?.(value)
     }, renameDebounceMs)
+
+    useEffect(() => {
+        return () => {
+            debouncedOnBlurSaveDescription.flush()
+            debouncedOnDescriptionChange.flush()
+        }
+    }, [debouncedOnBlurSaveDescription, debouncedOnDescriptionChange])
 
     const handleBlur = (): void => {
         if (saveOnBlur && !isGeneratingMetadata && description !== initialDescription) {

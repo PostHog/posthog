@@ -105,7 +105,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     }
 
     if (!playlist) {
-        return <NotFound object="Recording Playlist" />
+        return <NotFound object="replay collection" />
     }
 
     return (
@@ -157,7 +157,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     canEdit={!playlist.is_synthetic}
                     forceEdit={isNewPlaylist}
                     saveOnBlur
-                    renameDebounceMs={0}
+                    renameDebounceMs={100}
                     actions={
                         !playlist.is_synthetic ? (
                             <LemonButton
