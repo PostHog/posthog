@@ -12,7 +12,7 @@ CRITICAL: This tool requires a `traceId`. Get the trace ID from `query-llm-trace
 
 # Response shape
 
-The response contains a single trace with:
+The response contains a single trace in JSON format with:
 
 - `id` — the trace ID
 - `traceName` — name of the trace (if set via SDK)

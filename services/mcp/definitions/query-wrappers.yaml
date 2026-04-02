@@ -162,6 +162,7 @@ wrappers:
         mcp_version: 2
         title: Get LLM trace details
         description_file: ./prompts/query-llm-trace-detail.md
+        response_format: json
         exclude_properties:
             - response
             - modifiers
