@@ -11,9 +11,9 @@ operations = [
         SHARDED_EXPERIMENT_EXPOSURES_TABLE_SQL(),
         node_roles=[NodeRole.DATA],
     ),
-    # Create distributed table on data + coordinator nodes
+    # Create distributed table on data nodes
     run_sql_with_exceptions(
         DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
 ]

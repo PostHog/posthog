@@ -623,6 +623,24 @@ export interface PatchedActionApi {
     readonly user_access_level?: string | null
 }
 
+export interface ActionReferenceApi {
+    /** Resource type: insight, experiment, cohort, or hog_function */
+    type: string
+    /** Resource ID (integer or UUID depending on type) */
+    id: string
+    /** Resource name */
+    name: string
+    /** Relative URL to the resource */
+    url: string
+    /**
+     * When the resource was created
+     * @nullable
+     */
+    created_at: string | null
+    /** User who created the resource */
+    created_by: UserBasicApi | null
+}
+
 export type ActionsListParams = {
     format?: ActionsListFormat
     /**
@@ -693,6 +711,17 @@ export type ActionsDestroyParams = {
 export type ActionsDestroyFormat = (typeof ActionsDestroyFormat)[keyof typeof ActionsDestroyFormat]
 
 export const ActionsDestroyFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsReferencesListParams = {
+    format?: ActionsReferencesListFormat
+}
+
+export type ActionsReferencesListFormat = (typeof ActionsReferencesListFormat)[keyof typeof ActionsReferencesListFormat]
+
+export const ActionsReferencesListFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

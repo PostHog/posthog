@@ -21,7 +21,7 @@ export interface InsightSceneHeaderProps {
 export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProps): JSX.Element {
     const { insightMode, hasOverrides, freshQuery } = useValues(insightSceneLogic)
     const { showDebugPanel } = useValues(insightDataLogic(insightLogicProps))
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
     const insightId = insightLogicProps.dashboardItemId
 
     return (

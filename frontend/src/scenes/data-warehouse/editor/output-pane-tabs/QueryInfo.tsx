@@ -4,6 +4,7 @@ import { IconRefresh, IconRevert, IconTarget, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -13,8 +14,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
+import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, LogEntryLevel, OrNever } from '~/types'
+
+const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
 import { UpstreamGraph } from '../sidebar/graph/UpstreamGraph'
 import { sqlEditorLogic } from '../sqlEditorLogic'
@@ -119,6 +125,9 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoLogic)
     const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(sqlEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { timezone } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    const showDebugLogs = user?.is_staff || user?.is_impersonated
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
@@ -380,6 +389,39 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                     },
                                 },
                             ]}
+                            expandable={
+                                dataModelingJobs?.results?.length && savedQuery
+                                    ? {
+                                          expandedRowRender: (job: DataModelingJob) => (
+                                              <div className="p-4">
+                                                  <LogsViewer
+                                                      logicKey={`data_modeling_run:${job.id}`}
+                                                      sourceType="data_modeling_run"
+                                                      sourceId={savedQuery.id}
+                                                      groupByInstanceId={false}
+                                                      hideDateFilter
+                                                      hideLevelsFilter
+                                                      hideInstanceIdColumn
+                                                      defaultFilters={{
+                                                          instanceId: job.workflow_run_id,
+                                                          dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
+                                                              'YYYY-MM-DD HH:mm:ss'
+                                                          ),
+                                                          dateTo: job.last_run_at
+                                                              ? dayjsUtcToTimezone(job.last_run_at, timezone)
+                                                                    .add(1, 'hour')
+                                                                    .format('YYYY-MM-DD HH:mm:ss')
+                                                              : undefined,
+                                                          levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
+                                                      }}
+                                                  />
+                                              </div>
+                                          ),
+                                          rowExpandable: () => true,
+                                          noIndent: true,
+                                      }
+                                    : undefined
+                            }
                             nouns={['run', 'runs']}
                             emptyState="No runs available"
                             footer={
