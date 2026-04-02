@@ -478,6 +478,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
+
         # auth_method is a nested config - deep-merge to preserve sensitive fields (stripe_secret_key)
         existing_auth_method = existing_job_inputs.get("auth_method")
         incoming_auth_method = incoming_job_inputs.get("auth_method")
@@ -490,7 +491,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 new_job_inputs["auth_method"] = incoming_auth_method
             else:
                 merged_auth_method = {**existing_auth_method, **incoming_auth_method}
-                for key in password_fields:
+                for key in sensitive_fields:
                     if existing_auth_method.get(key) and not incoming_auth_method.get(key):
                         merged_auth_method[key] = existing_auth_method[key]
                 new_job_inputs["auth_method"] = merged_auth_method
