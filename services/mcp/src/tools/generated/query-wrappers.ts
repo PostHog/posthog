@@ -1138,10 +1138,12 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
         kind: 'TracesQuery',
+        responseFormat: 'json',
     }),
-    'query-llm-trace-detail': createQueryWrapper({
-        name: 'query-llm-trace-detail',
+    'query-llm-trace': createQueryWrapper({
+        name: 'query-llm-trace',
         schema: AssistantTraceQuery,
         kind: 'TraceQuery',
+        responseFormat: 'json',
     }),
 }

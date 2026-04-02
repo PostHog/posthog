@@ -133,7 +133,7 @@ wrappers:
             - response
             - modifiers
 
-    query-llm-trace-detail:
+    query-llm-trace:
         schema_ref: AssistantTraceQuery
         enabled: true
         scopes:
@@ -143,8 +143,8 @@ wrappers:
             destructive: false
             idempotent: true
         mcp_version: 2
-        title: Get LLM trace details
-        description_file: ./prompts/query-llm-trace-detail.md
+        title: Get LLM trace
+        description_file: ./prompts/query-llm-trace.md
         response_format: json
         exclude_properties:
             - response
