@@ -25,8 +25,8 @@ import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
-const POLL_TIMEOUT = 5 * 60 * 1000
-const UNREAD_POLL_TIMEOUT = 30 * 1000
+const LEGACY_POLL_TIMEOUT = 5 * 60 * 1000
+const MAX_SSE_ERRORS = 3
 
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
@@ -56,7 +56,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         clearErrorCount: true,
         markAllAsRead: true,
         loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
-        // Real-time notification actions
         setInAppNotifications: (notifications: InAppNotification[], hasMore: boolean) => ({
             notifications,
             hasMore,
@@ -73,7 +72,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         initialLoadDone: true,
         startSSE: true,
         stopSSE: true,
-        fallbackToPoll: true,
     }),
     reducers({
         isInitialLoadComplete: [
@@ -85,7 +83,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         errorCounter: [
             0,
             {
-                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
+                incrementErrorCount: (state) => (state >= MAX_SSE_ERRORS ? MAX_SSE_ERRORS : state + 1),
                 clearErrorCount: () => 0,
             },
         ],
@@ -161,8 +159,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         return null
                     } finally {
                         const pollTimeoutMilliseconds = values.errorCounter
-                            ? POLL_TIMEOUT * values.errorCounter
-                            : POLL_TIMEOUT
+                            ? LEGACY_POLL_TIMEOUT * values.errorCounter
+                            : LEGACY_POLL_TIMEOUT
 
                         cache.disposables.add(() => {
                             const timerId = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
@@ -217,15 +215,17 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             }
         },
         startSSE: () => {
+            if (!values.realTimeNotificationsEnabled) {
+                return
+            }
+
             const token = values.currentTeam?.live_events_token
             if (!token) {
-                actions.fallbackToPoll()
                 return
             }
 
             const host = liveEventsHostOrigin()
             if (!host) {
-                actions.fallbackToPoll()
                 return
             }
 
@@ -242,6 +242,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     },
                     signal: abortController.signal,
                     onMessage: (event) => {
+                        actions.clearErrorCount()
                         if (!values.isInitialLoadComplete) {
                             return
                         }
@@ -284,56 +285,22 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                 )
                             }
                         } catch {
-                            // Ignore heartbeat or malformed messages
+                            // Ignore malformed messages
                         }
                     },
                     onError: () => {
-                        actions.fallbackToPoll()
-                        throw new Error('SSE connection failed, falling back to polling')
+                        actions.incrementErrorCount()
+                        if (values.errorCounter >= MAX_SSE_ERRORS) {
+                            abortController.abort()
+                            throw new Error(`SSE failed ${MAX_SSE_ERRORS} times, giving up`)
+                        }
                     },
                 })
-                .catch(() => console.warn('[Notifications] SSE connection failed, using polling fallback'))
+                .catch(() => {})
         },
         stopSSE: () => {
             cache.sseConnection?.abort()
             cache.sseConnection = null
-            if (cache.pollTimer) {
-                clearInterval(cache.pollTimer)
-                cache.pollTimer = null
-            }
-        },
-        fallbackToPoll: () => {
-            cache.sseConnection?.abort()
-            cache.sseConnection = null
-
-            if (cache.pollTimer) {
-                clearInterval(cache.pollTimer)
-            }
-
-            const poll = async (): Promise<void> => {
-                try {
-                    const resp = await api.get<{ count: number }>(
-                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
-                    )
-                    actions.setInAppUnreadCount(resp.count)
-                } catch {
-                    // Swallow
-                }
-            }
-
-            void poll()
-            cache.pollTimer = setInterval(() => void poll(), UNREAD_POLL_TIMEOUT)
-        },
-        notificationReceived: async () => {
-            // Refresh unread count from server on each new notification
-            try {
-                const resp = await api.get<{ count: number }>(
-                    `api/environments/${values.currentProjectId}/notifications/unread_count/`
-                )
-                actions.setInAppUnreadCount(resp.count)
-            } catch {
-                // Swallow
-            }
         },
         markAsRead: async ({ id }) => {
             try {
@@ -350,14 +317,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             const endpoint = notification.read ? 'mark_read' : 'mark_unread'
             try {
                 await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/${endpoint}/`, {})
-            } catch {
-                // Swallow
-            }
-            try {
-                const resp = await api.get<{ count: number }>(
-                    `api/environments/${values.currentProjectId}/notifications/unread_count/`
-                )
-                actions.setInAppUnreadCount(resp.count)
             } catch {
                 // Swallow
             }
@@ -467,7 +426,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
     }),
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
-            // Load initial notifications from the REST API
             void (async () => {
                 try {
                     const resp = await api.get<{
@@ -489,8 +447,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 actions.initialLoadDone()
             })()
 
-            // SSE requires currentTeam.live_events_token — start now if available,
-            // otherwise wait for teamLogic to load it
             if (values.currentTeam?.live_events_token) {
                 actions.startSSE()
             }

@@ -13,6 +13,7 @@ import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
+import { GENERATED_TOOLS as llm_analytics } from './llm_analytics'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
 import { GENERATED_TOOLS as prompts } from './prompts'
@@ -34,6 +35,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...early_access_features,
     ...error_tracking,
     ...feature_flags,
+    ...llm_analytics,
     ...notebooks,
     ...persons,
     ...prompts,
