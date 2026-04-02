@@ -171,8 +171,8 @@ def send_mention_notifications(
                     target_id=str(user_id),
                     resource_type=NotificationOnlyResourceType.COMMENT,
                     resource_id=str(comment.id),
-                    source_type=SourceType(SCOPE_TO_SOURCE_TYPE[comment.scope])
-                    if comment.scope in SCOPE_TO_SOURCE_TYPE
+                    source_type=SourceType(scope_type)
+                    if (scope_type := SCOPE_TO_SOURCE_TYPE.get(comment.scope))
                     else None,
                     source_id=comment.item_id,
                 )
