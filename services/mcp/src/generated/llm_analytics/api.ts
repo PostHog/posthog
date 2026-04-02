@@ -8,7 +8,28 @@
  */
 import * as zod from 'zod'
 
-export const LlmAnalyticsSentimentCreateParams = /* @__PURE__ */ zod.object({
+/**
+ * 
+Generate an AI-powered summary of an LLM trace or event.
+
+This endpoint analyzes the provided trace/event, generates a line-numbered text
+representation, and uses an LLM to create a concise summary with line references.
+
+**Summary Format:**
+- 5-10 bullet points covering main flow and key decisions
+- "Interesting Notes" section for failures, successes, or unusual patterns
+- Line references in [L45] or [L45-52] format pointing to relevant sections
+
+**Use Cases:**
+- Quick understanding of complex traces
+- Identifying key events and patterns
+- Debugging with AI-assisted analysis
+- Documentation and reporting
+
+The response includes the summary text and optional metadata.
+        
+ */
+export const LlmAnalyticsSummarizationCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,18 +37,25 @@ export const LlmAnalyticsSentimentCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const llmAnalyticsSentimentCreateBodyIdsMax = 5
+export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
+export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
 
-export const llmAnalyticsSentimentCreateBodyAnalysisLevelDefault = `trace`
-export const llmAnalyticsSentimentCreateBodyForceRefreshDefault = false
-
-export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod.array(zod.string()).min(1).max(llmAnalyticsSentimentCreateBodyIdsMax),
-    analysis_level: zod
-        .enum(['trace', 'generation'])
-        .describe('* `trace` - trace\n* `generation` - generation')
-        .default(llmAnalyticsSentimentCreateBodyAnalysisLevelDefault),
-    force_refresh: zod.boolean().default(llmAnalyticsSentimentCreateBodyForceRefreshDefault),
-    date_from: zod.string().nullish(),
-    date_to: zod.string().nullish(),
+export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
+    summarize_type: zod
+        .enum(['trace', 'event'])
+        .describe('* `trace` - trace\n* `event` - event')
+        .describe('Type of entity to summarize\n\n* `trace` - trace\n* `event` - event'),
+    mode: zod
+        .enum(['minimal', 'detailed'])
+        .describe('* `minimal` - minimal\n* `detailed` - detailed')
+        .default(llmAnalyticsSummarizationCreateBodyModeDefault)
+        .describe(
+            "Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points\n\n* `minimal` - minimal\n* `detailed` - detailed"
+        ),
+    data: zod.unknown().describe('Data to summarize. For traces: {trace, hierarchy}. For events: {event}.'),
+    force_refresh: zod
+        .boolean()
+        .default(llmAnalyticsSummarizationCreateBodyForceRefreshDefault)
+        .describe('Force regenerate summary, bypassing cache'),
+    model: zod.string().nullish().describe('LLM model to use (defaults based on provider)'),
 })
