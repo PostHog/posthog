@@ -3,7 +3,7 @@ import './InfiniteList.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { CSSProperties, useEffect, useState } from 'react'
+import { CSSProperties, useCallback, useEffect, useRef, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
 import {
@@ -462,7 +462,8 @@ export const InfiniteListRow = ({
             }
             setIndex(rowIndex)
         },
-        onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
+        onMouseLeave: () =>
+            mouseInteractionsEnabled && !showPopover && !isPinnedToAnotherRow ? setIndex(NO_ITEM_SELECTED) : null,
         style: style,
         ref: isHighlighted
             ? (element) => {
@@ -660,7 +661,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const [pinnedRowIndex, setPinnedRowIndex] = useState<number | null>(null)
-    const [hasAppliedInitialPin, setHasAppliedInitialPin] = useState(false)
+    const hasAppliedInitialPinRef = useRef(false)
     const isActiveTab = listGroupType === activeTab
     const listRef = useListRef(null)
     const trimmedSearchQuery = searchQuery.trim()
@@ -677,7 +678,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
 
     useEffect(() => {
         setPinnedRowIndex(null)
-        setHasAppliedInitialPin(false)
+        hasAppliedInitialPinRef.current = false
     }, [searchQuery, activeTab, listGroupType, showPopover])
 
     useEffect(() => {
@@ -702,7 +703,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
     ])
 
     useEffect(() => {
-        if (hasAppliedInitialPin || pinnedRowIndex !== null) {
+        if (hasAppliedInitialPinRef.current || pinnedRowIndex !== null) {
             return
         }
 
@@ -722,19 +723,16 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
 
         setIndex(initialPinnedRowIndex)
         setPinnedRowIndex(initialPinnedRowIndex)
-        setHasAppliedInitialPin(true)
-    }, [
-        hasAppliedInitialPin,
-        pinnedRowIndex,
-        results,
-        taxonomicGroups,
-        group,
-        listGroupType,
-        groupType,
-        value,
-        isActiveTab,
-        setIndex,
-    ])
+        hasAppliedInitialPinRef.current = true
+    }, [pinnedRowIndex, results, taxonomicGroups, group, listGroupType, groupType, value, isActiveTab, setIndex])
+
+    const handleToggleRowPin = useCallback(
+        (rowIndex: number) => {
+            setIndex(rowIndex)
+            setPinnedRowIndex((currentPinnedRowIndex) => (currentPinnedRowIndex === rowIndex ? null : rowIndex))
+        },
+        [setIndex]
+    )
 
     return (
         <div
@@ -793,12 +791,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     taxonomicGroupTypes,
                                     setIndex,
                                     pinnedRowIndex,
-                                    onToggleRowPin: (rowIndex) => {
-                                        setIndex(rowIndex)
-                                        setPinnedRowIndex((currentPinnedRowIndex) =>
-                                            currentPinnedRowIndex === rowIndex ? null : rowIndex
-                                        )
-                                    },
+                                    onToggleRowPin: handleToggleRowPin,
                                     expand,
                                     selectItem,
                                     setHighlightedItemElement,
