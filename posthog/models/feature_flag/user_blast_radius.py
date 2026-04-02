@@ -22,8 +22,6 @@ class BlastRadiusResult:
     total_users: int
     groups_affected: Optional[int] = None
     total_groups: Optional[int] = None
-    users_query_error: Optional[str] = None
-    groups_query_error: Optional[str] = None
 
 
 def _normalize_property_value(prop: Property) -> None:

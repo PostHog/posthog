@@ -10207,9 +10207,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-        self.assertNotIn("users_query_error", response_json)
-        self.assertNotIn("groups_query_error", response_json)
 
 
 class TestFeatureFlagEvaluationContexts(APIBaseTest):

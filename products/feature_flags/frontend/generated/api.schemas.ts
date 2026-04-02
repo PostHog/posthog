@@ -852,16 +852,6 @@ export interface UserBlastRadiusResponseApi {
      * @nullable
      */
     total_groups?: number | null
-    /**
-     * Error message if the users sub-query failed (partial failure in mixed conditions)
-     * @nullable
-     */
-    users_query_error?: string | null
-    /**
-     * Error message if the groups sub-query failed (partial failure in mixed conditions)
-     * @nullable
-     */
-    groups_query_error?: string | null
 }
 
 /**

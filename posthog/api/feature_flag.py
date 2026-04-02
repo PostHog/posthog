@@ -1882,18 +1882,6 @@ class UserBlastRadiusResponseSerializer(serializers.Serializer):
         default=None,
         help_text="Total number of groups of this type (only present for mixed person+group conditions)",
     )
-    users_query_error = serializers.CharField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Error message if the users sub-query failed (partial failure in mixed conditions)",
-    )
-    groups_query_error = serializers.CharField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Error message if the groups sub-query failed (partial failure in mixed conditions)",
-    )
 
 
 # HYPERCACHE CONTRACT: This serializer defines the JSON schema that the Rust feature-flags
@@ -3105,10 +3093,6 @@ class FeatureFlagViewSet(
             response_data["groups_affected"] = result.groups_affected
         if result.total_groups is not None:
             response_data["total_groups"] = result.total_groups
-        if result.users_query_error is not None:
-            response_data["users_query_error"] = result.users_query_error
-        if result.groups_query_error is not None:
-            response_data["groups_query_error"] = result.groups_query_error
 
         return Response(response_data)
 

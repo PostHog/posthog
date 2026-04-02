@@ -4057,8 +4057,6 @@ export interface UserBlastRadiusType {
     total_users: number
     groups_affected?: number
     total_groups?: number
-    users_query_error?: string
-    groups_query_error?: string
 }
 
 export enum ScheduledChangeModels {
