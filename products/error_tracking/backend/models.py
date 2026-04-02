@@ -1,7 +1,6 @@
 import time
 from decimal import Decimal
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -17,6 +16,7 @@ from posthog.kafka_client.topics import (
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
 )
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
@@ -27,10 +27,6 @@ from products.error_tracking.backend.sql import (
 )
 
 logger = structlog.get_logger(__name__)
-
-
-def _format_datetime64_utc_for_kafka(dt) -> str:
-    return dt.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
 class ErrorTrackingIssueManager(models.Manager):
@@ -536,7 +532,7 @@ def sync_issue_to_clickhouse(*, issue_id, team_id: int) -> None:
 
     for fp in fingerprints:
         first_seen_raw = fp.first_seen or issue.created_at
-        first_seen = _format_datetime64_utc_for_kafka(first_seen_raw) if first_seen_raw else None
+        first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
         producer.produce(
             sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
             topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
