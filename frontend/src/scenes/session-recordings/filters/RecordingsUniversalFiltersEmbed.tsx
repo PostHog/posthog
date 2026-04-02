@@ -216,6 +216,7 @@ interface ReplayUniversalFiltersEmbedProps {
     totalFiltersCount?: number
     className?: string
     allowReplayHogQLFilters?: boolean
+    pinnedFilters?: UniversalFiltersGroup
 }
 
 export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
@@ -269,8 +270,10 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
 
 const RecordingsUniversalFilterGroup = ({
     hideAddFilterButton = false,
+    pinnedFilters,
 }: {
     hideAddFilterButton?: boolean
+    pinnedFilters?: UniversalFiltersGroup
 }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
@@ -283,7 +286,10 @@ const RecordingsUniversalFilterGroup = ({
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup hideAddFilterButton={hideAddFilterButton} />
+                        <RecordingsUniversalFilterGroup
+                            hideAddFilterButton={hideAddFilterButton}
+                            pinnedFilters={pinnedFilters}
+                        />
 
                         {!hideAddFilterButton && (
                             <Popover
@@ -314,7 +320,11 @@ const RecordingsUniversalFilterGroup = ({
                         key={index}
                         index={index}
                         filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
+                        onRemove={
+                            pinnedFilters?.values.some((pv) => equal(pv, filterOrGroup))
+                                ? undefined
+                                : () => removeGroupValue(index)
+                        }
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen}
                         metadataSource={{ kind: NodeKind.RecordingsQuery }}
@@ -479,6 +489,7 @@ const ReplayFiltersTab = ({
     className,
     totalFiltersCount,
     allowReplayHogQLFilters = false,
+    pinnedFilters,
 }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
@@ -729,7 +740,7 @@ const ReplayFiltersTab = ({
                             pageKey="session-recordings"
                             size="small"
                         />
-                        <RecordingsUniversalFilterGroup hideAddFilterButton={true} />
+                        <RecordingsUniversalFilterGroup hideAddFilterButton={true} pinnedFilters={pinnedFilters} />
                     </div>
                 </div>
             </UniversalFilters>

@@ -61,6 +61,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -101,6 +102,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -141,6 +143,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -181,6 +184,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -221,6 +225,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -261,6 +266,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -301,6 +307,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -330,6 +337,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
@@ -394,6 +402,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
@@ -567,6 +576,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -607,6 +617,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -647,6 +658,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -676,6 +688,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
@@ -740,6 +753,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",

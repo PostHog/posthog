@@ -424,7 +424,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
     team, node, saved_query, job = await _get_matview_input_objects(inputs)
-    await logger.adebug(f"Starting materialization for node {node.name}")
+    await logger.ainfo(f"Starting materialization for node {node.name}")
 
     table_uri = _build_model_table_uri(team.pk, saved_query.id.hex, saved_query.normalized_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
@@ -486,7 +486,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             await database_sync_to_async(job.save)()
             # explicitly delete batch to free memory after writing
             del batch, ch_types
-    await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
+    await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
     # row count validation warning
     if job.rows_expected is not None:
         if row_count != job.rows_expected:
@@ -497,9 +497,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             )
     file_uris = []
     if delta_table is not None:
-        await logger.adebug("Compacting delta table")
+        await logger.ainfo("Compacting delta table")
         delta_table.optimize.compact()
-        await logger.adebug("Vacuuming delta table")
+        await logger.ainfo("Vacuuming delta table")
         delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
         file_uris = delta_table.file_uris()
     await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")

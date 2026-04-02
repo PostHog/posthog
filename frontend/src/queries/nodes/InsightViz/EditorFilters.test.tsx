@@ -112,8 +112,8 @@ describe('EditorFilters', () => {
     })
 
     describe.each([
-        { flagEnabled: false, label: 'flag off' },
-        { flagEnabled: true, label: 'flag on' },
+        { flagEnabled: 'control', label: 'flag off' },
+        { flagEnabled: 'test', label: 'flag on' },
     ])('PRODUCT_ANALYTICS_SIMPLE_EDITOR $label', ({ flagEnabled }) => {
         beforeEach(() => {
             featureFlagLogic.actions.setFeatureFlags([], {
@@ -172,7 +172,7 @@ describe('EditorFilters', () => {
     describe('classic layout (flag off)', () => {
         beforeEach(() => {
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: false,
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: 'control',
             })
         })
 
@@ -209,7 +209,7 @@ describe('EditorFilters', () => {
     describe('panels layout (flag on)', () => {
         beforeEach(() => {
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: true,
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: 'test',
             })
         })
 

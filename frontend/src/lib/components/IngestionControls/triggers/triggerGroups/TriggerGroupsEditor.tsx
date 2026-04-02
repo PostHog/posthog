@@ -13,14 +13,30 @@ import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import { SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
 
+import { CreateFromLegacyModal } from './CreateFromLegacyModal'
 import { replayTriggersV2Logic } from './replayTriggersV2Logic'
 import { TriggerGroupCard } from './TriggerGroupCard'
 import { triggerGroupFormLogic } from './triggerGroupFormLogic'
 
 export function TriggerGroupsEditor(): JSX.Element {
-    const { triggerGroups, isAddingGroup, editingGroupId } = useValues(replayTriggersV2Logic)
-    const { addTriggerGroup, updateTriggerGroup, deleteTriggerGroup, setIsAddingGroup, setEditingGroupId } =
-        useActions(replayTriggersV2Logic)
+    const {
+        triggerGroups,
+        isAddingGroup,
+        editingGroupId,
+        showLegacyModal,
+        previewLegacyGroups,
+        confirmCreateFromLegacyStateLoading,
+    } = useValues(replayTriggersV2Logic)
+    const {
+        addTriggerGroup,
+        updateTriggerGroup,
+        deleteTriggerGroup,
+        setIsAddingGroup,
+        setEditingGroupId,
+        showCreateFromLegacyModal,
+        hideCreateFromLegacyModal,
+        confirmCreateFromLegacy,
+    } = useActions(replayTriggersV2Logic)
 
     return (
         <div className="space-y-4">
@@ -32,9 +48,19 @@ export function TriggerGroupsEditor(): JSX.Element {
                     </LemonLabel>
                 </div>
                 {!isAddingGroup && !editingGroupId && (
-                    <LemonButton type="primary" icon={<IconPlus />} size="small" onClick={() => setIsAddingGroup(true)}>
-                        Add
-                    </LemonButton>
+                    <div className="flex gap-2">
+                        <LemonButton type="secondary" size="small" onClick={showCreateFromLegacyModal}>
+                            Create from legacy triggers
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            size="small"
+                            onClick={() => setIsAddingGroup(true)}
+                        >
+                            Add
+                        </LemonButton>
+                    </div>
                 )}
             </div>
 
@@ -85,6 +111,14 @@ export function TriggerGroupsEditor(): JSX.Element {
                     ))}
                 </div>
             )}
+
+            <CreateFromLegacyModal
+                isOpen={showLegacyModal}
+                onClose={hideCreateFromLegacyModal}
+                onConfirm={confirmCreateFromLegacy}
+                previewGroups={previewLegacyGroups}
+                isCreating={confirmCreateFromLegacyStateLoading}
+            />
         </div>
     )
 }

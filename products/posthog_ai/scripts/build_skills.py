@@ -181,7 +181,11 @@ class SkillDiscoverer:
                         skills.append(
                             DiscoveredSkill(name=entry.name, source_file=md_file, product_dir=product_dir, depth=1)
                         )
-                elif entry.is_file() and (entry.name.endswith(".md.j2") or entry.name.endswith(".md")):
+                elif (
+                    entry.is_file()
+                    and entry.name != "README.md"
+                    and (entry.name.endswith(".md.j2") or entry.name.endswith(".md"))
+                ):
                     if entry.name.endswith(".md") and (entry.parent / (entry.name + ".j2")).exists():
                         continue
                     skill_name = entry.name.removesuffix(".j2").removesuffix(".md")

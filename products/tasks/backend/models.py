@@ -224,6 +224,7 @@ class Task(DeletedMetaFields, models.Model):
         start_workflow: bool = True,
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
+        sandbox_environment_id: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -234,6 +235,12 @@ class Task(DeletedMetaFields, models.Model):
             github_integration = Integration.objects.filter(team=team, kind="github").first()
             if not github_integration:
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
+
+        sandbox_env = None
+        if sandbox_environment_id is not None:
+            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=team).first()
+            if not sandbox_env:
+                raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
         task = Task.objects.create(
             team=team,
@@ -252,6 +259,10 @@ class Task(DeletedMetaFields, models.Model):
                 extra_state["slack_thread_url"] = slack_thread_url
             if slack_thread_context:
                 extra_state["interaction_origin"] = "slack"
+
+        if sandbox_env is not None:
+            extra_state = extra_state or {}
+            extra_state["sandbox_environment_id"] = str(sandbox_env.id)
 
         task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
 

@@ -956,7 +956,8 @@ function generateQueryWrapperFile(
             const entryVarName = getEntryVarName(toolConfig.schema_ref)
             const kind = extractKindFromSchemaRef(querySchema, toolConfig.schema_ref)
             const uiResourceUri = toolConfig.ui_resource_uri ? `, uiResourceUri: '${toolConfig.ui_resource_uri}'` : ''
-            return `    '${name}': createQueryWrapper({ name: '${name}', schema: ${entryVarName}, kind: '${kind}'${uiResourceUri} }),`
+            const responseFormat = toolConfig.response_format ? `, responseFormat: '${toolConfig.response_format}'` : ''
+            return `    '${name}': createQueryWrapper({ name: '${name}', schema: ${entryVarName}, kind: '${kind}'${uiResourceUri}${responseFormat} }),`
         })
         .join('\n')
 
