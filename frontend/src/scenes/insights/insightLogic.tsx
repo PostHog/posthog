@@ -579,44 +579,65 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (values.query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: true })
-            eventUsageLogic.actions.reportInsightSaved(savedInsight, values.query, insightNumericId === undefined)
-            lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
-                button: {
-                    label: 'View Insights list',
-                    action: () => router.actions.push(urls.savedInsights()),
-                },
-            })
-
-            dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
-
-            // Properly track activation events
-            const tasksToComplete: SetupTaskId[] = [SetupTaskId.CreateFirstInsight]
-            const query = isNodeWithSource(savedInsight.query) ? savedInsight.query.source : savedInsight.query
-
-            if (isTrendsQuery(query)) {
-                tasksToComplete.push(SetupTaskId.ExploreTrendsInsight)
-            } else if (isFunnelsQuery(query)) {
-                tasksToComplete.push(SetupTaskId.CreateFunnel)
-            } else if (isRetentionQuery(query)) {
-                tasksToComplete.push(SetupTaskId.ExploreRetentionInsight)
-            } else if (isPathsQuery(query)) {
-                tasksToComplete.push(SetupTaskId.ExplorePathsInsight)
-            } else if (isStickinessQuery(query)) {
-                tasksToComplete.push(SetupTaskId.ExploreStickinessInsight)
-            } else if (isLifecycleQuery(query)) {
-                tasksToComplete.push(SetupTaskId.ExploreLifecycleInsight)
+            try {
+                eventUsageLogic.actions.reportInsightSaved(savedInsight, values.query, insightNumericId === undefined)
+            } catch (error) {
+                console.error('Failed to report insight save analytics', error)
             }
 
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToComplete)
+            try {
+                lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
+                    button: {
+                        label: 'View Insights list',
+                        action: () => router.actions.push(urls.savedInsights()),
+                    },
+                })
+            } catch (error) {
+                console.error('Failed to show insight saved toast', error)
+            }
 
-            // reload dashboards with updated insight
-            // since filters on dashboard might be different from filters on insight
-            // we need to trigger dashboard reload to pick up results for updated insight
-            savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
-                dashboardLogic
-                    .findMounted({ id: dashboard_id })
-                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
-            )
+            try {
+                dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
+            } catch (error) {
+                console.error('Failed to update mounted dashboards after insight save', error)
+            }
+
+            try {
+                // Properly track activation events
+                const tasksToComplete: SetupTaskId[] = [SetupTaskId.CreateFirstInsight]
+                const query = isNodeWithSource(savedInsight.query) ? savedInsight.query.source : savedInsight.query
+
+                if (isTrendsQuery(query)) {
+                    tasksToComplete.push(SetupTaskId.ExploreTrendsInsight)
+                } else if (isFunnelsQuery(query)) {
+                    tasksToComplete.push(SetupTaskId.CreateFunnel)
+                } else if (isRetentionQuery(query)) {
+                    tasksToComplete.push(SetupTaskId.ExploreRetentionInsight)
+                } else if (isPathsQuery(query)) {
+                    tasksToComplete.push(SetupTaskId.ExplorePathsInsight)
+                } else if (isStickinessQuery(query)) {
+                    tasksToComplete.push(SetupTaskId.ExploreStickinessInsight)
+                } else if (isLifecycleQuery(query)) {
+                    tasksToComplete.push(SetupTaskId.ExploreLifecycleInsight)
+                }
+
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToComplete)
+            } catch (error) {
+                console.error('Failed to mark insight setup tasks as completed', error)
+            }
+
+            try {
+                // reload dashboards with updated insight
+                // since filters on dashboard might be different from filters on insight
+                // we need to trigger dashboard reload to pick up results for updated insight
+                savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
+                    dashboardLogic
+                        .findMounted({ id: dashboard_id })
+                        ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                )
+            } catch (error) {
+                console.error('Failed to refresh dashboards after insight save', error)
+            }
 
             if (redirectToViewMode) {
                 if (!insightNumericId && dashboards?.length === 1) {
