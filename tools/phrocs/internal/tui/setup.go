@@ -1,8 +1,8 @@
 package tui
 
 import (
+	"bytes"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -222,10 +222,11 @@ func runHogliListUnits(intents []string) ([]string, error) {
 	}
 	args := append([]string{"dev:list-units"}, intents...)
 	cmd := exec.Command(hogliPath, args...)
-	cmd.Stderr = os.Stderr
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("hogli dev:list-units failed: %v", err)
+		return nil, fmt.Errorf("hogli dev:list-units: %s", strings.TrimSpace(stderr.String()))
 	}
 	var units []string
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
@@ -249,10 +250,11 @@ func runHogliDevApply(intents []string, excludes []string) (string, error) {
 	}
 	args = append(args, intents...)
 	cmd := exec.Command(hogliPath, args...)
-	cmd.Stderr = os.Stderr
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("hogli dev:apply failed: %v", err)
+		return "", fmt.Errorf("hogli dev:apply: %s", strings.TrimSpace(stderr.String()))
 	}
 	return strings.TrimSpace(string(output)), nil
 }

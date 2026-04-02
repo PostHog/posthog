@@ -254,7 +254,7 @@ func (m Model) renderFooter() string {
 		} else if m.setupStep == 1 {
 			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: next  esc: cancel"
 		} else {
-			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & restart  esc: back"
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & apply  esc: back"
 		}
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),

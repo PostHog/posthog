@@ -209,32 +209,36 @@ def dev_list_units(intents: tuple[str, ...]) -> None:
     "--include",
     "include_units",
     multiple=True,
+    default=None,
     help="Units to include (saved to config, persists across runs)",
 )
 @click.option(
     "--exclude",
     "exclude_units",
     multiple=True,
+    default=None,
     help="Units to exclude (saved to config, persists across runs)",
 )
 @click.option(
     "--skip-autostart",
     "skip_autostart",
     multiple=True,
+    default=None,
     help="Skip autostart units (saved to config, persists across runs)",
 )
 @click.option(
     "--enable-autostart",
     "enable_autostart",
     multiple=True,
+    default=None,
     help="Enable autostart units (saved to config, persists across runs)",
 )
 def dev_apply(
     intents: tuple[str, ...],
-    include_units: tuple[str, ...],
-    exclude_units: tuple[str, ...],
-    skip_autostart: tuple[str, ...],
-    enable_autostart: tuple[str, ...],
+    include_units: tuple[str, ...] | None,
+    exclude_units: tuple[str, ...] | None,
+    skip_autostart: tuple[str, ...] | None,
+    enable_autostart: tuple[str, ...] | None,
 ) -> None:
     """Apply a set of intents non-interactively, regenerating the mprocs config."""
     try:
@@ -255,7 +259,7 @@ def dev_apply(
     # Replace intents with the provided args
     saved_config.intents = list(intents)
 
-    # Replace options when explicitly provided
+    # Replace options only when explicitly provided (default=None)
     if include_units is not None:
         saved_config.include_units = list(include_units)
     if exclude_units is not None:
