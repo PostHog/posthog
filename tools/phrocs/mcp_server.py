@@ -133,5 +133,20 @@ def send_keys(process: str, keys: str) -> dict[str, Any]:
     return {"process": process, "ok": True}
 
 
+@mcp.tool()
+def toggle_process(process: str) -> dict[str, Any]:
+    """Toggle a process: stop it if running, start it if stopped.
+    Call this twice on a running process to restart it.
+    Args:
+        process: Process name to toggle.
+    """
+    result = _query_phrocs({"cmd": "toggle-proc", "process": process})
+    if result is None:
+        return {"process": process, **_NOT_RUNNING}
+    if not result.get("ok"):
+        return {"process": process, "error": result.get("error", "unknown error")}
+    return {"process": process, "ok": True}
+
+
 if __name__ == "__main__":
     mcp.run()

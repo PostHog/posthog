@@ -231,6 +231,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sortServices()
 		m.updateProcKeys()
 
+	case process.FocusMsg:
+		m.dbg("focus: proc=%s (via IPC)", msg.Name)
+		for i, p := range m.services {
+			if p.Name == msg.Name {
+				m.servicesCursor = i
+				m.ensureSidebarCursorVisible()
+				m.updateProcKeys()
+				var loadCmds []tea.Cmd
+				m, loadCmds = m.loadActiveProc()
+				cmds = append(cmds, loadCmds...)
+				break
+			}
+		}
+
 	// Container-related messages only relevant in docker mode
 	case docker.ContainerListMsg:
 		if m.isDockerMode() {

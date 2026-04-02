@@ -63,6 +63,11 @@ type OutputMsg struct {
 	Evicted int
 }
 
+// Requests the TUI to focus a specific process by name.
+type FocusMsg struct {
+	Name string
+}
+
 // Sent after metrics are sampled so the TUI can refresh the info panel.
 type MetricsMsg struct{}
 

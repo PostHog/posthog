@@ -10,15 +10,19 @@ import (
 
 // Orchestrates all processes for the dev environment
 type Manager struct {
-	mu     sync.Mutex
-	procs  []*Process
-	byName map[string]*Process
-	send   func(tea.Msg)
-
+	mu          sync.Mutex
+	procs       []*Process
+	byName      map[string]*Process
+	send        func(tea.Msg)
+	scrollback  int
+	globalShell string
 }
 
 func NewManager(cfg *config.Config) *Manager {
-	mgr := &Manager{}
+	mgr := &Manager{
+		scrollback:  cfg.Scrollback,
+		globalShell: cfg.Shell,
+	}
 
 	names := cfg.OrderedNames()
 	mgr.procs = make([]*Process, 0, len(names))
@@ -118,6 +122,12 @@ func (m *Manager) Add(name string, pcfg config.ProcConfig, scrollback int, globa
 	return proc
 }
 
+// AddShell creates a new process from a shell command using the manager's
+// default scrollback and global shell. Returns nil if the name already exists.
+func (m *Manager) AddShell(name, shell string) *Process {
+	return m.Add(name, config.ProcConfig{Shell: shell}, m.scrollback, m.globalShell)
+}
+
 // Remove stops a process and removes it from the manager.
 // Returns true if the process was found and removed.
 func (m *Manager) Remove(name string) bool {
@@ -138,4 +148,3 @@ func (m *Manager) Remove(name string) bool {
 	p.Stop()
 	return true
 }
-

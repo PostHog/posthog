@@ -11,6 +11,10 @@
 //	{"cmd":"status_all"}
 //	{"cmd":"logs","process":"web","lines":100,"grep":"error"}
 //	{"cmd":"send-keys","process":"web","keys":"yes\n"}
+//	{"cmd":"add-proc","process":"my-proc","shell":"echo hello"}
+//	{"cmd":"remove-proc","process":"my-proc"}
+//	{"cmd":"focus","process":"web"}
+//	{"cmd":"toggle-proc","process":"web"}
 //
 // Responses (one JSON object per line):
 //
@@ -59,6 +63,7 @@ type request struct {
 	Lines   int    `json:"lines,omitempty"`
 	Grep    string `json:"grep,omitempty"`
 	Keys    string `json:"keys,omitempty"`
+	Shell   string `json:"shell,omitempty"`
 }
 
 // Binds a Unix domain socket at path and returns the listener.
@@ -198,6 +203,58 @@ func dispatch(req request, mgr *process.Manager) any {
 		}
 		if err := p.WriteInput([]byte(req.Keys)); err != nil {
 			return map[string]any{"ok": false, "error": err.Error()}
+		}
+		return map[string]any{"ok": true}
+
+	case "add-proc":
+		if req.Process == "" {
+			return map[string]any{"ok": false, "error": "missing process name"}
+		}
+		if req.Shell == "" {
+			return map[string]any{"ok": false, "error": "missing shell command"}
+		}
+		p := mgr.AddShell(req.Process, req.Shell)
+		if p == nil {
+			return map[string]any{"ok": false, "error": "process already exists: " + req.Process}
+		}
+		send := mgr.Send()
+		go func() { _ = p.Start(send) }()
+		// Notify TUI to refresh process list
+		send(process.StatusMsg{Name: req.Process, Status: process.StatusPending})
+		return map[string]any{"ok": true}
+
+	case "remove-proc":
+		if !mgr.Remove(req.Process) {
+			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+		}
+		// Notify TUI to refresh process list
+		send := mgr.Send()
+		if send != nil {
+			send(process.StatusMsg{Name: req.Process, Status: process.StatusStopped})
+		}
+		return map[string]any{"ok": true}
+
+	case "focus":
+		_, ok := mgr.Get(req.Process)
+		if !ok {
+			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+		}
+		send := mgr.Send()
+		if send != nil {
+			send(process.FocusMsg{Name: req.Process})
+		}
+		return map[string]any{"ok": true}
+
+	case "toggle-proc":
+		p, ok := mgr.Get(req.Process)
+		if !ok {
+			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+		}
+		if p.IsRunning() {
+			p.Stop()
+		} else {
+			send := mgr.Send()
+			go func() { _ = p.Start(send) }()
 		}
 		return map[string]any{"ok": true}
 
