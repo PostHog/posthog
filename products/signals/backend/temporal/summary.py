@@ -1,4 +1,5 @@
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -218,7 +219,7 @@ class SignalReportSummaryWorkflow:
             # 7. If new signals arrived during the run - loop back to the start
             if has_new_signals:
                 workflow.logger.info(f"Report {inputs.report_id} has new signals since run started, looping")
-            else: # Only emit the notification if we're not going to immediately re-run
+            else:  # Only emit the notification if we're not going to immediately re-run
                 await workflow.execute_activity(
                     publish_report_completed_activity,
                     PublishReportCompletedInput(
