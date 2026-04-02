@@ -474,12 +474,12 @@ function buildResponseFilter(config: ToolConfig): {
         const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
         if (config.list) {
             return {
-                code: `        const filtered = { ...result, results: result.results.map((item: any) => pickResponseFields(item, [${paths}])) }\n`,
+                code: `        const filtered = { ...result, results: result.results.map((item: any) => pickResponseFields(item, [${paths}])) } as typeof result\n`,
                 helperImport: 'pickResponseFields',
             }
         }
         return {
-            code: `        const filtered = pickResponseFields(result, [${paths}])\n`,
+            code: `        const filtered = pickResponseFields(result, [${paths}]) as typeof result\n`,
             helperImport: 'pickResponseFields',
         }
     }
@@ -487,12 +487,12 @@ function buildResponseFilter(config: ToolConfig): {
         const paths = config.response?.exclude.map((f) => `'${f}'`).join(', ')
         if (config.list) {
             return {
-                code: `        const filtered = { ...result, results: result.results.map((item: any) => omitResponseFields(item, [${paths}])) }\n`,
+                code: `        const filtered = { ...result, results: result.results.map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
                 helperImport: 'omitResponseFields',
             }
         }
         return {
-            code: `        const filtered = omitResponseFields(result, [${paths}])\n`,
+            code: `        const filtered = omitResponseFields(result, [${paths}]) as typeof result\n`,
             helperImport: 'omitResponseFields',
         }
     }
