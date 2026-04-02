@@ -394,7 +394,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
-    reviews: 'Review traces, organize queues, and manage the scoring setup.',
+    reviews: 'Browse reviews, organize queues, and manage the scoring setup.',
     generations: 'View individual LLM generations and their details.',
     users: 'Understand how users are interacting with your LLM features.',
     errors: 'Monitor and debug errors in your LLM pipeline.',
@@ -464,7 +464,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     useAppShortcut({
         name: 'LLMAnalyticsTab3',
         keybind: [keyBinds.tab3],
-        intent: isTraceReviewEnabled ? 'Go to Review' : 'Go to Generations',
+        intent: isTraceReviewEnabled ? 'Go to Reviews' : 'Go to Generations',
         interaction: 'function',
         callback: () =>
             push(
@@ -522,7 +522,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ? [
                   {
                       key: 'reviews',
-                      label: 'Review',
+                      label: 'Reviews',
                       content: (
                           <LLMAnalyticsSetupPrompt thing="trace">
                               <LLMAnalyticsHumanReviews />
