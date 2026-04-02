@@ -1005,7 +1005,8 @@ export function SavedInsights(): JSX.Element {
                               },
                           ]
                         : []),
-                    { key: SavedInsightsTabs.All, label: 'Insights' },
+                    { key: SavedInsightsTabs.All, label: 'All insights' },
+                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     {
                         key: SavedInsightsTabs.Alerts,
                         label: <div className="flex items-center gap-2">Alerts</div>,
@@ -1023,7 +1024,15 @@ export function SavedInsights(): JSX.Element {
                 <Alerts alertId={alertModalId} />
             ) : (
                 <>
-                    <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
+                    <SavedInsightsFilters
+                        filters={filters}
+                        setFilters={setSavedInsightsFilters}
+                        quickFilters={
+                            tab === SavedInsightsTabs.Yours
+                                ? ['insightType', 'tags', 'favorites', 'featureFlags']
+                                : undefined
+                        }
+                    />
 
                     <ReloadInsight />
                     <LemonTable
