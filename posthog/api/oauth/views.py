@@ -7,6 +7,7 @@ from typing import TypedDict, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.core.exceptions import DisallowedRedirect
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -430,7 +431,16 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         try:
             scopes, credentials = self.validate_authorization_request(request)
         except OAuthToolkitError as error:
-            return self.error_response(error, application=None, state=request.query_params.get("state"))
+            # Try to resolve the application so error redirects can use its allowed schemes
+            # (e.g. vscode:// or other custom schemes registered by the client)
+            error_application = None
+            client_id = request.query_params.get("client_id")
+            if client_id:
+                try:
+                    error_application = get_application_by_client_id(client_id)
+                except OAuthApplication.DoesNotExist:
+                    pass
+            return self.error_response(error, application=error_application, state=request.query_params.get("state"))
 
         # Handle login prompt
         if request.query_params.get("prompt") == "login":
@@ -589,7 +599,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     },
                     status=status.HTTP_200_OK,
                 )
-            return self.redirect(error_response["url"], application)
+            try:
+                return self.redirect(error_response["url"], application)
+            except DisallowedRedirect:
+                logger.warning(
+                    "oauth_disallowed_redirect_scheme",
+                    redirect_url=error_response["url"],
+                )
+                # Fall through to JSON error response below
 
         return Response(
             {
