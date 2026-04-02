@@ -128,6 +128,24 @@ wrappers:
         mcp_version: 2
         title: List LLM traces
         description_file: ./prompts/query-llm-traces-list.md
+        response_format: json
+        exclude_properties:
+            - response
+            - modifiers
+
+    query-llm-trace:
+        schema_ref: AssistantTraceQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Get LLM trace
+        description_file: ./prompts/query-llm-trace.md
+        response_format: json
         exclude_properties:
             - response
             - modifiers
