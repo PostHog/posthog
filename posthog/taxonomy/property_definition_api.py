@@ -563,56 +563,28 @@ class PropertyDefinitionViewSet(
     pagination_class = NotCountingLimitOffsetPaginator
     queryset = PropertyDefinition.objects.all()
 
-    _BUILTIN_VIRTUAL_PERSON_PROPERTIES = [
-        {
-            "id": "$builtin_" + key,
-            "name": key,
-            "description": val.get("description", ""),
-            "is_numerical": val["type"] == "Numeric",
-            "property_type": val["type"],
-            "tags": val.get("tags", []),
-            "is_seen_on_filtered_events": True,
-            "verified": False,
-            "hidden": False,
-            "virtual": True,
-        }
-        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"].items()
-        if val.get("virtual", False)
-    ]
+    @staticmethod
+    def _build_virtual_properties(group: str) -> list[dict]:
+        return [
+            {
+                "id": "$builtin_" + key,
+                "name": key,
+                "description": val.get("description", ""),
+                "is_numerical": val["type"] == "Numeric",
+                "property_type": val["type"],
+                "tags": val.get("tags", []),
+                "is_seen_on_filtered_events": True,
+                "verified": False,
+                "hidden": False,
+                "virtual": True,
+            }
+            for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP[group].items()
+            if val.get("virtual", False)
+        ]
 
-    _BUILTIN_VIRTUAL_EVENT_PROPERTIES = [
-        {
-            "id": "$builtin_" + key,
-            "name": key,
-            "description": val.get("description", ""),
-            "is_numerical": val["type"] == "Numeric",
-            "property_type": val["type"],
-            "tags": val.get("tags", []),
-            "is_seen_on_filtered_events": True,
-            "verified": False,
-            "hidden": False,
-            "virtual": True,
-        }
-        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
-        if val.get("virtual", False)
-    ]
-
-    _BUILTIN_VIRTUAL_GROUP_PROPERTIES = [
-        {
-            "id": "$builtin_" + key,
-            "name": key,
-            "description": val.get("description", ""),
-            "is_numerical": val["type"] == "Numeric",
-            "property_type": val["type"],
-            "tags": val.get("tags", []),
-            "is_seen_on_filtered_events": True,
-            "verified": False,
-            "hidden": False,
-            "virtual": True,
-        }
-        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["groups"].items()
-        if val.get("virtual", False)
-    ]
+    _BUILTIN_VIRTUAL_PERSON_PROPERTIES = _build_virtual_properties("person_properties")
+    _BUILTIN_VIRTUAL_EVENT_PROPERTIES = _build_virtual_properties("event_properties")
+    _BUILTIN_VIRTUAL_GROUP_PROPERTIES = _build_virtual_properties("groups")
 
     def dangerously_get_queryset(self):
         with tracer.start_as_current_span("property_definitions_get_queryset") as span:

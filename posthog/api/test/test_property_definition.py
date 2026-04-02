@@ -275,9 +275,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
         )
         assert response.status_code == status.HTTP_200_OK
-        assert [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
-            ("first_visit", True)
-        ]
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert [(r["name"], r["is_seen_on_filtered_events"]) for r in db_results] == [("first_visit", True)]
 
     def test_person_property_filter_setup(self):
         PropertyDefinition.objects.create(
