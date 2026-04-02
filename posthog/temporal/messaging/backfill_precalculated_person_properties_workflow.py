@@ -229,7 +229,7 @@ def evaluate_single_filter_sync(
             }
     except Exception as e:
         LOGGER.warning(
-            f"Failed to execute filter bytecode for person {person_id}: {e}",
+            "Failed to execute filter bytecode for person",
             person_id=person_id,
             condition_hash=filter_obj.condition_hash,
             error=str(e),
