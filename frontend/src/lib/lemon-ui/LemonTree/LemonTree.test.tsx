@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, render, screen, waitFor, within } from '@testing-library/react'
-import React, { createRef } from 'react'
+import { createRef } from 'react'
 
 import { LemonTree, LemonTreeRef, TreeDataItem } from './LemonTree'
 

@@ -231,7 +231,7 @@ type VirtualWindow = {
 
 type ScrollDirection = 'forward' | 'backward' | 'idle'
 
-type LemonTreeItemRowProps = LemonTreeNodeProps & {
+type LemonTreeItemRowProps = Omit<LemonTreeNodeProps, 'data'> & {
     item: TreeDataItem
     ariaSetSize: number
     ariaPosInSet: number
