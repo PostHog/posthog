@@ -7,12 +7,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { isLaunched } from '~/scenes/experiments/experimentsLogic'
+import { VariantTag } from '~/scenes/experiments/ExperimentView/components'
 import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
-import { experimentLogic } from '../../experimentLogic'
-import { isLaunched } from '../../experimentsLogic'
-import { VariantTag } from '../../ExperimentView/components'
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,
@@ -27,9 +27,9 @@ import { useLegacyChartColors } from './legacyColors'
 import { LegacyGridLines } from './LegacyGridLines'
 import { LegacyMetricHeader } from './LegacyMetricHeader'
 import { LegacyMetricsChartLayout } from './LegacyMetricsChartLayout'
+import { LegacySignificanceHighlight } from './LegacySignificanceHighlight'
 import { LegacyVariantTooltip } from './LegacyVariantTooltip'
 import { legacyGenerateViolinPath } from './legacyViolinUtils'
-import { SignificanceHighlight } from './SignificanceHighlight'
 
 // Chart configuration types
 type ChartDimensions = {
@@ -390,7 +390,7 @@ function ChartControls(): JSX.Element {
         <>
             {/* Chart is z-index 100, so we need to be above it */}
             <div className="absolute top-2 left-2 z-[102]">
-                <SignificanceHighlight
+                <LegacySignificanceHighlight
                     displayOrder={displayOrder}
                     isSecondary={isSecondary}
                     metricUuid={metric?.uuid}
