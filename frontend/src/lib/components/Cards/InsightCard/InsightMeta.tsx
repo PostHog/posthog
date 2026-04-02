@@ -160,16 +160,14 @@ export function InsightMeta({
     const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const showCompactTile = [
-        DashboardPlacement.Dashboard,
-        DashboardPlacement.ProjectHomepage,
-        DashboardPlacement.Public,
-    ].includes(placement)
-    const isUsedAsDashboardTile = [
-        DashboardPlacement.Dashboard,
-        DashboardPlacement.Public,
-        DashboardPlacement.Builtin,
-    ].includes(placement)
+    const showCompactTile =
+        placement === DashboardPlacement.Dashboard ||
+        placement === DashboardPlacement.ProjectHomepage ||
+        placement === DashboardPlacement.Public
+    const isUsedAsDashboardTile =
+        placement === DashboardPlacement.Dashboard ||
+        placement === DashboardPlacement.Public ||
+        placement === DashboardPlacement.Builtin
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
 

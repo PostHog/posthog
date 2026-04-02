@@ -36,7 +36,7 @@ describe('insightAlertsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        listSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
+        listSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [] })
     })
 
     afterEach(() => {
