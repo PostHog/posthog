@@ -20,6 +20,10 @@ import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQu
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
+const getEffectiveQueryKind = (req: {
+    body?: { query?: { kind?: string; source?: { kind?: string } } }
+}): string | undefined => req.body?.query?.source?.kind ?? req.body?.query?.kind
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Revenue Analytics',
@@ -47,24 +51,28 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/DatabaseSchemaQuery': () => [200, databaseSchemaMock],
-                '/api/environments/:team_id/query/RevenueAnalyticsMetricsQuery': () => [
-                    200,
-                    revenueAnalyticsMetricsQueryMock,
-                ],
-                '/api/environments/:team_id/query/RevenueAnalyticsOverviewQuery': () => [
-                    200,
-                    revenueAnalyticsOverviewMock,
-                ],
-                '/api/environments/:team_id/query/RevenueAnalyticsGrossRevenueQuery': () => [
-                    200,
-                    revenueAnalyticsGrossRevenueQueryMock,
-                ],
-                '/api/environments/:team_id/query/RevenueAnalyticsMRRQuery': () => [200, revenueAnalyticsMRRQueryMock],
-                '/api/environments/:team_id/query/RevenueAnalyticsTopCustomersQuery': () => [
-                    200,
-                    revenueAnalyticsTopCustomersMock,
-                ],
+                '/api/environments/:team_id/query/:kind': (req) => {
+                    const queryKind = getEffectiveQueryKind(req)
+
+                    if (queryKind === 'DatabaseSchemaQuery') {
+                        return [200, databaseSchemaMock]
+                    }
+                    if (queryKind === 'RevenueAnalyticsMetricsQuery') {
+                        return [200, revenueAnalyticsMetricsQueryMock]
+                    }
+                    if (queryKind === 'RevenueAnalyticsOverviewQuery') {
+                        return [200, revenueAnalyticsOverviewMock]
+                    }
+                    if (queryKind === 'RevenueAnalyticsGrossRevenueQuery') {
+                        return [200, revenueAnalyticsGrossRevenueQueryMock]
+                    }
+                    if (queryKind === 'RevenueAnalyticsMRRQuery') {
+                        return [200, revenueAnalyticsMRRQueryMock]
+                    }
+                    if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
+                        return [200, revenueAnalyticsTopCustomersMock]
+                    }
+                },
             },
         }),
     ],

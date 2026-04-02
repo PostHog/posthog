@@ -9,6 +9,10 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import DatabaseSchemaQuery from '../__mocks__/DatabaseSchemaQuery.json'
 
+const getEffectiveQueryKind = (req: {
+    body?: { query?: { kind?: string; source?: { kind?: string } } }
+}): string | undefined => req.body?.query?.source?.kind ?? req.body?.query?.kind
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Data Management/Revenue Analytics',
@@ -51,7 +55,13 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/DatabaseSchemaQuery': () => [200, DatabaseSchemaQuery],
+                '/api/environments/:team_id/query/:kind': (req) => {
+                    const queryKind = getEffectiveQueryKind(req)
+
+                    if (queryKind === 'DatabaseSchemaQuery') {
+                        return [200, DatabaseSchemaQuery]
+                    }
+                },
             },
         }),
     ],
