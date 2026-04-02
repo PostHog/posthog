@@ -26,10 +26,10 @@ import { LegacyChartModal } from './LegacyChartModal'
 import { useLegacyChartColors } from './legacyColors'
 import { LegacyGridLines } from './LegacyGridLines'
 import { LegacyMetricHeader } from './LegacyMetricHeader'
+import { legacyGenerateViolinPath } from './legacyViolinUtils'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
 import { VariantTooltip } from './VariantTooltip'
-import { generateViolinPath } from './violinUtils'
 
 // Chart configuration types
 type ChartDimensions = {
@@ -240,7 +240,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                     </foreignObject>
                     {variant.key === 'control' ? (
                         <path
-                            d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
+                            d={legacyGenerateViolinPath(x1, x2, y, barHeight, deltaX)}
                             fill={colors.BAR_CONTROL}
                             stroke={colors.BOUNDARY_LINES}
                             strokeWidth={1}
@@ -278,7 +278,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                                 </linearGradient>
                             </defs>
                             <path
-                                d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
+                                d={legacyGenerateViolinPath(x1, x2, y, barHeight, deltaX)}
                                 fill={`url(#gradient-${metricId}-${variant.key}-${
                                     isSecondary ? 'secondary' : 'primary'
                                 })`}

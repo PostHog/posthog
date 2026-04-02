@@ -37,7 +37,7 @@ export { VariantDeltaTimeseries } from './metricsView/VariantDeltaTimeseries'
 export { VariantTooltip } from './metricsView/VariantTooltip'
 export { ViolinPath } from './metricsView/ViolinPath'
 export { WinningVariantText, SignificanceText } from './metricsView/Overview'
-export * from './metricsView/violinUtils'
+export * from './metricsView/legacyViolinUtils'
 
 // Metrics View - Shared (Legacy)
 export { LegacyChartLoadingState } from './metricsView/LegacyChartLoadingState'

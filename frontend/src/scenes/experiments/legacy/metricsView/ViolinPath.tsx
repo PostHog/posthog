@@ -1,5 +1,5 @@
 import { useLegacyChartColors } from './legacyColors'
-import { generateViolinPath } from './violinUtils'
+import { legacyGenerateViolinPath } from './legacyViolinUtils'
 
 interface ViolinPathProps {
     variant: {
@@ -33,7 +33,7 @@ export function ViolinPath({
             {variant.key === 'control' ? (
                 // Control variant - dashed violin
                 <path
-                    d={generateViolinPath(x1, x2, y, height, deltaX)}
+                    d={legacyGenerateViolinPath(x1, x2, y, height, deltaX)}
                     fill={colors.BAR_CONTROL}
                     stroke={colors.BOUNDARY_LINES}
                     strokeWidth={1}
@@ -63,7 +63,7 @@ export function ViolinPath({
                         </linearGradient>
                     </defs>
                     <path
-                        d={generateViolinPath(x1, x2, y, height, deltaX)}
+                        d={legacyGenerateViolinPath(x1, x2, y, height, deltaX)}
                         fill={`url(#gradient-${displayOrder}-${variant.key}-${isSecondary ? 'secondary' : 'primary'})`}
                     />
                 </>
