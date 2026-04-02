@@ -77,11 +77,10 @@ export function CollapsibleExceptionHeader({
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
-                            noPadding
                             onClick={() => setExpanded(!expanded)}
-                            className="mt-0.5"
+                            className="mt-0.5 underline"
                         >
-                            {expanded ? 'Show less' : 'Show more…'}
+                            {expanded ? 'Show less' : 'Show more'}
                         </LemonButton>
                     )}
                 </div>
