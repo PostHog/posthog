@@ -654,7 +654,7 @@ export class HogExecutorService {
             }
         }
 
-        const fetchParams: FetchOptions = { method, headers }
+        const fetchParams: FetchOptions = { method, headers: headers as Record<string, string> }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body

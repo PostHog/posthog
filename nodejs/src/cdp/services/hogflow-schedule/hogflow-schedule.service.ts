@@ -45,8 +45,8 @@ const ProcessedScheduleSchema = z.object({
     schedule_id: z.string(),
     team_id: z.number(),
     hog_flow_id: z.string(),
-    filters: z.record(z.unknown()),
-    variables: z.record(z.unknown()),
+    filters: z.record(z.string(), z.unknown()),
+    variables: z.record(z.string(), z.unknown()),
 })
 
 const ProcessDueSchedulesResponseSchema = z.object({
