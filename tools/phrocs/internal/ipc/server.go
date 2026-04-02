@@ -213,10 +213,10 @@ func dispatch(req request, mgr *process.Manager) any {
 		if req.Shell == "" {
 			return map[string]any{"ok": false, "error": "missing shell command"}
 		}
-		p := mgr.AddShell(req.Process, req.Shell)
-		if p == nil {
+		if _, exists := mgr.Get(req.Process); exists {
 			return map[string]any{"ok": false, "error": "process already exists: " + req.Process}
 		}
+		p := mgr.AddShell(req.Process, req.Shell)
 		send := mgr.Send()
 		go func() { _ = p.Start(send) }()
 		// Notify TUI to refresh process list

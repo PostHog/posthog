@@ -545,3 +545,75 @@ func TestSnapshot_noReadyAt(t *testing.T) {
 		t.Errorf("StartupDurationS: got %v, want nil", snap.StartupDurationS)
 	}
 }
+
+func TestNewProcess_globalShell(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "echo hi"}, 100, "/bin/zsh")
+	if p.shellBin != "/bin/zsh" {
+		t.Errorf("shellBin: got %q, want %q", p.shellBin, "/bin/zsh")
+	}
+}
+
+func TestNewProcess_defaultShell(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "echo hi"}, 100, "")
+	if p.shellBin != defaultShell {
+		t.Errorf("shellBin: got %q, want %q", p.shellBin, defaultShell)
+	}
+}
+
+func TestIsRunning(t *testing.T) {
+	tests := []struct {
+		status Status
+		want   bool
+	}{
+		{StatusPending, true},
+		{StatusRunning, true},
+		{StatusStopped, false},
+		{StatusDone, false},
+		{StatusCrashed, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status.String(), func(t *testing.T) {
+			if got := tt.status.IsRunning(); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProcess_IsRunning(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "true"}, 100, "")
+	if p.IsRunning() {
+		t.Error("new process should not be running")
+	}
+}
+
+func TestBuildCmd_cwd(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: "echo hi", Cwd: dir}, 100, "")
+	cmd := p.buildCmd()
+	if cmd.Dir != dir {
+		t.Errorf("Dir: got %q, want %q", cmd.Dir, dir)
+	}
+}
+
+func TestBuildCmd_globalShell(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "echo hi"}, 100, "/bin/zsh")
+	cmd := p.buildCmd()
+	if cmd.Path == "" {
+		t.Fatal("cmd.Path is empty")
+	}
+	if cmd.Args[0] != "/bin/zsh" {
+		t.Errorf("Args[0]: got %q, want %q", cmd.Args[0], "/bin/zsh")
+	}
+	if cmd.Args[1] != "-c" {
+		t.Errorf("Args[1]: got %q, want %q", cmd.Args[1], "-c")
+	}
+}
+
+func TestBuildCmd_cmdBypassesShell(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Cmd: []string{"echo", "hi"}}, 100, "/bin/zsh")
+	cmd := p.buildCmd()
+	if cmd.Args[0] != "echo" {
+		t.Errorf("Cmd mode should bypass shell, got Args[0]=%q", cmd.Args[0])
+	}
+}
