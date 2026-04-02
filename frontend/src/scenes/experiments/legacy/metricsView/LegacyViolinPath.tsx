@@ -1,7 +1,9 @@
 import { useLegacyChartColors } from './legacyColors'
 import { legacyGenerateViolinPath } from './legacyViolinUtils'
 
-interface ViolinPathProps {
+const CONVERSION_RATE_RECT_WIDTH = 2
+
+interface LegacyViolinPathProps {
     variant: {
         key: string
         [key: string]: any
@@ -15,7 +17,12 @@ interface ViolinPathProps {
     isSecondary: boolean
 }
 
-export function ViolinPath({
+/**
+ * @deprecated
+ * Legacy violin path component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyViolinPath({
     variant,
     x1,
     x2,
@@ -24,9 +31,8 @@ export function ViolinPath({
     deltaX,
     displayOrder,
     isSecondary,
-}: ViolinPathProps): JSX.Element {
+}: LegacyViolinPathProps): JSX.Element {
     const colors = useLegacyChartColors()
-    const CONVERSION_RATE_RECT_WIDTH = 2
 
     return (
         <>

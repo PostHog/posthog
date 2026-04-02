@@ -35,7 +35,7 @@ export { SignificanceHighlight } from './metricsView/SignificanceHighlight'
 export { LegacyTickPanel } from './metricsView/LegacyTickPanel'
 export { VariantDeltaTimeseries } from './metricsView/VariantDeltaTimeseries'
 export { VariantTooltip } from './metricsView/VariantTooltip'
-export { ViolinPath } from './metricsView/ViolinPath'
+export { LegacyViolinPath } from './metricsView/LegacyViolinPath'
 export { WinningVariantText, SignificanceText } from './metricsView/Overview'
 export * from './metricsView/legacyViolinUtils'
 
