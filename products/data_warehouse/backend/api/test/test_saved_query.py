@@ -425,6 +425,29 @@ class TestSavedQuery(APIBaseTest):
         self.assertTrue(first_view.deleted)
         self.assertTrue(second_view.deleted)
 
+    def test_delete_folder_deletes_endpoint_views(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Endpoints", created_by=self.user)
+        endpoint_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="endpoint_view",
+            folder=folder,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+
+        with patch(
+            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+        ) as mock_delete_saved_query_schedule:
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
+            )
+
+        self.assertEqual(response.status_code, 204, response.content)
+        mock_delete_saved_query_schedule.assert_called_once()
+        self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+
+        endpoint_view.refresh_from_db()
+        self.assertTrue(endpoint_view.deleted)
+
     def test_rename_folder(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
 
