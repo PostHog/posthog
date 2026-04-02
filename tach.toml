@@ -456,3 +456,12 @@ interfaces = [
 path = "products.messaging"
 depends_on = ["posthog"]
 layer = "non_isolated"
+
+[[modules]]
+path = "products.mcp_analytics"
+depends_on = ["posthog"]
+layer = "products"
+interfaces = [
+    "products.mcp_analytics.backend.facade",
+    "products.mcp_analytics.backend.presentation.views",
+]
