@@ -645,6 +645,20 @@ async fn statefulset_rollout_pod_skips_drain() {
     // K8s sends SIGTERM — pod should skip drain and exit almost immediately
     pod_cancel.cancel();
 
+    // Check status *before* awaiting pod_handle — once the pod exits it
+    // revokes its lease and list_pods() returns empty, making any post-exit
+    // assertion vacuously true.
+    let pods = store.list_pods().await.unwrap_or_default();
+    let pod_status = pods
+        .iter()
+        .find(|p| p.pod_name == "ss-writer-0")
+        .map(|p| p.status);
+    assert_ne!(
+        pod_status,
+        Some(PodStatus::Draining),
+        "pod should skip drain entirely during StatefulSet rollout"
+    );
+
     // If drain was NOT skipped, this would timeout (drain_timeout = 30s).
     // With drain skip, the pod exits in ~1s.
     let exit_timeout = Duration::from_secs(10);
@@ -653,18 +667,6 @@ async fn statefulset_rollout_pod_skips_drain() {
         result.is_ok(),
         "pod should exit quickly when drain is skipped during StatefulSet rollout"
     );
-
-    // Pod should never have entered Draining status
-    let pods = store.list_pods().await.unwrap_or_default();
-    for pod in &pods {
-        if pod.pod_name == "ss-writer-0" {
-            assert_ne!(
-                pod.status,
-                PodStatus::Draining,
-                "pod should skip drain entirely during StatefulSet rollout"
-            );
-        }
-    }
 
     coord_cancel.cancel();
     k8s_cancel.cancel();

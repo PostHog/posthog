@@ -533,7 +533,7 @@ fn active_pod_names(pods: &[RegisteredPod]) -> Vec<String> {
 ///    active list so their assignments are held. In a StatefulSet rollout the
 ///    same pod name comes back with a new revision, so there's no point
 ///    handing off to a different pod.
-pub async fn filter_pods_for_k8s(
+async fn filter_pods_for_k8s(
     k8s: &K8sAwareness,
     pods: &[RegisteredPod],
     mut active: Vec<String>,
