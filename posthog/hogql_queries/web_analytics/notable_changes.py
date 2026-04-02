@@ -122,7 +122,7 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
             logger.exception("Error getting pre-aggregated notable changes", error=e)
             return None
 
-    def _raw_events_query(self) -> ast.SelectSetQuery:
+    def _raw_events_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         all_properties = property_to_expr(
             [*self.query.properties, *self._test_account_filters],
             team=self.team,
@@ -136,7 +136,9 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
             if dim.get("is_channel"):
                 raw_expr: ast.Expr = ast.Field(chain=["session", "$channel_type"])
             elif dim.get("raw_field"):
-                raw_expr = ast.Field(chain=dim["raw_field"])
+                raw_field = dim["raw_field"]
+                assert raw_field is not None
+                raw_expr = ast.Field(chain=raw_field)
             else:
                 continue
 
@@ -268,9 +270,13 @@ class _NotableChangesPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBui
         if dim.get("is_channel"):
             dimension_expr = self._get_channel_type_expr()
         elif dim.get("is_path") and self.runner.query.doPathCleaning:
-            dimension_expr = self.runner._apply_path_cleaning(ast.Field(chain=[dim["field"]]))
+            field = dim["field"]
+            assert field is not None
+            dimension_expr = self.runner._apply_path_cleaning(ast.Field(chain=[field]))
         else:
-            dimension_expr = ast.Field(chain=[dim["field"]])
+            field = dim["field"]
+            assert field is not None
+            dimension_expr = ast.Field(chain=[field])
 
         dimension_expr_wrapped = wrap_with_null_if_empty(dimension_expr)
 
@@ -292,10 +298,9 @@ class _NotableChangesPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBui
             ast.Alias(alias="previous_visitors", expr=previous_visitors),
         ]
 
-        having_expr = ast.CompareOperation(
-            op=ast.CompareOperationOp.IsNot,
-            left=ast.Field(chain=["dimension_value"]),
-            right=ast.Constant(value=None),
+        having_expr = ast.Call(
+            name="isNotNull",
+            args=[ast.Field(chain=["dimension_value"])],
         )
 
         return ast.SelectQuery(

@@ -95,7 +95,7 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=self._create_query(),
         )
-        results = []
+        results: list = []
         scored = runner._score_results(results)
         self.assertEqual(len(scored), 0)
 
