@@ -46,52 +46,58 @@ def parse_result(raw):
     return clusters, meta
 
 
-data = load_result_file(sys.argv[1])
-clusters, meta = parse_result(data)
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python print_clusters.py <result_file_path>")
+        sys.exit(1)
 
-if not clusters:
-    print("No clusters found in file.")
-    sys.exit(1)
+    data = load_result_file(sys.argv[1])
+    clusters, meta = parse_result(data)
 
-clusters.sort(key=lambda c: c.get("size", 0), reverse=True)
+    if not clusters:
+        print("No clusters found in file.")
+        sys.exit(1)
 
-print(f"\n{'='*80}")
-if meta:
-    if meta.get("job_name"):
-        print(f"  Job: {meta['job_name']}")
-    if meta.get("level"):
-        print(f"  Level: {meta['level']}")
-    if meta.get("run_id"):
-        print(f"  Run: {meta['run_id']}")
-    if meta.get("job_id"):
-        print(f"  Job ID: {meta['job_id']}")
-    if meta.get("window_start") or meta.get("window_end"):
-        print(f"  Window: {meta.get('window_start', '?')} → {meta.get('window_end', '?')}")
-    if meta.get("total_items"):
-        print(f"  Items analyzed: {meta['total_items']}")
-    print(f"  ---")
-print(f"  {len(clusters)} clusters, {sum(c.get('size', 0) for c in clusters)} total items")
-print(f"{'='*80}")
+    clusters.sort(key=lambda c: c.get("size", 0), reverse=True)
 
-for c in clusters:
-    cid = c.get("cluster_id", "?")
-    label = "(NOISE/OUTLIERS)" if cid == -1 else ""
-    title = c.get("title", f"Cluster {cid}")
-    size = c.get("size", 0)
-    desc = c.get("description", "")
+    print(f"\n{'='*80}")
+    if meta:
+        if meta.get("job_name"):
+            print(f"  Job: {meta['job_name']}")
+        if meta.get("level"):
+            print(f"  Level: {meta['level']}")
+        if meta.get("run_id"):
+            print(f"  Run: {meta['run_id']}")
+        if meta.get("job_id"):
+            print(f"  Job ID: {meta['job_id']}")
+        if meta.get("window_start") or meta.get("window_end"):
+            print(f"  Window: {meta.get('window_start', '?')} → {meta.get('window_end', '?')}")
+        if meta.get("total_items"):
+            print(f"  Items analyzed: {meta['total_items']}")
+        print(f"  ---")
+    print(f"  {len(clusters)} clusters, {sum(c.get('size', 0) for c in clusters)} total items")
+    print(f"{'='*80}")
 
-    print(f"\n  Cluster {cid} {label}")
-    print(f"  Title: {title}")
-    print(f"  Size:  {size} items")
-    if desc:
-        print(f"  Desc:  {desc[:200]}{'...' if len(desc) > 200 else ''}")
+    for c in clusters:
+        cid = c.get("cluster_id", "?")
+        label = "(NOISE/OUTLIERS)" if cid == -1 else ""
+        title = c.get("title", f"Cluster {cid}")
+        size = c.get("size", 0)
+        desc = c.get("description", "")
 
-    # Show top 5 traces by rank
-    traces = c.get("traces", {})
-    ranked = sorted(traces.items(), key=lambda t: t[1].get("rank", 999))[:5]
-    if ranked:
-        print(f"  Top traces (by centroid proximity):")
-        for tid, info in ranked:
-            dist = info.get("distance_to_centroid", "?")
-            ts = info.get("timestamp", "?")
-            print(f"    #{info.get('rank', '?'):>3}  {tid}  dist={dist:.4f}  {ts}")
+        print(f"\n  Cluster {cid} {label}")
+        print(f"  Title: {title}")
+        print(f"  Size:  {size} items")
+        if desc:
+            print(f"  Desc:  {desc[:200]}{'...' if len(desc) > 200 else ''}")
+
+        # Show top 5 traces by rank
+        traces = c.get("traces", {})
+        ranked = sorted(traces.items(), key=lambda t: t[1].get("rank", 999))[:5]
+        if ranked:
+            print(f"  Top traces (by centroid proximity):")
+            for tid, info in ranked:
+                dist = info.get("distance_to_centroid")
+                ts = info.get("timestamp", "?")
+                dist_str = f"{dist:.4f}" if isinstance(dist, (int, float)) else "?"
+                print(f"    #{info.get('rank', '?'):>3}  {tid}  dist={dist_str}  {ts}")

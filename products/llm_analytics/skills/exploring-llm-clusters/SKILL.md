@@ -6,14 +6,13 @@ comparing cluster behavior, and drilling into individual clusters.
 
 ## Tools
 
-| Tool                                               | Purpose                                                 |
-| -------------------------------------------------- | ------------------------------------------------------- |
-| `posthog:llm-analytics-clustering-jobs-list`       | List clustering job configurations for the team         |
-| `posthog:llm-analytics-clustering-jobs-retrieve`   | Get a specific clustering job by ID                     |
-| `posthog:llm-analytics-clustering-config-retrieve` | Get team-level clustering config (global event filters) |
-| `posthog:execute-sql`                              | Query cluster run events and compute metrics            |
-| `posthog:query-llm-traces-list`                    | Find traces belonging to a cluster                      |
-| `posthog:query-llm-trace`                          | Inspect a specific trace from a cluster                 |
+| Tool                                             | Purpose                                         |
+| ------------------------------------------------ | ----------------------------------------------- |
+| `posthog:llm-analytics-clustering-jobs-list`     | List clustering job configurations for the team |
+| `posthog:llm-analytics-clustering-jobs-retrieve` | Get a specific clustering job by ID             |
+| `posthog:execute-sql`                            | Query cluster run events and compute metrics    |
+| `posthog:query-llm-traces-list`                  | Find traces belonging to a cluster              |
+| `posthog:query-llm-trace`                        | Inspect a specific trace from a cluster         |
 
 ## How clustering works
 
@@ -41,7 +40,7 @@ Each cluster event contains:
   "traces": {
     "<trace_or_generation_id>": {
       "distance_to_centroid": 0.123,
-      "rank": 1,
+      "rank": 0,
       "x": -2.34,
       "y": 1.56,
       "timestamp": "2026-03-28T10:00:00Z",
@@ -56,7 +55,7 @@ Each cluster event contains:
 
 - `cluster_id: -1` is the **noise/outlier** cluster (items that didn't fit any cluster)
 - Items in `traces` are keyed by trace ID (trace-level) or generation event UUID (generation-level)
-- `rank` orders items by proximity to centroid (1 = closest)
+- `rank` orders items by proximity to centroid (0 = closest)
 - `x`, `y` are 2D coordinates for visualization (UMAP/PCA/t-SNE reduced)
 
 ## Clustering jobs
