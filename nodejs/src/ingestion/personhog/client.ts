@@ -1,5 +1,5 @@
 import { create } from '@bufbuild/protobuf'
-import { Transport, createClient } from '@connectrpc/connect'
+import { Interceptor, Transport, createClient } from '@connectrpc/connect'
 import { createGrpcTransport } from '@connectrpc/connect-node'
 import { DateTime } from 'luxon'
 
@@ -32,6 +32,7 @@ export function eventualReadOptions() {
 
 export interface PersonHogClientConfig {
     addr: string
+    clientName?: string
     useTls?: boolean
     timeoutMs?: number
     readMaxBytes?: number
@@ -57,6 +58,14 @@ export class PersonHogClient {
 
     static fromConfig(config: PersonHogClientConfig): PersonHogClient {
         const scheme = config.useTls ? 'https' : 'http'
+        const interceptors: Interceptor[] = []
+        if (config.clientName) {
+            const clientName = config.clientName
+            interceptors.push((next) => async (req) => {
+                req.header.set('x-client-name', clientName)
+                return await next(req)
+            })
+        }
         const transport = createGrpcTransport({
             baseUrl: `${scheme}://${config.addr}`,
             defaultTimeoutMs: config.timeoutMs ?? 5_000,
@@ -65,6 +74,7 @@ export class PersonHogClient {
             pingIntervalMs: config.pingIntervalMs ?? 30_000,
             pingTimeoutMs: config.pingTimeoutMs ?? 5_000,
             pingIdleConnection: config.pingIdleConnection ?? true,
+            interceptors,
         })
         return new PersonHogClient(transport)
     }

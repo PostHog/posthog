@@ -37,7 +37,7 @@ export function TrendsSeries(): JSX.Element | null {
     )
     const { updateQuerySource, toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
 
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 

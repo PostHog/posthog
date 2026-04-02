@@ -6,6 +6,7 @@ import datetime as dt
 import dataclasses
 from typing import TYPE_CHECKING, Any
 
+import structlog
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
@@ -13,7 +14,7 @@ import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.client import KafkaProducer, _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -69,9 +70,9 @@ def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, An
 
 async def flush_kafka_batch_async(
     kafka_results: list,
-    kafka_producer,
+    kafka_producer: _KafkaProducer,
     team_id: int,
-    logger,
+    logger: structlog.BoundLogger,
     flush_duration_metric=None,
 ) -> int:
     """Flush Kafka messages asynchronously and return count of successful messages.
@@ -197,6 +198,46 @@ class BackfillPrecalculatedPersonPropertiesInputs:
         }
 
 
+def evaluate_single_filter_sync(
+    filter_obj: PersonPropertyFilter,
+    hog_globals: dict[str, Any],
+    person_id: str,
+    inputs: BackfillPrecalculatedPersonPropertiesInputs,
+) -> dict[str, Any] | None:
+    """
+    Evaluate a single filter for a person and return event data if it matches.
+
+    This is a synchronous function that will be run in a thread pool for concurrency.
+
+    Returns:
+        Event dict if filter matches, None otherwise
+    """
+    try:
+        # Execute the filter bytecode to get the result
+        bytecode_result: BytecodeResult = execute_bytecode(filter_obj.bytecode, hog_globals)
+        result = bytecode_result.result
+
+        # If filter matches, return event data
+        if result:
+            return {
+                "team_id": inputs.team_id,
+                "distinct_id": person_id,
+                "person_id": person_id,
+                "condition": filter_obj.condition_hash,
+                "matches": result,
+                "source": f"cohort_filter_{filter_obj.condition_hash}",
+            }
+    except Exception as e:
+        LOGGER.warning(
+            f"Failed to execute filter bytecode for person {person_id}: {e}",
+            person_id=person_id,
+            condition_hash=filter_obj.condition_hash,
+            error=str(e),
+        )
+
+    return None
+
+
 @temporalio.activity.defn
 async def backfill_precalculated_person_properties_activity(
     inputs: BackfillPrecalculatedPersonPropertiesInputs,
@@ -293,19 +334,36 @@ async def backfill_precalculated_person_properties_activity(
         property_alias_mapping = {}
 
         if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES:
-            # Only select the specific properties we need
-            property_selects = []
+            # Build a single JSONExtract with tuple structure for all properties
+            escaped_properties = []
+            for prop in person_properties:
+                # Use backtick escaping for identifier names in tuple definition
+                escaped_prop = prop.replace("`", "``")
+                escaped_properties.append(f"`{escaped_prop}` String")
 
+            tuple_definition = ",\n        ".join(escaped_properties)
+
+            # Build the select statements for tupleElement extractions
+            property_selects = []
             for i, prop in enumerate(person_properties):
-                # Use JSON extract to get only the specific property
-                escaped_prop = prop.replace("'", "''")  # Escape single quotes for SQL safety
                 safe_alias = f"prop_{i}"  # Use safe numeric aliases
-                property_selects.append(f"JSONExtractString(properties, '{escaped_prop}') as `{safe_alias}`")
+                # Escape single quotes for string literal in tupleElement
+                string_escaped_prop = prop.replace("'", "''")
+                property_selects.append(f"tupleElement(p, '{string_escaped_prop}') as `{safe_alias}`")
                 property_alias_mapping[safe_alias] = prop
 
-            properties_clause = ",\n                ".join(property_selects)
+            tuple_selects = ",\n                ".join(property_selects)
+
+            properties_clause = f"""JSONExtract(
+                properties,
+                'Tuple(
+        {tuple_definition}
+                )'
+            ) AS p,
+                {tuple_selects}"""
+
             logger.info(
-                f"Optimized query: fetching only {len(person_properties)} specific properties instead of all properties"
+                f"Optimized query: using single JSONExtract with tuple structure for {len(person_properties)} properties"
             )
         else:
             # Fallback to all properties if we have too many properties or can't determine which ones are needed
@@ -341,6 +399,20 @@ async def backfill_precalculated_person_properties_activity(
         last_person_id = inputs.start_person_id
         batch_count = 0
 
+        # Initialize semaphore and async function outside the loop
+        MAX_CONCURRENT_FILTERS = min(20, len(filters))  # Cap at 20 concurrent threads
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_FILTERS)
+
+        async def run_filter_in_thread(filter_obj, hog_globals_bound, person_id_bound):
+            async with semaphore:
+                return await asyncio.to_thread(
+                    evaluate_single_filter_sync,
+                    filter_obj,
+                    hog_globals_bound,
+                    person_id_bound,
+                    inputs,
+                )
+
         with tags_context(
             team_id=inputs.team_id,
             feature=Feature.BEHAVIORAL_COHORTS,
@@ -370,65 +442,58 @@ async def backfill_precalculated_person_properties_activity(
                         # Fallback format: use full properties JSON
                         parsed_properties = parse_person_properties(row.get("properties"), person_id)
 
-                    # Evaluate each filter for this person
+                    # Evaluate all filters concurrently for this person using thread pool
                     person_filter_start = time.monotonic()
                     hog_globals = {"person": {"properties": parsed_properties}}
-                    for filter_obj in filters:
-                        # Execute the filter bytecode to get the result
+
+                    # Create tasks for concurrent filter evaluation
+                    filter_tasks = [run_filter_in_thread(filter_obj, hog_globals, person_id) for filter_obj in filters]
+
+                    # Execute all filters concurrently
+                    filter_results = await asyncio.gather(*filter_tasks, return_exceptions=True)
+
+                    # Collect matching events and produce to Kafka sequentially (thread-safe)
+                    matching_events = []
+                    for result in filter_results:
+                        if isinstance(result, dict):  # Successful result with event data
+                            matching_events.append(result)
+                        elif isinstance(result, Exception):
+                            logger.error(
+                                "Error while evaluating filter for person_id %s: %r",
+                                person_id,
+                                result,
+                            )
+                        # None results (no match) are ignored
+
+                    # Produce all matching events to Kafka sequentially in main thread
+                    for event in matching_events:
                         try:
-                            bytecode_result: BytecodeResult = execute_bytecode(filter_obj.bytecode, hog_globals)
-                            result = bytecode_result.result
-
-                            # If filter matches, create an event for each cohort
-                            if result:
-                                for cohort_id in filter_obj.cohort_ids:
-                                    event = {
-                                        "team_id": inputs.team_id,
-                                        "distinct_id": person_id,
-                                        "person_id": person_id,
-                                        "cohort_id": cohort_id,
-                                        "condition_hash": filter_obj.condition_hash,
-                                        "property_key": filter_obj.property_key,
-                                        "result": result,
-                                    }
-
-                                    # Produce to Kafka and collect ProduceResult objects for flushing
-                                    try:
-                                        produce_result = kafka_producer.produce(
-                                            topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                                            data=event,
-                                        )
-                                        kafka_results.append(produce_result)
-                                        total_events_produced += 1
-
-                                        # Periodically flush Kafka batches to avoid memory buildup
-                                        if len(kafka_results) >= KAFKA_FLUSH_BATCH_SIZE:
-                                            logger.info(
-                                                f"Flushing {len(kafka_results)} Kafka messages (batch size: {KAFKA_FLUSH_BATCH_SIZE})"
-                                            )
-                                            batch_flushed = await flush_kafka_batch_async(
-                                                kafka_results,
-                                                kafka_producer,
-                                                inputs.team_id,
-                                                logger,
-                                            )
-                                            total_flushed += batch_flushed
-                                            kafka_results.clear()  # Clear the batch after flushing
-
-                                    except Exception as e:
-                                        logger.warning(
-                                            f"Failed to produce Kafka message for person {person_id}: {e}",
-                                            person_id=person_id,
-                                            error=str(e),
-                                        )
-                                        # Continue processing even if Kafka produce fails
+                            produce_result = kafka_producer.produce(
+                                topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                data=event,
+                            )
+                            kafka_results.append(produce_result)
+                            total_events_produced += 1
                         except Exception as e:
                             logger.warning(
-                                f"Failed to execute filter bytecode for person {person_id}: {e}",
+                                f"Failed to produce Kafka message for person {person_id}: {e}",
                                 person_id=person_id,
-                                condition_hash=filter_obj.condition_hash,
                                 error=str(e),
                             )
+
+                    # Periodically flush Kafka batches to avoid memory buildup
+                    if len(kafka_results) >= KAFKA_FLUSH_BATCH_SIZE:
+                        logger.info(
+                            f"Flushing {len(kafka_results)} Kafka messages (batch size: {KAFKA_FLUSH_BATCH_SIZE})"
+                        )
+                        batch_flushed = await flush_kafka_batch_async(
+                            kafka_results,
+                            kafka_producer,
+                            inputs.team_id,
+                            logger,
+                        )
+                        total_flushed += batch_flushed
+                        kafka_results.clear()  # Clear the batch after flushing
 
                     # Record filter evaluation timing for this person
                     person_filter_duration = time.monotonic() - person_filter_start
