@@ -20,9 +20,9 @@ import {
     credibleIntervalForVariant,
     exposureCountDataForVariant,
 } from '../calculations/legacyExperimentCalculations'
-import { LegacyChartModal } from './ChartModal'
 import { LegacyChartEmptyState } from './LegacyChartEmptyState'
 import { LegacyChartLoadingState } from './LegacyChartLoadingState'
+import { LegacyChartModal } from './LegacyChartModal'
 import { useLegacyChartColors } from './legacyColors'
 import { LegacyGridLines } from './LegacyGridLines'
 import { LegacyMetricHeader } from './LegacyMetricHeader'
