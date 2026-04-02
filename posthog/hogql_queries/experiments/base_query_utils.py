@@ -16,6 +16,8 @@ from posthog.schema import (
     ExperimentMetricMathType,
     ExperimentRatioMetric,
     FunnelConversionWindowTimeUnit,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
     FunnelMathType,
     PropertyMathType,
 )
@@ -403,7 +405,20 @@ def funnel_evaluation_expr(
     # When using an alias, assume step conditions are pre-calculated
     step_conditions = [f"{i + 1} * {events_alias}.step_{i}" for i in range(num_steps)]
 
+    # Add exclusion conditions as negative values if exclusions are defined.
+    # The aggregate_funnel_array UDF interprets negative step values as exclusion
+    # signals — if a user performs an excluded event between the specified funnel
+    # steps, they are disqualified from converting through that path.
+    has_exclusions = getattr(funnel_metric, "exclusions", None) and len(funnel_metric.exclusions) > 0
+    if has_exclusions:
+        for i in range(1, num_steps):
+            step_conditions.append(f"-{i + 1} * {events_alias}.exclusion_{i}")
+
     step_conditions_str = ", ".join(step_conditions)
+
+    # When exclusions are present, use != 0 filter to preserve negative exclusion
+    # values. Without exclusions, > 0 is sufficient and matches prior behavior.
+    array_filter_predicate = "x != 0" if has_exclusions else "x > 0"
 
     # Determine funnel order type - default to "ordered" for backward compatibility
     funnel_order_type = funnel_metric.funnel_order_type or "ordered"
@@ -436,7 +451,7 @@ def funnel_evaluation_expr(
                     toFloat({timestamp_field}),
                     {uuid_field},
                     array(''),
-                    arrayFilter(x -> x > 0, [{step_conditions_str}])
+                    arrayFilter(x -> {array_filter_predicate}, [{step_conditions_str}])
                 )))
             )
         )

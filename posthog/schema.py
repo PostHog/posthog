@@ -17828,6 +17828,7 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = None
     funnel_order_type: StepOrderValue | None = None
     metric_type: Literal["funnel"] = "funnel"
     series: list[EventsNode | ActionsNode]
@@ -18935,6 +18936,7 @@ class ExperimentFunnelMetric(BaseModel):
     breakdownFilter: BreakdownFilter | None = None
     conversion_window: int | None = None
     conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
+    exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = None
     fingerprint: str | None = None
     funnel_order_type: StepOrderValue | None = None
     goal: ExperimentMetricGoal | None = None
