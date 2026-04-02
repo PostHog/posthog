@@ -7,7 +7,7 @@ import React from 'react'
 
 import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -503,9 +503,13 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
                 clearTimeout(timeout)
             } catch (err) {
-                // Connection dropped but the workflow keeps running.
-                // Keep the spinner going until the timeout kicks in
-                posthog.captureException(err)
+                if (err instanceof ApiError) {
+                    clearTimeout(timeout)
+                    lemonToast.error(err.message)
+                    actions.setSessionSummaryLoading(false)
+                } else {
+                    posthog.captureException(err)
+                }
             }
         },
     })),

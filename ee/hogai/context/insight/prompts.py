@@ -297,4 +297,38 @@ John Doe|5.23615
 ```
 """
 
+STICKINESS_EXAMPLE_PROMPT = """
+You are given a table with the results of a stickiness query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with series names received from the query. The first column is the interval (number of days/weeks the event was performed), and the rest are the values for each series.
+
+Example:
+```
+Interval|$pageview|signup
+1 day|200|100
+2 days|150|120
+3 days|100|80
+```
+""".strip()
+
+LIFECYCLE_EXAMPLE_PROMPT = """
+You are given a table with the results of a lifecycle query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row. The first column is the date, and the remaining columns are the user counts for each lifecycle status: new, returning, resurrecting, and dormant. Dormant values are negative, representing users who stopped performing the event.
+
+Example:
+```
+Date|new|returning|resurrecting|dormant
+2025-01-20|46|120|15|-30
+2025-01-21|38|105|22|-45
+```
+""".strip()
+
+BOX_PLOT_EXAMPLE_PROMPT = """
+You are given a table with the results of a box plot query showing statistical distributions of a numeric property over time. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row. Each row shows the distribution statistics for a date period: minimum, 25th percentile (P25), median, 75th percentile (P75), maximum, and mean.
+
+Example:
+```
+Date|Min|P25|Median|P75|Max|Mean
+2025-01-20|1.2|5.5|12.3|25.8|100.4|18.7
+2025-01-21|0.8|4.2|10.1|22.5|95.2|16.3
+```
+""".strip()
+
 FALLBACK_EXAMPLE_PROMPT = "You'll be given a JSON object with the results of a query."

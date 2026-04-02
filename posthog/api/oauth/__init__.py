@@ -1,10 +1,6 @@
 # Re-export for backwards compatibility
-from posthog.api.oauth.application import (
-    OAuthApplicationPublicMetadataSerializer,
-    OAuthApplicationPublicMetadataViewSet,
-    OrganizationOAuthApplicationSerializer,
-    OrganizationOAuthApplicationViewSet,
-)
+from posthog.api.oauth.application import OrganizationOAuthApplicationSerializer, OrganizationOAuthApplicationViewSet
+from posthog.api.oauth.cimd import get_application_by_client_id, is_cimd_client_id
 from posthog.api.oauth.dcr import (
     DCRBurstThrottle,
     DCRRequestSerializer,
@@ -41,9 +37,10 @@ __all__ = [
     "DCRSustainedThrottle",
     "DCRRequestSerializer",
     "DynamicClientRegistrationView",
+    # cimd
+    "is_cimd_client_id",
+    "get_application_by_client_id",
     # application
-    "OAuthApplicationPublicMetadataSerializer",
-    "OAuthApplicationPublicMetadataViewSet",
     "OrganizationOAuthApplicationSerializer",
     "OrganizationOAuthApplicationViewSet",
 ]
