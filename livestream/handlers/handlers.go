@@ -156,6 +156,9 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
+
+		heartbeat := time.NewTicker(60 * time.Second)
+		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
 		for {
 			select {
@@ -176,6 +179,12 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 				event := Event{
 					Data: jsonData,
 				}
+				if err := event.WriteTo(w); err != nil {
+					return err
+				}
+				w.Flush()
+			case <-heartbeat.C:
+				event := Event{Comment: []byte("heartbeat")}
 				if err := event.WriteTo(w); err != nil {
 					return err
 				}
@@ -219,7 +228,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		heartbeat := time.NewTicker(15 * time.Second)
+		heartbeat := time.NewTicker(60 * time.Second)
 		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
 
