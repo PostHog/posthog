@@ -144,6 +144,7 @@ layer = "non_isolated"
 [[modules]]
 path = "products.customer_analytics"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "non_isolated"
