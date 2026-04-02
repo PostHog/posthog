@@ -1405,6 +1405,8 @@ class ExperimentQueryBuilder:
     def _build_funnel_step_columns(self) -> list[ast.Alias]:
         """
         Builds list of step column AST expressions: step_0, step_1, etc.
+        Also builds exclusion columns (exclusion_1, exclusion_2, ...) when exclusions
+        are defined on the metric.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
@@ -1419,12 +1421,50 @@ class ExperimentQueryBuilder:
                 )
             )
 
+        # Build exclusion columns if exclusions are defined.
+        # Each exclusion has funnelFromStep/funnelToStep defining which step range
+        # the exclusion applies to. We group exclusions by step index and create
+        # one exclusion_N column per step.
+        exclusions = getattr(self.metric, "exclusions", None) or []
+        if exclusions:
+            num_steps = len(self.metric.series) + 1  # +1 for exposure step
+            exclusions_by_step: list[list[ast.Expr]] = [[] for _ in range(num_steps)]
+
+            for exclusion in exclusions:
+                exclusion_filter = event_or_action_to_filter(self.team, exclusion)
+                from_step = exclusion.funnelFromStep
+                to_step = exclusion.funnelToStep
+                for step_idx in range(from_step + 1, min(to_step + 1, num_steps)):
+                    exclusions_by_step[step_idx].append(exclusion_filter)
+
+            for i in range(1, num_steps):
+                if exclusions_by_step[i]:
+                    step_columns.append(
+                        ast.Alias(
+                            alias=f"exclusion_{i}",
+                            expr=ast.Call(
+                                name="if",
+                                args=[
+                                    ast.Or(exprs=exclusions_by_step[i]),
+                                    ast.Constant(value=1),
+                                    ast.Constant(value=0),
+                                ],
+                            ),
+                        )
+                    )
+                else:
+                    step_columns.append(
+                        ast.Alias(alias=f"exclusion_{i}", expr=ast.Constant(value=0))
+                    )
+
         return step_columns
 
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """
         Returns the expression to filter funnel steps (matches ANY step) within
         the time period of the experiment + the conversion window if set.
+        Also includes exclusion events so they are fetched and available for
+        exclusion column evaluation.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
@@ -1440,6 +1480,14 @@ class ExperimentQueryBuilder:
         else:
             date_to = self.date_range_query.date_to_as_hogql()
 
+        # Include both funnel steps AND exclusion events in the filter.
+        # FunnelExclusionEventsNode/ActionsNode are subtypes of EventsNode/ActionsNode,
+        # so they can be appended directly.
+        all_series = list(self.metric.series)
+        exclusions = getattr(self.metric, "exclusions", None) or []
+        for exclusion in exclusions:
+            all_series.append(exclusion)
+
         return parse_expr(
             """
             timestamp >= {date_from} AND timestamp <= {date_to}
@@ -1448,7 +1496,7 @@ class ExperimentQueryBuilder:
             placeholders={
                 "date_from": self.date_range_query.date_from_as_hogql(),
                 "date_to": date_to,
-                "funnel_steps_filter": funnel_steps_to_filter(self.team, self.metric.series),
+                "funnel_steps_filter": funnel_steps_to_filter(self.team, all_series),
             },
         )
 

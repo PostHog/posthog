@@ -36,6 +36,7 @@ import {
 import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConversionWindowTimeUnit } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
+import { ExperimentMetricFunnelExclusionsFilter } from './ExperimentMetricFunnelExclusionsFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
@@ -633,6 +634,8 @@ export function ExperimentMetricForm({
             {isExperimentFunnelMetric(metric) && (
                 <>
                     <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                    <ExperimentMetricFunnelExclusionsFilter metric={metric} handleSetMetric={handleSetMetric} />
                     <SceneDivider />
                 </>
             )}

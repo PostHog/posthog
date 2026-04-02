@@ -3301,6 +3301,8 @@ export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
     series: ExperimentFunnelMetricStep[]
     funnel_order_type?: StepOrderValue
+    /** @default [] */
+    exclusions?: FunnelExclusion[]
 }
 
 export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
