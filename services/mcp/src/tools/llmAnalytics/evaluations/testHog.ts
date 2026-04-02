@@ -35,7 +35,7 @@ export const handler: ToolBase<typeof schema>['handler'] = async (context: Conte
     const result = await context.api.request({
         method: 'POST',
         path: `/api/environments/${projectId}/evaluations/test_hog/`,
-        body: params as unknown as Record<string, unknown>,
+        body: { ...params },
     })
 
     return result
