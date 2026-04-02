@@ -5518,7 +5518,7 @@ class AssistantTracesQuery(BaseModel):
     )
     filterSupportTraces: bool | None = Field(default=False, description="Exclude support impersonation traces.")
     filterTestAccounts: bool | None = Field(
-        default=False,
+        default=True,
         description=("Exclude internal and test users by applying the respective filters."),
     )
     groupKey: str | None = Field(
