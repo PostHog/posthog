@@ -157,7 +157,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		heartbeat := time.NewTicker(60 * time.Second)
+		heartbeat := time.NewTicker(30 * time.Second)
 		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
 		for {
@@ -228,7 +228,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		heartbeat := time.NewTicker(60 * time.Second)
+		heartbeat := time.NewTicker(30 * time.Second)
 		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
 
