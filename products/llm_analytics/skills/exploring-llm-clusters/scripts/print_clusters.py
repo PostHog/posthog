@@ -14,7 +14,7 @@ def load_result_file(path):
 
 def parse_result(raw):
     """Extract clusters array and run metadata from various result shapes."""
-    meta = {}
+    meta: dict[str, str | int | float] = {}
     clusters = []
 
     # Direct clusters array
