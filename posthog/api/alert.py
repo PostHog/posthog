@@ -21,6 +21,7 @@ from posthog.schema import (
     TrendsAlertConfig,
 )
 
+from posthog.api.alert_schedule_restriction import AlertScheduleRestriction
 from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -33,6 +34,7 @@ from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscripti
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
+from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
 from posthog.tasks.alerts.utils import validate_alert_config
 from posthog.utils import relative_date_parse
 
@@ -54,6 +56,11 @@ class TrendsAlertConfigField(serializers.JSONField):
 
 @extend_schema_field(DetectorConfig)  # type: ignore[arg-type]
 class DetectorConfigField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
+class ScheduleRestrictionField(serializers.JSONField):
     pass
 
 
@@ -195,7 +202,13 @@ class AlertSerializer(serializers.ModelSerializer):
     skip_weekend = serializers.BooleanField(
         required=False,
         allow_null=True,
-        help_text="Skip alert evaluation on weekends (Saturday and Sunday).",
+        help_text="Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).",
+    )
+    schedule_restriction = ScheduleRestrictionField(
+        required=False,
+        allow_null=True,
+        help_text="Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): "
+        "start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.",
     )
     state = serializers.CharField(
         read_only=True,
@@ -229,6 +242,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
+            "schedule_restriction",
             "last_value",
         ]
         read_only_fields = [
@@ -339,6 +353,11 @@ class AlertSerializer(serializers.ModelSerializer):
         if conditions_or_threshold_changed or calculation_interval_changed:
             instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
 
+        if "schedule_restriction" in validated_data:
+            new_sr = validated_data["schedule_restriction"]
+            if new_sr != instance.schedule_restriction:
+                instance.mark_for_recheck(reset_state=False)
+
         instance = super().update(instance, validated_data)
         instance.report_updated(
             self.context["request"].user,
@@ -415,6 +434,12 @@ class AlertSerializer(serializers.ModelSerializer):
             if not user.teams.filter(pk=self.context["team_id"]).exists():
                 raise ValidationError("User does not belong to the same organization as the alert's team.")
         return value
+
+    def validate_schedule_restriction(self, value):
+        try:
+            return validate_and_normalize_schedule_restriction(value)
+        except ValueError as e:
+            raise serializers.ValidationError(str(e))
 
     def validate(self, attrs):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:

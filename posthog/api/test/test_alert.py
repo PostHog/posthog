@@ -73,6 +73,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "next_check_at": None,
             "snoozed_until": None,
             "skip_weekend": False,
+            "schedule_restriction": None,
             "last_value": None,
         }
         assert response.status_code == status.HTTP_201_CREATED, response.content
@@ -521,6 +522,238 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         if expected_status == status.HTTP_200_OK:
             assert response.json()["calculation_interval"] == expected_interval
             assert response.json()["name"] == expected_name
+
+    def test_create_alert_with_schedule_restriction(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "quiet alert",
+            "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["schedule_restriction"] == {
+            "blocked_windows": [{"start": "22:00", "end": "07:00"}],
+        }
+
+    def test_create_alert_rejects_schedule_restriction_covering_full_day(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "bad quiet",
+            "schedule_restriction": {
+                "blocked_windows": [
+                    {"start": "00:00", "end": "12:00"},
+                    {"start": "12:00", "end": "00:00"},
+                ]
+            },
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_patch_schedule_restriction_empty_normalizes_to_null(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert",
+            "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "23:00"}]},
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        patch = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"schedule_restriction": {"blocked_windows": []}},
+            format="json",
+        )
+        assert patch.status_code == status.HTTP_200_OK, patch.content
+        assert patch.json()["schedule_restriction"] is None
+
+    def _line_graph_insight(self) -> dict[str, Any]:
+        data = deepcopy(self.default_insight_data)
+        data["query"]["trendsFilter"] = {"display": "ActionsLineGraph"}
+        data["query"]["interval"] = "day"
+        return self.client.post(f"/api/projects/{self.team.id}/insights", data=data).json()
+
+    def _quiet_hours_alert_payload(self, insight_id: int, **extra: Any) -> dict[str, Any]:
+        return {
+            "insight": insight_id,
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "quiet hours alert",
+            "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            **extra,
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "too_many_windows",
+                {"blocked_windows": [{"start": f"{i:02d}:00", "end": f"{i:02d}:30"} for i in range(6)]},
+                "at most 5",
+            ),
+            ("missing_start", {"blocked_windows": [{"end": "12:00"}]}, "start and end"),
+            ("missing_end", {"blocked_windows": [{"start": "12:00"}]}, "start and end"),
+            ("equal_start_end", {"blocked_windows": [{"start": "10:00", "end": "10:00"}]}, "differ"),
+            ("seconds_not_allowed", {"blocked_windows": [{"start": "12:00:00", "end": "13:00"}]}, "hh:mm"),
+            ("invalid_hour", {"blocked_windows": [{"start": "25:00", "end": "26:00"}]}, "invalid"),
+            ("non_object_window", {"blocked_windows": ["not-an-object"]}, "object"),
+            ("blocked_windows_not_array", {"blocked_windows": {}}, "array"),
+            ("window_shorter_than_30_min", {"blocked_windows": [{"start": "12:00", "end": "12:20"}]}, "30 minutes"),
+        ]
+    )
+    def test_create_alert_rejects_invalid_schedule_restriction(
+        self, _name: str, schedule_restriction: dict[str, Any], expected_fragment: str
+    ) -> None:
+        creation_request = self._quiet_hours_alert_payload(self.insight["id"])
+        creation_request["schedule_restriction"] = schedule_restriction
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected_fragment in str(response.content).lower()
+
+    @parameterized.expand(
+        [
+            ("utc", "UTC"),
+            ("phoenix", "America/Phoenix"),
+            ("tokyo", "Asia/Tokyo"),
+        ]
+    )
+    def test_create_alert_schedule_restriction_with_team_timezone_wall_clock(
+        self, _name: str, team_timezone: str
+    ) -> None:
+        # self.team is class-scoped test data; restore default so other tests are order-independent.
+        try:
+            self.team.timezone = team_timezone
+            self.team.save(update_fields=["timezone"])
+            creation_request = self._quiet_hours_alert_payload(self.insight["id"])
+            response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json")
+            assert response.status_code == status.HTTP_201_CREATED, response.content
+            assert response.json()["schedule_restriction"] == {
+                "blocked_windows": [{"start": "22:00", "end": "07:00"}],
+            }
+        finally:
+            self.team.timezone = "UTC"
+            self.team.save(update_fields=["timezone"])
+
+    def test_create_alert_schedule_restriction_merges_overlapping_windows(self) -> None:
+        creation_request = self._quiet_hours_alert_payload(self.insight["id"])
+        creation_request["schedule_restriction"] = {
+            "blocked_windows": [
+                {"start": "10:30", "end": "11:00"},
+                {"start": "10:40", "end": "11:15"},
+            ]
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["schedule_restriction"] == {
+            "blocked_windows": [{"start": "10:30", "end": "11:15"}],
+        }
+
+    @parameterized.expand(
+        [
+            ("hourly", "hourly", True),
+            ("daily", "daily", True),
+            ("weekly", "weekly", False),
+            ("monthly", "monthly", True),
+        ]
+    )
+    def test_create_alert_quiet_hours_with_skip_weekend_and_calculation_interval(
+        self, _name: str, interval: str, skip_weekend: bool
+    ) -> None:
+        creation_request = self._quiet_hours_alert_payload(
+            self.insight["id"],
+            calculation_interval=interval,
+            skip_weekend=skip_weekend,
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        data = response.json()
+        assert data["calculation_interval"] == interval
+        assert data["skip_weekend"] is skip_weekend
+        assert data["schedule_restriction"] == {
+            "blocked_windows": [{"start": "22:00", "end": "07:00"}],
+        }
+
+    def test_create_alert_quiet_hours_check_ongoing_skip_weekend_line_graph(self) -> None:
+        line_insight = self._line_graph_insight()
+        creation_request = {
+            "insight": line_insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {
+                "type": "TrendsAlertConfig",
+                "series_index": 0,
+                "check_ongoing_interval": True,
+            },
+            "threshold": {
+                "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
+            },
+            "name": "ongoing + quiet + weekend",
+            "calculation_interval": "hourly",
+            "skip_weekend": True,
+            "schedule_restriction": {"blocked_windows": [{"start": "09:00", "end": "17:00"}]},
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        data = response.json()
+        assert data["config"]["check_ongoing_interval"] is True
+        assert data["skip_weekend"] is True
+        assert data["calculation_interval"] == "hourly"
+        assert data["schedule_restriction"] == {
+            "blocked_windows": [{"start": "09:00", "end": "17:00"}],
+        }
+
+    def test_patch_alert_adds_quiet_hours_and_skip_weekend(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "patch me",
+            "calculation_interval": "daily",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {
+                "skip_weekend": True,
+                "schedule_restriction": {"blocked_windows": [{"start": "12:00", "end": "13:00"}]},
+                "calculation_interval": "weekly",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        data = response.json()
+        assert data["skip_weekend"] is True
+        assert data["calculation_interval"] == "weekly"
+        assert data["schedule_restriction"] == {
+            "blocked_windows": [{"start": "12:00", "end": "13:00"}],
+        }
+
+    def test_patch_alert_invalid_schedule_restriction_leaves_existing_unchanged(self) -> None:
+        creation_request = self._quiet_hours_alert_payload(self.insight["id"])
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        bad = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"schedule_restriction": {"blocked_windows": [{"start": "10:00", "end": "10:00"}]}},
+            format="json",
+        )
+        assert bad.status_code == status.HTTP_400_BAD_REQUEST, bad.content
+        refreshed = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert refreshed.status_code == status.HTTP_200_OK
+        assert refreshed.json()["schedule_restriction"] == {
+            "blocked_windows": [{"start": "22:00", "end": "07:00"}],
+        }
 
 
 class TestAlertSimulate(APIBaseTest):

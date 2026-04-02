@@ -5327,6 +5327,18 @@ export namespace Schemas {
       Monthly: 'monthly',
     } as const;
 
+    export interface AlertScheduleRestrictionWindow {
+      /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+      start: string;
+      /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+      end: string;
+    }
+
+    export interface AlertScheduleRestriction {
+      /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+      blocked_windows: AlertScheduleRestrictionWindow[];
+    }
+
     export interface Alert {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -5369,10 +5381,12 @@ export namespace Schemas {
        */
       snoozed_until?: string | null;
       /**
-       * Skip alert evaluation on weekends (Saturday and Sunday).
+       * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
        * @nullable
        */
       skip_weekend?: boolean | null;
+      /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
        * The last calculated value from the most recent alert check.
        * @nullable
@@ -22362,10 +22376,12 @@ export namespace Schemas {
        */
       snoozed_until?: string | null;
       /**
-       * Skip alert evaluation on weekends (Saturday and Sunday).
+       * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
        * @nullable
        */
       skip_weekend?: boolean | null;
+      /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
        * The last calculated value from the most recent alert check.
        * @nullable

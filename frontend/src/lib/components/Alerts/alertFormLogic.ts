@@ -18,6 +18,7 @@ import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types
 import type { alertFormLogicType } from './alertFormLogicType'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
+import { quietHoursFormError } from './scheduleRestrictionValidation'
 import { AlertSimulationResult, AlertType, AlertTypeWrite, AnomalyPoint } from './types'
 
 export type AlertFormType = Pick<
@@ -32,6 +33,7 @@ export type AlertFormType = Pick<
     | 'checks'
     | 'config'
     | 'skip_weekend'
+    | 'schedule_restriction'
     | 'detector_config'
 > & {
     id?: AlertType['id']
@@ -163,12 +165,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     checks: [],
                     calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
                     skip_weekend: false,
+                    schedule_restriction: null,
                     detector_config: null,
                     insight: props.insightId,
                 } as AlertFormType),
-            errors: ({ name }) => ({
-                name: !name ? 'You need to give your alert a name' : undefined,
-            }),
+            errors: ((alert: AlertFormType) => ({
+                name: !alert.name ? 'You need to give your alert a name' : undefined,
+                schedule_restriction: quietHoursFormError(alert.schedule_restriction),
+            })) as (a: AlertFormType) => Record<string, string | undefined>,
             submit: async (alert) => {
                 const payload: AlertTypeWrite = {
                     ...alert,
@@ -185,6 +189,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
                     detector_config: alert.detector_config ?? null,
+                    schedule_restriction:
+                        (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
+                            ? alert.schedule_restriction
+                            : null,
                 }
 
                 // absolute value alert can only have absolute threshold
