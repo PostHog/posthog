@@ -17,6 +17,7 @@ import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperat
 
 import { asDisplay } from './person-utils'
 import { personLogic } from './personLogic'
+import { TestOrInternalUserTag } from './TestOrInternalUserTag'
 
 export type PersonPreviewProps = {
     distinctId?: string
@@ -75,12 +76,19 @@ function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
     const display = asDisplay(person)
     const url = urls.personByDistinctId(person?.distinct_ids[0])
 
+    const isInternalOrTestUser = !!person?.properties?.$internal_or_test_user
+
     return (
         <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
             <div className="flex items-center justify-between min-h-10 px-2">
                 <Link to={url} className="flex gap-2 items-center flex-1">
                     <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
                 </Link>
+                {isInternalOrTestUser && (
+                    <span className="shrink-0 mr-1">
+                        <TestOrInternalUserTag />
+                    </span>
+                )}
 
                 <NotebookSelectButton
                     resource={{

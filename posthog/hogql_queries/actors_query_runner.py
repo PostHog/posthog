@@ -235,6 +235,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                     row[column_index] = {
                         "display_name": result[column_index][0],
                         "id": str(result[column_index][1]),
+                        "$internal_or_test_user": bool(result[column_index][2]),
                     }
                     self.paginator.results[index] = row
 
@@ -548,7 +549,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             else:
                 props.append(f"toString(properties.`{key}`)")
         # nosemgrep: hogql-fstring-audit (property_keys from team config is admin-only, not user input)
-        return parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
+        return parse_expr(
+            f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id), properties.$internal_or_test_user)"
+        )
 
     @staticmethod
     def _is_person_display_name_column(expr: str) -> bool:

@@ -47,6 +47,7 @@ import { PersonCohorts } from './PersonCohorts'
 import PersonProfileCanvas from './PersonProfileCanvas'
 import { PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { TestOrInternalUserTag } from './TestOrInternalUserTag'
 
 export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
@@ -217,6 +218,7 @@ export function PersonScene(): JSX.Element | null {
                     path: urls.persons(),
                     key: 'people',
                 }}
+                tags={person.properties?.$internal_or_test_user ? <TestOrInternalUserTag /> : undefined}
                 actions={
                     <>
                         <FeedbackButton id="customer-analytics-person-profile-feedback-button" />

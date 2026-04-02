@@ -14,6 +14,7 @@ import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
 import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from './person-utils'
 import { PersonPreview } from './PersonPreview'
+import { TestOrInternalUserIcon } from './TestOrInternalUserTag'
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
@@ -101,6 +102,8 @@ export function PersonDisplay({
         return
     }
 
+    const isInternalOrTestUser = !!person?.properties?.$internal_or_test_user
+
     let content = children || (
         <span className={clsx(!inline && 'flex items-center', isCentered && 'justify-center')}>
             {withIcon && (
@@ -116,7 +119,12 @@ export function PersonDisplay({
 
     content = (
         <span
-            className={clsx('PersonDisplay', muted && 'PersonDisplay--muted', className)}
+            className={clsx(
+                'PersonDisplay',
+                muted && 'PersonDisplay--muted',
+                className,
+                isInternalOrTestUser && 'inline-flex items-center'
+            )}
             onClick={!noPopover ? handleClick : undefined}
         >
             {noLink || !href || (visible && !person?.properties) ? (
@@ -136,6 +144,7 @@ export function PersonDisplay({
                     {content}
                 </Link>
             )}
+            {isInternalOrTestUser && <TestOrInternalUserIcon />}
         </span>
     )
 
