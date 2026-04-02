@@ -33,7 +33,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     def _exclude_virtual(results: list) -> list:
         return exclude_virtual_properties(results)
 
-
     def setUp(self) -> None:
         super().setUp()
 
