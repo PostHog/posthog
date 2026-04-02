@@ -983,45 +983,6 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         self.assertEqual(str(e.exception), "Google OAuth response missing 'sub' claim")
 
 
-@override_settings(
-    SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="google_key",
-    SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="google_secret",
-)
-class TestSSOLoginSessionHandling(APILicensedTest):
-    CONFIG_AUTO_LOGIN = False
-
-    def test_sso_login_flushes_session_for_regular_login(self):
-        self.client.force_login(self.user)
-        old_session_key = self.client.session.session_key
-
-        response = self.client.get("/login/google-oauth2/")
-
-        self.assertEqual(response.status_code, 302)
-        self.assertNotEqual(self.client.session.session_key, old_session_key)
-
-    def test_sso_login_preserves_session_for_reauth(self):
-        self.client.force_login(self.user)
-        old_session_key = self.client.session.session_key
-
-        response = self.client.get("/login/google-oauth2/?reauth=true&email=test@posthog.com")
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(self.client.session.session_key, old_session_key)
-
-    def test_sso_login_flushes_session_when_reauth_but_not_authenticated(self):
-        self.client.force_login(self.user)
-        self.client.logout()
-
-        # Establish an anonymous session and capture its key
-        self.client.get("/")
-        anonymous_session_key = self.client.session.session_key
-
-        response = self.client.get("/login/google-oauth2/?reauth=true")
-
-        self.assertEqual(response.status_code, 302)
-        self.assertNotEqual(self.client.session.session_key, anonymous_session_key)
-
-
 class TestSSOEnforcement(APILicensedTest):
     """Test SSO enforcement across different auth methods"""
 

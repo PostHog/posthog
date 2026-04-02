@@ -197,6 +197,16 @@ export const OAuthAuthorize = (): JSX.Element => {
         <div className="min-h-full overflow-y-auto">
             <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
                 <div className="text-center mb-4 sm:mb-8">
+                    {oauthApplication.logo_uri && (
+                        <div className="w-16 h-16 mx-auto mb-3 rounded-full border border-border bg-bg-light p-3 flex items-center justify-center">
+                            <img
+                                src={oauthApplication.logo_uri}
+                                alt={`${oauthApplication.name} logo`}
+                                className="w-full h-full object-contain"
+                                referrerPolicy="no-referrer"
+                            />
+                        </div>
+                    )}
                     <h2 className="text-xl sm:text-2xl font-semibold">
                         Authorize <strong>{oauthApplication.name}</strong>
                     </h2>
@@ -210,7 +220,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <IconWarning className="text-warning shrink-0" />
                         <span>
                             <strong>Unverified application.</strong> This application has not been verified by PostHog.
-                            Only authorize if you trust the developer.
+                            Only continue if you recognize and trust this application.
                         </span>
                     </div>
                 )}
@@ -302,7 +312,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         )}
 
                         <div>
-                            <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
+                            <div className="text-sm font-semibold uppercase text-muted mb-2">Requested permissions</div>
                             {resourceScopesLoading ? (
                                 <div className="flex items-center gap-2 py-2">
                                     <Spinner className="text-muted" />

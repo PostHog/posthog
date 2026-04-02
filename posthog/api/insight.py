@@ -1097,7 +1097,6 @@ class InsightViewSet(
         """Validate that AI data processing is approved by the organization."""
         if not self.organization.is_ai_data_processing_approved:
             raise PermissionDenied("AI data processing must be approved by your organization")
-            raise PermissionDenied("AI data processing must be approved by your organization")
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
