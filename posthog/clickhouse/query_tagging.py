@@ -144,6 +144,7 @@ class QueryTags(BaseModel):
     chargeable: Optional[int] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
+    endpoint_version: Optional[int] = None  # Endpoints, the product
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None

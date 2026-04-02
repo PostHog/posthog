@@ -176,6 +176,19 @@ class TestPrinter(BaseTest):
             "Table column aliases are not allowed in clickhouse dialect",
         )
 
+    @parameterized.expand(
+        [
+            ("range", "select range from range(10)", "range() is not supported in ClickHouse dialect"),
+            (
+                "generate_series",
+                "select generate_series from generate_series(1, 10)",
+                "generate_series() is not supported in ClickHouse dialect",
+            ),
+        ]
+    )
+    def test_table_function_not_supported_in_clickhouse(self, _name, query, expected_error):
+        self._assert_select_error(query, expected_error)
+
     def test_lambda_style_clickhouse_prints(self):
         printed = self._select("select lambda x: x + 1")
         self.assertIn("x -> plus(x, 1)", printed)
@@ -4570,6 +4583,34 @@ class TestPostgresPrinter(BaseTest):
     def test_column_aliases(self):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
         self.assertIn("AS e (event_alias, ts_alias)", printed)
+
+    @parameterized.expand(
+        [
+            ("range_one_arg", "SELECT range FROM range(10)", "range(10)"),
+            ("range_two_args", "SELECT range FROM range(1, 10)", "range(1, 10)"),
+            ("range_three_args", "SELECT range FROM range(0, 10, 2)", "range(0, 10, 2)"),
+            (
+                "generate_series_two_args",
+                "SELECT generate_series FROM generate_series(1, 10)",
+                "generate_series(1, 10)",
+            ),
+        ]
+    )
+    def test_range_table_function_prints(self, _name, query, expected):
+        printed = self._select(query)
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            ("no_args", "SELECT range FROM range", "requires arguments"),
+            ("empty_args", "SELECT range FROM range()", "requires at least 1 argument"),
+            ("too_many_args", "SELECT range FROM range(1, 2, 3, 4)", "requires at most 3 arguments"),
+        ]
+    )
+    def test_range_table_function_arg_errors(self, _name, query, expected_error):
+        with self.assertRaises(QueryError) as ctx:
+            self._select(query)
+        self.assertIn(expected_error, str(ctx.exception))
 
     @parameterized.expand(
         [

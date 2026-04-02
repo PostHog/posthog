@@ -174,7 +174,6 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
 
     await connection.close()
 
-
 @pytest.fixture
 def mock_stripe_client(
     stripe_balance_transaction,

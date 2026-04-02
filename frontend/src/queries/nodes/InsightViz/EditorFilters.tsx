@@ -435,6 +435,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         insightProps={insightProps}
                         query={query}
                         asTile
+                        queryKind={querySource?.kind}
                     />
                 ))}
             </div>
