@@ -10,7 +10,7 @@ use crate::{
     assignment_rules::{try_assignment_rules, Assignment},
     error::UnhandledError,
     issue_resolution::{
-        send_issue_created_alert, send_issue_fingerprint_issue_state, send_issue_reopened_alert,
+        send_issue_created_alert, send_fingerprint_issue_state, send_issue_reopened_alert,
         send_new_fingerprint_event, Issue, IssueFingerprintOverride,
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
@@ -114,7 +114,7 @@ async fn resolve_issue(
             let assignment =
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
-            send_issue_fingerprint_issue_state(
+            send_fingerprint_issue_state(
                 context,
                 &issue,
                 &fingerprint,
@@ -178,7 +178,7 @@ async fn resolve_issue(
             let assignment =
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
-            send_issue_fingerprint_issue_state(
+            send_fingerprint_issue_state(
                 context,
                 &issue,
                 &fingerprint,
@@ -201,7 +201,7 @@ async fn resolve_issue(
 
         let output_props = event_properties.clone().to_output(issue.id)?;
         send_new_fingerprint_event(context, &issue, &output_props).await?;
-        send_issue_fingerprint_issue_state(
+        send_fingerprint_issue_state(
             context,
             &issue,
             &fingerprint,

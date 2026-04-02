@@ -532,7 +532,7 @@ def sync_issue_to_clickhouse(*, issue_id, team_id: int) -> None:
     producer = ClickhouseProducer()
     version = int(
         time.time() * 1000
-    )  # ReplacingMergeTree version — match rust/cymbal IssueFingerprintIssueState::new (Utc::now().timestamp_millis())
+    )  # ReplacingMergeTree version — match rust/cymbal FingerprintIssueState::new (Utc::now().timestamp_millis())
 
     for fp in fingerprints:
         first_seen_raw = fp.first_seen or issue.created_at
@@ -558,8 +558,8 @@ def sync_issue_to_clickhouse(*, issue_id, team_id: int) -> None:
 
 
 def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
-    for iid in issue_ids:
-        sync_issue_to_clickhouse(issue_id=iid, team_id=team_id)
+    for issue_id in issue_ids:
+        sync_issue_to_clickhouse(issue_id=issue_id, team_id=team_id)
 
 
 def delete_symbol_set_contents(upload_path: str) -> None:

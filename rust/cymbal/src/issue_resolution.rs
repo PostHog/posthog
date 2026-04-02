@@ -230,7 +230,7 @@ impl Issue {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct IssueFingerprintIssueState {
+pub struct FingerprintIssueState {
     pub team_id: i32,
     pub fingerprint: String,
     pub issue_id: Uuid,
@@ -259,7 +259,7 @@ fn assignment_user_role_from_assignment(
     (None, None)
 }
 
-impl IssueFingerprintIssueState {
+impl FingerprintIssueState {
     pub fn new(
         issue: &Issue,
         fingerprint: &str,
@@ -284,17 +284,17 @@ impl IssueFingerprintIssueState {
     }
 }
 
-pub async fn send_issue_fingerprint_issue_state(
+pub async fn send_fingerprint_issue_state(
     context: &AppContext,
     issue: &Issue,
     fingerprint: &str,
     assignment: Option<&Assignment>,
     first_seen: DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
-    let msg = IssueFingerprintIssueState::new(issue, fingerprint, assignment, first_seen);
+    let msg = FingerprintIssueState::new(issue, fingerprint, assignment, first_seen);
     send_iter_to_kafka(
         &context.immediate_producer,
-        &context.config.issue_fingerprint_issue_state_topic,
+        &context.config.fingerprint_issue_state_topic,
         &[msg],
     )
     .await
