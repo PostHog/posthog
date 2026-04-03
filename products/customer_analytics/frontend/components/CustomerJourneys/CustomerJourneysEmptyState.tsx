@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { ExplorerHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -13,7 +13,10 @@ const BASE_DESCRIPTION = 'Track how customers move through your product by build
 
 export function CustomerJourneysEmptyState({ embedded }: { embedded?: boolean }): JSX.Element {
     const { groupsEnabled } = useValues(groupsAccessLogic)
-    const canEdit = userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Editor)
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
 
     const description = embedded
         ? BASE_DESCRIPTION
@@ -26,7 +29,8 @@ export function CustomerJourneysEmptyState({ embedded }: { embedded?: boolean })
             productName="Customer journeys"
             thingName="journey"
             description={description}
-            action={canEdit ? () => router.actions.push(urls.customerJourneyTemplates()) : undefined}
+            action={() => router.actions.push(urls.customerJourneyTemplates())}
+            disabledReason={accessControlDisabledReason ?? undefined}
             customHog={ExplorerHog}
             className={embedded ? 'border-0' : undefined}
             isEmpty
