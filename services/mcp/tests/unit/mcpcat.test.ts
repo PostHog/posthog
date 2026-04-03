@@ -1,12 +1,18 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { env } from 'cloudflare:workers'
 import { track } from 'mcpcat'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { initMcpCatObservability, type McpCatIdentityProvider } from '@/lib/mcpcat'
 
+const TEST_API_KEY = 'test-api-key'
+const TEST_HOST = 'https://test.posthog.com'
+
 describe('initMcpCatObservability', () => {
     beforeEach(() => {
         vi.mocked(track).mockClear()
+        env.POSTHOG_ANALYTICS_API_KEY = TEST_API_KEY
+        env.POSTHOG_ANALYTICS_HOST = TEST_HOST
     })
 
     function createMockIdentity(overrides: Partial<McpCatIdentityProvider> = {}): McpCatIdentityProvider {
@@ -44,13 +50,33 @@ describe('initMcpCatObservability', () => {
                 exporters: {
                     posthog: {
                         type: 'posthog',
-                        apiKey: 'sTMFPsFhdP1Ssg',
-                        host: 'https://us.i.posthog.com',
+                        apiKey: TEST_API_KEY,
+                        host: TEST_HOST,
                         enableAITracing: true,
                     },
                 },
             })
         )
+    })
+
+    it('skips initialization when POSTHOG_ANALYTICS_API_KEY is not set', () => {
+        env.POSTHOG_ANALYTICS_API_KEY = undefined as unknown as string
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+
+        initMcpCatObservability(server, identity)
+
+        expect(track).not.toHaveBeenCalled()
+    })
+
+    it('skips initialization when POSTHOG_ANALYTICS_HOST is not set', () => {
+        env.POSTHOG_ANALYTICS_HOST = undefined as unknown as string
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+
+        initMcpCatObservability(server, identity)
+
+        expect(track).not.toHaveBeenCalled()
     })
 
     function getIdentifyCallback(): () => Promise<unknown> {

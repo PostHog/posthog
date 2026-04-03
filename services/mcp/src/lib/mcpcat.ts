@@ -1,8 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { env } from 'cloudflare:workers'
 import { track } from 'mcpcat'
-
-import { POSTHOG_API_KEY, POSTHOG_HOST } from './analytics'
-import { CUSTOM_API_BASE_URL } from './constants'
 
 /** Provider interface for resolving user/session identity. */
 export type McpCatIdentityProvider = {
@@ -19,8 +17,9 @@ export type McpCatIdentityProvider = {
 }
 
 export function initMcpCatObservability(server: McpServer, identity: McpCatIdentityProvider): void {
-    // MCPcat analytics is only for PostHog Cloud, not self-hosted instances
-    if (CUSTOM_API_BASE_URL) {
+    const apiKey = env.POSTHOG_ANALYTICS_API_KEY
+    const host = env.POSTHOG_ANALYTICS_HOST
+    if (!apiKey || !host) {
         return
     }
 
@@ -92,8 +91,8 @@ export function initMcpCatObservability(server: McpServer, identity: McpCatIdent
             exporters: {
                 posthog: {
                     type: 'posthog',
-                    apiKey: POSTHOG_API_KEY,
-                    host: POSTHOG_HOST,
+                    apiKey,
+                    host,
                     enableAITracing: true,
                 },
             },
