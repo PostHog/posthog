@@ -214,6 +214,9 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         allow_null=True,
         help_text="If true, skip column inference and validation. For saving drafts.",
     )
+    dag_id = serializers.UUIDField(
+        write_only=True, required=False, allow_null=True, help_text="Optional DAG to place this view into"
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -235,6 +238,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "edited_history_id",
             "latest_history_id",
             "soft_update",
+            "dag_id",
             "is_materialized",
             "origin",
             "is_test",
@@ -286,6 +290,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         validated_data["created_by"] = self.context["request"].user
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
+        dag_id = validated_data.pop("dag_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
         if not soft_update:
@@ -348,15 +353,24 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 self.context["activity_log"] = activity_log
         # best effort sync to new data modeling DAG representation
         try:
+            from products.data_modeling.backend.models.dag import DAG
             from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
-            sync_saved_query_to_dag(view)
+            dag_obj = None
+            if dag_id:
+                try:
+                    dag_obj = DAG.objects.get(id=dag_id, team_id=view.team_id)
+                except DAG.DoesNotExist:
+                    raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})
+            sync_saved_query_to_dag(view, dag=dag_obj)
         except Exception as e:
             capture_exception(e)
             logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        dag_id = validated_data.pop("dag_id", None)
+
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
 
@@ -495,9 +509,13 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:
+                from products.data_modeling.backend.models.dag import DAG
                 from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
-                sync_saved_query_to_dag(view)
+                dag_obj = None
+                if dag_id:
+                    dag_obj = DAG.objects.filter(id=dag_id, team_id=view.team_id).first()
+                sync_saved_query_to_dag(view, dag=dag_obj)
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)

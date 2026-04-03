@@ -79,7 +79,8 @@ test.describe('SQL Editor', () => {
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
 
             await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
-            await page.locator('[data-attr=sql-editor-materialization-button]').click()
+            // force: true to avoid flakiness from quick start tracker overlay
+            await page.locator('[data-attr=sql-editor-materialization-button]').click({ force: true })
             await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
         })
 
