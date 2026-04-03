@@ -4,27 +4,31 @@ from django.core.management.base import BaseCommand
 from django.db import connection, transaction
 
 ORG_MEMBER_JOIN_KEY = "organization_member_join_email_disabled"
+BATCH_SIZE = 5000
 
-COUNT_SQL = """
+COUNT_SQL = f"""
 SELECT COUNT(*) FROM (
   SELECT m.user_id
   FROM posthog_organizationmembership m
   JOIN posthog_organization o ON o.id = m.organization_id
+  JOIN posthog_user u ON u.id = m.user_id
+  WHERE NOT COALESCE(u.partial_notification_settings, '{{}}')::jsonb ? '{ORG_MEMBER_JOIN_KEY}'
   GROUP BY m.user_id
 ) t
 """
 
-UPDATE_SQL = f"""
-UPDATE posthog_user u
-SET partial_notification_settings = (
-  COALESCE(u.partial_notification_settings::jsonb, '{{}}'::jsonb)
-  || jsonb_build_object(
-    '{ORG_MEMBER_JOIN_KEY}',
-    COALESCE(u.partial_notification_settings::jsonb #> '{{{ORG_MEMBER_JOIN_KEY}}}', '{{}}'::jsonb)
-    || org_map.from_orgs
+UPDATE_BATCH_SQL = f"""
+WITH eligible AS (
+  SELECT u.id
+  FROM posthog_user u
+  WHERE EXISTS (
+    SELECT 1 FROM posthog_organizationmembership m WHERE m.user_id = u.id
   )
-)
-FROM (
+  AND NOT COALESCE(u.partial_notification_settings, '{{}}')::jsonb ? '{ORG_MEMBER_JOIN_KEY}'
+  ORDER BY u.id
+  LIMIT {BATCH_SIZE}
+),
+org_map AS (
   SELECT
     m.user_id,
     jsonb_object_agg(
@@ -33,8 +37,18 @@ FROM (
     ) AS from_orgs
   FROM posthog_organizationmembership m
   JOIN posthog_organization o ON o.id = m.organization_id
+  INNER JOIN eligible e ON e.id = m.user_id
   GROUP BY m.user_id
-) org_map
+)
+UPDATE posthog_user u
+SET partial_notification_settings = (
+  COALESCE(u.partial_notification_settings::jsonb, '{{}}'::jsonb)
+  || jsonb_build_object(
+    '{ORG_MEMBER_JOIN_KEY}',
+    org_map.from_orgs
+  )
+)
+FROM org_map
 WHERE u.id = org_map.user_id
 """
 
@@ -61,15 +75,26 @@ class Command(BaseCommand):
             assert row is not None
             (would_update,) = row
 
-        self.stdout.write(f"Users with at least one organization membership to process: {would_update}")
+        self.stdout.write(
+            f"Users with at least one organization membership and no '{ORG_MEMBER_JOIN_KEY}' "
+            f"setting yet: {would_update}"
+        )
 
         if dry_run:
             self.stdout.write(self.style.WARNING("Dry run — no changes written."))
             return
 
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                cursor.execute(UPDATE_SQL)
-                updated = cursor.rowcount
+        total_updated = 0
+        batch_index = 0
+        while True:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(UPDATE_BATCH_SQL)
+                    updated = cursor.rowcount
+            if updated == 0:
+                break
+            total_updated += updated
+            batch_index += 1
+            self.stdout.write(f"Batch {batch_index}: updated {updated} user(s) (running total: {total_updated}).")
 
-        self.stdout.write(self.style.SUCCESS(f"Updated {updated} user(s)."))
+        self.stdout.write(self.style.SUCCESS(f"Done. Updated {total_updated} user(s) in {batch_index} batch(es)."))

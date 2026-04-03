@@ -66,7 +66,7 @@ class TestBackfillUserJoinedNotificationSettingsCommand(BaseTest):
         join_map = pns.get(ORG_MEMBER_JOIN_KEY, {})
         self.assertEqual(join_map[str(self.organization.id)], False)
 
-    def test_backfill_preserves_stale_join_map_entries_for_non_memberships(self) -> None:
+    def test_backfill_skips_users_who_already_have_join_notification_key(self) -> None:
         stale_org_id = str(uuid.uuid4())
         self.user.partial_notification_settings = {
             ORG_MEMBER_JOIN_KEY: {
@@ -80,4 +80,4 @@ class TestBackfillUserJoinedNotificationSettingsCommand(BaseTest):
         self.user.refresh_from_db(fields=["partial_notification_settings"])
         join_map = (self.user.partial_notification_settings or {}).get(ORG_MEMBER_JOIN_KEY, {})
         self.assertEqual(join_map.get(stale_org_id), True)
-        self.assertEqual(join_map[str(self.organization.id)], False)
+        self.assertNotIn(str(self.organization.id), join_map)
