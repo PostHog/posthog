@@ -52,21 +52,43 @@ function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[]
 
 describe('hog-charts canvas-renderer', () => {
     describe('drawLine — gap handling', () => {
-        it('skips non-finite y points without breaking the path', () => {
+        it.each([
+            {
+                name: 'does not draw anything for empty data',
+                labels: [] as string[],
+                data: [] as number[],
+                gapValues: new Set<number>(),
+                expectedBeginPath: 0,
+                expectedMoveTo: 0,
+                expectedLineTo: 0,
+            },
+            {
+                name: 'skips non-finite y points without breaking the path',
+                labels: ['a', 'b', 'c'],
+                data: [10, 50, 90],
+                gapValues: new Set([50]),
+                expectedBeginPath: 1,
+                expectedMoveTo: 1,
+                expectedLineTo: 1,
+            },
+            {
+                name: 'does not draw any path segments when all values are non-finite',
+                labels: ['a', 'b'],
+                data: [999, 998],
+                gapValues: new Set([999, 998]),
+                expectedBeginPath: 1,
+                expectedMoveTo: 0,
+                expectedLineTo: 0,
+            },
+        ])('$name', ({ labels, data, gapValues, expectedBeginPath, expectedMoveTo, expectedLineTo }) => {
             const ctx = mockCanvasContext()
-            const labels = ['a', 'b', 'c']
-            const series = makeSeries({ key: 's1', data: [10, 50, 90] })
-            const drawCtx = makeDrawContextWithGaps(ctx, labels, new Set([50]))
+            const series = makeSeries({ key: 's1', data })
+            const drawCtx =
+                gapValues.size > 0 ? makeDrawContextWithGaps(ctx, labels, gapValues) : makeDrawContext(ctx, labels)
             drawLine(drawCtx, series)
-            expect(ctx.moveTo).toHaveBeenCalledTimes(1)
-            expect(ctx.lineTo).toHaveBeenCalledTimes(1)
-        })
-
-        it('does not draw anything for empty data', () => {
-            const ctx = mockCanvasContext()
-            const series = makeSeries({ key: 's1', data: [] })
-            drawLine(makeDrawContext(ctx, []), series)
-            expect(ctx.beginPath).not.toHaveBeenCalled()
+            expect(ctx.beginPath).toHaveBeenCalledTimes(expectedBeginPath)
+            expect(ctx.moveTo).toHaveBeenCalledTimes(expectedMoveTo)
+            expect(ctx.lineTo).toHaveBeenCalledTimes(expectedLineTo)
         })
 
         it('uses yValues override instead of series.data when provided', () => {
@@ -80,40 +102,42 @@ describe('hog-charts canvas-renderer', () => {
     })
 
     describe('drawArea — gap handling', () => {
-        it('does not fill a segment with only a single point', () => {
+        it.each([
+            {
+                name: 'does not fill a segment with only a single point',
+                labels: ['a'],
+                data: [50],
+                gapValues: new Set<number>(),
+                expectedFillCount: 0,
+            },
+            {
+                name: 'splits into separate fill calls when data has a gap',
+                labels: ['a', 'b', 'c', 'd'],
+                data: [10, 999, 50, 80],
+                gapValues: new Set([999]),
+                expectedFillCount: 1,
+            },
+            {
+                name: 'fills two separate segments when a gap splits the data in the middle',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 999, 80, 90],
+                gapValues: new Set([999]),
+                expectedFillCount: 2,
+            },
+            {
+                name: 'does not fill when all data produces non-finite y values',
+                labels: ['a', 'b'],
+                data: [999, 998],
+                gapValues: new Set([999, 998]),
+                expectedFillCount: 0,
+            },
+        ])('$name', ({ labels, data, gapValues, expectedFillCount }) => {
             const ctx = mockCanvasContext()
-            const series = makeSeries({ key: 's1', data: [50] })
-            drawArea(makeDrawContext(ctx, ['a']), series)
-            expect(ctx.fill).not.toHaveBeenCalled()
-        })
-
-        it('splits into separate fill calls when data has a gap', () => {
-            const ctx = mockCanvasContext()
-            const labels = ['a', 'b', 'c', 'd']
-            const series = makeSeries({ key: 's1', data: [10, 999, 50, 80] })
-            const drawCtx = makeDrawContextWithGaps(ctx, labels, new Set([999]))
+            const series = makeSeries({ key: 's1', data })
+            const drawCtx =
+                gapValues.size > 0 ? makeDrawContextWithGaps(ctx, labels, gapValues) : makeDrawContext(ctx, labels)
             drawArea(drawCtx, series)
-            // [a] is a single-point segment (skipped), [c,d] is a two-point segment (filled once)
-            expect(ctx.fill).toHaveBeenCalledTimes(1)
-        })
-
-        it('fills two separate segments when a gap splits the data in the middle', () => {
-            const ctx = mockCanvasContext()
-            const labels = ['a', 'b', 'c', 'd', 'e']
-            const series = makeSeries({ key: 's1', data: [10, 20, 999, 80, 90] })
-            const drawCtx = makeDrawContextWithGaps(ctx, labels, new Set([999]))
-            drawArea(drawCtx, series)
-            // [a,b] and [d,e] are both two-point segments
-            expect(ctx.fill).toHaveBeenCalledTimes(2)
-        })
-
-        it('does not fill when all data produces non-finite y values', () => {
-            const ctx = mockCanvasContext()
-            const labels = ['a', 'b']
-            const series = makeSeries({ key: 's1', data: [999, 998] })
-            const drawCtx = makeDrawContextWithGaps(ctx, labels, new Set([999, 998]))
-            drawArea(drawCtx, series)
-            expect(ctx.fill).not.toHaveBeenCalled()
+            expect(ctx.fill).toHaveBeenCalledTimes(expectedFillCount)
         })
     })
 })
