@@ -112,6 +112,7 @@ function createEntry(entry) {
                 crypto: require.resolve('crypto-browserify'),
                 stream: require.resolve('stream-browserify'),
                 buffer: require.resolve('buffer/'),
+                module: false, // hogql-parser's Emscripten ESM output references Node.js 'module' — unused in browser
             },
         },
         module: {

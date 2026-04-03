@@ -19,7 +19,6 @@ const esmModules = [
     'lowlight',
     'devlop',
     'zwitch',
-    '@posthog/hogql-parser',
     // react-markdown and its ecosystem are all ESM-only
     'react-markdown',
     'remark-.*',
