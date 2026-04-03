@@ -1,18 +1,6 @@
 import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from '../core/interaction'
-import type { ChartDimensions, ResolveValueFn, Series } from '../core/types'
-
-const dimensions: ChartDimensions = {
-    width: 800,
-    height: 400,
-    plotLeft: 48,
-    plotTop: 16,
-    plotWidth: 736,
-    plotHeight: 352,
-}
-
-function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): Series {
-    return { label: overrides.key, color: '#000', ...overrides }
-}
+import type { ResolveValueFn, Series } from '../core/types'
+import { dimensions, makeSeries } from './helpers'
 
 const defaultResolveValue: ResolveValueFn = (s: Series, i: number): number => s.data[i]
 
@@ -72,38 +60,31 @@ describe('hog-charts interaction', () => {
     })
 
     describe('isInPlotArea', () => {
-        it('returns true when the point is inside the plot area', () => {
-            expect(isInPlotArea(100, 100, dimensions)).toBe(true)
-        })
-
-        it('returns true at the top-left corner of the plot area', () => {
-            expect(isInPlotArea(dimensions.plotLeft, dimensions.plotTop, dimensions)).toBe(true)
-        })
-
-        it('returns true at the bottom-right corner of the plot area', () => {
-            expect(
-                isInPlotArea(
-                    dimensions.plotLeft + dimensions.plotWidth,
-                    dimensions.plotTop + dimensions.plotHeight,
-                    dimensions
-                )
-            ).toBe(true)
-        })
-
-        it('returns false when mouseX is to the left of plotLeft', () => {
-            expect(isInPlotArea(dimensions.plotLeft - 1, 100, dimensions)).toBe(false)
-        })
-
-        it('returns false when mouseX is to the right of the plot area', () => {
-            expect(isInPlotArea(dimensions.plotLeft + dimensions.plotWidth + 1, 100, dimensions)).toBe(false)
-        })
-
-        it('returns false when mouseY is above plotTop', () => {
-            expect(isInPlotArea(100, dimensions.plotTop - 1, dimensions)).toBe(false)
-        })
-
-        it('returns false when mouseY is below the plot area', () => {
-            expect(isInPlotArea(100, dimensions.plotTop + dimensions.plotHeight + 1, dimensions)).toBe(false)
+        it.each([
+            { x: 100, y: 100, expected: true, desc: 'inside' },
+            { x: dimensions.plotLeft, y: dimensions.plotTop, expected: true, desc: 'top-left corner' },
+            {
+                x: dimensions.plotLeft + dimensions.plotWidth,
+                y: dimensions.plotTop + dimensions.plotHeight,
+                expected: true,
+                desc: 'bottom-right corner',
+            },
+            { x: dimensions.plotLeft - 1, y: 100, expected: false, desc: 'left of plotLeft' },
+            {
+                x: dimensions.plotLeft + dimensions.plotWidth + 1,
+                y: 100,
+                expected: false,
+                desc: 'right of plot area',
+            },
+            { x: 100, y: dimensions.plotTop - 1, expected: false, desc: 'above plotTop' },
+            {
+                x: 100,
+                y: dimensions.plotTop + dimensions.plotHeight + 1,
+                expected: false,
+                desc: 'below plot area',
+            },
+        ])('returns $expected when $desc', ({ x, y, expected }) => {
+            expect(isInPlotArea(x, y, dimensions)).toBe(expected)
         })
     })
 
@@ -111,23 +92,20 @@ describe('hog-charts interaction', () => {
         const xConst = (): number => 100
         const yConst = (): number => 50
 
-        it('returns null for a negative dataIndex', () => {
-            const series = [makeSeries({ key: 's1', data: [10, 20] })]
+        it.each([
+            { index: -1, desc: 'negative dataIndex' },
+            { index: 1, desc: 'dataIndex equal to labels.length' },
+        ])('returns null for $desc', ({ index }) => {
+            const series = [makeSeries({ key: 's1', data: [10] })]
             const result = buildTooltipContext(
-                -1,
+                index,
                 series,
-                ['a', 'b'],
+                ['a'],
                 xConst,
                 yConst,
                 fakeCanvasBounds,
                 defaultResolveValue
             )
-            expect(result).toBeNull()
-        })
-
-        it('returns null for a dataIndex equal to labels.length', () => {
-            const series = [makeSeries({ key: 's1', data: [10] })]
-            const result = buildTooltipContext(1, series, ['a'], xConst, yConst, fakeCanvasBounds, defaultResolveValue)
             expect(result).toBeNull()
         })
 
@@ -204,14 +182,12 @@ describe('hog-charts interaction', () => {
     })
 
     describe('buildPointClickData', () => {
-        it('returns null for a negative dataIndex', () => {
+        it.each([
+            { index: -1, desc: 'negative dataIndex' },
+            { index: 1, desc: 'dataIndex equal to labels.length' },
+        ])('returns null for $desc', ({ index }) => {
             const series = [makeSeries({ key: 's1', data: [10] })]
-            expect(buildPointClickData(-1, series, ['a'], defaultResolveValue)).toBeNull()
-        })
-
-        it('returns null for a dataIndex equal to labels.length', () => {
-            const series = [makeSeries({ key: 's1', data: [10] })]
-            expect(buildPointClickData(1, series, ['a'], defaultResolveValue)).toBeNull()
+            expect(buildPointClickData(index, series, ['a'], defaultResolveValue)).toBeNull()
         })
 
         it('returns null when all series are hidden', () => {

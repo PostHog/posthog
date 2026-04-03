@@ -1,18 +1,5 @@
 import { autoFormatYTick, computePercentStackData, createXScale, createYScale } from '../core/scales'
-import type { ChartDimensions, Series } from '../core/types'
-
-const dimensions: ChartDimensions = {
-    width: 800,
-    height: 400,
-    plotLeft: 48,
-    plotTop: 16,
-    plotWidth: 736,
-    plotHeight: 352,
-}
-
-function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): Series {
-    return { label: overrides.key, color: '#000', ...overrides }
-}
+import { dimensions, makeSeries } from './helpers'
 
 describe('hog-charts scales', () => {
     describe('createXScale', () => {
