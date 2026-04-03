@@ -546,18 +546,7 @@ export function LegacyDeltaChart({
     }
 
     // Metric title panel
-    const metricTitlePanel = (
-        <LegacyMetricHeader
-            displayOrder={displayOrder}
-            experiment={experiment}
-            metric={metric}
-            metricType={metricType}
-            isPrimaryMetric={!isSecondary}
-            readOnly={true}
-            onDuplicateMetricClick={() => {}}
-            onBreakdownChange={() => {}}
-        />
-    )
+    const metricTitlePanel = <LegacyMetricHeader displayOrder={displayOrder} metric={metric} metricType={metricType} />
 
     // Chart content function that receives the ref from layout
     const chartContent = (chartSvgRef: React.RefObject<SVGSVGElement>): JSX.Element => (
