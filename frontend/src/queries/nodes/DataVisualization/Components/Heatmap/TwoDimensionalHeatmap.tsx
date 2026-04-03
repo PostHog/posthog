@@ -50,7 +50,10 @@ type HeatmapData = {
     duplicateCellCount: number
 }
 
-type HeatmapDataSettings = Pick<HeatmapSettings, 'xAxisColumn' | 'yAxisColumn' | 'valueColumn'>
+type HeatmapDataSettings = Pick<
+    HeatmapSettings,
+    'xAxisColumn' | 'yAxisColumn' | 'valueColumn' | 'nullLabel' | 'nullValue'
+>
 
 const buildHeatmapData = (
     rows: any[],
@@ -155,7 +158,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
     const { updateChartSettings } = useActions(dataVisualizationLogic)
 
     const heatmapSettings = chartSettings.heatmap ?? {}
-    const { xAxisColumn, yAxisColumn, valueColumn } = heatmapSettings
+    const { xAxisColumn, yAxisColumn, valueColumn, nullLabel, nullValue } = heatmapSettings
     const sorting = useMemo(
         () => getSortingFromHeatmapSettings(heatmapSettings),
         [heatmapSettings.sortColumn, heatmapSettings.sortOrder]
@@ -192,8 +195,18 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
             }
         }
 
-        return buildHeatmapData(rows, { xAxisColumn, yAxisColumn, valueColumn }, columnIndexes)
-    }, [rows, hasSelection, hasValidColumns, xAxisColumn, yAxisColumn, valueColumn, columnIndexes])
+        return buildHeatmapData(rows, { xAxisColumn, yAxisColumn, valueColumn, nullLabel, nullValue }, columnIndexes)
+    }, [
+        rows,
+        hasSelection,
+        hasValidColumns,
+        xAxisColumn,
+        yAxisColumn,
+        valueColumn,
+        nullLabel,
+        nullValue,
+        columnIndexes,
+    ])
 
     useEffect(() => {
         if (
@@ -220,7 +233,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
             : gradientStops
     const xAxisLabel = heatmapSettings.xAxisLabel || heatmapSettings.xAxisColumn || 'X-axis'
     const yAxisLabel = heatmapSettings.yAxisLabel || heatmapSettings.yAxisColumn || 'Y-axis'
-    const nullValue = getHeatmapNullValue(heatmapSettings)
+    const nullValueDisplay = getHeatmapNullValue(heatmapSettings)
 
     if (!hasSelection || !hasValidColumns) {
         return (
@@ -354,7 +367,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                                             )}
                                             style={{ backgroundColor: cellColor }}
                                         >
-                                            {formatHeatmapValue(cellValue, nullValue)}
+                                            {formatHeatmapValue(cellValue, nullValueDisplay)}
                                         </td>
                                     )
                                 })}
