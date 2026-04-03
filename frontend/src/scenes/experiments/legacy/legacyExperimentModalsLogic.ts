@@ -15,7 +15,6 @@ import type { legacyExperimentModalsLogicType } from './legacyExperimentModalsLo
  * - Shared metric management
  * - Custom metric viewing (read-only)
  * - Metric source selection
- * - Variant delta timeseries
  *
  * Does NOT include (modern experiment only):
  * - Collection goal modal
@@ -25,6 +24,7 @@ import type { legacyExperimentModalsLogicType } from './legacyExperimentModalsLo
  * - Running time calculator modal
  * - Metrics reorder modals
  * - Finish/Pause/Resume experiment modals (these are shared from main logic)
+ * - Variant delta timeseries modal
  */
 export const legacyExperimentModalsLogic = kea<legacyExperimentModalsLogicType>([
     path(['scenes', 'experiments', 'legacy', 'legacyExperimentModalsLogic']),
@@ -64,10 +64,6 @@ export const legacyExperimentModalsLogic = kea<legacyExperimentModalsLogicType>(
         // Metric source selection - Secondary
         openSecondaryMetricSourceModal: true,
         closeSecondaryMetricSourceModal: true,
-
-        // Variant delta timeseries chart
-        openVariantDeltaTimeseriesModal: true,
-        closeVariantDeltaTimeseriesModal: true,
     }),
     reducers({
         // Description modal state
@@ -148,15 +144,6 @@ export const legacyExperimentModalsLogic = kea<legacyExperimentModalsLogicType>(
             {
                 openSecondaryMetricSourceModal: () => true,
                 closeSecondaryMetricSourceModal: () => false,
-            },
-        ],
-
-        // Variant delta timeseries modal state
-        isVariantDeltaTimeseriesModalOpen: [
-            false,
-            {
-                openVariantDeltaTimeseriesModal: () => true,
-                closeVariantDeltaTimeseriesModal: () => false,
             },
         ],
     }),

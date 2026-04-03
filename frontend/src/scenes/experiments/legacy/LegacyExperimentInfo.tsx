@@ -22,8 +22,8 @@ import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { StatusTag } from '../ExperimentView/components'
 import { StatsMethodModal } from '../ExperimentView/StatsMethodModal'
-import { modalsLogic } from '../modalsLogic'
 import { LegacyExperimentDates } from './LegacyExperimentDates'
+import { legacyExperimentModalsLogic } from './legacyExperimentModalsLogic'
 
 export const ExperimentLastRefresh = ({
     isRefreshing,
@@ -85,8 +85,8 @@ export function LegacyExperimentInfo(): JSX.Element | null {
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
     const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
-        useActions(modalsLogic)
-    const { isDescriptionModalOpen } = useValues(modalsLogic)
+        useActions(legacyExperimentModalsLogic)
+    const { isDescriptionModalOpen } = useValues(legacyExperimentModalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 

@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { useChart } from 'lib/hooks/useChart'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { modalsLogic } from 'scenes/experiments/modalsLogic'
+
+import { legacyExperimentModalsLogic } from '~/scenes/experiments/legacy/legacyExperimentModalsLogic'
 
 const DELTA = [0.16, 0.17, 0.15, 0.16, 0.14, 0.15, 0.145, 0.15, 0.155, 0.148, 0.15, 0.147, 0.152, 0.15]
 const UPPER_BOUND = [0.26, 0.27, 0.24, 0.24, 0.21, 0.21, 0.2, 0.2, 0.195, 0.183, 0.182, 0.177, 0.182, 0.18]
@@ -29,11 +30,11 @@ const LABELS = [
 /**
  * @deprecated
  * Legacy variant delta timeseries component.
- * Frozen copy for legacy experiments - do not modify.
+ * Frozen copy for legacy experiments - do not.
  */
 export const LegacyVariantDeltaTimeseries = (): JSX.Element => {
-    const { closeVariantDeltaTimeseriesModal } = useActions(modalsLogic)
-    const { isVariantDeltaTimeseriesModalOpen } = useValues(modalsLogic)
+    const { closeVariantDeltaTimeseriesModal } = useActions(legacyExperimentModalsLogic)
+    const { isVariantDeltaTimeseriesModalOpen } = useValues(legacyExperimentModalsLogic)
 
     const { canvasRef } = useChart({
         getConfig: () => {
