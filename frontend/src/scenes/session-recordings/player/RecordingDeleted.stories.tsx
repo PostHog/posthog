@@ -1,9 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { RecordingDeleted } from './RecordingDeleted'
+import { RecordingDeleted, RecordingDeletedProps } from './RecordingDeleted'
 
-type Story = StoryObj<typeof RecordingDeleted>
-const meta: Meta<typeof RecordingDeleted> = {
+type Story = StoryObj<RecordingDeletedProps>
+const meta: Meta<RecordingDeletedProps> = {
     title: 'Replay/Player/RecordingDeleted',
     component: RecordingDeleted,
 }

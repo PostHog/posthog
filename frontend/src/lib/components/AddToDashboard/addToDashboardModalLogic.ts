@@ -8,8 +8,9 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import { DashboardBasicType, DashboardType, InsightLogicProps } from '~/types'
 
 import type { addToDashboardModalLogicType } from './addToDashboardModalLogicType'
@@ -22,7 +23,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['lib', 'components', 'AddToDashboard', 'saveToDashboardModalLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['insight']],
+        values: [insightLogic(props), ['insight'], userLogic, ['user']],
         actions: [
             insightLogic(props),
             ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
@@ -87,11 +88,20 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                 filteredDashboards.filter((d) => !currentDashboards?.map((cd) => cd.id).includes(d.id)),
         ],
         orderedDashboards: [
-            (s) => [s.currentDashboards, s.availableDashboards],
-            (currentDashboards, availableDashboards): DashboardBasicType[] => [
-                ...currentDashboards,
-                ...availableDashboards,
-            ],
+            (s) => [s.currentDashboards, s.availableDashboards, userLogic.selectors.user],
+            (currentDashboards, availableDashboards, user): DashboardBasicType[] => {
+                const myUuid = user?.uuid ?? null
+                const currentSorted = [...currentDashboards].sort(nameCompareFunction)
+                const isMine = (d: DashboardBasicType): boolean => myUuid !== null && d.created_by?.uuid === myUuid
+                const mineAvailable = availableDashboards.filter(isMine).sort(nameCompareFunction)
+                const othersPinnedAvailable = availableDashboards
+                    .filter((d) => d.pinned && !isMine(d))
+                    .sort(nameCompareFunction)
+                const othersUnpinnedAvailable = availableDashboards
+                    .filter((d) => !d.pinned && !isMine(d))
+                    .sort(nameCompareFunction)
+                return [...currentSorted, ...mineAvailable, ...othersPinnedAvailable, ...othersUnpinnedAvailable]
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

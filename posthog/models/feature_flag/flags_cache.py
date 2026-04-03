@@ -198,10 +198,14 @@ def _get_referenced_cohorts(team_id: int, flags_data: list[dict[str, Any]]) -> l
 def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
     """Serialize a Cohort to a dict matching the Rust Cohort struct field names.
 
-    Keep in sync with rust/feature-flags/src/cohorts/cohort_models.rs::Cohort.
-    The Rust struct has no serde(default) on required fields (deleted, is_calculating,
-    is_static, errors_calculating, groups), so omitting any of these causes a
-    deserialization failure.
+    HYPERCACHE CONTRACT: These field names must match the Rust Cohort struct in
+    rust/feature-flags/src/cohorts/cohort_models.rs. Field changes must follow
+    the expand-and-contract pattern. The contract test will catch mismatches:
+      pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+
+    Note: deleted, is_calculating, is_static, errors_calculating, and groups
+    are required by the Rust struct (no #[serde(default)]), so omitting them
+    causes a deserialization failure.
     """
     return {
         "id": cohort.id,
@@ -220,6 +224,9 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
         "groups": cohort.groups,
         "created_by_id": cohort.created_by_id,
         "cohort_type": cohort.cohort_type,
+        "last_backfill_person_properties_at": (
+            cohort.last_backfill_person_properties_at.isoformat() if cohort.last_backfill_person_properties_at else None
+        ),
     }
 
 
@@ -306,6 +313,10 @@ def _compute_flag_dependencies(flags_data: list[dict[str, Any]]) -> dict[str, An
 def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     """
     Get feature flags for the feature-flags service.
+
+    HYPERCACHE CONTRACT: The top-level keys (flags, evaluation_metadata, cohorts)
+    must match rust/feature-flags/src/flags/flag_models.rs::HypercacheFlagsWrapper.
+    Changes to this structure must follow the expand-and-contract pattern.
 
     Fetches all feature flags for the team (including inactive, excluding deleted)
     and returns them wrapped in a dict that HyperCache can serialize. The actual

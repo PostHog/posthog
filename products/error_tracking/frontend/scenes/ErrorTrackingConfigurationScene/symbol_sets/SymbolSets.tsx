@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconCheckCircle, IconRevert, IconSort, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconSort, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonDialog,
     LemonSegmentedButton,
     LemonTable,
@@ -15,12 +16,11 @@ import {
 
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 
 import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
 
-import { SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
-import { UploadModal } from './UploadModal'
+import { RESULTS_PER_PAGE, SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
     {
@@ -38,8 +38,8 @@ const SYMBOL_SET_FILTER_OPTIONS = [
 ] as { label: string; value: SymbolSetStatusFilter }[]
 
 export function SymbolSets(): JSX.Element {
-    const { symbolSetStatusFilter } = useValues(symbolSetLogic)
-    const { loadSymbolSets, setSymbolSetStatusFilter } = useActions(symbolSetLogic)
+    const { symbolSetStatusFilter, selectedSymbolSetIds, deleteSymbolSetResponseLoading } = useValues(symbolSetLogic)
+    const { loadSymbolSets, setSymbolSetStatusFilter, bulkDeleteSymbolSets } = useActions(symbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
@@ -57,28 +57,124 @@ export function SymbolSets(): JSX.Element {
                 will only apply to all future exceptions ingested.
             </p>
             <div className="space-y-2">
-                <div className="flex justify-end items-center gap-2">
-                    <span className="mb-0">Status:</span>
-                    <LemonSegmentedButton
-                        size="xsmall"
-                        value={symbolSetStatusFilter}
-                        options={SYMBOL_SET_FILTER_OPTIONS}
-                        onChange={setSymbolSetStatusFilter}
-                    />
+                <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        {selectedSymbolSetIds.length > 0 && (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    icon={<IconTrash />}
+                                    loading={deleteSymbolSetResponseLoading}
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: 'Delete symbol sets',
+                                            description: `Are you sure you want to delete ${pluralize(selectedSymbolSetIds.length, 'symbol set', 'symbol sets')}?`,
+                                            secondaryButton: {
+                                                type: 'secondary',
+                                                children: 'Cancel',
+                                            },
+                                            primaryButton: {
+                                                type: 'primary',
+                                                status: 'danger',
+                                                onClick: () => bulkDeleteSymbolSets(),
+                                                children: 'Delete',
+                                            },
+                                        })
+                                    }
+                                >
+                                    Delete
+                                </LemonButton>
+                                <span className="text-sm font-medium">{selectedSymbolSetIds.length} selected</span>
+                            </>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="mb-0">Status:</span>
+                        <LemonSegmentedButton
+                            size="xsmall"
+                            value={symbolSetStatusFilter}
+                            options={SYMBOL_SET_FILTER_OPTIONS}
+                            onChange={setSymbolSetStatusFilter}
+                        />
+                    </div>
                 </div>
                 <SymbolSetTable />
             </div>
-            <UploadModal />
         </div>
     )
 }
 
 const SymbolSetTable = (): JSX.Element => {
-    // @ts-expect-error: automagical typing does not work here for some obscure reason
-    const { pagination, symbolSets, symbolSetResponseLoading, symbolSetOrder } = useValues(symbolSetLogic)
-    const { deleteSymbolSet, setUploadSymbolSetId, setSymbolSetOrder } = useActions(symbolSetLogic)
+    const {
+        page,
+        symbolSetResponse,
+        symbolSetResponseLoading,
+        symbolSetOrder,
+        selectedSymbolSetIds,
+        deleteSymbolSetResponseLoading,
+        shiftKeyHeld,
+        previouslyCheckedIndex,
+    } = useValues(symbolSetLogic)
+    const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, setPreviouslyCheckedIndex, setPage } =
+        useActions(symbolSetLogic)
+
+    const symbolSets = symbolSetResponse?.results || []
+    const pagination = {
+        controlled: true,
+        pageSize: RESULTS_PER_PAGE,
+        currentPage: page,
+        entryCount: symbolSetResponse?.count ?? 0,
+        onBackward: () => setPage(page - 1),
+        onForward: () => setPage(page + 1),
+    }
+
+    const someSelected = selectedSymbolSetIds.length > 0 && selectedSymbolSetIds.length < symbolSets.length
+    const allSelected = symbolSets.length > 0 && selectedSymbolSetIds.length === symbolSets.length
 
     const columns: LemonTableColumns<ErrorTrackingSymbolSet> = [
+        {
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                    onChange={() =>
+                        allSelected || someSelected
+                            ? setSelectedSymbolSetIds([])
+                            : setSelectedSymbolSetIds(symbolSets.map((s: ErrorTrackingSymbolSet) => s.id))
+                    }
+                />
+            ),
+            render: (_, { id }, recordIndex) => {
+                const checked = selectedSymbolSetIds.includes(id)
+                return (
+                    <LemonCheckbox
+                        checked={checked}
+                        onChange={(newValue) => {
+                            const includedIds: string[] = []
+
+                            if (!shiftKeyHeld || previouslyCheckedIndex === null) {
+                                includedIds.push(id)
+                            } else {
+                                const start = Math.min(previouslyCheckedIndex, recordIndex)
+                                const end = Math.max(previouslyCheckedIndex, recordIndex) + 1
+                                includedIds.push(
+                                    ...symbolSets.slice(start, end).map((s: ErrorTrackingSymbolSet) => s.id)
+                                )
+                            }
+
+                            setPreviouslyCheckedIndex(recordIndex)
+                            setSelectedSymbolSetIds(
+                                newValue
+                                    ? [...new Set([...selectedSymbolSetIds, ...includedIds])]
+                                    : selectedSymbolSetIds.filter((i: string) => !includedIds.includes(i))
+                            )
+                        }}
+                    />
+                )
+            },
+        },
         {
             title: 'Reference',
             width: 200,
@@ -136,16 +232,9 @@ const SymbolSetTable = (): JSX.Element => {
             dataIndex: 'id',
             align: 'right',
 
-            render: (_, { id, failure_reason }) => {
+            render: (_, { id }) => {
                 return (
                     <div className="flex justify-end items-center gap-1">
-                        <LemonButton
-                            type={failure_reason ? 'primary' : 'tertiary'}
-                            size="xsmall"
-                            tooltip={failure_reason ? 'Upload symbol set' : 'Replace symbol set'}
-                            icon={failure_reason ? <IconUpload /> : <IconRevert />}
-                            onClick={() => setUploadSymbolSetId(id)}
-                        />
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
@@ -188,9 +277,9 @@ const SymbolSetTable = (): JSX.Element => {
             id="symbol-sets"
             pagination={pagination}
             columns={columns}
-            loading={symbolSetResponseLoading}
+            loading={symbolSetResponseLoading || deleteSymbolSetResponseLoading}
             dataSource={symbolSets}
-            emptyState={!symbolSetResponseLoading ? emptyState : undefined}
+            emptyState={!symbolSetResponseLoading && !deleteSymbolSetResponseLoading ? emptyState : undefined}
         />
     )
 }

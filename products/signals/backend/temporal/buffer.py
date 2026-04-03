@@ -22,8 +22,9 @@ from products.signals.backend.temporal.types import BufferSignalsInput, EmitSign
 
 logger = structlog.get_logger(__name__)
 
+# TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
 BUFFER_MAX_SIZE = 20
-BUFFER_FLUSH_TIMEOUT_SECONDS = 60
+BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
 
@@ -73,7 +74,7 @@ async def signal_with_start_grouping_v2_activity(input: SignalWithStartGroupingV
         TeamSignalGroupingV2Input(team_id=input.team_id),
         id=TeamSignalGroupingV2Workflow.workflow_id_for(input.team_id),
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        run_timeout=timedelta(hours=1),
+        run_timeout=timedelta(hours=3),
         start_signal="submit_batch",
         start_signal_args=[input.object_key],
     )

@@ -11,7 +11,9 @@ os.environ["DJANGO_SKIP_MIGRATIONS"] = "true"
 
 
 @pytest.fixture(autouse=True)
-def _clear_pending_threads():
-    telemetry._pending_threads.clear()
+def _clear_telemetry_queue():
+    with telemetry._client._lock:
+        telemetry._client._queue.clear()
     yield
-    telemetry._pending_threads.clear()
+    with telemetry._client._lock:
+        telemetry._client._queue.clear()

@@ -190,6 +190,11 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "date_start": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "campaign_group_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "cost_in_usd": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cost_in_local_currency": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
                     "impressions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "video_views": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "pivot_values": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
@@ -1642,10 +1647,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         total_impressions = sum(int(row[4] or 0) for row in results)
         total_clicks = sum(int(row[5] or 0) for row in results)
 
+        total_conversion_value = sum(float(row[8] or 0) for row in results)
+
         assert len(results) == 10, "Expected 10 campaigns from Reddit Ads JOIN"
         assert abs(total_cost - 90.6) < 0.01, f"Expected cost $90.6, got ${total_cost}"
         assert total_impressions == 14299, f"Expected 14299 impressions, got {total_impressions}"
         assert total_clicks == 454, f"Expected 454 clicks, got {total_clicks}"
+        # Conversion values in CSV are in cents: signup=(10000+15000+12000)=37000, purchase=(50000+75000+60000)=185000
+        # After dividing by 100: $370 + $1850 = $2220
+        assert abs(total_conversion_value - 2220.0) < 0.01, (
+            f"Expected conversion value $2220.0, got ${total_conversion_value}"
+        )
 
         sources = [row[3] for row in results]
         assert all(source == "reddit" for source in sources), "All sources should be 'reddit'"
