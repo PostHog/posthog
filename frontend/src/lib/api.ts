@@ -5007,14 +5007,14 @@ const api = {
         async provisionWarehouse(
             databaseName: string,
             options?: ApiMethodOptions
-        ): Promise<{ status: string; team: string }> {
+        ): Promise<{ status: string; org: string; username: string; password: string }> {
             return await new ApiRequest()
                 .dataWarehouse()
                 .withAction('provision')
                 .create({ data: { database_name: databaseName }, ...options } as any)
         },
 
-        async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; team: string }> {
+        async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; org: string }> {
             return await new ApiRequest()
                 .dataWarehouse()
                 .withAction('deprovision')
@@ -5031,6 +5031,13 @@ const api = {
                 .withAction('check_database_name')
                 .withQueryString({ name })
                 .get()
+        },
+
+        async resetPassword(): Promise<{ username: string; password: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('reset_password')
+                .create({} as any)
         },
     },
 

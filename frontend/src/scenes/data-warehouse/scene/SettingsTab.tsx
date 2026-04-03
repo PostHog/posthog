@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconCheck, IconEye, IconHide, IconX } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -33,8 +32,7 @@ function stateToTagType(state: DataWarehouseProvisioningState): 'success' | 'war
 }
 
 function ConnectionDetails({ connection }: { connection: DataWarehouseProvisioningConnection }): JSX.Element {
-    const { host, port, database, username, password } = connection
-    const [showPassword, setShowPassword] = useState(false)
+    const { host, port, database, username } = connection
     const psqlCmd = `psql "host=${host} port=${port} dbname=${database} user=${username} sslmode=require"`
 
     return (
@@ -67,24 +65,6 @@ function ConnectionDetails({ connection }: { connection: DataWarehouseProvisioni
                 </div>
             </div>
             <div>
-                <LemonLabel>Password</LemonLabel>
-                <CodeSnippet
-                    compact
-                    thing="password"
-                    actions={
-                        <LemonButton
-                            size="small"
-                            noPadding
-                            icon={showPassword ? <IconHide /> : <IconEye />}
-                            onClick={() => setShowPassword(!showPassword)}
-                            tooltip={showPassword ? 'Hide password' : 'Show password'}
-                        />
-                    }
-                >
-                    {showPassword ? password : '••••••••••••••••••'}
-                </CodeSnippet>
-            </div>
-            <div>
                 <LemonLabel>Connect with psql</LemonLabel>
                 <CodeSnippet compact thing="psql command">
                     {psqlCmd}
@@ -106,8 +86,11 @@ export function SettingsTab(): JSX.Element {
         databaseNameChecking,
         isValidDatabaseName,
         canProvision,
+        initialPassword,
+        isResettingPassword,
     } = useValues(warehouseProvisioningLogic)
-    const { provisionWarehouse, deprovisionWarehouse, setDatabaseName } = useActions(warehouseProvisioningLogic)
+    const { provisionWarehouse, deprovisionWarehouse, setDatabaseName, clearInitialPassword, resetPassword } =
+        useActions(warehouseProvisioningLogic)
 
     const hasWarehouse = warehouseStatus && warehouseStatus.state !== 'deleted'
     const isReady = warehouseStatus?.state === 'ready'
@@ -123,6 +106,17 @@ export function SettingsTab(): JSX.Element {
                     </p>
                 )}
             </div>
+
+            {initialPassword && (
+                <LemonBanner type="warning" onClose={clearInitialPassword}>
+                    <div className="space-y-2">
+                        <strong>Save your password now — it won't be shown again.</strong>
+                        <CodeSnippet compact thing="password">
+                            {initialPassword}
+                        </CodeSnippet>
+                    </div>
+                </LemonBanner>
+            )}
 
             {warehouseStatusLoading && !warehouseStatus ? (
                 <div className="flex items-center gap-2">
@@ -238,6 +232,29 @@ export function SettingsTab(): JSX.Element {
                     )}
 
                     <div className="flex gap-2">
+                        {isReady && (
+                            <LemonButton
+                                type="secondary"
+                                loading={isResettingPassword}
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: 'Reset root password?',
+                                        description:
+                                            'This will generate a new password and invalidate the current one. Make sure to save the new password.',
+                                        primaryButton: {
+                                            children: 'Reset password',
+                                            onClick: () => resetPassword(),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                }}
+                                data-attr="reset-warehouse-password"
+                            >
+                                Reset password
+                            </LemonButton>
+                        )}
                         {isFailed && (
                             <LemonButton
                                 type="primary"

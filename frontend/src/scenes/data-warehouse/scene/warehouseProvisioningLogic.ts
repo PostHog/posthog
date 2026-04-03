@@ -16,6 +16,10 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         provisionWarehouseComplete: true,
         deprovisionWarehouse: true,
         deprovisionWarehouseComplete: true,
+        resetPassword: true,
+        resetPasswordComplete: true,
+        setInitialPassword: (password: string) => ({ password }),
+        clearInitialPassword: true,
         pollStatus: true,
         stopPolling: true,
         setDatabaseName: (name: string) => ({ name }),
@@ -84,6 +88,21 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 setDatabaseName: () => false,
             },
         ],
+        initialPassword: [
+            null as string | null,
+            {
+                setInitialPassword: (_, { password }) => password,
+                clearInitialPassword: () => null,
+                deprovisionWarehouse: () => null,
+            },
+        ],
+        isResettingPassword: [
+            false,
+            {
+                resetPassword: () => true,
+                resetPasswordComplete: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -142,7 +161,10 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
 
             provisionWarehouse: async ({ databaseName }) => {
                 try {
-                    await api.dataWarehouse.provisionWarehouse(databaseName)
+                    const result = await api.dataWarehouse.provisionWarehouse(databaseName)
+                    if (result.password) {
+                        actions.setInitialPassword(result.password)
+                    }
                     lemonToast.success('Warehouse provisioning started')
                     actions.loadWarehouseStatus()
                     actions.pollStatus()
@@ -150,6 +172,19 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     lemonToast.error(`Failed to provision warehouse: ${e.message || 'Unknown error'}`)
                 }
                 actions.provisionWarehouseComplete()
+            },
+
+            resetPassword: async () => {
+                try {
+                    const result = await api.dataWarehouse.resetPassword()
+                    if (result.password) {
+                        actions.setInitialPassword(result.password)
+                    }
+                    lemonToast.success('Password has been reset')
+                } catch (e: any) {
+                    lemonToast.error(`Failed to reset password: ${e.message || 'Unknown error'}`)
+                }
+                actions.resetPasswordComplete()
             },
 
             deprovisionWarehouse: async () => {

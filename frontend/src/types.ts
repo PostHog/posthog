@@ -6844,7 +6844,6 @@ export interface DataWarehouseProvisioningConnection {
     port: number
     database: string
     username: string
-    password: string
 }
 
 export interface DataWarehouseProvisioningStatus {

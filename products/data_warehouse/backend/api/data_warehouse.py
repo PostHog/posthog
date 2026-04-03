@@ -909,6 +909,22 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return self._provisioning_request("GET", "/warehouse/status")
 
     @extend_schema(
+        responses={
+            200: inline_serializer(
+                "ResetPasswordResponse",
+                fields={
+                    "username": serializers.CharField(),
+                    "password": serializers.CharField(),
+                },
+            )
+        },
+    )
+    @action(methods=["POST"], detail=False, url_path="reset-password")
+    def reset_password(self, request: Request, **kwargs) -> Response:
+        """Reset the root password for the managed warehouse."""
+        return self._provisioning_request("POST", "/reset-password")
+
+    @extend_schema(
         parameters=[
             inline_serializer(
                 "CheckDatabaseNameRequest",
