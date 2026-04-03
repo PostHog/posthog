@@ -1943,9 +1943,16 @@ export namespace Schemas {
     }
 
     export interface DateRange {
-      /** @nullable */
+      /**
+       * Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
+    -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).
+       * @nullable
+       */
       date_from?: string | null;
-      /** @nullable */
+      /**
+       * End of the date range. Same format as date_from. Omit or null for "now".
+       * @nullable
+       */
       date_to?: string | null;
       /**
        * Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.
@@ -10819,10 +10826,10 @@ export namespace Schemas {
       ErrorTrackingQuery: 'ErrorTrackingQuery',
     } as const;
 
-    export type OrderBy1 = typeof OrderBy1[keyof typeof OrderBy1];
+    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
-    export const OrderBy1 = {
+    export const ErrorTrackingOrderBy = {
       LastSeen: 'last_seen',
       FirstSeen: 'first_seen',
       Occurrences: 'occurrences',
@@ -10830,10 +10837,10 @@ export namespace Schemas {
       Sessions: 'sessions',
     } as const;
 
-    export type OrderDirection1 = typeof OrderDirection1[keyof typeof OrderDirection1];
+    export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
 
 
-    export const OrderDirection1 = {
+    export const OrderDirection2 = {
       Asc: 'ASC',
       Desc: 'DESC',
     } as const;
@@ -10873,15 +10880,22 @@ export namespace Schemas {
 
     export interface ErrorTrackingQuery {
       assignee?: ErrorTrackingIssueAssignee | null;
+      /** Date range to filter results. */
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
-      /** @nullable */
+      /**
+       * Whether to filter out test accounts.
+       * @nullable
+       */
       filterTestAccounts?: boolean | null;
       /** @nullable */
       groupKey?: string | null;
       /** @nullable */
       groupTypeIndex?: number | null;
-      /** @nullable */
+      /**
+       * Filter to a specific error tracking issue by ID.
+       * @nullable
+       */
       issueId?: string | null;
       kind?: ErrorTrackingQueryKind;
       /** @nullable */
@@ -10890,13 +10904,19 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
       offset?: number | null;
-      orderBy: OrderBy1;
-      orderDirection?: OrderDirection1 | null;
+      /** Field to sort results by. */
+      orderBy: ErrorTrackingOrderBy;
+      /** Sort direction. */
+      orderDirection?: OrderDirection2 | null;
       /** @nullable */
       personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;
-      /** @nullable */
+      /**
+       * Free-text search across exception type, message, and stack frames.
+       * @nullable
+       */
       searchQuery?: string | null;
+      /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
       /**
@@ -12295,10 +12315,10 @@ export namespace Schemas {
       Timestamp: 'timestamp',
     } as const;
 
-    export type OrderDirection = typeof OrderDirection[keyof typeof OrderDirection];
+    export type OrderDirection1 = typeof OrderDirection1[keyof typeof OrderDirection1];
 
 
-    export const OrderDirection = {
+    export const OrderDirection1 = {
       Asc: 'asc',
       Desc: 'desc',
     } as const;
@@ -12377,7 +12397,7 @@ export namespace Schemas {
       /** @nullable */
       offset?: number | null;
       order_by: OrderBy;
-      order_direction: OrderDirection;
+      order_direction: OrderDirection1;
       origin: EmbeddedDocument;
       products: string[];
       renderings: string[];
@@ -17042,10 +17062,10 @@ export namespace Schemas {
       LogsQuery: 'LogsQuery',
     } as const;
 
-    export type OrderBy3 = typeof OrderBy3[keyof typeof OrderBy3];
+    export type LogsOrderBy = typeof LogsOrderBy[keyof typeof LogsOrderBy];
 
 
-    export const OrderBy3 = {
+    export const LogsOrderBy = {
       Latest: 'latest',
       Earliest: 'earliest',
     } as const;
@@ -17125,7 +17145,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
       offset?: number | null;
-      orderBy?: OrderBy3 | null;
+      orderBy?: LogsOrderBy | null;
       /** @nullable */
       resourceFingerprint?: string | null;
       response?: LogsQueryResponse | null;
@@ -17326,7 +17346,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
       offset?: number | null;
-      orderBy?: OrderBy3 | null;
+      orderBy?: LogsOrderBy | null;
       /**
        * Prefetch up to this many spans per trace and include them in results
        * @nullable
@@ -19040,6 +19060,8 @@ export namespace Schemas {
 
     export interface NotificationEvent {
       id: string;
+      /** @nullable */
+      team_id: number | null;
       notification_type: string;
       priority: string;
       title: string;
@@ -19051,6 +19073,10 @@ export namespace Schemas {
       resource_type: string | null;
       resource_id: string;
       source_url: string;
+      /** @nullable */
+      source_type: string | null;
+      /** @nullable */
+      source_id: string | null;
       created_at: string;
     }
 
@@ -19334,6 +19360,7 @@ export namespace Schemas {
     * `slack` - Slack
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
+    * `signal_report` - Signal Report
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -19345,6 +19372,7 @@ export namespace Schemas {
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
+      SignalReport: 'signal_report',
     } as const;
 
     export interface PaginatedActionList {
@@ -25362,6 +25390,8 @@ export namespace Schemas {
        * @nullable
        */
       github_integration?: number | null;
+      /** @nullable */
+      signal_report?: string | null;
       /** JSON schema for the task. This is used to validate the output of the task. */
       json_schema?: unknown | null;
       /** If true, this task is for internal use and should not be exposed to end users. */

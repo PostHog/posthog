@@ -1197,6 +1197,75 @@
                 }
             ]
         },
+        "AssistantErrorTrackingQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by assignee."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range to filter results."
+                },
+                "filterGroup": {
+                    "default": [],
+                    "description": "Property filters for the query",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "filterTestAccounts": {
+                    "description": "Whether to filter out test accounts.",
+                    "type": "boolean"
+                },
+                "issueId": {
+                    "description": "Filter to a specific error tracking issue by ID.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ErrorTrackingQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
+                },
+                "orderDirection": {
+                    "description": "Sort direction.",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
+                },
+                "volumeResolution": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Controls volume chart granularity. Use 1 for sparklines, 0 for counts only."
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": [
                 "cohort",
@@ -12805,9 +12874,11 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
                     "type": ["string", "null"]
                 },
                 "date_to": {
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
                     "type": ["string", "null"]
                 },
                 "explicitDate": {
@@ -14343,10 +14414,11 @@
                     "type": "array"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
                 },
                 "orderDirection": {
+                    "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
@@ -14357,10 +14429,12 @@
                     "type": "array"
                 },
                 "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
                 }
             },
             "required": ["orderBy"],
@@ -14384,6 +14458,11 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingOrderBy": {
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+            "title": "ErrorTrackingOrderBy",
+            "type": "string"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -14398,12 +14477,14 @@
                     ]
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange"
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range to filter results."
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
                 "filterTestAccounts": {
+                    "description": "Whether to filter out test accounts.",
                     "type": "boolean"
                 },
                 "groupKey": {
@@ -14413,6 +14494,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "issueId": {
+                    "description": "Filter to a specific error tracking issue by ID.",
                     "type": "string"
                 },
                 "kind": {
@@ -14430,10 +14512,11 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
                 },
                 "orderDirection": {
+                    "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
@@ -14444,10 +14527,12 @@
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
                 "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -21442,6 +21527,11 @@
             "required": ["results"],
             "type": "object"
         },
+        "LogsOrderBy": {
+            "enum": ["latest", "earliest"],
+            "title": "LogsOrderBy",
+            "type": "string"
+        },
         "LogsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -21473,8 +21563,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
+                    "$ref": "#/definitions/LogsOrderBy"
                 },
                 "resourceFingerprint": {
                     "type": "string"
@@ -35395,8 +35484,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
+                    "$ref": "#/definitions/LogsOrderBy"
                 },
                 "prefetchSpans": {
                     "$ref": "#/definitions/integer",

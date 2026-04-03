@@ -68,7 +68,7 @@ class Migration(AsyncMigrationDefinition):
                 [
                     AsyncMigrationOperationSQL(
                         database=AnalyticsDBMS.CLICKHOUSE,
-                        sql=f"ALTER TABLE {table} {on_cluster(sharded)} ADD INDEX kafka_timestamp_minmax_{table} _timestamp TYPE minmax GRANULARITY 3",
+                        sql=f"ALTER TABLE {table} {on_cluster(sharded)} ADD INDEX IF NOT EXISTS kafka_timestamp_minmax_{table} _timestamp TYPE minmax GRANULARITY 3",
                         rollback=f"ALTER TABLE {table} {on_cluster(sharded)} DROP INDEX kafka_timestamp_minmax_{table}",
                     ),
                     AsyncMigrationOperationSQL(
