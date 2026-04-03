@@ -6705,6 +6705,11 @@ export namespace Schemas {
       yAxisAtZero?: boolean | null;
     }
 
+    export interface CheckDatabaseNameResponse {
+      name: string;
+      available: boolean;
+    }
+
     export type ClickhouseEventProperties = {[key: string]: unknown};
 
     /**
@@ -12193,6 +12198,11 @@ export namespace Schemas {
       key: string;
       /** Feature flag name */
       name: string;
+    }
+
+    export interface DeprovisionWarehouseResponse {
+      status: string;
+      team: string;
     }
 
     /**
@@ -26410,6 +26420,16 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ProvisionWarehouseRequest {
+      /** Name for the new database */
+      database_name: string;
+    }
+
+    export interface ProvisionWarehouseResponse {
+      status: string;
+      team: string;
+    }
+
     /**
      * * `waiting` - Waiting
     * `issuing` - Issuing
@@ -30499,6 +30519,36 @@ export namespace Schemas {
       source_table_key: string;
     }
 
+    /**
+     * * `pending` - pending
+    * `provisioning` - provisioning
+    * `ready` - ready
+    * `failed` - failed
+    * `deleting` - deleting
+    * `deleted` - deleted
+     */
+    export type WarehouseStatusResponseStateEnum = typeof WarehouseStatusResponseStateEnum[keyof typeof WarehouseStatusResponseStateEnum];
+
+
+    export const WarehouseStatusResponseStateEnum = {
+      Pending: 'pending',
+      Provisioning: 'provisioning',
+      Ready: 'ready',
+      Failed: 'failed',
+      Deleting: 'deleting',
+      Deleted: 'deleted',
+    } as const;
+
+    export interface WarehouseStatusResponse {
+      team_name: string;
+      state: WarehouseStatusResponseStateEnum;
+      status_message: string;
+      /** @nullable */
+      ready_at: string | null;
+      /** @nullable */
+      failed_at: string | null;
+    }
+
     export type EnvironmentsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -30770,6 +30820,14 @@ export namespace Schemas {
      * @nullable
      */
     saved_query_id?: string | null;
+    };
+
+    export type EnvironmentsDataWarehouseCheckDatabaseNameRetrieveParams = {
+    /**
+     * Database name to check
+     * @minLength 1
+     */
+    name: string;
     };
 
     export type EnvironmentsDatasetItemsListParams = {
@@ -33478,6 +33536,14 @@ export namespace Schemas {
      * @nullable
      */
     saved_query_id?: string | null;
+    };
+
+    export type DataWarehouseCheckDatabaseNameRetrieveParams = {
+    /**
+     * Database name to check
+     * @minLength 1
+     */
+    name: string;
     };
 
     export type DatasetItemsListParams = {

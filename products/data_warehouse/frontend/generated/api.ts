@@ -9,11 +9,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CheckDatabaseNameResponseApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
+    DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
+    DeprovisionWarehouseResponseApi,
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
@@ -34,6 +37,8 @@ import type {
     PatchedDataWarehouseSavedQueryFolderApi,
     PatchedExternalDataSourceSerializersApi,
     PatchedQueryTabStateApi,
+    ProvisionWarehouseRequestApi,
+    ProvisionWarehouseResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
     TableApi,
@@ -42,6 +47,7 @@ import type {
     WarehouseModelPathsListParams,
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
+    WarehouseStatusResponseApi,
     WarehouseTablesListParams,
     WarehouseViewLinkListParams,
     WarehouseViewLinksListParams,
@@ -336,15 +342,31 @@ export const dataModelingJobsRunningRetrieve = async (
 /**
  * Check if a database name is available.
  */
-export const getDataWarehouseCheckDatabaseNameRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/check-database-name/`
+export const getDataWarehouseCheckDatabaseNameRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseCheckDatabaseNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/check-database-name/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/check-database-name/`
 }
 
 export const dataWarehouseCheckDatabaseNameRetrieve = async (
     projectId: string,
+    params: DataWarehouseCheckDatabaseNameRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseCheckDatabaseNameRetrieveUrl(projectId), {
+): Promise<CheckDatabaseNameResponseApi> => {
+    return apiMutator<CheckDatabaseNameResponseApi>(getDataWarehouseCheckDatabaseNameRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -410,8 +432,11 @@ export const getDataWarehouseDeprovisionCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/deprovision/`
 }
 
-export const dataWarehouseDeprovisionCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseDeprovisionCreateUrl(projectId), {
+export const dataWarehouseDeprovisionCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DeprovisionWarehouseResponseApi> => {
+    return apiMutator<DeprovisionWarehouseResponseApi>(getDataWarehouseDeprovisionCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -453,10 +478,16 @@ export const getDataWarehouseProvisionCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/provision/`
 }
 
-export const dataWarehouseProvisionCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseProvisionCreateUrl(projectId), {
+export const dataWarehouseProvisionCreate = async (
+    projectId: string,
+    provisionWarehouseRequestApi: ProvisionWarehouseRequestApi,
+    options?: RequestInit
+): Promise<ProvisionWarehouseResponseApi> => {
+    return apiMutator<ProvisionWarehouseResponseApi>(getDataWarehouseProvisionCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(provisionWarehouseRequestApi),
     })
 }
 
@@ -497,8 +528,11 @@ export const getDataWarehouseWarehouseStatusRetrieveUrl = (projectId: string) =>
     return `/api/projects/${projectId}/data_warehouse/warehouse_status/`
 }
 
-export const dataWarehouseWarehouseStatusRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseWarehouseStatusRetrieveUrl(projectId), {
+export const dataWarehouseWarehouseStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WarehouseStatusResponseApi> => {
+    return apiMutator<WarehouseStatusResponseApi>(getDataWarehouseWarehouseStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
