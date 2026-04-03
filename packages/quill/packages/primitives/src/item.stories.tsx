@@ -10,8 +10,10 @@ import {
     DropdownMenuTrigger,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
 } from './dropdown-menu'
-import { Item, ItemContent, ItemDescription, ItemTitle, ItemActions, ItemMedia, ItemGroup, ItemCheckbox, ItemMenuItem } from './item'
+import { Item, ItemContent, ItemDescription, ItemTitle, ItemActions, ItemMedia, ItemGroup, ItemCheckbox, ItemRadio, ItemMenuItem } from './item'
 
 const meta = {
     title: 'Primitives/Item',
@@ -106,8 +108,8 @@ export const Group: Story = {
 export const GroupList: Story = {
     render: () => (
         <ItemGroup combined>
-            <Item 
-                variant="pressable" 
+            <Item
+                variant="pressable"
                 size="xs"
                 render={
                     // eslint-disable-next-line react/forbid-elements
@@ -118,8 +120,8 @@ export const GroupList: Story = {
                     </a>
                 }
             />
-            <Item 
-                variant="pressable" 
+            <Item
+                variant="pressable"
                 size="xs"
                 render={
                     // eslint-disable-next-line react/forbid-elements
@@ -130,8 +132,8 @@ export const GroupList: Story = {
                     </a>
                 }
             />
-            <Item 
-                variant="pressable" 
+            <Item
+                variant="pressable"
                 size="xs"
                 render={
                     // eslint-disable-next-line react/forbid-elements
@@ -230,7 +232,7 @@ export const ItemCheckboxInDropdown: Story = {
                                                     {props['aria-checked'] ? (
                                                         <IconCheck />
                                                     ) : (
-                                                        <div/>
+                                                        <div />
                                                     )}
                                                 </ItemMedia>
                                             </ItemCheckbox>
@@ -238,6 +240,56 @@ export const ItemCheckboxInDropdown: Story = {
                                     />
                                 ))}
                             </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </ItemActions>
+            </Item>
+        )
+    },
+} satisfies Story
+
+export const ItemRadiosInDropdown: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        const [radioValue, setRadioValue] = useState('John Doe')
+
+        return (
+            <Item variant="outline" className="max-w-sm">
+                <ItemContent>
+                    <ItemTitle>Basic Item</ItemTitle>
+                    <ItemDescription>A simple item with title and description.</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <DropdownMenu open={open} onOpenChange={setOpen}>
+                        <DropdownMenuTrigger render={(props) => <Button variant="outline" {...props} />}>
+                            Dropdown Radios
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-auto" align="end">
+                            <DropdownMenuRadioGroup value={radioValue} onValueChange={setRadioValue}>
+                                {people.map((person) => (
+                                    <DropdownMenuRadioItem
+                                        key={person.username}
+                                        value={person.username}
+                                        render={(props) => (
+                                            <ItemRadio size="xs" className="w-full" {...props}>
+                                                <ItemContent className="gap-0 py-1 px-1.5">
+                                                    <ItemTitle>{person.username}</ItemTitle>
+                                                    <ItemDescription className="leading-none">
+                                                        {person.email}
+                                                    </ItemDescription>
+                                                </ItemContent>
+                                                <ItemMedia variant="checkbox">
+                                                    {props['aria-checked'] ? (
+                                                        <IconCheck />
+                                                    ) : (
+                                                        <div />
+                                                    )}
+                                                </ItemMedia>
+                                            </ItemRadio>
+                                        )}
+                                    />
+                                ))}
+                            </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </ItemActions>

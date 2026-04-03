@@ -114,6 +114,7 @@ export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGro
 export {
     Item,
     ItemCheckbox,
+    ItemRadio,
     ItemMenuItem,
     ItemMedia,
     ItemContent,

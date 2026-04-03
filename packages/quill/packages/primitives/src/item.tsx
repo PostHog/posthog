@@ -82,19 +82,23 @@ function Item({
     })
 }
 
-function ItemMenuItem({
-    className,
-    variant = 'default',
-    size = 'default',
-    render,
-    ...props
-}: useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>): React.ReactElement {
+const ItemMenuItem = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemMenuItem(
+    {
+        className,
+        variant = 'default',
+        size = 'default',
+        render,
+        ...props
+    },
+    ref
+) {
     return useRender({
         defaultTagName: 'button',
         props: mergeProps<'button'>(
             {
                 className: cn(itemVariants({ variant: 'menuItem', size, className })),
                 role: 'menuitem',
+                ref,
             },
             props
         ),
@@ -105,21 +109,25 @@ function ItemMenuItem({
             size,
         },
     })
-}
+})
 
-function ItemCheckbox({
-    className,
-    variant = 'default',
-    size = 'default',
-    render,
-    ...props
-}: useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>): React.ReactElement {
+const ItemCheckbox = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemCheckbox(
+    {
+        className,
+        variant = 'default',
+        size = 'default',
+        render,
+        ...props
+    },
+    ref
+) {
     return useRender({
         defaultTagName: 'button',
         props: mergeProps<'button'>(
             {
                 className: cn(itemVariants({ variant: 'menuItem', size, className })),
                 role: 'checkbox',
+                ref,
             },
             props
         ),
@@ -130,7 +138,36 @@ function ItemCheckbox({
             size,
         },
     })
-}
+})
+
+const ItemRadio = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemRadio(
+    {
+        className,
+        variant = 'default',
+        size = 'default',
+        render,
+        ...props
+    },
+    ref
+) {
+    return useRender({
+        defaultTagName: 'button',
+        props: mergeProps<'button'>(
+            {
+                className: cn(itemVariants({ variant: 'menuItem', size, className })),
+                role: 'radio',
+                ref,
+            },
+            props
+        ),
+        render,
+        state: {
+            slot: 'item',
+            variant,
+            size,
+        },
+    })
+})
 
 const itemMediaVariants = cva(
     'flex shrink-0 items-center justify-center gap-2 group-has-data-[slot=item-description]/item:translate-y-0.5 group-has-data-[slot=item-description]/item:self-start [&_svg]:pointer-events-none',
@@ -235,7 +272,7 @@ function ItemFooter({ className, ...props }: React.ComponentProps<'div'>): React
 export {
     Item,
     ItemCheckbox,
-    // ItemRadio,
+    ItemRadio,
     ItemMenuItem,
     ItemMedia,
     ItemContent,
