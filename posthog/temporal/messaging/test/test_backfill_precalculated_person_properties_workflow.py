@@ -301,9 +301,7 @@ class TestEvaluateCombinedFiltersSync:
         combined = ["_H", 1, Operation.STRING, "test_condition", 29, Operation.DICT, 1]
         hog_globals = {"person": {"properties": {"$browser": "Chrome"}}}
 
-        result = evaluate_combined_filters_sync(
-            combined, hog_globals, "person-123", detailed_logging=True, cohort_id=456
-        )
+        result = evaluate_combined_filters_sync(combined, hog_globals, "person-123", detailed_logging=True)
 
         # Verify the function still works correctly
         assert result == {"test_condition": True}
@@ -316,7 +314,6 @@ class TestEvaluateCombinedFiltersSync:
         # Verify the logged parameters include our expected values
         logged_kwargs = call_args[1]
         assert logged_kwargs["person_id"] == "person-123"
-        assert logged_kwargs["cohort_id"] == 456
         assert logged_kwargs["result"] == {"test_condition": True}
         assert logged_kwargs["execution_successful"] is True
         assert logged_kwargs["person_properties"] == {"$browser": "Chrome"}
@@ -340,7 +337,7 @@ class TestEvaluateCombinedFiltersSync:
         # Create bytecode that returns a non-dict result
         combined = ["_H", 1, Operation.STRING, "not_a_dict"]
 
-        result = evaluate_combined_filters_sync(combined, {}, "person-123", detailed_logging=True, cohort_id=456)
+        result = evaluate_combined_filters_sync(combined, {}, "person-123", detailed_logging=True)
 
         # Verify the function returns empty dict for non-dict result
         assert result == {}
@@ -352,5 +349,4 @@ class TestEvaluateCombinedFiltersSync:
 
         logged_kwargs = call_args[1]
         assert logged_kwargs["person_id"] == "person-123"
-        assert logged_kwargs["cohort_id"] == 456
         assert logged_kwargs["result"] == "not_a_dict"
