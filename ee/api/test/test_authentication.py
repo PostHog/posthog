@@ -714,7 +714,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         self._assert_saml_login_social_failure_redirect(
             response,
-            "Authentication failed: Authentication request is invalid. Invalid RelayState.",
+            "Authentication request is invalid. Invalid RelayState.",
         )
 
         # Assert user is not logged in
@@ -803,7 +803,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         self._assert_saml_login_social_failure_redirect(
             response,
-            "Authentication failed: Your organization does not have the required license to use SAML.",
+            "Your organization does not have the required license to use SAML.",
         )
 
     @freeze_time("2021-08-25T22:09:14.252Z")

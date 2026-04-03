@@ -870,6 +870,8 @@ class SocialAuthExceptionMiddleware:
     Middleware to handle custom social auth exceptions.
     """
 
+    _AUTH_FAILED_PREFIX = "Authentication failed: "
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -901,11 +903,24 @@ class SocialAuthExceptionMiddleware:
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
-            error_detail = str(exception) or "An unexpected error occurred during authentication."
+            error_detail = self._get_error_detail(exception)
             params = urlencode({"error_code": "social_login_failure", "error_detail": error_detail})
             return redirect(f"/login?{params}")
 
         return None
+
+    def _get_error_detail(self, exception: AuthException) -> str:
+        error_detail = str(exception).strip()
+
+        if isinstance(exception, AuthFailed):
+            error_detail = self._strip_auth_failed_prefix(error_detail)
+
+        return error_detail or "An unexpected error occurred during authentication."
+
+    def _strip_auth_failed_prefix(self, error_detail: str) -> str:
+        if error_detail.startswith(self._AUTH_FAILED_PREFIX):
+            return error_detail[len(self._AUTH_FAILED_PREFIX) :].strip()
+        return error_detail
 
 
 class ActiveOrganizationMiddleware:

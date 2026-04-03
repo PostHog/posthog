@@ -1461,6 +1461,8 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         ]
     )
     def test_redirects_with_social_login_failure(self, _name, path, exception):
+        from urllib.parse import parse_qs, urlparse
+
         request = self.factory.get(path)
         response = self.middleware.process_exception(request, exception)
 
@@ -1469,6 +1471,11 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn("error_code=social_login_failure", response.url)
         self.assertIn("error_detail=", response.url)
+
+        parsed = urlparse(response.url)
+        error_detail = parse_qs(parsed.query).get("error_detail", [""])[0]
+        if isinstance(exception, AuthFailed):
+            self.assertFalse(error_detail.startswith("Authentication failed: "))
 
     @parameterized.expand(
         [
