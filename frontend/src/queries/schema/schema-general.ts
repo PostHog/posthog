@@ -3369,6 +3369,15 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
     metric.metric_type === ExperimentMetricType.RETENTION
 
+// Legacy experiment query type guards
+export const isExperimentTrendsQuery = (
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+): query is ExperimentTrendsQuery => query.kind === NodeKind.ExperimentTrendsQuery
+
+export const isExperimentFunnelsQuery = (
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+): query is ExperimentFunnelsQuery => query.kind === NodeKind.ExperimentFunnelsQuery
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
