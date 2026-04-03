@@ -6358,6 +6358,8 @@ class HeatmapSettings(BaseModel):
     gradient: list[HeatmapGradientStop] | None = None
     gradientPreset: str | None = None
     gradientScaleMode: GradientScaleMode | None = None
+    nullLabel: str | None = None
+    nullValue: str | None = None
     sortColumn: str | None = None
     sortOrder: HeatmapSortOrder | None = None
     valueColumn: str | None = None

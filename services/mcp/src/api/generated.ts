@@ -6631,6 +6631,10 @@ export namespace Schemas {
       gradientPreset?: string | null;
       gradientScaleMode?: GradientScaleMode | null;
       /** @nullable */
+      nullLabel?: string | null;
+      /** @nullable */
+      nullValue?: string | null;
+      /** @nullable */
       sortColumn?: string | null;
       sortOrder?: HeatmapSortOrder | null;
       /** @nullable */
