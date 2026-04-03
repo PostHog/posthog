@@ -839,7 +839,9 @@ class TestStripeIntegration:
     def setup_integration(self, db):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
 
     def _create_stripe_integration(self) -> Integration:
         return Integration.objects.create(
