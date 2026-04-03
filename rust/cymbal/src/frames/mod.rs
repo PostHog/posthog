@@ -83,10 +83,9 @@ impl RawFrame {
             }
 
             RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
-            RawFrame::Apple(frame) => (
-                to_vec(frame.resolve(team_id, catalog, debug_images).await),
-                "apple",
-            ),
+            RawFrame::Apple(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "apple")
+            }
             RawFrame::Php(frame) => (to_vec(Ok(frame.into())), "php"),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
@@ -96,7 +95,7 @@ impl RawFrame {
             RawFrame::Java(frame) => (frame.resolve(team_id, catalog).await, "java"),
         };
 
-        // The raw id of the frame is set after it's resolved
+        // The raw id of the frame is set after it's resolved.
         let res = res.map(|mut fs| {
             fs.iter_mut()
                 .enumerate()

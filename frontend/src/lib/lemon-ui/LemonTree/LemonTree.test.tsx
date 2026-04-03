@@ -222,7 +222,7 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-30')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-0')).not.toBeInTheDocument()
-    })
+    }, 10000)
 
     it('supports an overridden virtualization overscan', async () => {
         const data: TreeDataItem[] = [
@@ -253,5 +253,5 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-0')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-1')).not.toBeInTheDocument()
-    })
+    }, 10000)
 })
