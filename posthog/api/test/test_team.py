@@ -3010,6 +3010,20 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         assert "session_recording_sample_rate" in data
         assert data["session_recording_masking_config"] is None
 
+    @parameterized.expand(["30d", "90d", "1y", "5y"])
+    def test_session_recording_retention_period_allowed_without_billing_entitlement(self, period):
+        # On self-hosted deployments with no license, available_product_features is empty.
+        # All valid retention periods should be accepted rather than returning a 500.
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"session_recording_retention_period": period},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["session_recording_retention_period"] == period
+
     def test_settings_as_of_scope_only_includes_requested_keys(self):
         with freeze_time("2025-03-01T00:00:00Z"):
             r = self.client.patch(
