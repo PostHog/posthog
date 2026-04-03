@@ -249,24 +249,28 @@ describe('seriesBreakdownLogic', () => {
         })
     })
 
-    it('storedBreakdownColors returns an empty object by default', async () => {
+    it('storedBreakdownColors is undefined by default', async () => {
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
-            storedBreakdownColors: {},
+            storedBreakdownColors: undefined,
         })
     })
 
     it('loads stored breakdown colors from existing query on mount', async () => {
-        builtDataVizLogic.actions.setQuery((query) => ({
-            ...query,
+        builtDataVizLogic.unmount()
+        globalQuery = {
+            ...initialQuery,
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: 'browser',
                 seriesBreakdownColors: { Safari: '#ff0000', Chrome: '#00ff00' },
             },
-        }))
+        }
+        dummyDataVisualizationLogicProps.query = globalQuery
+        builtDataVizLogic = dataVisualizationLogic(dummyDataVisualizationLogicProps)
+        builtDataVizLogic.mount()
 
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
@@ -320,6 +324,18 @@ describe('seriesBreakdownLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             storedBreakdownColors: { Safari: '#0000ff' },
+        })
+    })
+
+    it('deleteSeriesBreakdown clears stored breakdown colors', async () => {
+        logic = seriesBreakdownLogic({ key: testUniqueKey })
+        logic.mount()
+
+        logic.actions.updateBreakdownSeriesColor('Safari', '#ff0000')
+        logic.actions.deleteSeriesBreakdown()
+
+        await expectLogic(logic).toMatchValues({
+            storedBreakdownColors: undefined,
         })
     })
 
