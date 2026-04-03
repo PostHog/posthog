@@ -210,8 +210,6 @@ services:
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
-            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
-            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
         depends_on:
             - db
             - redis7
