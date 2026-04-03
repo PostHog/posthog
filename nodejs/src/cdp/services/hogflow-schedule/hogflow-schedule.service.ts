@@ -2,8 +2,6 @@ import { Counter, Gauge } from 'prom-client'
 import { z } from 'zod'
 
 import { InternalFetchService } from '~/common/services/internal-fetch'
-import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -20,9 +18,9 @@ const schedulerPollCounter = new Counter({
     labelNames: ['status'],
 })
 
-const schedulerDispatchedCounter = new Counter({
-    name: 'cdp_hogflow_scheduler_dispatched',
-    help: 'Number of batch triggers dispatched to Kafka',
+const schedulerProcessedCounter = new Counter({
+    name: 'cdp_hogflow_scheduler_processed',
+    help: 'Number of due schedules processed (batch jobs created by Django)',
 })
 
 const schedulerInitializedCounter = new Counter({
@@ -41,24 +39,13 @@ const schedulerPollDurationGauge = new Gauge({
     help: 'Duration of the last poll cycle in milliseconds',
 })
 
-const ProcessedScheduleSchema = z.object({
-    schedule_id: z.string(),
-    team_id: z.number(),
-    hog_flow_id: z.string(),
-    filters: z.record(z.unknown()),
-    variables: z.record(z.unknown()),
-})
-
 const ProcessDueSchedulesResponseSchema = z.object({
-    processed: z.array(ProcessedScheduleSchema),
+    processed: z.array(z.string()),
     initialized: z.array(z.string()),
     failed: z.array(z.string()),
 })
 
-type ProcessedSchedule = z.infer<typeof ProcessedScheduleSchema>
-
 export class HogFlowScheduleService {
-    private kafkaProducer: KafkaProducerWrapper | null = null
     private running = false
     private pollPromise: Promise<void> | null = null
     private sleepResolve: (() => void) | null = null
@@ -76,14 +63,12 @@ export class HogFlowScheduleService {
         this.internalFetchService = new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
     }
 
-    async start(): Promise<void> {
+    start(): void {
         if (this.running) {
             return
         }
 
         logger.info('HogFlowScheduleService: starting...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
-        logger.info('HogFlowScheduleService: Kafka producer connected')
 
         this.running = true
         this.pollPromise = this.pollLoop()
@@ -165,34 +150,11 @@ export class HogFlowScheduleService {
                 })
             }
 
-            const results = await Promise.allSettled(
-                data.processed.map((schedule) => this.dispatchBatchTrigger(schedule))
-            )
-
-            const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-            const dispatched = data.processed.length - failures.length
-
-            if (failures.length > 0) {
-                const failedIds = data.processed
-                    .filter((_, i) => results[i].status === 'rejected')
-                    .map((s) => s.schedule_id)
-                schedulerFailedCounter.inc({ stage: 'dispatch' }, failures.length)
-                logger.error('HogFlowScheduleService: failed to dispatch some schedules', {
-                    failedCount: failures.length,
-                    totalCount: data.processed.length,
-                    scheduleIds: failedIds,
-                })
-            }
-
             if (data.processed.length > 0) {
-                const dispatchedIds = data.processed
-                    .filter((_, i) => results[i].status === 'fulfilled')
-                    .map((s) => s.schedule_id)
-                schedulerDispatchedCounter.inc(dispatched)
+                schedulerProcessedCounter.inc(data.processed.length)
                 logger.info('HogFlowScheduleService: processed due schedules', {
                     count: data.processed.length,
-                    dispatched: dispatchedIds.length,
-                    scheduleIds: dispatchedIds,
+                    scheduleIds: data.processed,
                 })
             }
 
@@ -208,40 +170,10 @@ export class HogFlowScheduleService {
         }
     }
 
-    private async dispatchBatchTrigger(schedule: ProcessedSchedule): Promise<void> {
-        if (!this.kafkaProducer) {
-            throw new Error('Kafka producer not available')
-        }
-
-        const batchHogFlowRequest = {
-            teamId: schedule.team_id,
-            hogFlowId: schedule.hog_flow_id,
-            parentRunId: null,
-            filters: {
-                properties: (schedule.filters?.properties as unknown[]) || [],
-                filter_test_accounts: (schedule.filters?.filter_test_accounts as boolean) ?? false,
-            },
-            variables: schedule.variables,
-        }
-
-        await this.kafkaProducer.produce({
-            topic: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
-            value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
-            key: `${schedule.team_id}_${schedule.hog_flow_id}`,
-        })
-
-        logger.info('HogFlowScheduleService: dispatched batch trigger', {
-            scheduleId: schedule.schedule_id,
-            hogFlowId: schedule.hog_flow_id,
-            teamId: schedule.team_id,
-        })
-    }
-
     async stop(): Promise<void> {
         this.running = false
         this.sleepResolve?.()
         await this.pollPromise
-        await this.kafkaProducer?.disconnect()
     }
 
     isHealthy(): HealthCheckResult {

@@ -158,6 +158,20 @@ function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizat
     }
 }
 
+function getCurrentVisualizationQuery(
+    dataLogicKey: string,
+    fallbackQuery: DataVisualizationNode
+): DataVisualizationNode {
+    // This reads the mounted visualization state so save/update actions can include in-flight
+    // axis/display edits. Those edits are also synced back through props.setQuery -> setSourceQuery,
+    // so sourceQuery remains the durable fallback when the visualization logic is unmounted.
+    const mountedVisualizationLogic = dataVisualizationLogic.findMounted({
+        key: dataLogicKey,
+    } as any)
+
+    return mountedVisualizationLogic?.values.query ?? fallbackQuery
+}
+
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
@@ -321,6 +335,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setMetadataLoading: (loading: boolean) => ({ loading }),
         setInsightLoading: (loading: boolean) => ({ loading }),
         setViewLoading: (loading: boolean) => ({ loading }),
+        setMaterializationModalOpen: (open: boolean) => ({ open }),
+        setMaterializationModalView: (view: DataWarehouseSavedQuery | null) => ({ view }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
@@ -358,6 +374,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
+        openMaterializationModal: (view?: DataWarehouseSavedQuery) => ({ view }),
+        closeMaterializationModal: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -416,6 +434,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as number | null,
             {
                 setDashboardId: (_, { dashboardId }) => dashboardId,
+            },
+        ],
+        materializationModalOpen: [
+            false,
+            {
+                setMaterializationModalOpen: (_, { open }) => open,
+                closeMaterializationModal: () => false,
+            },
+        ],
+        materializationModalView: [
+            null as DataWarehouseSavedQuery | null,
+            {
+                setMaterializationModalView: (_, { view }) => view,
+                closeMaterializationModal: () => null,
             },
         ],
         editingInsight: [
@@ -722,7 +754,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions._setSuggestionPayload(null)
         },
         editView: ({ query, view }) => {
-            actions.setActiveTab(OutputTab.Materialization)
             actions.createTab(query, view)
         },
         editInsight: ({ query, insight }) => {
@@ -758,6 +789,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     sourceQuery: insight?.query as DataVisualizationNode | undefined,
                     draft: draft,
                 })
+            }
+            if (insight?.query?.kind === NodeKind.DataVisualizationNode) {
+                actions.setLastRunQuery(sanitizeSourceQuery(insight.query as DataVisualizationNode))
             }
             if (query) {
                 actions.setQueryInput(query)
@@ -1020,17 +1054,49 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 lemonToast.error('Failed to save view')
             }
         },
+        openMaterializationModal: async ({ view }, breakpoint) => {
+            if (!view) {
+                return
+            }
+
+            await breakpoint(100)
+
+            if (values.materializationModalView?.id === view.id) {
+                actions.setMaterializationModalOpen(true)
+                return
+            }
+
+            actions.setViewLoading(true)
+
+            try {
+                let nextView = view
+
+                if (!nextView.query) {
+                    nextView = await api.dataWarehouseSavedQueries.get(view.id)
+                }
+
+                await breakpoint(100)
+                actions.setMaterializationModalView(nextView)
+                actions.setMaterializationModalOpen(true)
+            } catch {
+                lemonToast.error('View not found')
+                actions.closeMaterializationModal()
+            } finally {
+                actions.setViewLoading(false)
+            }
+        },
         saveAsInsight: async () => {
+            const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
             const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                 key: values.dataLogicKey,
-                query: values.sourceQuery,
+                query: currentVisualizationQuery,
                 dataNodeCollectionId: values.dataLogicKey,
                 editMode: true,
             })?.values.effectiveVisualizationType
 
             const defaultDisplay = getDisplayTypeToSaveInsight(
                 values.outputActiveTab,
-                values.sourceQuery.display,
+                currentVisualizationQuery.display,
                 effectiveVisualizationType
             )
 
@@ -1051,7 +1117,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     readOnly
                                     embedded
                                     query={{
-                                        ...values.sourceQuery,
+                                        ...currentVisualizationQuery,
                                         display: defaultDisplay,
                                     }}
                                 />
@@ -1066,23 +1132,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             })
         },
         saveAsInsightSubmit: async ({ name }) => {
+            const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
             const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                 key: values.dataLogicKey,
-                query: values.sourceQuery,
+                query: currentVisualizationQuery,
                 dataNodeCollectionId: values.dataLogicKey,
                 editMode: true,
             })?.values.effectiveVisualizationType
 
             const display = getDisplayTypeToSaveInsight(
                 values.outputActiveTab,
-                values.sourceQuery.display,
+                currentVisualizationQuery.display,
                 effectiveVisualizationType
             )
 
             const dashboardId = values.dashboardId
             const insight = await insightsApi.create({
                 name,
-                query: { ...values.sourceQuery, display } as DataVisualizationNode,
+                query: { ...currentVisualizationQuery, display } as DataVisualizationNode,
                 saved: true,
                 ...(dashboardId ? { dashboards: [dashboardId] } : {}),
             })
@@ -1167,10 +1234,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const insightName = values.activeTab?.name
+            const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
             const insightRequest: Partial<QueryBasedInsightModel> = {
                 name: insightName ?? values.editingInsight.name,
-                query: values.sourceQuery,
+                query: currentVisualizationQuery,
             }
 
             const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
@@ -1468,25 +1536,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         isSourceQueryLastRun: [
-            (s) => [s.queryInput, s.lastRunQuery],
-            (queryInput, lastRunQuery) => {
-                return queryInput === lastRunQuery?.source.query
+            (s) => [s.queryInput, s.lastRunQuery, s.sourceQuery],
+            (queryInput, lastRunQuery, sourceQuery) => {
+                const lastRunQueryText = lastRunQuery?.source.query ?? sourceQuery.source.query
+                return queryInput === lastRunQueryText
             },
         ],
         updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeTab],
-            (sourceQuery, activeTab) => {
-                if (!activeTab?.insight?.query || !activeTab.sourceQuery) {
+            (s) => [s.sourceQuery, s.activeTab, s.editingInsight, s.dataLogicKey],
+            (sourceQuery, activeTab, editingInsight, dataLogicKey) => {
+                if (!editingInsight?.query) {
                     return false
                 }
 
-                const updatedName = activeTab.name !== activeTab.insight.name
+                const updatedName = activeTab?.name !== editingInsight.name
+                const currentVisualizationQuery = getCurrentVisualizationQuery(dataLogicKey, sourceQuery)
 
-                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
+                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(currentVisualizationQuery)
 
                 return (
                     updatedName ||
-                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(activeTab.insight.query))
+                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsight.query))
                 )
             },
         ],
@@ -1834,9 +1904,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Open view
                     const viewId = viewIdFromUrl
 
-                    if (!outputTabFromUrl) {
-                        actions.setActiveTab(OutputTab.Materialization)
-                    }
                     actions.setViewLoading(true)
 
                     if (values.dataWarehouseSavedQueries.length === 0) {

@@ -3,6 +3,8 @@ from typing import cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest import TestCase
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework.request import Request
@@ -17,6 +19,7 @@ from posthog.rate_limit import (
 )
 
 from products.llm_analytics.backend.api.proxy import LLMProxyCompletionSerializer, LLMProxyViewSet
+from products.llm_analytics.backend.llm import PROVIDERS, TRIAL_MODEL_IDS, get_default_models, get_trial_models
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 TRIAL_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
@@ -149,3 +152,95 @@ class TestLLMProxyThrottles(APIBaseTest):
         assert serializer.validated_data["temperature"] == 0.4
         assert serializer.validated_data["top_p"] == 0.9
         assert serializer.validated_data["seed"] == 42
+
+
+class TestTrialModelAllowlist(TestCase):
+    def test_trial_models_are_subset_of_supported_models(self) -> None:
+        for _, config in PROVIDERS:
+            assert set(config.TRIAL_MODELS) <= set(config.SUPPORTED_MODELS), (
+                f"{config.__name__}.TRIAL_MODELS contains models not in SUPPORTED_MODELS"
+            )
+
+    def test_model_ids_unique_across_providers(self) -> None:
+        all_trial: list[str] = []
+        for _, config in PROVIDERS:
+            all_trial.extend(config.TRIAL_MODELS)
+        assert len(all_trial) == len(set(all_trial)), "Duplicate model IDs found across providers"
+
+    def test_get_trial_models_returns_only_trial_eligible(self) -> None:
+        trial_ids = {m["id"] for m in get_trial_models()}
+        assert trial_ids == TRIAL_MODEL_IDS
+
+    def test_get_trial_models_smaller_than_default(self) -> None:
+        assert len(get_trial_models()) < len(get_default_models())
+
+
+class TestTrialModelEnforcement(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.customer_id = "cus_test"
+        self.organization.save()
+
+    def _completion_payload(self, model: str, provider: str) -> dict:
+        return {
+            "system": "",
+            "messages": [{"role": "user", "content": "hi"}],
+            "model": model,
+            "provider": provider,
+        }
+
+    @parameterized.expand(
+        [
+            ("expensive_openai", "o3-pro", "openai"),
+            ("expensive_anthropic", "claude-opus-4-6", "anthropic"),
+        ]
+    )
+    def test_completion_rejects_non_trial_model(self, _name: str, model: str, provider: str) -> None:
+        response = self.client.post(
+            "/api/llm_proxy/completion/",
+            data=self._completion_payload(model, provider),
+            format="json",
+        )
+        assert response.status_code == 403
+        assert "not available on the trial plan" in response.json()["error"]
+
+    @patch("products.llm_analytics.backend.api.proxy.Client")
+    def test_completion_allows_trial_model(self, mock_client_cls) -> None:
+        mock_client_cls.return_value.stream.return_value = iter([])
+        response = self.client.post(
+            "/api/llm_proxy/completion/",
+            data=self._completion_payload("gpt-4.1-mini", "openai"),
+            format="json",
+        )
+        assert response.status_code == 200
+        # Consume the streaming response to trigger the generator
+        b"".join(response.streaming_content)  # type: ignore[attr-defined]
+        mock_client_cls.return_value.stream.assert_called_once()
+
+    @patch("products.llm_analytics.backend.api.proxy.Client")
+    def test_byok_key_bypasses_trial_allowlist(self, mock_client_cls) -> None:
+        mock_client_cls.return_value.stream.return_value = iter([])
+        byok_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="BYOK key",
+            encrypted_config={"api_key": "sk-test-key"},
+            created_by=self.user,
+        )
+        payload = self._completion_payload("o3-pro", "openai")
+        payload["provider_key_id"] = str(byok_key.id)
+        response = self.client.post(
+            "/api/llm_proxy/completion/",
+            data=payload,
+            format="json",
+        )
+        assert response.status_code == 200
+        # Consume the streaming response to trigger the generator
+        b"".join(response.streaming_content)  # type: ignore[attr-defined]
+        mock_client_cls.return_value.stream.assert_called_once()
+
+    def test_models_endpoint_returns_only_trial_models(self) -> None:
+        response = self.client.get("/api/llm_proxy/models/")
+        assert response.status_code == 200
+        returned_ids = {m["id"] for m in response.json()}
+        assert returned_ids == TRIAL_MODEL_IDS

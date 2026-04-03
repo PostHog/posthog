@@ -464,21 +464,21 @@ class TestRadarBypassViewSet(TestCase):
 
     def test_non_staff_user_gets_403(self):
         self.client.force_login(self.non_staff_user)
-        response = self.client.get("/api/admin/radar-bypass/")
+        response = self.client.get("/admin/api/radar-bypass/")
         assert response.status_code == 403
 
     def test_list_bypass_emails(self):
         add_radar_bypass_email("a@example.com")
         add_radar_bypass_email("b@example.com")
         self.client.force_login(self.staff_user)
-        response = self.client.get("/api/admin/radar-bypass/")
+        response = self.client.get("/admin/api/radar-bypass/")
         assert response.status_code == 200
         assert sorted(response.json()) == ["a@example.com", "b@example.com"]
 
     def test_add_bypass_email(self):
         self.client.force_login(self.staff_user)
         response = self.client.post(
-            "/api/admin/radar-bypass/",
+            "/admin/api/radar-bypass/",
             {"email": "bypass@example.com"},
             content_type="application/json",
         )
@@ -489,7 +489,7 @@ class TestRadarBypassViewSet(TestCase):
     def test_add_invalid_email_returns_400(self):
         self.client.force_login(self.staff_user)
         response = self.client.post(
-            "/api/admin/radar-bypass/",
+            "/admin/api/radar-bypass/",
             {"email": "not-an-email"},
             content_type="application/json",
         )
@@ -499,13 +499,13 @@ class TestRadarBypassViewSet(TestCase):
     def test_remove_bypass_email(self):
         add_radar_bypass_email("remove-me@example.com")
         self.client.force_login(self.staff_user)
-        response = self.client.delete("/api/admin/radar-bypass/remove-me@example.com/")
+        response = self.client.delete("/admin/api/radar-bypass/remove-me@example.com/")
         assert response.status_code == 204
         assert is_radar_bypass_email("remove-me@example.com") is False
 
     def test_list_empty(self):
         self.client.force_login(self.staff_user)
-        response = self.client.get("/api/admin/radar-bypass/")
+        response = self.client.get("/admin/api/radar-bypass/")
         assert response.status_code == 200
         assert response.json() == []
 

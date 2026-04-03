@@ -111,3 +111,6 @@ tools:
             Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but
             historical data is preserved.
         soft_delete: true
+    actions-references-list:
+        operation: actions_references_list
+        enabled: false
