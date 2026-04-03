@@ -244,7 +244,7 @@ export function SettingsTab(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 loading={isProvisioning}
-                                onClick={() => provisionWarehouse()}
+                                onClick={() => provisionWarehouse({ databaseName })}
                                 data-attr="retry-provision-warehouse"
                             >
                                 Retry provisioning
