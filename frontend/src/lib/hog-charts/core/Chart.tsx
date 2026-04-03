@@ -7,9 +7,9 @@ import { GoalLines } from '../overlays/GoalLines'
 import { Tooltip } from '../overlays/Tooltip'
 import { ChartContext } from './chart-context'
 import { ChartErrorBoundary } from './ChartErrorBoundary'
-import { useChartCanvas } from './hooks/use-chart-canvas'
-import { useChartDraw } from './hooks/use-chart-draw'
-import { useChartInteraction } from './hooks/use-chart-interaction'
+import { useChartCanvas } from './hooks/useChartCanvas'
+import { useChartDraw } from './hooks/useChartDraw'
+import { useChartInteraction } from './hooks/useChartInteraction'
 import { autoFormatYTick } from './scales'
 import type {
     ChartConfig,
