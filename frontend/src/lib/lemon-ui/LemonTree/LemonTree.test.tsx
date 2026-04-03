@@ -32,6 +32,14 @@ describe('LemonTree virtualization', () => {
         })
     }
 
+    const scrollViewport = async (viewport: HTMLElement, scrollTop: number): Promise<void> => {
+        act(() => {
+            viewport.scrollTop = scrollTop
+            viewport.dispatchEvent(new Event('scroll'))
+        })
+        await flushAnimationFrame()
+    }
+
     it('renders only the visible window while scrolling', async () => {
         const data: TreeDataItem[] = [
             {
@@ -189,11 +197,7 @@ describe('LemonTree virtualization', () => {
         )
         const viewport = setViewportHeight(container, 80)
 
-        act(() => {
-            viewport.scrollTop = 40 * 30
-            viewport.dispatchEvent(new Event('scroll'))
-        })
-        await flushAnimationFrame()
+        await scrollViewport(viewport, 40 * 30)
 
         await waitFor(() => {
             expect(within(container).getByLabelText('tree item: child-30')).toBeInTheDocument()
@@ -224,9 +228,7 @@ describe('LemonTree virtualization', () => {
         )
         const viewport = setViewportHeight(container, 62)
 
-        act(() => {
-            viewport.dispatchEvent(new Event('scroll'))
-        })
+        await scrollViewport(viewport, 0)
 
         await waitFor(() => {
             expect(within(container).getByLabelText('tree item: child-0')).toBeInTheDocument()

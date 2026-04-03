@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, ChartDisplayType, TeamType } from '~/types'
 
@@ -105,7 +105,7 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
             columns: ['event', 'timestamp', 'person_id'],
             hiddenColumns: ['person_id'],
             pinnedColumns: ['event', 'person_id'],
-        })
+        } as DataTableNode)
 
         expect(convertedNode).toEqual({
             kind: NodeKind.DataVisualizationNode,
@@ -118,7 +118,7 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
                 columns: [{ column: 'event' }, { column: 'timestamp' }],
                 pinnedColumns: ['event'],
             },
-        })
+        } as DataTableNode)
     })
 
     it('preserves additional legacy table config when converting HogQL data table nodes', () => {

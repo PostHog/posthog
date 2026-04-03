@@ -171,8 +171,14 @@ export function convertDataTableNodeToDataVisualizationNode(node: Node | null): 
         return node
     }
 
-    const { kind: _kind, source, columns, hiddenColumns: legacyHiddenColumns, pinnedColumns: legacyPinnedColumns, ...rest } =
-        node
+    const {
+        kind: _kind,
+        source,
+        columns,
+        hiddenColumns: legacyHiddenColumns,
+        pinnedColumns: legacyPinnedColumns,
+        ...rest
+    } = node
     const hiddenColumns = new Set(legacyHiddenColumns ?? [])
     const visibleColumns = columns?.filter((column) => !hiddenColumns.has(column))
     const tableSettingsColumns = visibleColumns?.length ? visibleColumns.map((column) => ({ column })) : undefined
@@ -185,8 +191,8 @@ export function convertDataTableNodeToDataVisualizationNode(node: Node | null): 
               }
             : undefined
     const tableSettings = {
-        ...((rest as Partial<DataVisualizationNode>).tableSettings ?? {}),
-        ...(mappedTableSettings ?? {}),
+        ...(rest as Partial<DataVisualizationNode>).tableSettings,
+        ...mappedTableSettings,
     }
 
     return {
