@@ -3320,7 +3320,7 @@ importers:
         specifier: ^0.8.2
         version: 0.8.2
       mcpcat:
-        specifier: ^0.1.15
+        specifier: 0.1.15
         version: 0.1.15(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))
       posthog-js-lite:
         specifier: 4.2.2
