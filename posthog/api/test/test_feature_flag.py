@@ -5343,9 +5343,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNone(filters["groups"][0]["aggregation_group_type_index"])
         self.assertEqual(filters["groups"][1]["aggregation_group_type_index"], 0)
 
+    @parameterized.expand(
+        [
+            ("flag_enabled", True, status.HTTP_201_CREATED),
+            ("flag_disabled", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
     @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
-    def test_mixed_aggregation_with_properties(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = True
+    def test_mixed_aggregation_with_properties(
+        self, _name, mixed_targeting_enabled, expected_status, mock_feature_enabled
+    ):
+        mock_feature_enabled.return_value = mixed_targeting_enabled
 
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
@@ -5383,10 +5391,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        groups = response.json()["filters"]["groups"]
-        self.assertIsNone(groups[0]["aggregation_group_type_index"])
-        self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
+        self.assertEqual(response.status_code, expected_status)
+
+        if expected_status == status.HTTP_201_CREATED:
+            groups = response.json()["filters"]["groups"]
+            self.assertIsNone(groups[0]["aggregation_group_type_index"])
+            self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
+        else:
+            self.assertIn("Mixed aggregation types", response.json()["detail"])
 
     @parameterized.expand(
         [

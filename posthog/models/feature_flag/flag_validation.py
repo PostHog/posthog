@@ -129,7 +129,7 @@ def _base_query_for_aggregation(group_type_index: Optional[int], team_id: int) -
 
 def check_flag_evaluation_query_is_ok(
     feature_flag: FeatureFlag, team_id: int, project_id: int, *, allow_realtime_backfilled: bool = False
-) -> bool:
+) -> None:
     """
     Validate that a feature flag's conditions can be evaluated without errors.
 
@@ -150,9 +150,6 @@ def check_flag_evaluation_query_is_ok(
         feature_flag: The FeatureFlag instance to validate
         team_id: The team ID the flag belongs to
         project_id: The project ID the flag belongs to
-
-    Returns:
-        True if the query executes successfully, False otherwise
 
     Raises:
         Any database errors that occur during query execution
@@ -198,5 +195,3 @@ def check_flag_evaluation_query_is_ok(
 
         values = base_query.values(*query_fields)[:10]
         len(values)  # Force query execution to surface any database errors
-
-    return True
