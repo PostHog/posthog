@@ -953,7 +953,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     # These endpoints use POST but are read-only:
     # /query/[A-Z][A-Za-z]* matches query-kind segments, while the schema-upgrade POST action
     # /query/upgrade/ needs an explicit "|upgrade" branch as that starts with a lowercase letter
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query(?:/(?:[A-Z][A-Za-z]*|upgrade))?/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query(?:/[A-Za-z]+)?/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
