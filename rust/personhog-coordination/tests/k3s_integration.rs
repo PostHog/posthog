@@ -224,17 +224,42 @@ async fn wait_for_ready_pods(client: &Client, label_selector: &str, count: usize
     }
 }
 
-async fn get_first_pod_name(client: &Client, label_selector: &str) -> String {
+async fn get_running_pod_names(client: &Client, label_selector: &str) -> Vec<String> {
     let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::namespaced(client.clone(), NAMESPACE);
     let list = pods
         .list(&ListParams::default().labels(label_selector))
         .await
         .expect("failed to list pods");
-
     list.items
-        .first()
-        .and_then(|p| p.metadata.name.clone())
-        .expect("no pods found")
+        .iter()
+        .filter(|p| p.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Running"))
+        .filter_map(|p| p.metadata.name.clone())
+        .collect()
+}
+
+/// Wait for new pods (not in `old_names`) to reach Running state.
+async fn wait_for_new_running_pods(
+    client: &Client,
+    label_selector: &str,
+    old_names: &[String],
+    count: usize,
+) -> Vec<String> {
+    let timeout = Duration::from_secs(120);
+    let start = std::time::Instant::now();
+    loop {
+        let all = get_running_pod_names(client, label_selector).await;
+        let new: Vec<_> = all.into_iter().filter(|n| !old_names.contains(n)).collect();
+        if new.len() >= count {
+            return new;
+        }
+        if start.elapsed() > timeout {
+            panic!(
+                "timed out waiting for {count} new running pods, got {}",
+                new.len()
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
 }
 
 async fn wait_for_departure_reason(
@@ -415,9 +440,11 @@ async fn deployment_rollout_reassigns_partitions() {
         k8s_cancel.clone(),
     ));
 
-    let pod_name = get_first_pod_name(&k8s_client, &format!("app={deploy_name}")).await;
+    // Discover controller info from a real pod so we can detect rollout later
+    let old_names = get_running_pod_names(&k8s_client, &format!("app={deploy_name}")).await;
+    assert_eq!(old_names.len(), 2, "expected 2 running pods");
     let pod_info = awareness
-        .discover_controller(&pod_name)
+        .discover_controller(&old_names[0])
         .await
         .expect("discover failed");
     let old_generation = pod_info.generation.clone();
@@ -487,12 +514,24 @@ async fn deployment_rollout_reassigns_partitions() {
     )
     .await;
 
+    // Wait for new K8s pods (created by the rollout) and discover the real
+    // new generation. We must use the actual pod-template-hash from K8s
+    // because classify_departure compares against it — a fake generation
+    // would be incorrectly classified as old-gen and excluded.
+    let new_k8s_names =
+        wait_for_new_running_pods(&k8s_client, &format!("app={deploy_name}"), &old_names, 2).await;
+    let new_pod_info = awareness
+        .discover_controller(&new_k8s_names[0])
+        .await
+        .expect("discover new pod failed");
+    let new_generation = new_pod_info.generation;
+
     // New-gen pods register (simulating K8s creating replacements).
     // The coordinator now excludes old-gen from active list, so all
     // partitions get handed off to new-gen pods.
     let new_config = |name: &str| PodConfig {
         pod_name: name.to_string(),
-        generation: "new-gen-hash".to_string(),
+        generation: new_generation.clone(),
         controller: Some(pod_info.controller.clone()),
         lease_ttl: 10,
         heartbeat_interval: Duration::from_secs(3),
@@ -592,9 +631,9 @@ async fn statefulset_rollout_pod_skips_drain() {
         k8s_cancel.clone(),
     ));
 
-    let pod_name = get_first_pod_name(&k8s_client, &format!("app={ss_name}")).await;
+    let pod_names = get_running_pod_names(&k8s_client, &format!("app={ss_name}")).await;
     let pod_info = awareness
-        .discover_controller(&pod_name)
+        .discover_controller(&pod_names[0])
         .await
         .expect("discover failed");
     let old_generation = pod_info.generation.clone();
@@ -713,9 +752,9 @@ async fn scale_down_pod_drains_normally() {
         k8s_cancel.clone(),
     ));
 
-    let pod_name = get_first_pod_name(&k8s_client, &format!("app={deploy_name}")).await;
+    let pod_names = get_running_pod_names(&k8s_client, &format!("app={deploy_name}")).await;
     let pod_info = awareness
-        .discover_controller(&pod_name)
+        .discover_controller(&pod_names[0])
         .await
         .expect("discover failed");
     let generation = pod_info.generation.clone();
