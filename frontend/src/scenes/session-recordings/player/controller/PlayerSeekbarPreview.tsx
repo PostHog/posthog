@@ -23,6 +23,7 @@ export type PlayerSeekbarPreviewProps = {
     activeMs: number | null
     timestampFormat: TimestampFormat
     startTime: Dayjs | null
+    showPreviewFrame?: boolean
 }
 
 const PlayerSeekbarPreviewFrame = ({
@@ -78,6 +79,7 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
     activeMs,
     timestampFormat,
     startTime,
+    showPreviewFrame = false,
 }: PlayerSeekbarPreviewProps): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
     const ref = useRef<HTMLDivElement>(null)
@@ -96,7 +98,7 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
 
     const isHovering = useIsHovering(seekBarRef)
 
-    const canShowPreview = typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS
+    const canShowPreview = showPreviewFrame && typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS
 
     useEffect(() => {
         if (!seekBarRef?.current) {
@@ -132,7 +134,11 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
                     transform: `translateX(${percentage * 100}%)`,
                 }}
             >
-                <div className="PlayerSeekBarPreview__tooltip__content">
+                <div
+                    className={`PlayerSeekBarPreview__tooltip__content ${
+                        canShowPreview ? 'PlayerSeekBarPreview__tooltip__content--with-preview' : ''
+                    }`}
+                >
                     {canShowPreview && (
                         <PlayerSeekbarPreviewFrame
                             minMs={minMs}
