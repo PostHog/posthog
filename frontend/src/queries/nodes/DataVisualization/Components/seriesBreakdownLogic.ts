@@ -222,7 +222,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                                 display: {
                                     yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
                                     displayType: selectedYAxis.settings?.display?.displayType,
-                                    color: storedBreakdownColors?.[seriesName] ?? undefined,
+                                    color: storedBreakdownColors?.[seriesName],
                                 },
                             },
                         }
