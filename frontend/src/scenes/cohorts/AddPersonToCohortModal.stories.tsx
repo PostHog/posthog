@@ -45,6 +45,31 @@ const DEFAULT_QUERY = {
 }
 
 const noop = (): void => {}
+const actorsQueryHandler = (req: {
+    body?: { query?: { kind?: string; source?: { kind?: string } } }
+}): [number, typeof mockQueryResponse] | undefined => {
+    const queryKind = req.body?.query?.source?.kind ?? req.body?.query?.kind
+
+    if (queryKind === 'ActorsQuery') {
+        return [200, mockQueryResponse]
+    }
+}
+
+const emptyActorsQueryHandler = (req: {
+    body?: { query?: { kind?: string; source?: { kind?: string } } }
+}): [number, typeof mockQueryResponse] | undefined => {
+    const queryKind = req.body?.query?.source?.kind ?? req.body?.query?.kind
+
+    if (queryKind === 'ActorsQuery') {
+        return [
+            200,
+            {
+                ...mockQueryResponse,
+                results: [],
+            },
+        ]
+    }
+}
 
 function ModalShell({
     children,
@@ -84,7 +109,7 @@ function ModalShell({
 export const ModalInline: Story = {
     render: () => {
         useStorybookMocks({
-            post: { '/api/environments/:team_id/query/': mockQueryResponse },
+            post: { '/api/environments/:team_id/query/:kind/': actorsQueryHandler },
         })
 
         return (
@@ -109,7 +134,7 @@ export const ModalInline: Story = {
 export const ModalWithAllSelected: Story = {
     render: () => {
         useStorybookMocks({
-            post: { '/api/environments/:team_id/query/': mockQueryResponse },
+            post: { '/api/environments/:team_id/query/:kind/': actorsQueryHandler },
         })
 
         const allSelected = Object.fromEntries(mockPersons.map((p) => [p.id, true]))
@@ -133,10 +158,7 @@ export const ModalEmpty: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/query/': {
-                    ...mockQueryResponse,
-                    results: [],
-                },
+                '/api/environments/:team_id/query/:kind/': emptyActorsQueryHandler,
             },
         })
 

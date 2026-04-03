@@ -5,7 +5,23 @@ from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Value, When
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    Func,
+    IntegerField,
+    JSONField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Cast, Coalesce
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -289,6 +305,7 @@ class SignalReportViewSet(
         "is_suggested_reviewer": "is_suggested_reviewer",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
+        "priority": "priority_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
@@ -348,6 +365,30 @@ class SignalReportViewSet(
                 default=Value(50),
                 output_field=IntegerField(),
             )
+        )
+        # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
+        # artefact. These sort lexicographically, so we extract via jsonb and coalesce NULL to "~"
+        # (sorts after "P4") for reports without a priority. The startswith guard skips non-object content.
+        latest_priority = Subquery(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                content__startswith="{",
+            )
+            .order_by("-created_at")
+            .annotate(
+                _priority_val=Func(
+                    Cast(F("content"), output_field=JSONField()),
+                    Value("priority"),
+                    function="jsonb_extract_path_text",
+                    output_field=CharField(),
+                ),
+            )
+            .values("_priority_val")[:1],
+            output_field=CharField(),
+        )
+        qs = qs.annotate(
+            priority_rank=Coalesce(latest_priority, Value("~"), output_field=CharField()),
         )
         qs = qs.prefetch_related(
             Prefetch(

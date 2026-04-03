@@ -6616,6 +6616,14 @@ export namespace Schemas {
       Relative: 'relative',
     } as const;
 
+    export type HeatmapSortOrder = typeof HeatmapSortOrder[keyof typeof HeatmapSortOrder];
+
+
+    export const HeatmapSortOrder = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
+
     export interface HeatmapSettings {
       /** @nullable */
       gradient?: HeatmapGradientStop[] | null;
@@ -6626,6 +6634,9 @@ export namespace Schemas {
       nullLabel?: string | null;
       /** @nullable */
       nullValue?: string | null;
+      /** @nullable */
+      sortColumn?: string | null;
+      sortOrder?: HeatmapSortOrder | null;
       /** @nullable */
       valueColumn?: string | null;
       /** @nullable */
