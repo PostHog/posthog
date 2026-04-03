@@ -1,6 +1,9 @@
 // Legacy experiment components re-exports
 // These components support legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery)
 
+// Logic
+export { legacyExperimentModalsLogic } from './legacyExperimentModalsLogic'
+
 // Metrics
 export { LegacyMetricModal } from './metrics/LegacyMetricModal'
 export { LegacyMetricSourceModal } from './metrics/LegacyMetricSourceModal'
