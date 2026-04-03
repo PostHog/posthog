@@ -71,6 +71,7 @@ import {
     TrendsFormulaNode,
     TrendsQuery,
     WebGoalsQuery,
+    WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTrendsQuery,
@@ -251,6 +252,10 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isWebNotableChangesQuery(node?: Record<string, any> | null): node is WebNotableChangesQuery {
+    return node?.kind === NodeKind.WebNotableChangesQuery
 }
 
 export function isWebTrendsQuery(node?: Record<string, any> | null): node is WebTrendsQuery {

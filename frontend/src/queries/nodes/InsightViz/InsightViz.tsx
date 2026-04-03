@@ -95,7 +95,7 @@ export function InsightViz({
 
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS')
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
     const isRetention = isRetentionQuery(query.source)
 
     const showIfFull = !!query.full

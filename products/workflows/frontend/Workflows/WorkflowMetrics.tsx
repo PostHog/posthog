@@ -163,7 +163,11 @@ function BatchJobMetricsHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
                     </Tooltip>
                 )}
                 <TZLabel title="Created at" time={job.created_at} />
-                {job.created_by && <ProfilePicture user={{ email: job.created_by.email || '' }} showName size="sm" />}
+                {job.created_by ? (
+                    <ProfilePicture user={{ email: job.created_by.email || '' }} showName size="sm" />
+                ) : (
+                    <span className="text-muted text-sm">Scheduled run</span>
+                )}
             </div>
         </div>
     )
