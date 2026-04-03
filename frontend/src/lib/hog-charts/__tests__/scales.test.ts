@@ -1,5 +1,5 @@
 import { autoFormatYTick, computePercentStackData, createXScale, createYScale } from '../core/scales'
-import { dimensions, makeSeries } from './helpers'
+import { dimensions, makeSeries } from '../test-helpers'
 
 describe('hog-charts scales', () => {
     describe('createXScale', () => {
