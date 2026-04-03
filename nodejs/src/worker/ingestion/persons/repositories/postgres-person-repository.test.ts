@@ -52,8 +52,10 @@ describe('PostgresPersonRepository', () => {
             throw new Error('Failed to create person')
         }
         const personOutputs = new IngestionOutputs({
-            [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: hub.kafkaProducer },
-            [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer },
+            [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
+            [PERSON_DISTINCT_IDS_OUTPUT]: [
+                { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
+            ],
         })
         await Promise.all(
             result.messages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
@@ -386,8 +388,10 @@ describe('PostgresPersonRepository', () => {
             const kafkaMessages = result.messages
 
             const personOutputs = new IngestionOutputs({
-                [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: hub.kafkaProducer },
-                [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer },
+                [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
+                [PERSON_DISTINCT_IDS_OUTPUT]: [
+                    { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
+                ],
             })
             await Promise.all(
                 kafkaMessages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
@@ -1718,8 +1722,10 @@ describe('PostgresPersonRepository', () => {
             const targetPerson = result2.person
 
             const personOutputs = new IngestionOutputs({
-                [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: hub.kafkaProducer },
-                [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer },
+                [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
+                [PERSON_DISTINCT_IDS_OUTPUT]: [
+                    { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
+                ],
             })
             await Promise.all(
                 kafkaMessagesSourcePerson.map((msg) =>

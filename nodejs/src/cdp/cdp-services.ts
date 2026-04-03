@@ -173,14 +173,20 @@ export function createCdpCoreServices(
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
         new IngestionOutputs({
-            [APP_METRICS_OUTPUT]: {
-                producer: deps.kafkaProducer,
-                topic: config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-            },
-            [LOG_ENTRIES_OUTPUT]: {
-                producer: deps.kafkaProducer,
-                topic: config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
-            },
+            [APP_METRICS_OUTPUT]: [
+                {
+                    producer: deps.kafkaProducer,
+                    topic: config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+                    producerName: 'default',
+                },
+            ],
+            [LOG_ENTRIES_OUTPUT]: [
+                {
+                    producer: deps.kafkaProducer,
+                    topic: config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
+                    producerName: 'default',
+                },
+            ],
         }),
         deps.internalCaptureService,
         deps.teamManager

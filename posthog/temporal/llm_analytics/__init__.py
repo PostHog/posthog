@@ -8,6 +8,7 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     execute_llm_judge_activity,
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
+    send_trial_usage_email_activity,
     update_key_state_activity,
 )
 from posthog.temporal.llm_analytics.sentiment import ClassifySentimentWorkflow, classify_sentiment_activity
@@ -41,6 +42,7 @@ EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
     disable_evaluation_activity,
+    send_trial_usage_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
     execute_hog_eval_activity,
@@ -88,6 +90,7 @@ ACTIVITIES = [
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
     disable_evaluation_activity,
+    send_trial_usage_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
     execute_hog_eval_activity,
