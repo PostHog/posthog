@@ -339,9 +339,9 @@ snapshots:
     components-errors-error-display--safari-script-error--light:
         hash: v1.k794b7964.e38444b23eba1c4e5491ad22cc50766413bba8d86066bad3ded5de5a24d7e180.-B8a9-rW8X90LyrV_-llXT0zKP9hBnBt21XrO4AuE84
     components-errors-error-display--sentry-stack-trace--dark:
-        hash: v1.k794b7964.e818bb924d72979f92f5f4fa9b91bd5a05e8a11cf38d935621f28d2746136555.uAKfZbq03sMHvf7r5uw90aVk6sDvD46UJaOt4uPHe5A
+        hash: v1.k794b7964.1cc6215628c012ffaab16be5fecc21fa0c1eb3253c3876327a9169ece59fed61.qHZfMlGjH5gbzYrnFUDFPAxaPhl3zNx4oQHMzWZyCxE
     components-errors-error-display--sentry-stack-trace--light:
-        hash: v1.k794b7964.5918296aff2b0001ece6984fc96032f677aee7e12112820f17f1cb1dcf9799c9.NhQn5Z9M98OSvEAwRHnvfKEebWIsg_mT6uqxF59Gcho
+        hash: v1.k794b7964.78eb9402e4668b77c1d884e20e0ce364f7defc6f146f0038a06bdc97f52deee5.IRusiN4U7qMSSM3DC7pEuWDBWg7wf5iX60vIMIBBbZQ
     components-errors-error-display--stack-trace-with-line-context--dark:
         hash: v1.k794b7964.53c4abf9f63457d7357d6d3553012300dd77ffbe852e647e50ea9bf009b8fcd8.quPu3Vl6_ORZ3qIv2fkd9qDhiMOViHaz_iNIix7w1zc
     components-errors-error-display--stack-trace-with-line-context--light:
@@ -2831,9 +2831,9 @@ snapshots:
     lemon-ui-lemon-table--with-highlighted-rows--light:
         hash: v1.k794b7964.4f85cf6ef537a9dff820e9ba1d3a1c460833a8d52ca5eab4ce54fd91696fd41d.k5qX1OqXB3SGtD8Ik-JQbLoO1Lh7M2wacAGtM4Mtp_M
     lemon-ui-lemon-table--with-horizontal-and-vertical-overflow--dark:
-        hash: v1.k794b7964.90b1cee1d80ad5ebaf0cad10edbfc51050a15fee89f99ee1b57fd9e2288d4390.lbEDYSr5KdJXonaxMn3xSKtxm2Zncl4Hi9Pg7c1jMcg
+        hash: v1.k794b7964.27483dfbac24b2c8daef205c1a4c3eed9d1554e1bd3e40c06bb85fbc2277e738.Cmo4JI0vh_KK9dC2ZfZ4hW4DrzctaDHEsdahiHlrw-A
     lemon-ui-lemon-table--with-horizontal-and-vertical-overflow--light:
-        hash: v1.k794b7964.24b20d6756148eb3a1cb3d4ea23ed3dd04db3a6ebbc01e56f6603bbab1f1ec79.KeCKgknsERjpxo1TgbMdAFqVGZfftDlLjQ1_Vwua2zc
+        hash: v1.k794b7964.6baf6c079a32798121c572247555bd79aa8cefbd1b312f8a6b6367525beaeeeb.gVTpyWJosO4AzZFJPf0sp-K9t3kMHW4HNo7hUo8tmRM
     lemon-ui-lemon-table--with-horizontal-overflow--dark:
         hash: v1.k794b7964.869dec3f5dcb5fa2b1e768aed0ac03352c31437d345845b9211dd698d9dfcee4.hzGujdMSVEbDY69pR62VDF9-eRw1GXC_ocdb9Ehm6e8
     lemon-ui-lemon-table--with-horizontal-overflow--light:
@@ -5453,9 +5453,13 @@ snapshots:
     scenes-app-settings-environment--settings-environment-details--light:
         hash: v1.k794b7964.9fb9c450fa28e524fbf3ad162a88e92b2b9de68b1ab2809639994885a34176e3.l61bLt-WHtM9pMm2rPHAlR3CCbkIWG8qLqoKM3r8xlo
     scenes-app-settings-environment--settings-environment-error-tracking--dark:
-        hash: v1.k794b7964.d6984b82f9673dac373ff908d7ebda83f1260ce838b87d002afa54f79275129b.SNKRyKTw_pCOJWGTLxiT8GlmAbHtr4NO1DPmUdvbTYY
+        hash: v1.k794b7964.73f94b5ef90aff97da0548ada52504c12d74ada097fe9cdb0530688a374ef902.pA5n61SjHJDIk1rzHEmv80h92zErmhko9i3D9HtpQfk
     scenes-app-settings-environment--settings-environment-error-tracking--light:
-        hash: v1.k794b7964.bf106114cce81cf70721a9582812f25816e87c4a28a7271b2a5c2c700594aa7e.Hcc1BelFapuXI1ZwwvPgT5nfp0nPWYJNQBflkgtdvlI
+        hash: v1.k794b7964.0b22c6f2ab3c655aa00ff698b2a78528620b3b297fd7845debf1c99a00190672.R0rScXfPuL5C9w8PR-kfcTcMIl1FcmNDd-S_DTxNmAY
+    scenes-app-settings-environment--settings-environment-error-tracking-configuration--dark:
+        hash: v1.k794b7964.0c0b23e0695eba7e05d7f3c421cef41d12df5ed8d9c92af33535f4378ccfc903.Yp3LRKlim1ZLAiVVUX36Oi2UPE94NPA3-MwC-kltONc
+    scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
+        hash: v1.k794b7964.5055624eb9bbbc0cd21c17e5f5030296d704f9404a92f5e978412b21bb462804.J3rgpmmCp-qQZN6KMHbSMMDwQmB-Pbs6SuXk3o_e7k0
     scenes-app-settings-environment--settings-environment-feature-flags--dark:
         hash: v1.k794b7964.8e1edff6d728b3343686536c5514b0eb48f25f16a76ea274ee257c5a5844922c.9yA1OXDgg_49YTBECuJG06dwayX_2b-asQIwVUCXGUQ
     scenes-app-settings-environment--settings-environment-feature-flags--light:

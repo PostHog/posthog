@@ -447,7 +447,7 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
-        it('switches to the materialization tab when opening a view directly', async () => {
+        it('keeps the results tab when opening a view directly', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -458,12 +458,12 @@ describe('sqlEditorLogic', () => {
             logic.actions.editView(MOCK_VIEW.query.query, MOCK_VIEW)
 
             await expectLogic(logic)
-                .toDispatchActions(['setActiveTab', 'createTab', 'updateTab'])
+                .toDispatchActions(['createTab', 'updateTab'])
                 .toMatchValues({
                     editingView: partial({
                         id: MOCK_VIEW.id,
                     }),
-                    outputActiveTab: OutputTab.Materialization,
+                    outputActiveTab: OutputTab.Results,
                 })
         })
     })
@@ -504,11 +504,11 @@ describe('sqlEditorLogic', () => {
             logic.actions.createTab('SELECT 1')
             await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
 
-            logic.actions.setActiveTab(OutputTab.Materialization)
+            logic.actions.setActiveTab(OutputTab.Visualization)
             await new Promise((resolve) => setTimeout(resolve, 0))
 
             expect(router.values.hashParams.q).toEqual('SELECT 1')
-            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Materialization)
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
         })
     })
 
