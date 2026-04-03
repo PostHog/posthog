@@ -780,6 +780,20 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Should not be blocked by impersonation middleware (might get other errors)
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
 
+    def test_read_only_impersonation_allows_query_kind_endpoint(self):
+        """POST to /query/<kind>/ must be allowlisted (same as /query/), not blocked as non-idempotent."""
+        self.login_as_other_user_read_only()
+
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/HogQLQuery/",
+            data={"query": {"kind": "HogQLQuery", "query": "select 1"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+
     def test_regular_impersonation_allows_write(self):
         """Verify regular (non-read-only) impersonation can still write."""
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")

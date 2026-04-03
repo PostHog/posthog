@@ -560,6 +560,27 @@ export const llmAnalyticsProviderKeysDestroy = async (
 }
 
 /**
+ * Assign this key to evaluations and optionally re-enable them.
+ */
+export const getLlmAnalyticsProviderKeysAssignCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/assign/`
+}
+
+export const llmAnalyticsProviderKeysAssignCreate = async (
+    projectId: string,
+    id: string,
+    lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
+    options?: RequestInit
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysAssignCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMProviderKeyApi),
+    })
+}
+
+/**
  * Get evaluations using this key and alternative keys for replacement.
  */
 export const getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl = (projectId: string, id: string) => {
@@ -592,6 +613,23 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMProviderKeyApi),
+    })
+}
+
+/**
+ * List enabled evaluations currently using trial credits for a given provider.
+ */
+export const getLlmAnalyticsProviderKeysTrialEvaluationsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/trial_evaluations/`
+}
+
+export const llmAnalyticsProviderKeysTrialEvaluationsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysTrialEvaluationsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

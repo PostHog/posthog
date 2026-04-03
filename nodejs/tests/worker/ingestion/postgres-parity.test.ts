@@ -24,8 +24,10 @@ jest.mock('../../../src/utils/logger')
 
 function createPersonOutputs(kafkaProducer: KafkaProducerWrapper) {
     return new IngestionOutputs({
-        [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: kafkaProducer },
-        [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: kafkaProducer },
+        [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: kafkaProducer, producerName: 'test' }],
+        [PERSON_DISTINCT_IDS_OUTPUT]: [
+            { topic: KAFKA_PERSON_DISTINCT_ID, producer: kafkaProducer, producerName: 'test' },
+        ],
     })
 }
 jest.setTimeout(45000) // 45s > delayUntilEventIngested budget (300 × 100ms = 30s) to let the helper throw its actionable error before Jest fires

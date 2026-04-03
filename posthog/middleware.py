@@ -950,8 +950,10 @@ IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 # These should be paths that are safe or necessary for the impersonated session to function.
 # Supports both prefix strings and compiled regex patterns.
 READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
-    # These endpoints use POST but are read-only
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query/?$"),
+    # These endpoints use POST but are read-only:
+    # /query/[A-Z][A-Za-z]* matches query-kind segments, while the schema-upgrade POST action
+    # /query/upgrade/ needs an explicit "|upgrade" branch as that starts with a lowercase letter
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query(?:/[A-Za-z]+)?/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),

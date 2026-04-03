@@ -150,7 +150,7 @@ describe('taxonomicFilterLogic', () => {
         await waitForRemoteResults(() => logic.actions.setSearchQuery('selector'))
         await expectLogic(logic).toMatchValues({
             searchQuery: 'selector',
-            activeTab: TaxonomicFilterGroupType.Elements,
+            activeTab: TaxonomicFilterGroupType.Events,
             infiniteListCounts: {
                 [TaxonomicFilterGroupType.Events]: 0,
                 [TaxonomicFilterGroupType.Actions]: 0,
@@ -162,7 +162,7 @@ describe('taxonomicFilterLogic', () => {
         await waitForRemoteResults(() => logic.actions.setSearchQuery('this is not found'))
         await expectLogic(logic).toMatchValues({
             searchQuery: 'this is not found',
-            activeTab: TaxonomicFilterGroupType.Elements,
+            activeTab: TaxonomicFilterGroupType.Events,
             infiniteListCounts: {
                 [TaxonomicFilterGroupType.Events]: 0,
                 [TaxonomicFilterGroupType.Actions]: 0,
@@ -174,7 +174,7 @@ describe('taxonomicFilterLogic', () => {
         await waitForRemoteResults(() => logic.actions.setSearchQuery(''))
         await expectLogic(logic).toMatchValues({
             searchQuery: '',
-            activeTab: TaxonomicFilterGroupType.Elements,
+            activeTab: TaxonomicFilterGroupType.Events,
             infiniteListCounts: {
                 [TaxonomicFilterGroupType.Events]: 157,
                 [TaxonomicFilterGroupType.Actions]: 0,
@@ -480,6 +480,7 @@ describe('taxonomicFilterLogic', () => {
                 ],
                 expected: [
                     TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PageviewUrls,
                     TaxonomicFilterGroupType.Screens,
                     TaxonomicFilterGroupType.EmailAddresses,
@@ -584,6 +585,7 @@ describe('taxonomicFilterLogic', () => {
                 ],
                 expected: [
                     TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.Elements,
                     TaxonomicFilterGroupType.EventProperties,
                 ],
@@ -598,6 +600,7 @@ describe('taxonomicFilterLogic', () => {
                 ],
                 expected: [
                     TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.Elements,
                 ],

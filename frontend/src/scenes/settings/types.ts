@@ -33,6 +33,7 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-experiments'
     | 'environment-error-tracking'
+    | 'environment-error-tracking-configuration'
     | 'environment-logs'
     | 'environment-csp-reporting'
     | 'environment-max'
@@ -276,4 +277,11 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * Sections with the same group will be nested under a group header.
      */
     group?: string
+
+    /**
+     * When true, the section is hidden from the settings page navigation and search
+     * but remains accessible when referenced directly via sectionId (e.g. from a
+     * product's own configuration scene).
+     */
+    hideFromNavigation?: boolean
 }

@@ -483,6 +483,7 @@ async def run_multi_turn_research(
     branch: str = "master",
     verbose: bool = False,
     output_fn: OutputFn = None,
+    signal_report_id: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -520,6 +521,8 @@ async def run_multi_turn_research(
         step_name="report_research",
         verbose=verbose,
         output_fn=output_fn,
+        origin_product="signal_report",
+        signal_report_id=signal_report_id,
     )
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]
