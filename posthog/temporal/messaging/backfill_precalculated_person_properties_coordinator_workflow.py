@@ -8,67 +8,86 @@ from django.conf import settings
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
+import temporalio.exceptions
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
 )
 
-LOGGER = get_logger(__name__)
+
+@dataclasses.dataclass
+class PersonIdRangesPageInputs:
+    """Inputs for fetching a page of person ID ranges."""
+
+    team_id: int
+    batch_size: int  # persons per range
+    page_size: int  # number of ranges to return per page
+    after_person_id: str | None  # cursor: fetch persons with ID > this value, None for first page
 
 
 @dataclasses.dataclass
-class PersonIdRangesInputs:
-    """Inputs for getting person ID ranges."""
+class PersonIdRangesPageResult:
+    """Result from fetching a page of person ID ranges."""
 
-    team_id: int
-    batch_size: int
-
-
-@dataclasses.dataclass
-class PersonIdRangeStreamInputs:
-    """Inputs for streaming person ID ranges."""
-
-    team_id: int
-    batch_size: int
+    ranges: list[tuple[str, str]]  # (start_id, end_id) pairs
+    cursor: str | None  # last person ID in this page, None if no more data
 
 
 @temporalio.activity.defn
-async def stream_person_id_ranges_activity(inputs: PersonIdRangeStreamInputs) -> None:
-    """Stream person ID ranges for a team, yielding ranges as they are discovered.
-
-    This activity runs continuously and sends ranges to the workflow via signals.
-    It's designed to avoid timeouts by processing incrementally.
-    """
+async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -> PersonIdRangesPageResult:
+    """Fetch a page of person ID ranges for a team using cursor-based pagination."""
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
-    query = """
+    if inputs.batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {inputs.batch_size}")
+    if inputs.page_size <= 0:
+        raise ValueError(f"page_size must be positive, got {inputs.page_size}")
+
+    limit = inputs.batch_size * inputs.page_size
+    # Fetch one extra row to check if there's more data
+    query_limit = limit + 1
+
+    after_clause = "AND id > %(after_person_id)s" if inputs.after_person_id is not None else ""
+    query = f"""
         SELECT id as person_id
         FROM person FINAL
         WHERE team_id = %(team_id)s
           AND is_deleted = 0
+          {after_clause}
         ORDER BY id
+        LIMIT %(limit)s
         FORMAT JSONEachRow
     """
+    query_params: dict[str, object] = {"team_id": inputs.team_id, "limit": query_limit}
+    if inputs.after_person_id is not None:
+        query_params["after_person_id"] = inputs.after_person_id
 
-    current_batch_start = None
+    ranges: list[tuple[str, str]] = []
+    current_batch_start: str | None = None
     current_batch_count = 0
     total_count = 0
-    ranges_produced = 0
+    last_person_id: str | None = None
+    has_more_data = False
 
     with tags_context(
         team_id=inputs.team_id,
         feature=Feature.BEHAVIORAL_COHORTS,
         product=Product.MESSAGING,
-        query_type="person_id_ranges_stream",
+        query_type="person_id_ranges_page",
     ):
         async with get_client(team_id=inputs.team_id) as client:
-            async for row in client.stream_query_as_jsonl(query, query_parameters={"team_id": inputs.team_id}):
+            async for row in client.stream_query_as_jsonl(query, query_parameters=query_params):
                 person_id = str(row["person_id"])
 
-                # Start of first batch or new batch
+                # If we hit the limit + 1, we know there's more data, but don't process this row
+                if total_count >= limit:
+                    has_more_data = True
+                    break
+
+                last_person_id = person_id
+
                 if current_batch_start is None:
                     current_batch_start = person_id
                     current_batch_count = 1
@@ -77,84 +96,25 @@ async def stream_person_id_ranges_activity(inputs: PersonIdRangeStreamInputs) ->
 
                 total_count += 1
 
-                # When we reach batch_size, complete this range and signal to workflow
-                if current_batch_count >= inputs.batch_size:
-                    # Heartbeat with range data
-                    temporalio.activity.heartbeat(f"range:{current_batch_start}:{person_id}")
-
-                    ranges_produced += 1
-                    current_batch_start = None
-                    current_batch_count = 0
-
-            # Handle the final partial batch if it exists
-            if current_batch_start is not None and current_batch_count > 0:
-                # Send final range
-                temporalio.activity.heartbeat(f"range:{current_batch_start}:{person_id}")
-                ranges_produced += 1
-
-            # Signal completion
-            temporalio.activity.heartbeat(f"complete:{ranges_produced}:{total_count}")
-
-    LOGGER.info(f"Streamed {ranges_produced} person ID ranges for {total_count} total persons (team {inputs.team_id})")
-
-
-@temporalio.activity.defn
-async def get_person_id_ranges_activity(inputs: PersonIdRangesInputs) -> list[tuple[str, str]]:
-    """Get person ID ranges for a team by streaming through IDs and creating ranges every batch_size records.
-
-    NOTE: This is the original non-streaming version, kept for compatibility.
-    """
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-
-    ranges = []
-    query = """
-        SELECT id as person_id
-        FROM person FINAL
-        WHERE team_id = %(team_id)s
-          AND is_deleted = 0
-        ORDER BY id
-        FORMAT JSONEachRow
-    """
-
-    current_batch_start = None
-    current_batch_count = 0
-    total_count = 0
-
-    with tags_context(
-        team_id=inputs.team_id,
-        feature=Feature.BEHAVIORAL_COHORTS,
-        product=Product.MESSAGING,
-        query_type="person_id_ranges_fetch",
-    ):
-        async with get_client(team_id=inputs.team_id) as client:
-            async for row in client.stream_query_as_jsonl(query, query_parameters={"team_id": inputs.team_id}):
-                person_id = str(row["person_id"])
-
-                # Start of first batch or new batch
-                if current_batch_start is None:
-                    current_batch_start = person_id
-                    current_batch_count = 1
-                else:
-                    current_batch_count += 1
-
-                total_count += 1
-
-                # When we reach batch_size, complete this range and start a new one
                 if current_batch_count >= inputs.batch_size:
                     ranges.append((current_batch_start, person_id))
                     current_batch_start = None
                     current_batch_count = 0
+                    # Heartbeat after each completed range to ensure regular heartbeats
+                    temporalio.activity.heartbeat(f"Page: processed {total_count} persons, {len(ranges)} ranges")
 
-                # Send heartbeat every 10k persons to avoid timeout
-                if total_count % 10000 == 0:
-                    temporalio.activity.heartbeat(f"Processed {total_count} persons, created {len(ranges)} ranges")
+            # Handle final partial batch
+            if current_batch_start is not None and current_batch_count > 0 and last_person_id is not None:
+                ranges.append((current_batch_start, last_person_id))
 
-            # Handle the final partial batch if it exists
-            if current_batch_start is not None and current_batch_count > 0:
-                ranges.append((current_batch_start, person_id))
+            # Final heartbeat to report completion
+            if total_count > 0:
+                temporalio.activity.heartbeat(f"Page: processed {total_count} persons, {len(ranges)} ranges")
 
-    LOGGER.info(f"Created {len(ranges)} person ID ranges for {total_count} total persons (team {inputs.team_id})")
-    return ranges
+    # Set cursor only if we know there's more data
+    cursor = last_person_id if has_more_data else None
+
+    return PersonIdRangesPageResult(ranges=ranges, cursor=cursor)
 
 
 @dataclasses.dataclass
@@ -229,9 +189,39 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
             f"Started batch {batch_number}: processing person IDs {start_person_id} to {end_person_id}"
         )
 
+    async def _drain_completed(
+        self,
+        done: set[temporalio.workflow.ChildWorkflowHandle],
+        child_workflow_handles: list[temporalio.workflow.ChildWorkflowHandle],
+        workflow_logger,
+    ) -> tuple[int, int]:
+        """Await completed handles and return (completed_count, failed_count) delta."""
+        completed = 0
+        failed = 0
+        for handle in done:
+            try:
+                await handle
+                completed += 1
+                workflow_logger.info("Child workflow completed successfully")
+            except Exception as e:
+                failed += 1
+                workflow_logger.exception(f"Child workflow failed: {e}")
+            finally:
+                child_workflow_handles.remove(handle)
+        return completed, failed
+
     @temporalio.workflow.run
     async def run(self, inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs) -> None:
-        """Run the coordinator workflow using streaming ID-range discovery with batched approach."""
+        """Run the coordinator workflow using paginated ID-range discovery.
+
+        Fetches person ID ranges page by page and starts child workflows as
+        ranges are discovered, respecting the concurrency limit throughout.
+        """
+        if inputs.batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {inputs.batch_size}")
+        if inputs.concurrent_workflows <= 0:
+            raise ValueError(f"concurrent_workflows must be positive, got {inputs.concurrent_workflows}")
+
         workflow_logger = temporalio.workflow.logger
         cohort_ids = inputs.cohort_ids
         workflow_logger.info(
@@ -239,80 +229,66 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
             f"(team {inputs.team_id}, cohorts {cohort_ids}) with {inputs.concurrent_workflows} concurrent workflows"
         )
 
-        # For now, use a compromise: fetch ranges in smaller batches to avoid timeout
-        # This reduces memory usage while still being more efficient than the original approach
-
-        workflow_logger.info(f"Discovering person ID ranges with batch size {inputs.batch_size}...")
-
-        # Use longer timeout but still bounded
-        person_id_ranges = await temporalio.workflow.execute_activity(
-            get_person_id_ranges_activity,
-            PersonIdRangesInputs(team_id=inputs.team_id, batch_size=inputs.batch_size),
-            start_to_close_timeout=dt.timedelta(hours=2),  # Increased from 10 minutes to 2 hours
-            heartbeat_timeout=dt.timedelta(minutes=5),  # Add heartbeat timeout
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-        )
-
-        if not person_id_ranges:
-            workflow_logger.info("No persons found for team, nothing to process")
-            return
-
-        workflow_logger.info(
-            f"Discovered {len(person_id_ranges)} person ID ranges, processing with {inputs.concurrent_workflows} concurrent workflows"
-        )
-
-        # Process ranges with concurrent limit
         child_workflow_handles: list[temporalio.workflow.ChildWorkflowHandle] = []
+        batch_number = 0
         workflows_scheduled = 0
         completed_count = 0
         failed_count = 0
+        cursor: str | None = None
+        has_more = True
 
-        for batch_number, (start_person_id, end_person_id) in enumerate(person_id_ranges, 1):
-            await self._start_child_workflow_for_range(
-                inputs, workflow_logger, batch_number, start_person_id, end_person_id, child_workflow_handles
+        while has_more:
+            page = await temporalio.workflow.execute_activity(
+                get_person_id_ranges_page_activity,
+                PersonIdRangesPageInputs(
+                    team_id=inputs.team_id,
+                    batch_size=inputs.batch_size,
+                    page_size=inputs.concurrent_workflows,
+                    after_person_id=cursor,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
             )
-            workflows_scheduled += 1
 
-            # Respect concurrent workflow limit - wait for any workflow to complete before starting more
-            if len(child_workflow_handles) >= inputs.concurrent_workflows:
-                # Wait for any workflow to complete using asyncio.wait with FIRST_COMPLETED
-                done, pending = await asyncio.wait(child_workflow_handles, return_when=asyncio.FIRST_COMPLETED)
+            if not page.ranges:
+                if batch_number == 0:
+                    workflow_logger.info("No persons found for team, nothing to process")
+                break
 
-                # Await and remove completed workflows from tracking list, tracking failures
-                for completed_handle in done:
-                    try:
-                        await completed_handle
-                        workflow_logger.info("Child workflow completed successfully during concurrency wait")
-                    except Exception as e:
-                        failed_count += 1
-                        workflow_logger.exception(f"Child workflow failed during concurrency wait: {e}")
-                        # Continue processing other workflows but track the failure
-                    finally:
-                        child_workflow_handles.remove(completed_handle)
+            workflow_logger.info(
+                f"Fetched page with {len(page.ranges)} ranges "
+                f"(cursor: {cursor} -> {page.cursor}, total batches so far: {batch_number})"
+            )
 
-        # Step 3: Wait for all remaining workflows to complete
+            for start_person_id, end_person_id in page.ranges:
+                batch_number += 1
+
+                # Respect concurrency limit - wait for a slot before starting
+                if len(child_workflow_handles) >= inputs.concurrent_workflows:
+                    done, _ = await asyncio.wait(child_workflow_handles, return_when=asyncio.FIRST_COMPLETED)
+                    c, f = await self._drain_completed(done, child_workflow_handles, workflow_logger)
+                    completed_count += c
+                    failed_count += f
+
+                await self._start_child_workflow_for_range(
+                    inputs, workflow_logger, batch_number, start_person_id, end_person_id, child_workflow_handles
+                )
+                workflows_scheduled += 1
+
+            cursor = page.cursor
+            if cursor is None:
+                has_more = False
+
+        # Wait for all remaining child workflows
         workflow_logger.info(
-            f"All workflows scheduled, waiting for completion", workflows_scheduled=workflows_scheduled
+            f"All workflows scheduled ({workflows_scheduled}), waiting for remaining {len(child_workflow_handles)}"
         )
-
-        workflow_logger.info("Waiting for child workflows to complete", total_workflows=len(child_workflow_handles))
         while child_workflow_handles:
             done, _ = await asyncio.wait(child_workflow_handles, return_when=asyncio.FIRST_COMPLETED)
-
-            for handle in done:
-                try:
-                    await handle
-                    completed_count += 1
-                    workflow_logger.info(
-                        f"Child workflow completed successfully ({completed_count + failed_count}/{workflows_scheduled})"
-                    )
-                except Exception as e:
-                    failed_count += 1
-                    workflow_logger.exception(
-                        f"Child workflow failed ({completed_count + failed_count}/{workflows_scheduled}): {e}"
-                    )
-                finally:
-                    child_workflow_handles.remove(handle)
+            c, f = await self._drain_completed(done, child_workflow_handles, workflow_logger)
+            completed_count += c
+            failed_count += f
 
         if failed_count > 0:
             workflow_logger.warning(
@@ -325,5 +301,5 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
 
         workflow_logger.info(
             f"Coordinator workflow completed successfully for team {inputs.team_id}: "
-            f"processed {len(person_id_ranges)} ranges with {inputs.concurrent_workflows} concurrent workflows"
+            f"processed {batch_number} ranges with {inputs.concurrent_workflows} concurrent workflows"
         )

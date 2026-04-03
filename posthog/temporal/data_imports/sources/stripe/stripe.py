@@ -22,7 +22,6 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -345,7 +344,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     return True
 
 
-def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreationResult:
+def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
     hints = get_type_hints(WebhookEndpointService.CreateParams, include_extras=True)
@@ -364,8 +363,8 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
 
     try:
         client = StripeClient(
-            config.stripe_secret_key,
-            stripe_account=config.stripe_account_id,
+            api_key,
+            stripe_account=stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
@@ -400,13 +399,13 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")
 
 
-def delete_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookDeletionResult:
+def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookDeletionResult:
     logger = LOGGER.bind()
 
     try:
         client = StripeClient(
-            config.stripe_secret_key,
-            stripe_account=config.stripe_account_id,
+            api_key,
+            stripe_account=stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
@@ -436,11 +435,11 @@ def delete_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookDelet
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error_str}")
 
 
-def get_external_webhook_info(config: StripeSourceConfig, webhook_url: str) -> ExternalWebhookInfo:
+def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webhook_url: str) -> ExternalWebhookInfo:
     try:
         client = StripeClient(
-            config.stripe_secret_key,
-            stripe_account=config.stripe_account_id,
+            api_key,
+            stripe_account=stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
