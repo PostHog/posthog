@@ -73,7 +73,7 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
-import { findInnermostSelectAtOffset, findQueryAtCursor, splitQueries } from './multiQueryUtils'
+import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import type { sqlEditorLogicType } from './sqlEditorLogicType'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
@@ -1803,7 +1803,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
         cache.updateActiveQueryDecoration = async (): Promise<void> => {
             const editorInstance = props.editor
-            if (!editorInstance) {
+            if (!editorInstance?.getPosition || !editorInstance?.getModel) {
                 return
             }
             const model = editorInstance.getModel()
