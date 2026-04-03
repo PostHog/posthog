@@ -744,6 +744,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('sparkline')
     }
 
+    public logsServices(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('services')
+    }
+
     public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('has_logs')
     }
@@ -2569,6 +2573,17 @@ const api = {
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
             return new ApiRequest().logsSparkline().create({ signal, data: { query } })
+        },
+        async services({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<{
+            services: {
+                service_name: string
+                log_count: number
+                error_count: number
+                error_rate: number
+            }[]
+            sparkline: { time: string; service_name: string; count: number }[]
+        }> {
+            return new ApiRequest().logsServices().create({ signal, data: { query } })
         },
         async hasLogs(): Promise<boolean> {
             return new ApiRequest()
