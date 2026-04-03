@@ -1,6 +1,5 @@
 import { useValues, useActions } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -30,12 +29,11 @@ import { TriggerGroupCard } from './TriggerGroupCard'
 import { triggerGroupFormLogic } from './triggerGroupFormLogic'
 
 export function TriggerGroupsEditor(): JSX.Element {
-    const [deleteModalGroupId, setDeleteModalGroupId] = useState<string | null>(null)
-
     const {
         triggerGroups,
         isAddingGroup,
         editingGroupId,
+        deleteModalGroupId,
         showLegacyModal,
         previewLegacyGroups,
         _savingStateLoading,
@@ -47,6 +45,7 @@ export function TriggerGroupsEditor(): JSX.Element {
         deleteTriggerGroup,
         setIsAddingGroup,
         setEditingGroupId,
+        setDeleteModalGroupId,
         showCreateFromLegacyModal,
         hideCreateFromLegacyModal,
         confirmCreateFromLegacy,
@@ -54,7 +53,6 @@ export function TriggerGroupsEditor(): JSX.Element {
 
     const handleDeleteTriggerGroup = (id: string): void => {
         if (triggerGroups.length === 1) {
-            // Show modal with legacy trigger preview
             setDeleteModalGroupId(id)
         } else {
             // Standard confirmation for non-last groups
@@ -176,7 +174,6 @@ export function TriggerGroupsEditor(): JSX.Element {
                 onConfirm={() => {
                     if (deleteModalGroupId) {
                         deleteTriggerGroup(deleteModalGroupId)
-                        setDeleteModalGroupId(null)
                     }
                 }}
                 groupName={
@@ -413,18 +410,9 @@ interface DeleteLastGroupModalProps {
 }
 
 function DeleteLastGroupModal({ isOpen, onClose, onConfirm, groupName }: DeleteLastGroupModalProps): JSX.Element {
-    const { currentTeam } = useValues(replayTriggersV2Logic)
+    const { legacyTriggersPreview } = useValues(replayTriggersV2Logic)
 
-    const sampleRate = currentTeam?.session_recording_sample_rate
-        ? parseFloat(currentTeam.session_recording_sample_rate)
-        : 1
-    const minDurationMs = currentTeam?.session_recording_minimum_duration_milliseconds
-    const matchType = currentTeam?.session_recording_trigger_match_type_config || 'all'
-    const urls = currentTeam?.session_recording_url_trigger_config || []
-    const events = currentTeam?.session_recording_event_trigger_config || []
-    const flag = currentTeam?.session_recording_linked_flag
-
-    const hasConditions = urls.length > 0 || events.length > 0 || !!flag
+    const { sampleRate, minDurationMs, matchType, urls, events, flag, hasConditions } = legacyTriggersPreview
 
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Delete last trigger group?">
