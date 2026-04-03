@@ -1209,22 +1209,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             'name' in item ? (item.name ?? null) : null,
                         getPopoverHeader: () => 'Suggested filters',
                     },
-                    ...(featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]
-                        ? [
-                              {
-                                  name: 'Recent',
-                                  searchPlaceholder: 'recent',
-                                  type: TaxonomicFilterGroupType.RecentFilters,
-                                  isLocalOnly: true,
-                                  logic: recentTaxonomicFiltersLogic,
-                                  value: 'recentFilterItems',
-                                  getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-                                  getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                                      'name' in item ? (item.name ?? null) : null,
-                                  getPopoverHeader: () => 'Recent',
-                              } as TaxonomicFilterGroup,
-                          ]
-                        : []),
+                    {
+                        name: 'Recent',
+                        searchPlaceholder: 'recent',
+                        type: TaxonomicFilterGroupType.RecentFilters,
+                        isLocalOnly: true,
+                        logic: recentTaxonomicFiltersLogic,
+                        value: 'recentFilterItems',
+                        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
+                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
+                            'name' in item ? (item.name ?? null) : null,
+                        getPopoverHeader: () => 'Recent',
+                    } as TaxonomicFilterGroup,
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]
@@ -1597,24 +1593,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         setSearchQuery: async ({ searchQuery }, breakpoint) => {
-            const { activeTaxonomicGroup, infiniteListCounts } = values
-
-            // does replay have 0 results
-            // if you have a render function, and replay does, then infiniteListCounts will always be 1 or more 🤷
-            const shouldTabRightBecauseReplay =
-                activeTaxonomicGroup &&
-                activeTaxonomicGroup.type === TaxonomicFilterGroupType.Replay &&
-                infiniteListCounts[activeTaxonomicGroup.type] === 1
-            // or is this a Taxonomic group with a local data source, zero results after searching.
-            const shouldOtherwiseTabRight =
-                activeTaxonomicGroup &&
-                activeTaxonomicGroup.type !== TaxonomicFilterGroupType.SuggestedFilters &&
-                activeTaxonomicGroup.type !== TaxonomicFilterGroupType.RecentFilters &&
-                !activeTaxonomicGroup.endpoint &&
-                infiniteListCounts[activeTaxonomicGroup.type] === 0
-            if (shouldTabRightBecauseReplay || shouldOtherwiseTabRight) {
-                actions.tabRight()
-            }
+            const { activeTaxonomicGroup } = values
 
             await breakpoint(500)
             if (searchQuery) {
@@ -1626,16 +1605,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         infiniteListResultsReceived: ({ groupType, results }) => {
-            const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
-
-            if (
-                activeTabHasNoResults &&
-                values.activeTab !== TaxonomicFilterGroupType.SuggestedFilters &&
-                values.activeTab !== TaxonomicFilterGroupType.RecentFilters
-            ) {
-                actions.tabRight()
-            }
-
             if (groupType !== TaxonomicFilterGroupType.SuggestedFilters) {
                 const subLogic = values.infiniteListLogics[groupType]
                 if (subLogic?.isMounted()) {
