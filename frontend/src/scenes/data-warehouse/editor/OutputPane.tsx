@@ -51,7 +51,12 @@ import { type DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
-import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
+import {
+    copyTableToCsv,
+    copyTableToExcel,
+    copyTableToJson,
+    copyTableToMarkdown,
+} from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
@@ -107,6 +112,10 @@ const copyMap = {
     [ExporterFormat.XLSX]: {
         label: 'Excel',
         copyFn: copyTableToExcel,
+    },
+    [ExporterFormat.MARKDOWN]: {
+        label: 'Markdown',
+        copyFn: copyTableToMarkdown,
     },
 }
 
@@ -661,7 +670,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const {
         query,
         effectiveVisualizationType,
-        showEditingUI,
         response,
         responseLoading,
         isChartSettingsPanelOpen,
@@ -679,7 +687,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-    if (!showEditingUI && (!response || responseLoading)) {
+    if (!response || responseLoading) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <LoadingBar />
@@ -834,6 +842,36 @@ const Content = ({
         )
     }
 
+    if (activeTab === OutputTab.Visualization) {
+        if (!response && !responseLoading && !insightLoading) {
+            return (
+                <div
+                    className="flex flex-1 justify-center items-center border-t"
+                    data-attr="sql-editor-output-pane-empty-state"
+                >
+                    <span className="text-secondary mt-3">
+                        Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
+                        query.
+                    </span>
+                </div>
+            )
+        }
+
+        return (
+            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
+                <InternalDataTableVisualization
+                    uniqueKey={vizKey}
+                    query={sourceQuery}
+                    setQuery={setSourceQuery}
+                    context={{}}
+                    cachedResults={undefined}
+                    exportContext={exportContext}
+                    editMode
+                />
+            </div>
+        )
+    }
+
     if (responseLoading || insightLoading) {
         return (
             <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
@@ -886,22 +924,6 @@ const Content = ({
                     onSortColumnsChange={setSortColumns}
                 />
             </TabScroller>
-        )
-    }
-
-    if (activeTab === OutputTab.Visualization) {
-        return (
-            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
-                <InternalDataTableVisualization
-                    uniqueKey={vizKey}
-                    query={sourceQuery}
-                    setQuery={setSourceQuery}
-                    context={{}}
-                    cachedResults={undefined}
-                    exportContext={exportContext}
-                    editMode
-                />
-            </div>
         )
     }
     return null

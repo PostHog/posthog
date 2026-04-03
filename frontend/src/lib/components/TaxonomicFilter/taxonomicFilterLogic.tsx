@@ -102,6 +102,13 @@ const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType
 export const DEFAULT_SLOTS_PER_GROUP = 5
 export const MAX_TOP_MATCHES_PER_GROUP = 10
 
+const TRAFFIC_TYPE_VIRTUAL_PROPERTIES = [
+    '$virt_is_bot',
+    '$virt_traffic_type',
+    '$virt_traffic_category',
+    '$virt_bot_name',
+]
+
 const REDISTRIBUTION_PRIORITY_GROUPS: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.CustomEvents,
     TaxonomicFilterGroupType.PageviewUrls,
@@ -488,6 +495,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.DataWarehouse,
                         logic: dataWarehouseSettingsSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
+                        valueLoading: 'databaseLoading',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
                         getPopoverHeader: () => 'Data Warehouse Table',
@@ -571,8 +579,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        excludedProperties:
-                            excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
+                        excludedProperties: [
+                            ...(excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString) ?? []),
+                            ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES]
+                                ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
+                                : []),
+                        ],
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(),
@@ -773,6 +785,68 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Resource attributes',
+                    },
+                    {
+                        name: 'Spans',
+                        searchPlaceholder: 'spans',
+                        type: TaxonomicFilterGroupType.Spans,
+                        options: [
+                            { key: 'message', name: 'Message', propertyFilterType: 'span' },
+                            { key: 'trace_id', name: 'trace_id', propertyFilterType: 'span' },
+                            { key: 'span_id', name: 'span_id', propertyFilterType: 'span' },
+                        ],
+                        localItemsSearch: (items: any[], q: string): any[] => {
+                            if (!q) {
+                                return items
+                            }
+                            return [
+                                {
+                                    key: 'message',
+                                    name: 'Search span message for "' + q + '"',
+                                    value: q,
+                                    propertyFilterType: 'span',
+                                },
+                            ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
+                        },
+                        getName: (option: { key: string; name: string }) => option.name,
+                        getValue: (option: { key: string; name: string }) => option.key,
+                        getPopoverHeader: () => 'Span attributes',
+                    },
+                    {
+                        name: 'Span attributes',
+                        searchPlaceholder: 'span attributes',
+                        type: TaxonomicFilterGroupType.SpanAttributes,
+                        endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
+                            attribute_type: 'span',
+                            ...endpointFilters,
+                        }).url,
+                        valuesEndpoint: (key) =>
+                            combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
+                                attribute_type: 'span',
+                                key: key,
+                                ...endpointFilters,
+                            }).url,
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => 'Span attributes',
+                    },
+                    {
+                        name: 'Span resource attributes',
+                        searchPlaceholder: 'span resources',
+                        type: TaxonomicFilterGroupType.SpanResourceAttributes,
+                        endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
+                            attribute_type: 'resource',
+                            ...endpointFilters,
+                        }).url,
+                        valuesEndpoint: (key) =>
+                            combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
+                                attribute_type: 'resource',
+                                key: key,
+                                ...endpointFilters,
+                            }).url,
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => 'Span resource attributes',
                     },
                     {
                         name: 'Numerical event properties',

@@ -79,16 +79,13 @@ impl PropertyFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flags::test_helpers::create_simple_property_filter;
+    use crate::mock;
     use crate::properties::property_models::OperatorType;
+    use crate::utils::mock::MockInto;
 
     #[test]
     fn test_filter_requires_db_property_if_override_not_present() {
-        let filter = create_simple_property_filter(
-            "some_property",
-            PropertyType::Person,
-            OperatorType::Exact,
-        );
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "some_property".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
 
         {
             // Wrong override.
@@ -112,69 +109,60 @@ mod tests {
     #[test]
     fn test_filter_does_not_require_db_property_if_cohort_or_flag_filter() {
         // Cohort filter.
-        let filter =
-            create_simple_property_filter("cohort", PropertyType::Cohort, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact));
         assert!(!filter.requires_db_property(&HashMap::new()));
 
         // Flag filter.
-        let filter = create_simple_property_filter("flag", PropertyType::Flag, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "flag".mock_into(), prop_type: PropertyType::Flag, operator: Some(OperatorType::Exact));
         assert!(!filter.requires_db_property(&HashMap::new()));
     }
 
     #[test]
     fn test_is_cohort() {
-        let filter =
-            create_simple_property_filter("cohort", PropertyType::Cohort, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact));
         assert!(filter.is_cohort());
 
-        let filter =
-            create_simple_property_filter("person", PropertyType::Person, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "person".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
         assert!(!filter.is_cohort());
     }
 
     #[test]
     fn test_get_cohort_id() {
-        let mut filter =
-            create_simple_property_filter("cohort", PropertyType::Cohort, OperatorType::Exact);
+        let mut filter = mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact));
         filter.value = Some(Value::Number(serde_json::Number::from(123)));
 
         assert_eq!(filter.get_cohort_id(), Some(123));
 
         // Non-cohort filter should return None
-        let filter =
-            create_simple_property_filter("person", PropertyType::Person, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "person".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
         assert_eq!(filter.get_cohort_id(), None);
 
         // Cohort filter with non-numeric value should return None
-        let mut filter =
-            create_simple_property_filter("cohort", PropertyType::Cohort, OperatorType::Exact);
+        let mut filter = mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact));
         filter.value = Some(Value::String("not_a_number".to_string()));
         assert_eq!(filter.get_cohort_id(), None);
     }
 
     #[test]
     fn test_depends_on_feature_flag() {
-        let filter = create_simple_property_filter("flag", PropertyType::Flag, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "flag".mock_into(), prop_type: PropertyType::Flag, operator: Some(OperatorType::Exact));
         assert!(filter.depends_on_feature_flag());
 
-        let filter =
-            create_simple_property_filter("person", PropertyType::Person, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "person".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
         assert!(!filter.depends_on_feature_flag());
     }
 
     #[test]
     fn test_get_feature_flag_id() {
-        let filter = create_simple_property_filter("123", PropertyType::Flag, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "123".mock_into(), prop_type: PropertyType::Flag, operator: Some(OperatorType::Exact));
         assert_eq!(filter.get_feature_flag_id(), Some(123));
 
         // Non-flag filter should return None
-        let filter =
-            create_simple_property_filter("person", PropertyType::Person, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "person".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
         assert_eq!(filter.get_feature_flag_id(), None);
 
         // Flag filter with non-numeric key should return None
-        let filter =
-            create_simple_property_filter("not_a_number", PropertyType::Flag, OperatorType::Exact);
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "not_a_number".mock_into(), prop_type: PropertyType::Flag, operator: Some(OperatorType::Exact));
         assert_eq!(filter.get_feature_flag_id(), None);
     }
 

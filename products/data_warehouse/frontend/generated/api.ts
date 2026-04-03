@@ -13,6 +13,7 @@ import type {
     DataModelingJobsListParams,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryDraftApi,
+    DataWarehouseSavedQueryFolderApi,
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
@@ -30,6 +31,7 @@ import type {
     PaginatedViewLinkListApi,
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryDraftApi,
+    PatchedDataWarehouseSavedQueryFolderApi,
     PatchedExternalDataSourceSerializersApi,
     PatchedQueryTabStateApi,
     QueryTabStateApi,
@@ -1392,6 +1394,85 @@ export const warehouseSavedQueriesResumeSchedulesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataWarehouseSavedQueryApi),
+    })
+}
+
+export const getWarehouseSavedQueryFoldersListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_folders/`
+}
+
+export const warehouseSavedQueryFoldersList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryFolderApi[]> => {
+    return apiMutator<DataWarehouseSavedQueryFolderApi[]>(getWarehouseSavedQueryFoldersListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseSavedQueryFoldersCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_folders/`
+}
+
+export const warehouseSavedQueryFoldersCreate = async (
+    projectId: string,
+    dataWarehouseSavedQueryFolderApi: NonReadonly<DataWarehouseSavedQueryFolderApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryFolderApi> => {
+    return apiMutator<DataWarehouseSavedQueryFolderApi>(getWarehouseSavedQueryFoldersCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryFolderApi),
+    })
+}
+
+export const getWarehouseSavedQueryFoldersRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_folders/${id}/`
+}
+
+export const warehouseSavedQueryFoldersRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryFolderApi> => {
+    return apiMutator<DataWarehouseSavedQueryFolderApi>(getWarehouseSavedQueryFoldersRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseSavedQueryFoldersPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_folders/${id}/`
+}
+
+export const warehouseSavedQueryFoldersPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDataWarehouseSavedQueryFolderApi: NonReadonly<PatchedDataWarehouseSavedQueryFolderApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryFolderApi> => {
+    return apiMutator<DataWarehouseSavedQueryFolderApi>(getWarehouseSavedQueryFoldersPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDataWarehouseSavedQueryFolderApi),
+    })
+}
+
+export const getWarehouseSavedQueryFoldersDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_folders/${id}/`
+}
+
+export const warehouseSavedQueryFoldersDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseSavedQueryFoldersDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

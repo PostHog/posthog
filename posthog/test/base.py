@@ -75,7 +75,7 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Action, Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models import Action, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -194,6 +194,8 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
@@ -202,11 +204,9 @@ from products.event_definitions.backend.models.property_definition import (
 # Make sure freezegun ignores our utils class that times functions
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
-
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
 persons_ordering_int: int = 0
-
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
@@ -836,12 +836,13 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
                 conn = connections[db_name]
                 with conn.cursor() as cursor:
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE '_sqlx_%'
-                        AND tablename NOT LIKE '_persons_migrations'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE '_sqlx_%'
+                                     AND tablename NOT LIKE '_persons_migrations'
+                                   """)
                     tables = [row[0] for row in cursor.fetchall()]
                     if tables:
                         cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
@@ -867,19 +868,21 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
             with conn.cursor() as cursor:
                 if db_name in ("persons_db_writer", "persons_db_reader"):
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE '_sqlx_%'
-                        AND tablename NOT LIKE '_persons_migrations'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE '_sqlx_%'
+                                     AND tablename NOT LIKE '_persons_migrations'
+                                   """)
                 else:
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE 'django_%'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE 'django_%'
+                                   """)
                 tables = [row[0] for row in cursor.fetchall()]
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
@@ -1470,6 +1473,16 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
         with patch_clickhouse_client_execute(execute_wrapper):
             yield queries
+
+    @contextmanager
+    def snapshot_select_queries(self):
+        with self.capture_select_queries() as queries:
+            yield queries
+
+        replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):

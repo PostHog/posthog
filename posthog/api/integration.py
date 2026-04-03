@@ -42,6 +42,7 @@ from posthog.models.integration import (
     LinkedInAdsIntegration,
     OauthIntegration,
     SlackIntegration,
+    StripeIntegration,
     TwilioIntegration,
 )
 from posthog.permissions import TeamMemberStrictManagementPermission
@@ -262,6 +263,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
 
+            if validated_data["kind"] == "stripe":
+                try:
+                    stripe_integration = StripeIntegration(instance)
+                    stripe_integration.write_posthog_secrets(team_id, request.user)
+                except Exception as e:
+                    capture_exception(e)
+
             return instance
 
         raise ValidationError("Kind not supported")
@@ -281,6 +289,16 @@ class IntegrationViewSet(
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
+
+    def perform_destroy(self, instance) -> None:
+        if instance.kind == "stripe":
+            try:
+                stripe_integration = StripeIntegration(instance)
+                stripe_integration.clear_posthog_secrets()
+            except Exception as e:
+                capture_exception(e)
+
+        super().perform_destroy(instance)
 
     def safely_get_queryset(self, queryset):
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(

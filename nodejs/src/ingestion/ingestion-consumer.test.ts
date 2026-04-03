@@ -14,13 +14,14 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { createTestIngestionOutputs } from '../../tests/helpers/ingestion-outputs'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { createPrepareEventStep } from './event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -107,9 +108,12 @@ describe('IngestionConsumer', () => {
             hub,
             {
                 ...hub,
-                kafkaMetricsProducer: hub.kafkaProducer,
                 outputs,
-                hogTransformer: createHogTransformerService(hub, hub),
+                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+                hogTransformer: createHogTransformerService(hub, {
+                    ...hub,
+                    monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+                }),
             },
             overrides
         )
@@ -196,8 +200,6 @@ describe('IngestionConsumer', () => {
             expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
             expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
             expect(ingester['topic']).toMatchInlineSnapshot(`"events_plugin_ingestion_test"`)
-            expect(ingester['dlqTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_dlq_test"`)
-            expect(ingester['overflowTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_overflow_test"`)
         })
 
         it('should process a standard event', async () => {
@@ -876,6 +878,7 @@ describe('IngestionConsumer', () => {
             await ingester.stop()
             hub.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
             hub.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
+            hub.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY = true
             ingester = await createIngestionConsumer(hub)
 
             const events = [

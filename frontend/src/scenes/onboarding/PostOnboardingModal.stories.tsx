@@ -30,7 +30,7 @@ const Template: StoryFn<{ productKey: ProductKey }> = ({ productKey }) => {
 
     useEffect(() => {
         openPostOnboardingModal(productKey)
-    }, [productKey])
+    }, [productKey, openPostOnboardingModal])
 
     return <PostOnboardingModal />
 }

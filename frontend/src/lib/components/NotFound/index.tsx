@@ -26,7 +26,7 @@ import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { supportLogic } from '../Support/supportLogic'
 
-interface NotFoundProps {
+export interface NotFoundProps {
     // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)
     object: string
     caption?: React.ReactNode

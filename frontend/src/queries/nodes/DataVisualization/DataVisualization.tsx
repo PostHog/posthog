@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -42,6 +42,7 @@ import { VariablesForInsight } from './Components/Variables/Variables'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
+import { applyDataVisualizationQueryUpdate } from './queryUpdateUtils'
 
 export interface DataTableVisualizationProps {
     uniqueKey?: string | number
@@ -76,6 +77,9 @@ export function DataTableVisualization({
     embedded,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
+    const queryRef = useRef(query)
+    queryRef.current = query
+
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${key}`,
         query,
@@ -93,7 +97,7 @@ export function DataTableVisualization({
         loadPriority: insightProps.loadPriority,
         editMode,
         setQuery: (setter) => {
-            setQuery(setter(query))
+            applyDataVisualizationQueryUpdate(queryRef, setter, setQuery)
         },
         cachedResults,
         variablesOverride,

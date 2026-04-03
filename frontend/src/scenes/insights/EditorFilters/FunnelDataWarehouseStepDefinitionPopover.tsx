@@ -18,7 +18,7 @@ import {
 const EDITABLE_FIELD_EXPLANATIONS: Record<FunnelFieldKey, string> = {
     aggregation_target_field: 'Used to match people or groups across funnel steps.',
     timestamp_field: 'Used to order step timing and apply the funnel date range.',
-    id_field: 'Used as the unique row ID to detect missing or duplicate records.',
+    id_field: 'Used as the unique row ID to detect duplicate records.',
 }
 
 export function FunnelDataWarehouseStepDefinitionPopover({

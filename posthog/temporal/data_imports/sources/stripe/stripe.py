@@ -1,3 +1,4 @@
+import os
 import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional, Union, get_args, get_type_hints
@@ -6,6 +7,7 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 from stripe import ListObject, StripeClient
+from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
 
@@ -20,7 +22,6 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -46,6 +47,13 @@ from products.data_warehouse.backend.models.external_table_definitions import ge
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+
+
+def _stripe_base_addresses() -> BaseAddresses:
+    # Redirect Stripe API calls to a local mock (e.g. STRIPE_API_BASE=http://localhost:12111)
+    # when running the stripe-mock dev service. No-op in production where the var is unset.
+    base = os.environ.get("STRIPE_API_BASE")
+    return BaseAddresses(api=base) if base else BaseAddresses()
 
 
 @dataclasses.dataclass
@@ -78,7 +86,13 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     should_use_incremental_field: bool = False,
 ):
-    client = StripeClient(api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=2)
+    client = StripeClient(
+        api_key,
+        stripe_account=account_id,
+        stripe_version="2024-09-30.acacia",
+        max_network_retries=2,
+        base_addresses=_stripe_base_addresses(),
+    )
     default_params = {"limit": DEFAULT_LIMIT}
     resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
         ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
@@ -289,7 +303,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     - Raise StripePermissionError if the API key is valid but lacks permissions for specific resources
     - Raise Exception if the API key is invalid or there's any other error
     """
-    client = StripeClient(api_key)
+    client = StripeClient(api_key, base_addresses=_stripe_base_addresses())
 
     # Test access to all resources we're pulling
     resources_to_check = [
@@ -330,7 +344,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     return True
 
 
-def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreationResult:
+def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
     hints = get_type_hints(WebhookEndpointService.CreateParams, include_extras=True)
@@ -349,10 +363,11 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
 
     try:
         client = StripeClient(
-            config.stripe_secret_key,
-            stripe_account=config.stripe_account_id,
+            api_key,
+            stripe_account=stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
         )
 
         endpoint = client.webhook_endpoints.create(
@@ -384,15 +399,16 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")
 
 
-def delete_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookDeletionResult:
+def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookDeletionResult:
     logger = LOGGER.bind()
 
     try:
         client = StripeClient(
-            config.stripe_secret_key,
-            stripe_account=config.stripe_account_id,
+            api_key,
+            stripe_account=stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
         )
 
         endpoints = client.webhook_endpoints.list(params={"limit": 100})
@@ -419,13 +435,14 @@ def delete_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookDelet
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error_str}")
 
 
-def get_external_webhook_info(config: StripeSourceConfig, webhook_url: str) -> ExternalWebhookInfo:
+def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webhook_url: str) -> ExternalWebhookInfo:
     try:
         client = StripeClient(
-            config.stripe_secret_key,
-            stripe_account=config.stripe_account_id,
+            api_key,
+            stripe_account=stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
         )
 
         endpoints = client.webhook_endpoints.list(params={"limit": 100})

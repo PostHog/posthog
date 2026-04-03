@@ -1,7 +1,13 @@
-// Canonical enum definitions live in schema-signals.ts (synced between TS and Python).
+// Canonical definitions live in schema-signals.ts (synced between TS and Python).
 // Re-exported here so existing consumers keep working.
-import { SignalSourceProduct, SignalSourceType } from '~/queries/schema/schema-signals'
+import {
+    EnrichedReviewer,
+    RelevantCommit,
+    SignalSourceProduct,
+    SignalSourceType,
+} from '~/queries/schema/schema-signals'
 
+export type { EnrichedReviewer, RelevantCommit }
 export { SignalSourceProduct, SignalSourceType }
 
 export interface SignalReport {
@@ -15,6 +21,7 @@ export interface SignalReport {
     created_at: string
     updated_at: string
     artefact_count: number
+    is_suggested_reviewer: boolean
 }
 
 export enum SignalReportStatus {
