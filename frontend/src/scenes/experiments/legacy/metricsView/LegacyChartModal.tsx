@@ -1,18 +1,6 @@
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import {
-    ExperimentFunnelsQuery,
-    ExperimentMetric,
-    ExperimentTrendsQuery,
-    NodeKind,
-} from '~/queries/schema/schema-general'
-import {
-    ExploreAsInsightButton,
-    ResultsBreakdown,
-    ResultsBreakdownSkeleton,
-    ResultsInsightInfoBanner,
-    ResultsQuery,
-} from '~/scenes/experiments/components/ResultsBreakdown'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { LegacyExploreButton } from '../components/LegacyExploreButton'
@@ -23,7 +11,7 @@ import { LegacyWinningVariantText, LegacySignificanceText } from './LegacyOvervi
 interface LegacyChartModalProps {
     isOpen: boolean
     onClose: () => void
-    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
     displayOrder: number
     isSecondary: boolean
     result: any
@@ -44,77 +32,33 @@ export function LegacyChartModal({
     result,
     experiment,
 }: LegacyChartModalProps): JSX.Element {
-    const isLegacyResult =
-        result && (result.kind === NodeKind.ExperimentTrendsQuery || result.kind === NodeKind.ExperimentFunnelsQuery)
+    // Get metric uuid from experiment metrics array using displayOrder
+    const metricsList = isSecondary ? experiment.metrics_secondary : experiment.metrics
+    const metricUuid = metricsList[displayOrder]?.uuid || ''
 
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
             width={1200}
-            title={`Metric results: ${metric.name || 'Untitled metric'}`}
+            title="Metric results"
             footer={
                 <LemonButton type="secondary" onClick={onClose}>
                     Close
                 </LemonButton>
             }
         >
-            {isLegacyResult ? (
-                <>
-                    <div className="flex justify-end">
-                        <LegacyExploreButton result={result} />
-                    </div>
-                    <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
-                        <div className="items-center inline-flex flex-wrap">
-                            <LegacyWinningVariantText result={result} />
-                            <LegacySignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
-                        </div>
-                    </LemonBanner>
-                    <LegacySummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
-                    <LegacyResultsQuery result={result} showTable={true} />
-                </>
-            ) : (
-                <ResultsBreakdown
-                    result={result}
-                    experiment={experiment}
-                    metricUuid={metric.uuid || ''}
-                    isPrimary={!isSecondary}
-                >
-                    {({
-                        query,
-                        breakdownResults,
-                        breakdownResultsLoading,
-                        exposureDifference,
-                        breakdownLastRefresh,
-                    }) => (
-                        <>
-                            {query && (
-                                <div className="flex justify-end">
-                                    <ExploreAsInsightButton query={query} />
-                                </div>
-                            )}
-                            <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
-                                <div className="items-center inline-flex flex-wrap">
-                                    <LegacyWinningVariantText result={result} />
-                                    <LegacySignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
-                                </div>
-                            </LemonBanner>
-                            <LegacySummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
-                            {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
-                            {query && breakdownResults && (
-                                <>
-                                    <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                    <ResultsQuery
-                                        query={query}
-                                        breakdownResults={breakdownResults}
-                                        breakdownLastRefresh={breakdownLastRefresh}
-                                    />
-                                </>
-                            )}
-                        </>
-                    )}
-                </ResultsBreakdown>
-            )}
+            <div className="flex justify-end">
+                <LegacyExploreButton result={result} />
+            </div>
+            <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
+                <div className="items-center inline-flex flex-wrap">
+                    <LegacyWinningVariantText result={result} />
+                    <LegacySignificanceText metricUuid={metricUuid} isSecondary={isSecondary} />
+                </div>
+            </LemonBanner>
+            <LegacySummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
+            <LegacyResultsQuery result={result} showTable={true} />
         </LemonModal>
     )
 }
