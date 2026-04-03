@@ -8,6 +8,7 @@ from contextlib import suppress
 from datetime import datetime, timedelta
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import logout
@@ -879,8 +880,6 @@ class SocialAuthExceptionMiddleware:
         return self.get_response(request)
 
     def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse | None:
-        from urllib.parse import urlencode
-
         # Only handle exceptions on OAuth callback URLs
         if not request.path.startswith("/complete/") and not request.path.startswith("/login/"):
             return None
