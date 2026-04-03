@@ -7,11 +7,14 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
+import {
+    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
+} from '~/scenes/experiments/constants'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,
