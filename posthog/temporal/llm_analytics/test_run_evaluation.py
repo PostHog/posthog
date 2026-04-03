@@ -13,7 +13,9 @@ from temporalio.exceptions import ApplicationError
 from posthog.models import Organization, Team
 
 from products.llm_analytics.backend.llm.errors import StructuredOutputParseError
+from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
+from products.llm_analytics.backend.models.model_configuration import LLMModelConfiguration
 
 from .run_evaluation import (
     BooleanEvalResult,
@@ -22,12 +24,15 @@ from .run_evaluation import (
     ExecuteLLMJudgeInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
+    SendTrialUsageEmailInputs,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
+    increment_trial_eval_count_activity,
     run_hog_eval,
+    send_trial_usage_email_activity,
 )
 
 
@@ -461,6 +466,34 @@ class TestRunEvaluationWorkflow:
             assert exc_info.value.non_retryable is True
             assert exc_info.value.details[0] == {"error_type": "parse_error"}
 
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data):
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "o3-pro",
+                "provider_key_id": None,
+            },
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        with pytest.raises(ApplicationError, match="not available on the trial plan") as exc_info:
+            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.details[0]["error_type"] == "model_not_allowed"
+
 
 class TestExecuteHogEvalActivity:
     @pytest.mark.asyncio
@@ -787,3 +820,167 @@ class TestExecuteHogEvalActivityAllowsNA:
 
         with pytest.raises(ApplicationError, match="Must return boolean"):
             await execute_hog_eval_activity(evaluation, event_data)
+
+
+class TestIncrementTrialEvalCountActivity:
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "trial_eval_limit, trial_evals_used, expected_threshold, expected_used_after",
+        [
+            (100, 0, None, 1),
+            (100, 49, 50, 50),
+            (100, 74, 75, 75),
+            (100, 99, 100, 100),
+            (100, 100, None, 101),  # already exceeded — should not re-trigger
+            (100, 50, None, 51),  # just past 50% — no threshold
+            (10, 4, 50, 5),  # 50% of 10
+            (10, 7, 75, 8),  # round(10 * 75 / 100) = round(7.5) = 8
+            (10, 9, 100, 10),  # 100% of 10
+        ],
+        ids=[
+            "no_threshold",
+            "50pct_reached",
+            "75pct_reached",
+            "100pct_reached",
+            "already_exceeded",
+            "past_50pct",
+            "small_limit_50pct",
+            "small_limit_75pct_rounds",
+            "small_limit_100pct",
+        ],
+    )
+    async def test_increment_trial_eval_count(
+        self, setup_data, trial_eval_limit, trial_evals_used, expected_threshold, expected_used_after
+    ):
+        team = setup_data["team"]
+        config, _ = await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+        config.trial_eval_limit = trial_eval_limit
+        config.trial_evals_used = trial_evals_used
+        await sync_to_async(config.save)()
+
+        result = await increment_trial_eval_count_activity(team.id)
+
+        assert result == expected_threshold
+        config = await sync_to_async(EvaluationConfig.objects.get)(team_id=team.id)
+        assert config.trial_evals_used == expected_used_after
+
+
+class TestSendTrialUsageEmailActivity:
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "threshold_pct, expected_template",
+        [
+            (50, "llm_analytics_trial_warning"),
+            (75, "llm_analytics_trial_warning"),
+            (100, "llm_analytics_trial_exhausted"),
+        ],
+        ids=["50pct_warning", "75pct_warning", "100pct_exhausted"],
+    )
+    async def test_sends_correct_template_for_threshold(self, setup_data, threshold_pct, expected_template):
+        team = setup_data["team"]
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            mock_message = MagicMock()
+            mock_email_class.return_value = mock_message
+
+            await send_trial_usage_email_activity(
+                SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=threshold_pct)
+            )
+
+            mock_email_class.assert_called_once()
+            call_kwargs = mock_email_class.call_args[1]
+            assert call_kwargs["template_name"] == expected_template
+            mock_message.send.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_skips_when_email_not_available(self, setup_data):
+        team = setup_data["team"]
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+
+        with (
+            patch("posthog.email.is_email_available", return_value=False),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            await send_trial_usage_email_activity(SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=50))
+
+            mock_email_class.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("threshold_pct", [50, 75, 100], ids=["50pct", "75pct", "100pct"])
+    async def test_campaign_key_includes_threshold_and_team(self, setup_data, threshold_pct):
+        team = setup_data["team"]
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            mock_message = MagicMock()
+            mock_email_class.return_value = mock_message
+
+            await send_trial_usage_email_activity(
+                SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=threshold_pct)
+            )
+
+            call_kwargs = mock_email_class.call_args[1]
+            assert call_kwargs["campaign_key"] == f"llm_analytics_trial_{threshold_pct}pct_{team.id}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_includes_affected_eval_names_in_context(self, setup_data):
+        team = setup_data["team"]
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+
+        # Trial eval (no provider_key) — should be included
+        mc_trial = await sync_to_async(LLMModelConfiguration.objects.create)(
+            team=team, provider="openai", model="gpt-4o-mini"
+        )
+        await sync_to_async(Evaluation.objects.create)(
+            team=team,
+            name="My Trial Eval",
+            evaluation_type="llm_judge",
+            output_type="boolean",
+            model_configuration=mc_trial,
+            enabled=True,
+        )
+        # Legacy eval (no model_configuration) — should be included
+        await sync_to_async(Evaluation.objects.create)(
+            team=team,
+            name="Legacy Eval",
+            evaluation_type="llm_judge",
+            output_type="boolean",
+            model_configuration=None,
+            enabled=True,
+        )
+        # Disabled eval — should NOT be included
+        await sync_to_async(Evaluation.objects.create)(
+            team=team,
+            name="Disabled Eval",
+            evaluation_type="llm_judge",
+            output_type="boolean",
+            model_configuration=mc_trial,
+            enabled=False,
+        )
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            mock_message = MagicMock()
+            mock_email_class.return_value = mock_message
+
+            await send_trial_usage_email_activity(SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=75))
+
+            call_kwargs = mock_email_class.call_args[1]
+            affected = call_kwargs["template_context"]["affected_evals"]
+            assert "My Trial Eval" in affected
+            assert "Legacy Eval" in affected
+            assert "Disabled Eval" not in affected

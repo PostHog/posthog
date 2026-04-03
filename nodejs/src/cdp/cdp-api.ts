@@ -85,14 +85,20 @@ export class CdpApi {
         this.hogTransformer = createHogTransformerService(config, {
             ...deps,
             monitoringOutputs: new IngestionOutputs({
-                [APP_METRICS_OUTPUT]: {
-                    producer: deps.kafkaProducer,
-                    topic: config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-                },
-                [LOG_ENTRIES_OUTPUT]: {
-                    producer: deps.kafkaProducer,
-                    topic: config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
-                },
+                [APP_METRICS_OUTPUT]: [
+                    {
+                        producer: deps.kafkaProducer,
+                        topic: config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+                        producerName: 'default',
+                    },
+                ],
+                [LOG_ENTRIES_OUTPUT]: [
+                    {
+                        producer: deps.kafkaProducer,
+                        topic: config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
+                        producerName: 'default',
+                    },
+                ],
             }),
         })
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps)

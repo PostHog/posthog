@@ -90,6 +90,8 @@ async def _create_task_and_trigger(
     context: CustomPromptSandboxContext,
     branch: str = "master",
     step_name: str = "",
+    origin_product: str | None = None,
+    signal_report_id: str | None = None,
 ):
     from posthog.models.team.team import Team
 
@@ -101,12 +103,13 @@ async def _create_task_and_trigger(
         team=team,
         title=title,
         description=description,
-        origin_product=Task.OriginProduct.USER_CREATED,
+        origin_product=Task.OriginProduct(origin_product) if origin_product else Task.OriginProduct.USER_CREATED,
         user_id=context.user_id,
         repository=context.repository,
         create_pr=False,
         mode="background",
         branch=branch if branch and branch != "master" else None,
+        signal_report_id=signal_report_id,
     )
     task_run = await sync_to_async(lambda: task.latest_run)()
     if not task_run:

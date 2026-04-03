@@ -726,8 +726,13 @@ function generateCategoryFile(
     fileName: string,
     moduleName: string,
     spec: OpenApiSpec,
-    knownTypes: Set<string>
-): { code: string; enabledTools: [string, EnabledToolConfig, ResolvedOperation][] } {
+    knownTypes: Set<string>,
+    getQuerySchema: () => JsonSchemaRoot
+): {
+    code: string
+    enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+    enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
+} {
     const enabledTools: [string, EnabledToolConfig, ResolvedOperation][] = []
 
     for (const [name, config] of Object.entries(category.tools)) {
@@ -750,6 +755,32 @@ function generateCategoryFile(
             continue
         }
         enabledTools.push([name, config as EnabledToolConfig, resolved])
+    }
+
+    // Collect enabled query wrappers from the optional wrappers section
+    const enabledWrappers: [string, EnabledQueryWrapperToolConfig][] = []
+    if (category.wrappers) {
+        const querySchema = getQuerySchema()
+        for (const [name, wrapperConfig] of Object.entries(category.wrappers)) {
+            if (!wrapperConfig.enabled) {
+                continue
+            }
+            if (!wrapperConfig.scopes?.length) {
+                console.error(`Enabled query wrapper "${name}" is missing required "scopes"`)
+                process.exit(1)
+            }
+            if (!wrapperConfig.annotations) {
+                console.error(`Enabled query wrapper "${name}" is missing required "annotations"`)
+                process.exit(1)
+            }
+            if (!querySchema.definitions[wrapperConfig.schema_ref]) {
+                console.error(
+                    `Query wrapper "${name}": schema_ref "${wrapperConfig.schema_ref}" not found in schema.json`
+                )
+                process.exit(1)
+            }
+            enabledWrappers.push([name, wrapperConfig as EnabledQueryWrapperToolConfig])
+        }
     }
 
     const allOrvalImports = new Set<string>()
@@ -780,7 +811,93 @@ function generateCategoryFile(
         }
     }
 
-    const mapEntries = enabledTools.map(([name]) => `    '${name}': ${toCamelCase(name)},`).join('\n')
+    // Generate query wrapper Zod schemas and registrations if wrappers are present
+    let wrapperSchemasCode = ''
+    let wrapperMapEntries = ''
+    if (enabledWrappers.length > 0) {
+        const querySchema = getQuerySchema()
+        const allZodBlocks: string[] = []
+        const emittedDefs = new Set<string>()
+
+        // Track which properties each base schema actually has after deduplication,
+        // so per-tool .omit() calls only reference properties that exist.
+        const baseSchemaProps = new Map<string, Set<string>>()
+
+        for (const [, wrapperConfig] of enabledWrappers) {
+            const excludeProps = [...(wrapperConfig.exclude_properties ?? [])]
+            const zodCode = generateZodFromSchemaRef(querySchema, wrapperConfig.schema_ref, excludeProps)
+            const lines = zodCode.split('\n\nconst ')
+            for (let i = 0; i < lines.length; i++) {
+                const block = i === 0 ? lines[i]! : `const ${lines[i]}`
+                const match = block.match(/^const (\w+) =/)
+                if (match && !emittedDefs.has(match[1]!)) {
+                    emittedDefs.add(match[1]!)
+                    allZodBlocks.push(block)
+                    // Record properties of the emitted base schema
+                    const entryVarName = getEntryVarName(wrapperConfig.schema_ref)
+                    if (match[1] === entryVarName) {
+                        const propNames = new Set<string>()
+                        for (const propMatch of block.matchAll(/^\s{4}(\w+):/gm)) {
+                            propNames.add(propMatch[1]!)
+                        }
+                        baseSchemaProps.set(entryVarName, propNames)
+                    }
+                }
+            }
+        }
+
+        // Generate per-tool schemas when the tool needs to customize the base schema
+        // via property_defaults or omitting exclude_properties that survived deduplication.
+        const perToolSchemaNames = new Map<string, string>()
+        for (const [name, wrapperConfig] of enabledWrappers) {
+            const hasDefaults =
+                wrapperConfig.property_defaults && Object.keys(wrapperConfig.property_defaults).length > 0
+            const baseVarName = getEntryVarName(wrapperConfig.schema_ref)
+            const baseProps = baseSchemaProps.get(baseVarName) ?? new Set()
+            const keysToOmit = new Set<string>()
+            for (const k of wrapperConfig.exclude_properties ?? []) {
+                if (baseProps.has(k)) {
+                    keysToOmit.add(k)
+                }
+            }
+            const hasOmits = keysToOmit.size > 0
+            if (!hasDefaults && !hasOmits) {
+                continue
+            }
+            const toolSchemaName = `${toPascalCase(name)}Schema`
+            const omitExpr = hasOmits ? `.omit({ ${[...keysToOmit].map((k) => `${k}: true`).join(', ')} })` : ''
+            const overrides: string[] = []
+            for (const [prop, defaultValue] of Object.entries(wrapperConfig.property_defaults ?? {})) {
+                overrides.push(
+                    `    ${prop}: ${baseVarName}.shape.${prop}.default(${JSON.stringify(defaultValue)}).optional(),`
+                )
+            }
+            const extendExpr = overrides.length > 0 ? `.extend({\n${overrides.join('\n')}\n})` : ''
+            allZodBlocks.push(`const ${toolSchemaName} = ${baseVarName}${omitExpr}${extendExpr}`)
+            perToolSchemaNames.set(name, toolSchemaName)
+        }
+
+        wrapperSchemasCode =
+            '\n// --- Query wrapper schemas from schema.json ---\n\n' + allZodBlocks.join('\n\n') + '\n'
+
+        wrapperMapEntries = enabledWrappers
+            .map(([name, wrapperConfig]) => {
+                const schemaVarName = perToolSchemaNames.get(name) ?? getEntryVarName(wrapperConfig.schema_ref)
+                const kind = extractKindFromSchemaRef(querySchema, wrapperConfig.schema_ref)
+                const configParts = [`name: '${name}'`, `schema: ${schemaVarName}`, `kind: '${kind}'`]
+                if (wrapperConfig.ui_resource_uri) {
+                    configParts.push(`uiResourceUri: '${wrapperConfig.ui_resource_uri}'`)
+                }
+                if (wrapperConfig.url_prefix) {
+                    configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
+                }
+                return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
+            })
+            .join('\n')
+    }
+
+    const restMapEntries = enabledTools.map(([name]) => `    '${name}': ${toCamelCase(name)},`).join('\n')
+    const mapEntries = [restMapEntries, wrapperMapEntries].filter(Boolean).join('\n')
 
     const orvalImportLine =
         allOrvalImports.size > 0
@@ -815,17 +932,20 @@ function generateCategoryFile(
         toolUtilsImportLine = `import type { ${toolUtilsTypeImports.join(', ')} } from '@/tools/tool-utils'\n`
     }
 
+    const wrapperImportLine =
+        enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
+
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${orvalImportLine}${toolCodes.join('')}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${wrapperImportLine}${orvalImportLine}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
 `
 
-    return { code, enabledTools }
+    return { code, enabledTools, enabledWrappers }
 }
 
 // ------------------------------------------------------------------
@@ -857,11 +977,12 @@ function generateDefinitionsJson(
     categories: {
         config: CategoryConfig
         enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+        enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
         yamlDir: string
     }[]
 ): Record<string, unknown> {
     const definitions: Record<string, unknown> = {}
-    for (const { config: category, enabledTools, yamlDir } of categories) {
+    for (const { config: category, enabledTools, enabledWrappers, yamlDir } of categories) {
         for (const [name, toolConfig, resolved] of enabledTools) {
             const opDescription = resolved.operation.description?.trim() || resolved.operation.summary?.trim() || ''
             definitions[name] = {
@@ -879,6 +1000,24 @@ function generateDefinitionsJson(
                     readOnlyHint: toolConfig.annotations.readOnly,
                 },
                 ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+            }
+        }
+        // Include query wrappers defined in the same category file
+        for (const [name, wrapperConfig] of enabledWrappers) {
+            definitions[name] = {
+                description: resolveDescription(wrapperConfig, yamlDir, ''),
+                category: category.category,
+                feature: category.feature,
+                summary: wrapperConfig.title || name,
+                title: wrapperConfig.title || name,
+                required_scopes: wrapperConfig.scopes,
+                new_mcp: wrapperConfig.mcp_version !== undefined ? wrapperConfig.mcp_version >= 2 : true,
+                annotations: {
+                    destructiveHint: wrapperConfig.annotations.destructive,
+                    idempotentHint: wrapperConfig.annotations.idempotent,
+                    openWorldHint: true,
+                    readOnlyHint: wrapperConfig.annotations.readOnly,
+                },
             }
         }
     }
@@ -931,11 +1070,8 @@ function generateQueryWrapperFile(
     const emittedDefs = new Set<string>()
 
     for (const [, toolConfig] of enabledWrappers) {
-        const zodCode = generateZodFromSchemaRef(
-            querySchema,
-            toolConfig.schema_ref,
-            toolConfig.exclude_properties ?? []
-        )
+        const excludeProps = [...(toolConfig.exclude_properties ?? [])]
+        const zodCode = generateZodFromSchemaRef(querySchema, toolConfig.schema_ref, excludeProps)
         // Split into individual const declarations and only emit new ones
         const lines = zodCode.split('\n\nconst ')
         for (let i = 0; i < lines.length; i++) {
@@ -948,16 +1084,45 @@ function generateQueryWrapperFile(
         }
     }
 
+    // Generate per-tool schemas when the tool needs to customize the base schema.
+    const perToolSchemaNames = new Map<string, string>()
+    for (const [name, toolConfig] of enabledWrappers) {
+        const hasDefaults = toolConfig.property_defaults && Object.keys(toolConfig.property_defaults).length > 0
+        if (!hasDefaults) {
+            continue
+        }
+        const baseVarName = getEntryVarName(toolConfig.schema_ref)
+        const toolSchemaName = `${toPascalCase(name)}Schema`
+        const overrides: string[] = []
+        for (const [prop, defaultValue] of Object.entries(toolConfig.property_defaults ?? {})) {
+            overrides.push(
+                `    ${prop}: ${baseVarName}.shape.${prop}.default(${JSON.stringify(defaultValue)}).optional(),`
+            )
+        }
+        const extendExpr = `.extend({\n${overrides.join('\n')}\n})`
+        allZodBlocks.push(`const ${toolSchemaName} = ${baseVarName}${extendExpr}`)
+        perToolSchemaNames.set(name, toolSchemaName)
+    }
+
     const schemasCode = allZodBlocks.join('\n\n')
 
     // Generate tool registrations using the factory
     const mapEntries = enabledWrappers
         .map(([name, toolConfig]) => {
-            const entryVarName = getEntryVarName(toolConfig.schema_ref)
+            const schemaVarName = perToolSchemaNames.get(name) ?? getEntryVarName(toolConfig.schema_ref)
             const kind = extractKindFromSchemaRef(querySchema, toolConfig.schema_ref)
-            const uiResourceUri = toolConfig.ui_resource_uri ? `, uiResourceUri: '${toolConfig.ui_resource_uri}'` : ''
-            const responseFormat = toolConfig.response_format ? `, responseFormat: '${toolConfig.response_format}'` : ''
-            return `    '${name}': createQueryWrapper({ name: '${name}', schema: ${entryVarName}, kind: '${kind}'${uiResourceUri}${responseFormat} }),`
+            const configParts = [`name: '${name}'`, `schema: ${schemaVarName}`, `kind: '${kind}'`]
+            if (toolConfig.ui_resource_uri) {
+                configParts.push(`uiResourceUri: '${toolConfig.ui_resource_uri}'`)
+            }
+            if (toolConfig.response_format) {
+                configParts.push(`responseFormat: '${toolConfig.response_format}'`)
+            }
+
+            if (toolConfig.url_prefix) {
+                configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
+            }
+            return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
         })
         .join('\n')
 
@@ -1037,6 +1202,7 @@ function main(): void {
     const allCategories: {
         config: CategoryConfig
         enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+        enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
         yamlDir: string
     }[] = []
     const generatedModules: string[] = []
@@ -1092,11 +1258,24 @@ function main(): void {
         const config = result.data
 
         const label = path.relative(REPO_ROOT, def.filePath)
-        const { code, enabledTools } = generateCategoryFile(config, label, def.moduleName, spec, knownTypes)
+        const getQuerySchemaLazy = (): JsonSchemaRoot => {
+            if (!querySchema) {
+                querySchema = loadQuerySchema()
+            }
+            return querySchema
+        }
+        const { code, enabledTools, enabledWrappers } = generateCategoryFile(
+            config,
+            label,
+            def.moduleName,
+            spec,
+            knownTypes,
+            getQuerySchemaLazy
+        )
 
-        if (enabledTools.length > 0) {
+        if (enabledTools.length > 0 || enabledWrappers.length > 0) {
             generatedModules.push(def.moduleName)
-            allCategories.push({ config, enabledTools, yamlDir: path.dirname(def.filePath) })
+            allCategories.push({ config, enabledTools, enabledWrappers, yamlDir: path.dirname(def.filePath) })
             fs.writeFileSync(path.join(GENERATED_DIR, `${def.moduleName}.ts`), code)
         }
     }

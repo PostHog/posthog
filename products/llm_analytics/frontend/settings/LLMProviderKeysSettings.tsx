@@ -16,6 +16,7 @@ import {
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { LLMProviderIcon, LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
@@ -27,6 +28,7 @@ import {
     LLMProviderKey,
     LLMProviderKeyState,
     LLM_PROVIDER_LABELS,
+    TrialEvaluation,
     llmProviderKeysLogic,
     sortProviderKeys,
 } from './llmProviderKeysLogic'
@@ -502,6 +504,106 @@ function DeleteKeyModal({
     )
 }
 
+function AssignKeyModal(): JSX.Element | null {
+    const { newlyCreatedKey, trialEvaluations, trialEvaluationsLoading } = useValues(llmProviderKeysLogic)
+    const { confirmAssignKey, dismissAssignKey } = useActions(llmProviderKeysLogic)
+
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+    const [enableAfterAssign, setEnableAfterAssign] = useState(true)
+
+    const hasDisabledEvals = trialEvaluations.some((e: TrialEvaluation) => !e.enabled)
+    const isOpen = newlyCreatedKey !== null && !trialEvaluationsLoading && trialEvaluations.length > 0
+
+    // Select all by default when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            setSelectedIds(new Set(trialEvaluations.map((e: TrialEvaluation) => e.id)))
+            setEnableAfterAssign(true)
+        }
+    }, [isOpen]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    if (!newlyCreatedKey) {
+        return null
+    }
+
+    // If no trial evals found after loading, auto-dismiss
+    if (!trialEvaluationsLoading && trialEvaluations.length === 0) {
+        return null
+    }
+
+    const toggleEval = (id: string): void => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev)
+            if (next.has(id)) {
+                next.delete(id)
+            } else {
+                next.add(id)
+            }
+            return next
+        })
+    }
+
+    const providerLabel = LLM_PROVIDER_LABELS[newlyCreatedKey.provider] || newlyCreatedKey.provider
+
+    return (
+        <LemonModal
+            isOpen={isOpen}
+            onClose={dismissAssignKey}
+            title={`Apply "${newlyCreatedKey.name}" to existing evaluations?`}
+            width={520}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={dismissAssignKey}>
+                        Skip
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        disabled={selectedIds.size === 0}
+                        onClick={() => confirmAssignKey(Array.from(selectedIds), enableAfterAssign && hasDisabledEvals)}
+                    >
+                        Apply key
+                        {selectedIds.size > 0
+                            ? ` to ${selectedIds.size} evaluation${selectedIds.size !== 1 ? 's' : ''}`
+                            : ''}
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="space-y-3">
+                <p className="text-sm text-muted">
+                    The following evaluations are using {providerLabel} trial credits. Select which ones should use your
+                    new key instead.
+                </p>
+                <div className="border rounded divide-y">
+                    {trialEvaluations.map((evaluation: TrialEvaluation) => (
+                        <label
+                            key={evaluation.id}
+                            className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-bg-light"
+                        >
+                            <LemonCheckbox
+                                checked={selectedIds.has(evaluation.id)}
+                                onChange={() => toggleEval(evaluation.id)}
+                            />
+                            <span className="flex-1 text-sm">{evaluation.name}</span>
+                            {!evaluation.enabled && (
+                                <LemonTag type="default" size="small">
+                                    Disabled
+                                </LemonTag>
+                            )}
+                        </label>
+                    ))}
+                </div>
+                {hasDisabledEvals && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                        <LemonCheckbox checked={enableAfterAssign} onChange={setEnableAfterAssign} />
+                        <span className="text-sm">Also re-enable disabled evaluations</span>
+                    </label>
+                )}
+            </div>
+        </LemonModal>
+    )
+}
+
 export function LLMProviderKeysSettings(): JSX.Element {
     const {
         providerKeys,
@@ -664,6 +766,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                 )}
             </div>
             <AddKeyModal restrictionReason={restrictionReason} />
+            <AssignKeyModal />
             {editingKey && <EditKeyModal keyToEdit={editingKey} restrictionReason={restrictionReason} />}
             {keyToDelete && (
                 <DeleteKeyModal

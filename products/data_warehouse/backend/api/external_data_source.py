@@ -478,6 +478,24 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
+
+        # auth_method is a nested config - deep-merge to preserve sensitive fields (stripe_secret_key)
+        existing_auth_method = existing_job_inputs.get("auth_method")
+        incoming_auth_method = incoming_job_inputs.get("auth_method")
+        if incoming_auth_method is not None and not isinstance(incoming_auth_method, dict):
+            raise ValidationError({"job_inputs": {"auth_method": "Must be an object."}})
+        if isinstance(existing_auth_method, dict) and isinstance(incoming_auth_method, dict):
+            selection_changed = existing_auth_method.get("selection") != incoming_auth_method.get("selection")
+            if selection_changed:
+                # Auth method switched (e.g. api_key→oauth) — use only incoming, don't carry over old secrets
+                new_job_inputs["auth_method"] = incoming_auth_method
+            else:
+                merged_auth_method = {**existing_auth_method, **incoming_auth_method}
+                for key in sensitive_fields:
+                    if existing_auth_method.get(key) and not incoming_auth_method.get(key):
+                        merged_auth_method[key] = existing_auth_method[key]
+                new_job_inputs["auth_method"] = merged_auth_method
+
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
             # Deep-merge: start with existing, overlay incoming top-level keys
@@ -1189,7 +1207,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
-                external_status = source.get_external_webhook_info(config, webhook_url)
+                external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
             except Exception as e:
                 capture_exception(e)
 
