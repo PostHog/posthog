@@ -271,12 +271,16 @@ describe('workflowLogic schedule reducers', () => {
     })
 
     describe('timezone reinterpretation', () => {
-        it('setScheduleStartsAtFromPicker reinterprets browser time as schedule timezone', () => {
-            logic.actions.setScheduleTimezone('Europe/Helsinki')
-            // Picker returns 9:00 AM in browser local time
+        it.each([
+            ['Europe/Helsinki', '2026-04-10T06:00:00.000Z'], // UTC+3
+            ['US/Eastern', '2026-04-10T13:00:00.000Z'], // EDT UTC-4
+            ['Asia/Kolkata', '2026-04-10T03:30:00.000Z'], // UTC+5:30
+            ['Pacific/Auckland', '2026-04-09T21:00:00.000Z'], // NZST UTC+12
+            ['UTC', '2026-04-10T09:00:00.000Z'], // No shift
+        ])('setScheduleStartsAtFromPicker reinterprets 9:00 AM as %s', (timezone, expected) => {
+            logic.actions.setScheduleTimezone(timezone)
             logic.actions.setScheduleStartsAtFromPicker('2026-04-10T09:00:00.000Z')
-            // Should be stored as 9:00 AM Helsinki = 06:00 UTC (Helsinki is UTC+3 in April)
-            expect(logic.values.scheduleStartsAt).toBe('2026-04-10T06:00:00.000Z')
+            expect(logic.values.scheduleStartsAt).toBe(expected)
         })
 
         it('setScheduleStartsAtFromPicker with null clears starts_at', () => {
@@ -285,14 +289,14 @@ describe('workflowLogic schedule reducers', () => {
             expect(logic.values.scheduleStartsAt).toBeNull()
         })
 
-        it('changing timezone preserves wall-clock time', () => {
-            logic.actions.setSchedules([makeSchedule()])
-            expect(logic.values.scheduleStartsAt).toBe('2026-04-10T09:00:00.000Z')
-
-            // Change to US/Eastern - wall clock stays 9:00 AM, UTC shifts
-            logic.actions.setScheduleTimezone('US/Eastern', 'UTC')
-            // 9:00 AM Eastern in April (EDT, UTC-4) = 13:00 UTC
-            expect(logic.values.scheduleStartsAt).toBe('2026-04-10T13:00:00.000Z')
+        it.each([
+            ['US/Eastern', '2026-04-10T13:00:00.000Z'], // EDT UTC-4
+            ['Asia/Kolkata', '2026-04-10T03:30:00.000Z'], // UTC+5:30
+            ['Pacific/Auckland', '2026-04-09T21:00:00.000Z'], // NZST UTC+12
+        ])('changing timezone to %s preserves wall-clock time', (newTimezone, expected) => {
+            logic.actions.setSchedules([makeSchedule()]) // 09:00 UTC
+            logic.actions.setScheduleTimezone(newTimezone, 'UTC')
+            expect(logic.values.scheduleStartsAt).toBe(expected)
         })
     })
 
