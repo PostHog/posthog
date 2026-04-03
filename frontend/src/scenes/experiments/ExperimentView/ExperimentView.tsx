@@ -17,7 +17,6 @@ import {
     LegacyExploreButton,
     LegacyExperimentHeader,
     LegacyMetricsView,
-    LegacyVariantDeltaTimeseries,
 } from '~/scenes/experiments/legacy'
 import { ActivityScope } from '~/types'
 
@@ -428,8 +427,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <ReleaseConditionsModal />
 
                     <EditConclusionModal />
-
-                    <LegacyVariantDeltaTimeseries />
                 </>
             )}
         </SceneContent>
