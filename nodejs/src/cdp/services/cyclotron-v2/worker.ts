@@ -166,10 +166,15 @@ export class CyclotronV2Worker {
                 )
             },
 
-            async reschedule(options?: { scheduledAt?: Date; state?: Buffer | null }): Promise<void> {
+            async reschedule(options?: {
+                scheduledAt?: Date
+                state?: Buffer | null
+                queueName?: string
+            }): Promise<void> {
                 releaseGuard('reschedule')
                 const scheduled = options?.scheduledAt ?? new Date()
                 const hasStateUpdate = options?.state !== undefined
+                const newQueueName = options?.queueName ?? row.queue_name
 
                 if (hasStateUpdate) {
                     await pool.query(
@@ -177,18 +182,20 @@ export class CyclotronV2Worker {
                          SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                              last_transition = NOW(), transition_count = transition_count + 1,
                              scheduled = $3,
-                             state = $4
+                             state = $4,
+                             queue_name = $5
                          WHERE id = $1 AND lock_id = $2`,
-                        [row.id, lockId, scheduled, options!.state ?? null]
+                        [row.id, lockId, scheduled, options!.state ?? null, newQueueName]
                     )
                 } else {
                     await pool.query(
                         `UPDATE cyclotron_jobs
                          SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                              last_transition = NOW(), transition_count = transition_count + 1,
-                             scheduled = $3
+                             scheduled = $3,
+                             queue_name = $4
                          WHERE id = $1 AND lock_id = $2`,
-                        [row.id, lockId, scheduled]
+                        [row.id, lockId, scheduled, newQueueName]
                     )
                 }
             },

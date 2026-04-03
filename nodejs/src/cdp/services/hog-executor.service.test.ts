@@ -70,6 +70,7 @@ describe('Hog Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -1467,6 +1468,177 @@ describe('Hog Executor', () => {
             [undefined, false],
         ])('returns %s for %j', (error, expected) => {
             expect(isConnectionLevelError(error)).toBe(expected)
+        })
+    })
+
+    describe('routeEmailToQueue', () => {
+        it('should route the invocation to the email queue', () => {
+            const hogFunction = createHogFunction({
+                name: 'Email function',
+                metadata: { message_category_type: 'marketing' },
+            })
+
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                queue: 'hogflow',
+                queueParameters: {
+                    type: 'email',
+                    to: { email: 'user@example.com' },
+                    from: { email: 'noreply@posthog.com', integrationId: 1 },
+                    subject: 'Test',
+                    text: 'Hello',
+                    html: '<p>Hello</p>',
+                },
+            }
+            invocation.state.vmState = { stack: [] } as any
+
+            const result = (executor as any).routeEmailToQueue(invocation)
+
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queue).toBe('email')
+            expect(result.invocation.queueMetadata?.originQueue).toBe('hogflow')
+            expect(result.metrics).toContainEqual(
+                expect.objectContaining({
+                    metric_name: 'email_queued',
+                    metric_kind: 'email',
+                })
+            )
+        })
+
+        it('should preserve the same job ID (no new job created)', () => {
+            const hogFunction = createHogFunction({ name: 'Email function' })
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                queueParameters: {
+                    type: 'email',
+                    to: { email: 'user@example.com' },
+                    from: { email: 'noreply@posthog.com', integrationId: 1 },
+                    subject: 'Test',
+                    text: 'Hello',
+                    html: '<p>Hello</p>',
+                },
+            }
+            invocation.state.vmState = { stack: [] } as any
+
+            const result = (executor as any).routeEmailToQueue(invocation)
+
+            expect(result.invocation.id).toBe(invocation.id)
+        })
+    })
+
+    describe('email queue routing config', () => {
+        const createEmailInvocation = (): CyclotronJobInvocationHogFunction => {
+            const hogFunction = createHogFunction({ name: 'Email function', team_id: 123 })
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                teamId: 123,
+                queueParameters: {
+                    type: 'email',
+                    to: { email: 'user@example.com' },
+                    from: { email: 'noreply@posthog.com', integrationId: 1 },
+                    subject: 'Test',
+                    text: 'Hello',
+                    html: '<p>Hello</p>',
+                },
+            }
+            invocation.state.vmState = { stack: [] } as any
+            return invocation
+        }
+
+        const createExecutorWithRouting = (emailQueueRouting: string): HogExecutorService => {
+            const hogInputsService = new HogInputsService(
+                hub.integrationManager,
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL
+            )
+            const emailService = new EmailService(
+                {
+                    sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                    sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                    sesRegion: hub.SES_REGION,
+                    sesEndpoint: hub.SES_ENDPOINT,
+                },
+                hub.integrationManager,
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL
+            )
+            const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+            return new HogExecutorService(
+                {
+                    hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                    fetchRetries: hub.CDP_FETCH_RETRIES,
+                    fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                    fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                    emailQueueRouting,
+                },
+                { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+                hogInputsService,
+                emailService,
+                recipientTokensService
+            )
+        }
+
+        it('should send inline when routing is empty', async () => {
+            const exec = createExecutorWithRouting('')
+            const invocation = createEmailInvocation()
+
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).not.toBe('email')
+            expect(result.finished).toBe(true)
+        })
+
+        it('should route to email queue when team matches', async () => {
+            const exec = createExecutorWithRouting('123')
+            const invocation = createEmailInvocation()
+
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('email')
+            expect(result.finished).toBe(false)
+        })
+
+        it('should send inline when team does not match', async () => {
+            const exec = createExecutorWithRouting('456')
+            const invocation = createEmailInvocation()
+
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).not.toBe('email')
+            expect(result.finished).toBe(true)
+        })
+
+        it('should route based on percentage when under threshold', async () => {
+            const exec = createExecutorWithRouting('*:0.5')
+            const invocation = createEmailInvocation()
+
+            jest.spyOn(Math, 'random').mockReturnValue(0.3)
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('email')
+            expect(result.finished).toBe(false)
+        })
+
+        it('should send inline when percentage roll is above threshold', async () => {
+            const exec = createExecutorWithRouting('*:0.5')
+            const invocation = createEmailInvocation()
+
+            jest.spyOn(Math, 'random').mockReturnValue(0.7)
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).not.toBe('email')
+        })
+
+        it('should route all teams when config is *', async () => {
+            const exec = createExecutorWithRouting('*')
+            const invocation = createEmailInvocation()
+
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('email')
+            expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
+            expect(result.finished).toBe(false)
         })
     })
 })

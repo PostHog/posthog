@@ -43,6 +43,7 @@ export interface CdpCoreServices {
     nativeDestinationExecutorService: NativeDestinationExecutorService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
     recipientTokensService: RecipientTokensService
+    emailService: EmailService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -77,6 +78,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'CDP_EMAIL_QUEUE_ROUTING'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
     >
@@ -156,6 +158,7 @@ export function createCdpCoreServices(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+            emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
@@ -211,5 +214,6 @@ export function createCdpCoreServices(
         nativeDestinationExecutorService,
         segmentDestinationExecutorService,
         recipientTokensService,
+        emailService,
     }
 }

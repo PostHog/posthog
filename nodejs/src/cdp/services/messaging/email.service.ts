@@ -112,8 +112,8 @@ export class EmailService {
             result.finished = true
         }
 
-        // Finally we create the response object as the VM expects
-        result.invocation.state.vmState!.stack.push({
+        // Push the response to the VM stack if running inline (not from the email queue)
+        result.invocation.state.vmState?.stack.push({
             success,
         })
 
@@ -226,7 +226,7 @@ export class EmailService {
             FeedbackForwardingEmailAddress: params.from.email,
         }
 
-        const isTransactionalEmail = result.invocation.hogFunction.metadata?.message_category_type === 'transactional'
+        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         // Automatically add unsubscribe headers for non-transactional emails
         if (sendEmailParams.Content?.Simple && !isTransactionalEmail) {
             sendEmailParams.Content.Simple.Headers = this.generateUnsubscribeHeaders({
