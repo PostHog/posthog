@@ -75,14 +75,16 @@ function Header({
         <div className="definition-popover-header">
             {state === DefinitionPopoverState.View && (
                 <div className="definition-popover-header-actions">
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        icon={pinned ? <IconPinFilled /> : <IconPin />}
-                        onClick={() => togglePin(groupType, groupName, pinValue, definition)}
-                        tooltip={pinned ? 'Unpin' : 'Pin'}
-                        data-attr="definition-popover-pin"
-                    />
+                    {pinValue !== null && (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={pinned ? <IconPinFilled /> : <IconPin />}
+                            onClick={() => togglePin(groupType, groupName, pinValue, definition)}
+                            tooltip={pinned ? 'Unpin' : 'Pin'}
+                            data-attr="definition-popover-pin"
+                        />
+                    )}
                     <div className="definition-popover-header-row-buttons click-outside-block">
                         {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
                         {!hideView && isViewable && (

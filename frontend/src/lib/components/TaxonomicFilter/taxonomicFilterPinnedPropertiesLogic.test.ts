@@ -7,7 +7,7 @@ import {
 } from './taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicFilterGroupType } from './types'
 
-const MIGRATION_KEY = 'taxonomicFilterPinnedProperties__migrated'
+const MIGRATION_KEY = 'taxonomicFilterPinnedProperties__migrated__default'
 const OLD_PERSIST_KEY = 'scenes.session-recordings.player.playerSettingsLogic.quickFilterProperties'
 
 describe('taxonomicFilterPinnedPropertiesLogic', () => {

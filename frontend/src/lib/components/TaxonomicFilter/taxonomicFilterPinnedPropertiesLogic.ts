@@ -27,10 +27,10 @@ export function stripPinnedContext<T extends Record<string, any>>(item: T): Omit
     return clean
 }
 
-const MIGRATION_KEY = 'taxonomicFilterPinnedProperties__migrated'
 const OLD_PERSIST_KEY = 'scenes.session-recordings.player.playerSettingsLogic.quickFilterProperties'
 
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+const teamId = typeof window !== 'undefined' ? window.POSTHOG_APP_CONTEXT?.current_team?.id : undefined
+const MIGRATION_KEY = `taxonomicFilterPinnedProperties__migrated__${teamId ?? 'default'}`
 
 export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPropertiesLogicType>([
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterPinnedPropertiesLogic']),
