@@ -2,6 +2,7 @@ from typing import Literal
 
 from django.conf import settings
 
+import httpx
 from openai import AsyncOpenAI, OpenAI
 
 Product = Literal[
@@ -42,7 +43,8 @@ def get_llm_client(product: Product = "django") -> OpenAI:
         raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
-    return OpenAI(base_url=base_url, api_key=settings.LLM_GATEWAY_API_KEY)
+    # Bypass HTTP_PROXY/HTTPS_PROXY — the LLM gateway is an internal service
+    return OpenAI(base_url=base_url, api_key=settings.LLM_GATEWAY_API_KEY, http_client=httpx.Client(trust_env=False))
 
 
 def get_async_llm_client(product: Product = "django") -> AsyncOpenAI:
@@ -55,4 +57,7 @@ def get_async_llm_client(product: Product = "django") -> AsyncOpenAI:
         raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
-    return AsyncOpenAI(base_url=base_url, api_key=settings.LLM_GATEWAY_API_KEY)
+    # Bypass HTTP_PROXY/HTTPS_PROXY — the LLM gateway is an internal service
+    return AsyncOpenAI(
+        base_url=base_url, api_key=settings.LLM_GATEWAY_API_KEY, http_client=httpx.AsyncClient(trust_env=False)
+    )

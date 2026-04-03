@@ -445,7 +445,13 @@
                     "$ref": "#/definitions/AssistantRetentionQuery"
                 },
                 {
+                    "$ref": "#/definitions/AssistantStickinessQuery"
+                },
+                {
                     "$ref": "#/definitions/AssistantPathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantLifecycleQuery"
                 },
                 {
                     "$ref": "#/definitions/AssistantHogQLQuery"
@@ -547,6 +553,9 @@
                 },
                 {
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebNotableChangesQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
@@ -776,6 +785,9 @@
                 },
                 {
                     "$ref": "#/definitions/LogPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SpanPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
@@ -1184,6 +1196,75 @@
                     "type": "object"
                 }
             ]
+        },
+        "AssistantErrorTrackingQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by assignee."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range to filter results."
+                },
+                "filterGroup": {
+                    "default": [],
+                    "description": "Property filters for the query",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "filterTestAccounts": {
+                    "description": "Whether to filter out test accounts.",
+                    "type": "boolean"
+                },
+                "issueId": {
+                    "description": "Filter to a specific error tracking issue by ID.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ErrorTrackingQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
+                },
+                "orderDirection": {
+                    "description": "Sort direction.",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
+                },
+                "volumeResolution": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Controls volume chart granularity. Use 1 for sparklines, 0 for counts only."
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": [
@@ -1901,6 +1982,160 @@
             },
             "type": "object"
         },
+        "AssistantLifecycleActionsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "kind": {
+                    "const": "ActionsNode",
+                    "description": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Action name from the plan.",
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["id", "kind", "name"],
+            "type": "object"
+        },
+        "AssistantLifecycleEventsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "description": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AssistantLifecycleFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "showLegend": {
+                    "default": false,
+                    "description": "Whether to show the legend describing series.",
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "default": false,
+                    "description": "Whether to show a value on each data point.",
+                    "type": "boolean"
+                },
+                "stacked": {
+                    "default": true,
+                    "description": "Whether the lifecycle bars should be stacked.",
+                    "type": "boolean"
+                },
+                "toggledLifecycles": {
+                    "description": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+                    "items": {
+                        "$ref": "#/definitions/LifecycleToggle"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantLifecycleQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "default": "day",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "LifecycleQuery",
+                    "type": "string"
+                },
+                "lifecycleFilter": {
+                    "$ref": "#/definitions/AssistantLifecycleFilter",
+                    "description": "Properties specific to the lifecycle insight"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+                    "type": ["number", "null"]
+                },
+                "series": {
+                    "description": "Event or action to analyze. Lifecycle insights only support a single series.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantLifecycleSeriesNode"
+                    },
+                    "maxLength": 1,
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
+        },
+        "AssistantLifecycleSeriesNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantLifecycleEventsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantLifecycleActionsNode"
+                }
+            ]
+        },
         "AssistantMessage": {
             "additionalProperties": false,
             "properties": {
@@ -2387,6 +2622,214 @@
             "enum": ["is_set", "is_not_set"],
             "type": "string"
         },
+        "AssistantStickinessActionsNode": {
+            "additionalProperties": false,
+            "description": "Defines the action series for the stickiness insight. You must provide the action ID in the `id` field and the name in the `name` field. When math is omitted, the default aggregation is by unique persons (person_id).",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "description": "Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`",
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Action name from the plan.",
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["id", "kind", "name"],
+            "type": "object"
+        },
+        "AssistantStickinessDisplayType": {
+            "description": "Stickiness display types. Only time-series visualizations are supported:\n- `ActionsLineGraph` - line chart (default)\n- `ActionsBar` - bar chart\n- `ActionsAreaGraph` - area chart",
+            "enum": ["ActionsLineGraph", "ActionsBar", "ActionsAreaGraph"],
+            "type": "string"
+        },
+        "AssistantStickinessEventsNode": {
+            "additionalProperties": false,
+            "description": "Defines the event series for the stickiness insight. Each series measures how many intervals (e.g. days) within the date range a user performed the event. The X-axis shows the number of intervals (1, 2, 3, ...) and the Y-axis shows the count of users. When math is omitted, the default aggregation is by unique persons (person_id).",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "description": "Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`",
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AssistantStickinessFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "computedAs": {
+                    "$ref": "#/definitions/StickinessComputationMode",
+                    "default": "non_cumulative",
+                    "description": "Computation mode. `non_cumulative` (default) shows users active on exactly N intervals. `cumulative` shows users active on N or more intervals."
+                },
+                "display": {
+                    "$ref": "#/definitions/AssistantStickinessDisplayType",
+                    "default": "ActionsLineGraph",
+                    "description": "Visualization type for the stickiness chart. `ActionsLineGraph` - line chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area chart."
+                },
+                "showLegend": {
+                    "default": false,
+                    "description": "Whether to show the legend describing series.",
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "default": false,
+                    "description": "Whether to show a value on each data point.",
+                    "type": "boolean"
+                },
+                "stickinessCriteria": {
+                    "$ref": "#/definitions/StickinessCriteria",
+                    "description": "Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times."
+                }
+            },
+            "type": "object"
+        },
+        "AssistantStickinessNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantStickinessEventsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantStickinessActionsNode"
+                }
+            ]
+        },
+        "AssistantStickinessQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range. When enabled, shows the current and previous period side by side."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "default": "day",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one \"interval\" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days."
+                },
+                "intervalCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: \"day\"` with `intervalCount: 7` groups by 7-day periods."
+                },
+                "kind": {
+                    "const": "StickinessQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+                    "type": ["number", "null"]
+                },
+                "series": {
+                    "description": "Events or actions to include. Each series measures how many intervals (e.g. days) within the date range a user performed the event. Prioritize the more popular and fresh events and actions. When the `math` field is omitted on a series, it defaults to counting unique persons.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantStickinessNode"
+                    },
+                    "type": "array"
+                },
+                "stickinessFilter": {
+                    "$ref": "#/definitions/AssistantStickinessFilter",
+                    "description": "Properties specific to the stickiness insight"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
+        },
         "AssistantStringNumberOrBooleanPropertyFilter": {
             "anyOf": [
                 {
@@ -2466,7 +2909,8 @@
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
-                "search_llm_traces"
+                "search_llm_traces",
+                "run_hog_eval_test"
             ],
             "type": "string"
         },
@@ -2525,6 +2969,95 @@
                 }
             },
             "required": ["type", "content", "tool_call_id"],
+            "type": "object"
+        },
+        "AssistantTraceQuery": {
+            "additionalProperties": false,
+            "description": "Fetch a single LLM trace by ID. Returns the full trace with all child events and their complete properties — use for deep inspection of a specific trace found via `query-llm-traces-list`.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query."
+                },
+                "kind": {
+                    "const": "TraceQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters to narrow events within the trace.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "traceId": {
+                    "description": "The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "traceId"],
+            "type": "object"
+        },
+        "AssistantTracesQuery": {
+            "additionalProperties": false,
+            "description": "Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency, token usage, costs, errors, and other metadata. Use for AI observability — debugging slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.\n\nThis is a listing tool, not a visualization/insight tool. It does not support series, breakdowns, or math aggregations. Use property filters and dateRange to narrow results.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query."
+                },
+                "filterSupportTraces": {
+                    "default": false,
+                    "description": "Exclude support impersonation traces.",
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "default": true,
+                    "description": "Exclude internal and test users by applying the respective filters.",
+                    "type": "boolean"
+                },
+                "groupKey": {
+                    "description": "Filter traces by group key. Requires `groupTypeIndex` to be set.",
+                    "type": "string"
+                },
+                "groupTypeIndex": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Group type index when filtering by group."
+                },
+                "kind": {
+                    "const": "TracesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of traces to return."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of traces to skip for pagination."
+                },
+                "personId": {
+                    "description": "Filter traces by a specific person UUID.",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters to narrow results. Use event properties like `$ai_model`, `$ai_provider`, `$ai_trace_id`, etc. to filter traces.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "randomOrder": {
+                    "default": false,
+                    "description": "Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.",
+                    "type": "boolean"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "AssistantTrendsActionsNode": {
@@ -8087,6 +8620,87 @@
             ],
             "type": "object"
         },
+        "CachedWebNotableChangesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/WebNotableChangeItem"
+                    },
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedWebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -12261,9 +12875,11 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
                     "type": ["string", "null"]
                 },
                 "date_to": {
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
                     "type": ["string", "null"]
                 },
                 "explicitDate": {
@@ -12724,6 +13340,10 @@
                 "cache_age_seconds": {
                     "type": "number"
                 },
+                "deleted": {
+                    "description": "Set to true to soft-delete this endpoint",
+                    "type": "boolean"
+                },
                 "derived_from_insight": {
                     "type": "string"
                 },
@@ -13143,6 +13763,35 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "EnrichedReviewer": {
+            "additionalProperties": false,
+            "properties": {
+                "github_login": {
+                    "type": "string"
+                },
+                "github_name": {
+                    "type": ["string", "null"]
+                },
+                "relevant_commits": {
+                    "items": {
+                        "$ref": "#/definitions/RelevantCommit"
+                    },
+                    "type": "array"
+                },
+                "user": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/SignalReviewerUserInfo"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["github_login", "github_name", "relevant_commits", "user"],
             "type": "object"
         },
         "EnsembleDetectorConfig": {
@@ -13766,10 +14415,11 @@
                     "type": "array"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
                 },
                 "orderDirection": {
+                    "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
@@ -13780,10 +14430,12 @@
                     "type": "array"
                 },
                 "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
                 }
             },
             "required": ["orderBy"],
@@ -13807,6 +14459,11 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingOrderBy": {
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+            "title": "ErrorTrackingOrderBy",
+            "type": "string"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -13821,12 +14478,14 @@
                     ]
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange"
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range to filter results."
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
                 "filterTestAccounts": {
+                    "description": "Whether to filter out test accounts.",
                     "type": "boolean"
                 },
                 "groupKey": {
@@ -13836,6 +14495,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "issueId": {
+                    "description": "Filter to a specific error tracking issue by ID.",
                     "type": "string"
                 },
                 "kind": {
@@ -13853,10 +14513,11 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
                 },
                 "orderDirection": {
+                    "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
@@ -13867,10 +14528,12 @@
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
                 "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -14544,6 +15207,13 @@
                     "$ref": "#/definitions/integer",
                     "description": "Show events matching a given action"
                 },
+                "actionSteps": {
+                    "description": "Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.",
+                    "items": {
+                        "$ref": "#/definitions/EventsQueryActionStep"
+                    },
+                    "type": "array"
+                },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
                     "type": "string"
@@ -14645,6 +15315,49 @@
                 }
             },
             "required": ["kind", "select"],
+            "type": "object"
+        },
+        "EventsQueryActionStep": {
+            "additionalProperties": false,
+            "description": "An action step definition for matching events without a saved action",
+            "properties": {
+                "event": {
+                    "type": ["string", "null"]
+                },
+                "href": {
+                    "type": ["string", "null"]
+                },
+                "href_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "selector": {
+                    "type": ["string", "null"]
+                },
+                "tag_name": {
+                    "type": ["string", "null"]
+                },
+                "text": {
+                    "type": ["string", "null"]
+                },
+                "text_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                },
+                "url": {
+                    "type": ["string", "null"]
+                },
+                "url_matching": {
+                    "enum": ["contains", "exact", "regex", null],
+                    "type": ["string", "null"]
+                }
+            },
             "type": "object"
         },
         "EventsQueryPersonColumn": {
@@ -16858,6 +17571,17 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "FormDismissPayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "const": "dismiss_form",
+                    "type": "string"
+                }
+            },
+            "required": ["action"],
+            "type": "object"
+        },
         "FormResumePayload": {
             "additionalProperties": false,
             "properties": {
@@ -18221,6 +18945,12 @@
                 "nullValue": {
                     "type": "string"
                 },
+                "sortColumn": {
+                    "type": "string"
+                },
+                "sortOrder": {
+                    "$ref": "#/definitions/HeatmapSortOrder"
+                },
                 "valueColumn": {
                     "type": "string"
                 },
@@ -18238,6 +18968,10 @@
                 }
             },
             "type": "object"
+        },
+        "HeatmapSortOrder": {
+            "enum": ["asc", "desc"],
+            "type": "string"
         },
         "HedgehogActorAccessoryOption": {
             "enum": [
@@ -20804,6 +21538,11 @@
             "required": ["results"],
             "type": "object"
         },
+        "LogsOrderBy": {
+            "enum": ["latest", "earliest"],
+            "title": "LogsOrderBy",
+            "type": "string"
+        },
         "LogsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -20835,8 +21574,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
+                    "$ref": "#/definitions/LogsOrderBy"
                 },
                 "resourceFingerprint": {
                     "type": "string"
@@ -23054,7 +23792,6 @@
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
                 },
-                "result": {},
                 "type": {
                     "const": "insight",
                     "type": "string"
@@ -23697,6 +24434,7 @@
                 "WebPageURLSearchQuery",
                 "WebTrendsQuery",
                 "WebAnalyticsExternalSummaryQuery",
+                "WebNotableChangesQuery",
                 "RevenueAnalyticsGrossRevenueQuery",
                 "RevenueAnalyticsMetricsQuery",
                 "RevenueAnalyticsMRRQuery",
@@ -24816,6 +25554,9 @@
                 "log",
                 "log_attribute",
                 "log_resource_attribute",
+                "span",
+                "span_attribute",
+                "span_resource_attribute",
                 "workflow_variable",
                 "empty"
             ],
@@ -26704,6 +27445,52 @@
                         }
                     },
                     "required": ["data", "status"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/WebNotableChangeItem"
+                            },
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -29740,6 +30527,9 @@
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebNotableChangesQuery"
+                },
+                {
                     "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
                 },
                 {
@@ -30247,6 +31037,22 @@
             ],
             "type": "string"
         },
+        "RelevantCommit": {
+            "additionalProperties": false,
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "sha": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            },
+            "required": ["sha", "url", "reason"],
+            "type": "object"
+        },
         "ReplayInactivityPeriod": {
             "additionalProperties": false,
             "properties": {
@@ -30351,6 +31157,9 @@
                 },
                 {
                     "$ref": "#/definitions/FormResumePayload"
+                },
+                {
+                    "$ref": "#/definitions/FormDismissPayload"
                 }
             ]
         },
@@ -31992,6 +32801,13 @@
                     "$ref": "#/definitions/integer",
                     "description": "Show events matching a given action"
                 },
+                "actionSteps": {
+                    "description": "Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.",
+                    "items": {
+                        "$ref": "#/definitions/EventsQueryActionStep"
+                    },
+                    "type": "array"
+                },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
                     "type": "string"
@@ -32805,6 +33621,28 @@
             "required": ["source_product"],
             "type": "object"
         },
+        "SignalReviewerUserInfo": {
+            "additionalProperties": false,
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "first_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "last_name": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "uuid", "first_name", "last_name", "email"],
+            "type": "object"
+        },
         "SignalSourceProduct": {
             "enum": ["session_replay", "llm_analytics", "github", "linear", "zendesk", "error_tracking"],
             "type": "string"
@@ -33153,23 +33991,7 @@
                 },
                 "options": {
                     "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                            "fields": {
-                                "items": {
-                                    "$ref": "#/definitions/SourceFieldConfig"
-                                },
-                                "type": "array"
-                            },
-                            "label": {
-                                "type": "string"
-                            },
-                            "value": {
-                                "type": "string"
-                            }
-                        },
-                        "required": ["label", "value"],
-                        "type": "object"
+                        "$ref": "#/definitions/SourceFieldSelectConfigOption"
                     },
                     "type": "array"
                 },
@@ -33187,6 +34009,25 @@
         "SourceFieldSelectConfigConverter": {
             "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
             "type": "string"
+        },
+        "SourceFieldSelectConfigOption": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "items": {
+                        "$ref": "#/definitions/SourceFieldConfig"
+                    },
+                    "type": "array"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["label", "value"],
+            "type": "object"
         },
         "SourceFieldSwitchGroupConfig": {
             "additionalProperties": false,
@@ -33253,6 +34094,32 @@
             },
             "type": "object"
         },
+        "SpanPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "$ref": "#/definitions/SpanPropertyFilterType"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "SpanPropertyFilterType": {
+            "enum": ["span", "span_attribute", "span_resource_attribute"],
+            "type": "string"
+        },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
@@ -33312,6 +34179,19 @@
             "enum": ["non_cumulative", "cumulative"],
             "type": "string"
         },
+        "StickinessCriteria": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/StickinessOperator"
+                },
+                "value": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
@@ -33362,17 +34242,7 @@
                     "type": "boolean"
                 },
                 "stickinessCriteria": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "operator": {
-                            "$ref": "#/definitions/StickinessOperator"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/integer"
-                        }
-                    },
-                    "required": ["operator", "value"],
-                    "type": "object"
+                    "$ref": "#/definitions/StickinessCriteria"
                 }
             },
             "type": "object"
@@ -34104,6 +34974,9 @@
                 "logs",
                 "log_attributes",
                 "log_resource_attributes",
+                "spans",
+                "span_attributes",
+                "span_resource_attributes",
                 "replay",
                 "replay_saved_filters",
                 "revenue_analytics_properties",
@@ -34604,6 +35477,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
                 "kind": {
                     "const": "TraceSpansQuery",
                     "type": "string"
@@ -34619,17 +35495,17 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
+                    "$ref": "#/definitions/LogsOrderBy"
+                },
+                "prefetchSpans": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Prefetch up to this many spans per trace and include them in results"
                 },
                 "response": {
                     "$ref": "#/definitions/TraceSpansQueryResponse"
                 },
                 "rootSpans": {
                     "type": "boolean"
-                },
-                "searchTerm": {
-                    "type": "string"
                 },
                 "serviceNames": {
                     "items": {
@@ -35617,7 +36493,13 @@
                             "$ref": "#/definitions/RetentionQuery"
                         },
                         {
+                            "$ref": "#/definitions/StickinessQuery"
+                        },
+                        {
                             "$ref": "#/definitions/PathsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -35668,7 +36550,13 @@
                             "$ref": "#/definitions/RetentionQuery"
                         },
                         {
+                            "$ref": "#/definitions/StickinessQuery"
+                        },
+                        {
                             "$ref": "#/definitions/PathsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -36263,6 +37151,179 @@
                 "types": {
                     "items": {},
                     "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "WebNotableChangeItem": {
+            "additionalProperties": false,
+            "properties": {
+                "current_value": {
+                    "type": "number"
+                },
+                "dimension_type": {
+                    "type": "string"
+                },
+                "dimension_value": {
+                    "type": "string"
+                },
+                "impact_score": {
+                    "type": "number"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "percent_change": {
+                    "type": "number"
+                },
+                "previous_value": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "dimension_type",
+                "dimension_value",
+                "metric",
+                "current_value",
+                "previous_value",
+                "percent_change",
+                "impact_score"
+            ],
+            "type": "object"
+        },
+        "WebNotableChangesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
+                },
+                "kind": {
+                    "const": "WebNotableChangesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/WebAnalyticsOrderBy"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebNotableChangesQueryResponse"
+                },
+                "sampling": {
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "WebNotableChangesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/WebNotableChangeItem"
+                    },
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": ["results"],

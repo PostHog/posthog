@@ -3,6 +3,7 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback } from 'react'
@@ -352,11 +353,7 @@ export function ActionFilterRow({
                     })
                 }
             }}
-            renderValue={() => (
-                <span className="text-overflow max-w-full">
-                    <EntityFilterInfo filter={filter} showIcon />
-                </span>
-            )}
+            renderValue={() => <EntityFilterInfo filter={filter} showIcon />}
             groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
             placeholderClass=""
@@ -488,7 +485,7 @@ export function ActionFilterRow({
 
     return (
         <li
-            className="ActionFilterRow relative"
+            className="ActionFilterRow relative @max-[400px]/editor-panel:border @max-[400px]/editor-panel:rounded @max-[400px]/editor-panel:p-2"
             ref={setNodeRef}
             {...attributes}
             // eslint-disable-next-line react/forbid-dom-props
@@ -498,7 +495,7 @@ export function ActionFilterRow({
                 transition,
             }}
         >
-            <div className="ActionFilterRow-content">
+            <div className="ActionFilterRow-content @max-[400px]/editor-panel:flex-wrap @max-[400px]/editor-panel:gap-2 @max-[400px]/editor-panel:w-full @max-[400px]/editor-panel:items-center @max-[400px]/editor-panel:justify-between @max-[400px]/editor-panel:[&>*+*]:ml-0">
                 {renderRow ? (
                     renderRow({
                         seriesIndicator,
@@ -512,28 +509,40 @@ export function ActionFilterRow({
                     <>
                         {/* left section fixed */}
                         {rowStartElements.length ? (
-                            <div className="ActionFilterRow__start">{rowStartElements}</div>
+                            <div className="ActionFilterRow__start @max-[400px]/editor-panel:[height:auto]">
+                                {rowStartElements}
+                            </div>
                         ) : null}
                         {/* central section flexible */}
-                        <div className="ActionFilterRow__center">
+                        <div
+                            className={clsx(
+                                'ActionFilterRow__center',
+                                rowStartElements.length > 0 &&
+                                    '@max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1 @max-[400px]/editor-panel:min-w-0 @max-[400px]/editor-panel:[&>*]:basis-full'
+                            )}
+                        >
                             <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
                             {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (
                                     <>
                                         {mathAvailability !== MathAvailability.BoxPlotOnly && (
-                                            <MathSelector
-                                                math={math}
-                                                mathGroupTypeIndex={mathGroupTypeIndex}
-                                                index={index}
-                                                onMathSelect={onMathSelect}
-                                                disabled={readOnly}
-                                                style={{ maxWidth: '100%', width: 'initial' }}
-                                                mathAvailability={mathAvailability}
-                                                trendsDisplayCategory={trendsDisplayCategory}
-                                                allowedMathTypes={allowedMathTypes}
-                                                query={query || {}}
-                                            />
+                                            <div className="@min-[0px]/editor-panel:shrink @min-[0px]/editor-panel:min-w-28 @min-[0px]/editor-panel:overflow-hidden">
+                                                <MathSelector
+                                                    math={math}
+                                                    mathGroupTypeIndex={mathGroupTypeIndex}
+                                                    index={index}
+                                                    onMathSelect={onMathSelect}
+                                                    disabled={readOnly}
+                                                    style={{ maxWidth: '100%', width: 'initial' }}
+                                                    mathAvailability={mathAvailability}
+                                                    trendsDisplayCategory={trendsDisplayCategory}
+                                                    allowedMathTypes={allowedMathTypes}
+                                                    query={query || {}}
+                                                    fullWidth
+                                                    truncateText={{ maxWidthClass: 'max-w-full' }}
+                                                />
+                                            </div>
                                         )}
                                         {mathAvailability === MathAvailability.BoxPlotOnly && (
                                             <BoxPlotPropertySelector
@@ -578,7 +587,7 @@ export function ActionFilterRow({
                         </div>
                         {/* right section fixed */}
                         {(rowEndElements.length > 0 || showPopupMenu) && (
-                            <div className="ActionFilterRow__end">
+                            <div className="ActionFilterRow__end @max-[400px]/editor-panel:gap-1 @max-[400px]/editor-panel:[height:auto]">
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}

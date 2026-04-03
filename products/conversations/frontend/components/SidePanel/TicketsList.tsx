@@ -59,7 +59,7 @@ export function TicketsList(): JSX.Element {
                         <div
                             key={ticket.id}
                             className={`flex items-center justify-between p-3 rounded border cursor-pointer hover:bg-surface-light transition-colors ${
-                                (ticket.unread_count ?? 0) > 0 ? 'bg-primary-alt-highlight' : 'bg-white'
+                                (ticket.unread_count ?? 0) > 0 ? 'bg-primary-alt-highlight' : 'bg-surface-primary'
                             }`}
                             onClick={() => {
                                 setCurrentTicket(ticket)

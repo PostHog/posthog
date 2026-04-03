@@ -389,6 +389,8 @@ export interface TicketApi {
     readonly email_subject: string | null
     /** @nullable */
     readonly email_from: string | null
+    /** @nullable */
+    readonly email_to: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -442,6 +444,8 @@ export interface PatchedTicketApi {
     readonly email_subject?: string | null
     /** @nullable */
     readonly email_from?: string | null
+    /** @nullable */
+    readonly email_to?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }

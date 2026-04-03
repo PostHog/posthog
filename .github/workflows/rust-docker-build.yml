@@ -16,6 +16,16 @@ on:
             - '.github/rust-images.yml'
         branches:
             - 'master'
+    pull_request:
+        paths:
+            - 'rust/**'
+            - '.github/workflows/rust-docker-build.yml'
+        branches:
+            - 'master'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     build-images:

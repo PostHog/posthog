@@ -76,7 +76,6 @@ def calculate_for_query_based_insight(
     # Tile filters overrides all other filters
     if tile_filters_override is not None and tile_filters_override != {}:
         dashboard_filters_json = tile_filters_override
-        variables_override_json = None
 
     response = process_response = process_query_dict(
         team,

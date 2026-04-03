@@ -443,6 +443,11 @@ export interface CopyDashboardTileRequestApi {
     tileId: number
 }
 
+export interface DashboardGeneratedMetadataApi {
+    name: string
+    description: string
+}
+
 export interface ReorderTilesRequestApi {
     /**
      * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -484,6 +489,10 @@ export interface PatchedDataColorThemeApi {
 
 export type DashboardTemplatesListParams = {
     /**
+     * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
+     */
+    is_featured?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -491,6 +500,10 @@ export type DashboardTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Sort templates by name when not using `search`. Omit for database default order. Ignored when `search` is set (results stay relevance-ranked). Use `template_name` for A–Z or `-template_name` for Z–A.
+     */
+    ordering?: string
 }
 
 export type DashboardsListParams = {
@@ -588,6 +601,18 @@ export type DashboardsCopyTileCreateFormat =
     (typeof DashboardsCopyTileCreateFormat)[keyof typeof DashboardsCopyTileCreateFormat]
 
 export const DashboardsCopyTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsGenerateMetadataCreateParams = {
+    format?: DashboardsGenerateMetadataCreateFormat
+}
+
+export type DashboardsGenerateMetadataCreateFormat =
+    (typeof DashboardsGenerateMetadataCreateFormat)[keyof typeof DashboardsGenerateMetadataCreateFormat]
+
+export const DashboardsGenerateMetadataCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

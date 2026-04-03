@@ -21,17 +21,17 @@ type NotificationKafkaConsumer struct {
 }
 
 func NewNotificationKafkaConsumer(
-	kafkaConfig configs.KafkaConfig, redisClient rueidis.Client,
+	consumerConfig configs.ConsumerConfig, redisClient rueidis.Client,
 ) (*NotificationKafkaConsumer, error) {
 	config := &kafka.ConfigMap{
-		"bootstrap.servers":  kafkaConfig.Brokers,
-		"group.id":           kafkaConfig.GroupID + "-notifications",
+		"bootstrap.servers":  consumerConfig.Brokers,
+		"group.id":           consumerConfig.GroupID,
 		"auto.offset.reset":  "latest",
 		"enable.auto.commit": false,
-		"security.protocol":  kafkaConfig.SecurityProtocol,
+		"security.protocol":  consumerConfig.SecurityProtocol,
 	}
 
-	applyKafkaConfigOverrides(config, kafkaConfig)
+	applyKafkaConfigOverrides(config, consumerConfig)
 
 	consumer, err := kafka.NewConsumer(config)
 	if err != nil {
@@ -40,7 +40,7 @@ func NewNotificationKafkaConsumer(
 
 	return &NotificationKafkaConsumer{
 		consumer:    consumer,
-		topic:       kafkaConfig.NotificationTopic,
+		topic:       consumerConfig.Topic,
 		redisClient: redisClient,
 	}, nil
 }

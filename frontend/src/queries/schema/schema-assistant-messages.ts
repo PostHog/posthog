@@ -8,13 +8,16 @@ import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantPathsQuery,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
     FunnelsQuery,
     HogQLQuery,
+    LifecycleQuery,
     PathsQuery,
     QuerySchema,
     RetentionQuery,
@@ -22,6 +25,7 @@ import type {
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsTopCustomersQuery,
+    StickinessQuery,
     TrendsQuery,
 } from './schema-general'
 
@@ -180,7 +184,11 @@ export interface FormResumePayload {
     form_answers: MultiQuestionFormAnswers
 }
 
-export type ResumePayload = ApprovalResumePayload | FormResumePayload
+export interface FormDismissPayload {
+    action: 'dismiss_form'
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
@@ -235,7 +243,9 @@ export type AnyAssistantGeneratedQuery =
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
+    | AssistantStickinessQuery
     | AssistantPathsQuery
+    | AssistantLifecycleQuery
     | AssistantHogQLQuery
 
 export interface VisualizationItem {
@@ -247,7 +257,9 @@ export interface VisualizationItem {
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -481,6 +493,7 @@ export type AssistantTool =
     | 'finalize_plan'
     | 'call_mcp_server'
     | 'search_llm_traces'
+    | 'run_hog_eval_test'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

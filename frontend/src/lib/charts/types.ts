@@ -2,6 +2,7 @@ export type AxisFormat = 'number' | 'compact' | 'percent' | 'duration' | 'durati
 
 export interface ChartTheme {
     colors: string[]
+    backgroundColor?: string
     axisColor?: string
     gridColor?: string
     crosshairColor?: string

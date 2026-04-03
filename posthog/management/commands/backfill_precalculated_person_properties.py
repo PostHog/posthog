@@ -100,11 +100,18 @@ class Command(BaseCommand):
             default=1000,
             help="Number of persons to process per batch (default: 1000)",
         )
+        parser.add_argument(
+            "--concurrent-workflows",
+            type=int,
+            default=5,
+            help="Number of concurrent child workflows to run (default: 5)",
+        )
 
     def handle(self, *args, **options):
         team_id = options["team_id"]
         cohort_id = options.get("cohort_id")
         batch_size = options["batch_size"]
+        concurrent_workflows = options["concurrent_workflows"]
 
         # Get cohorts to process
         if cohort_id:
@@ -206,6 +213,7 @@ class Command(BaseCommand):
             filters=deduplicated_filters,
             cohort_ids=cohort_ids,
             batch_size=batch_size,
+            concurrent_workflows=concurrent_workflows,
         )
 
         self.stdout.write(
@@ -214,11 +222,12 @@ class Command(BaseCommand):
                 f"  Workflow ID: {workflow_id}\n"
                 f"  Cohorts: {cohort_ids}\n"
                 f"  Unique conditions: {len(deduplicated_filters)}\n"
-                f"  Batch size: {batch_size} persons per batch"
+                f"  Batch size: {batch_size} persons per batch\n"
+                f"  Concurrent workflows: {concurrent_workflows}"
             )
         )
         self.stdout.write(
-            "\nWorkflow is running sequentially using cursor-based pagination. Check Temporal UI for progress and results."
+            f"\nWorkflow is running with {concurrent_workflows} concurrent child workflows using ID-range based batching. Check Temporal UI for progress and results."
         )
 
     def run_temporal_workflow(
@@ -227,6 +236,7 @@ class Command(BaseCommand):
         filters: list[PersonPropertyFilter],
         cohort_ids: list[int],
         batch_size: int,
+        concurrent_workflows: int,
     ) -> str:
         """Run the Temporal coordinator workflow for the team."""
 
@@ -246,6 +256,7 @@ class Command(BaseCommand):
                 filter_storage_key=filter_storage_key,
                 cohort_ids=cohort_ids,
                 batch_size=batch_size,
+                concurrent_workflows=concurrent_workflows,
             )
 
             # Generate unique workflow ID (one per team, based on timestamp)

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # PostHog flox on-activate hook
 # Sourced (not executed) from manifest.toml — env vars persist into profile scripts.
+#
+# IMPORTANT: This script must NEVER use sudo. It runs automatically on every
+# shell activation, so requiring elevated privileges would condition developers
+# to blindly grant root access to code that changes without notice.
 
 set -euo pipefail
 
@@ -232,11 +236,23 @@ fi
 run_step "Node packages" pnpm install
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
-if grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
+if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
   done_step "System hosts"
 else
-  echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1>/dev/null
-  done_step "System hosts (updated)"
+  echo ""
+  echo -e "  ${C_YELLOW}┃${C_RESET} ${C_YELLOW}${C_BOLD}Action required${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET} PostHog services need hostnames in /etc/hosts."
+  echo -e "  ${C_YELLOW}┃${C_RESET} Copy and run this to update them:"
+  echo -e "  ${C_YELLOW}┃${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}   ${C_DIM}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}"
+  echo ""
+  if [[ -t 0 ]]; then
+    read -n 1 -s -r -p "  Press any key to continue..."
+    echo ""
+  fi
 fi
 
 # ── Step 4: Environment variables ───────────────────────────────────

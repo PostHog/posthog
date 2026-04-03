@@ -31,6 +31,7 @@ KAFKA_LOG_ENTRIES_V2_TEST = f"{KAFKA_PREFIX}log_entries_v2_test{SUFFIX}"
 KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFFIX}"
 
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
+KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
 
 # from capture to recordings consumer
 KAFKA_SESSION_RECORDING_EVENTS = f"{KAFKA_PREFIX}session_recording_events{SUFFIX}"
@@ -71,3 +72,5 @@ KAFKA_WAREHOUSE_SOURCES_JOBS = f"{KAFKA_PREFIX}data_warehouse_sources_jobs{SUFFI
 KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ = f"{KAFKA_PREFIX}data_warehouse_sources_jobs_dlq{SUFFIX}"
 
 KAFKA_NOTIFICATION_EVENTS = f"{KAFKA_PREFIX}notification_events{SUFFIX}"
+
+KAFKA_SIGNALS_REPORT_COMPLETED = f"{KAFKA_PREFIX}signals_report_completed{SUFFIX}"

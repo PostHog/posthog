@@ -170,11 +170,72 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
-    def test_column_aliases_non_postgres_error(self):
-        self._assert_query_error(
-            "select 1 from events as e (event_alias, ts_alias)",
-            "Table column aliases are not allowed in clickhouse dialect",
+    def test_column_aliases_select_star_subquery_uses_real_column_names(self):
+        printed = self._select("select s.* from (select 1 as x, 2 as y, 3 as z) as s (a, b, c)")
+        # ClickHouse doesn't support (a, b, c) syntax, so the printer should
+        # bake aliases into the inner SELECT
+        self.assertNotIn("(a, b, c)", printed)
+        self.assertIn("AS a", printed)
+        self.assertIn("AS b", printed)
+        self.assertIn("AS c", printed)
+
+    def test_column_aliases_explicit_aliased_refs_use_real_names(self):
+        printed = self._select("select e.a, e.b from events as e (a, b, c)")
+        # e.a should resolve to e.uuid, e.b to e.event in ClickHouse
+        self.assertIn("e.uuid", printed)
+        self.assertIn("e.event", printed)
+        self.assertNotIn("e.a", printed)
+        self.assertNotIn("e.b", printed)
+
+    def test_column_aliases_in_where_clause(self):
+        printed = self._select("select e.a from events as e (a, b, c) where e.c is not null")
+        self.assertIn("e.uuid", printed)
+        self.assertIn("e.properties", printed)
+        self.assertNotIn("e.a", printed)
+        self.assertNotIn("e.c", printed)
+
+    def test_column_aliases_unqualified_refs(self):
+        printed = self._select("select a, b from events as e (a, b, c)")
+        self.assertIn("e.uuid", printed)
+        self.assertIn("e.event", printed)
+
+    def test_column_aliases_remaining_columns_keep_original_names(self):
+        # Only 3 aliases for a table with many columns — remaining keep original names
+        printed = self._select("select e.a, e.timestamp from events as e (a, b, c)")
+        self.assertIn("e.uuid", printed)
+        self.assertIn("toTimeZone(e.timestamp", printed)
+
+    def test_column_aliases_original_name_not_accessible(self):
+        self._assert_select_error(
+            "select e.uuid from events as e (a, b, c)",
+            "Field not found: uuid",
         )
+
+    def test_column_aliases_subquery_bakes_into_inner_select(self):
+        printed = self._select("select s.a from (select 1 as x, 2 as y) as s (a, b)")
+        # For ClickHouse, column aliases are baked into the inner SELECT
+        self.assertIn("AS a", printed)
+        self.assertIn("AS b", printed)
+        self.assertNotIn("(a, b)", printed)
+
+    def test_column_aliases_too_many_error(self):
+        self._assert_query_error(
+            "select 1 from (select 1 as x) as s (a, b)",
+            "1 column(s) but 2 column name(s) were provided",
+        )
+
+    @parameterized.expand(
+        [
+            ("range", "select range from range(10)", "range() is not supported in ClickHouse dialect"),
+            (
+                "generate_series",
+                "select generate_series from generate_series(1, 10)",
+                "generate_series() is not supported in ClickHouse dialect",
+            ),
+        ]
+    )
+    def test_table_function_not_supported_in_clickhouse(self, _name, query, expected_error):
+        self._assert_select_error(query, expected_error)
 
     def test_lambda_style_clickhouse_prints(self):
         printed = self._select("select lambda x: x + 1")
@@ -1551,6 +1612,51 @@ class TestPrinter(BaseTest):
         where_clause = result[where_start:] if where_start != -1 else ""
         self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
         self.assertIn(f"equals(e2.team_id, {self.team.pk})", where_clause)
+
+    @parameterized.expand(
+        [
+            ("gte", ast.CompareOperationOp.GtEq, True),
+            ("gt", ast.CompareOperationOp.Gt, True),
+            ("lte", ast.CompareOperationOp.LtEq, True),
+            ("lt", ast.CompareOperationOp.Lt, True),
+            ("not_eq", ast.CompareOperationOp.NotEq, True),
+            ("eq", ast.CompareOperationOp.Eq, False),
+        ],
+    )
+    def test_join_analyzer_by_comparison_op(self, _name: str, op: ast.CompareOperationOp, expects_analyzer: bool):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        settings = HogQLGlobalSettings()
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="LEFT JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=op,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
+
+        if expects_analyzer:
+            self.assertIn("enable_analyzer=1", result)
+        else:
+            self.assertNotIn("enable_analyzer=1", result)
 
     def test_select_array_join(self):
         self.assertEqual(
@@ -4526,6 +4632,59 @@ class TestPostgresPrinter(BaseTest):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
         self.assertIn("AS e (event_alias, ts_alias)", printed)
 
+    def test_column_aliases_explicit_refs_use_aliased_names(self):
+        printed = self._select("SELECT e.a, e.b FROM events AS e (a, b, c)")
+        # Postgres supports (a, b, c) syntax natively, so field references
+        # should use the aliased names
+        self.assertIn("e.a", printed)
+        self.assertIn("e.b", printed)
+        self.assertNotIn("e.uuid", printed)
+        self.assertNotIn("e.event", printed)
+
+    def test_column_aliases_in_where(self):
+        printed = self._select("SELECT e.a FROM events AS e (a, b, c) WHERE e.c IS NOT NULL")
+        self.assertIn("e.a", printed)
+        self.assertIn("e.c", printed)
+
+    def test_column_aliases_select_star(self):
+        printed = self._select("SELECT s.* FROM (SELECT 1 AS x, 2 AS y, 3 AS z) AS s (a, b, c)")
+        self.assertIn("s.a", printed)
+        self.assertIn("s.b", printed)
+        self.assertIn("s.c", printed)
+
+    def test_column_aliases_subquery_preserves_syntax(self):
+        printed = self._select("SELECT s.a FROM (SELECT 1 AS x, 2 AS y) AS s (a, b)")
+        self.assertIn("(a, b)", printed)
+        self.assertIn("s.a", printed)
+
+    @parameterized.expand(
+        [
+            ("range_one_arg", "SELECT range FROM range(10)", "range(10)"),
+            ("range_two_args", "SELECT range FROM range(1, 10)", "range(1, 10)"),
+            ("range_three_args", "SELECT range FROM range(0, 10, 2)", "range(0, 10, 2)"),
+            (
+                "generate_series_two_args",
+                "SELECT generate_series FROM generate_series(1, 10)",
+                "generate_series(1, 10)",
+            ),
+        ]
+    )
+    def test_range_table_function_prints(self, _name, query, expected):
+        printed = self._select(query)
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            ("no_args", "SELECT range FROM range", "requires arguments"),
+            ("empty_args", "SELECT range FROM range()", "requires at least 1 argument"),
+            ("too_many_args", "SELECT range FROM range(1, 2, 3, 4)", "requires at most 3 arguments"),
+        ]
+    )
+    def test_range_table_function_arg_errors(self, _name, query, expected_error):
+        with self.assertRaises(QueryError) as ctx:
+            self._select(query)
+        self.assertIn(expected_error, str(ctx.exception))
+
     @parameterized.expand(
         [
             (
@@ -4604,6 +4763,51 @@ class TestPostgresPrinter(BaseTest):
     def test_is_distinct_from(self, expr: str, expected: str):
         printed = self._select(f"SELECT {expr}")
         self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            (
+                "is_distinct_from_alias_rhs",
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=""),
+                    right=ast.Alias(alias="x", expr=ast.Constant(value=True)),
+                ),
+            ),
+            (
+                "is_not_distinct_from_alias_lhs",
+                ast.IsDistinctFrom(
+                    left=ast.Alias(alias="x", expr=ast.Field(chain=["a"])),
+                    right=ast.Constant(value=1),
+                    negated=True,
+                ),
+            ),
+            (
+                "between_alias_expr",
+                ast.BetweenExpr(
+                    expr=ast.Alias(alias="x", expr=ast.Field(chain=["a"])),
+                    low=ast.Constant(value=1),
+                    high=ast.Constant(value=10),
+                ),
+            ),
+            (
+                "between_alias_bounds",
+                ast.BetweenExpr(
+                    expr=ast.Constant(value=5),
+                    low=ast.Alias(alias="lo", expr=ast.Constant(value=1)),
+                    high=ast.Alias(alias="hi", expr=ast.Constant(value=10)),
+                ),
+            ),
+        ]
+    )
+    def test_alias_in_infix_operator_roundtrips(self, _name: str, node: ast.Expr):
+        """Regression: aliases inside BETWEEN / IS DISTINCT FROM must be parenthesized
+        by the printer so the HogQL roundtrip is stable, and the parsed AST has the
+        same top-level node type as the original."""
+        printed = node.to_hogql()
+        parsed = parse_expr(printed)
+        self.assertEqual(type(parsed), type(node), f"AST type changed after roundtrip of: {printed!r}")
+        reprinted = parsed.to_hogql()
+        self.assertEqual(printed, reprinted)
 
     def test_limit_percent_with_subquery(self):
         printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")

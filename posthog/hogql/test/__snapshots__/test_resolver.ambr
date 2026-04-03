@@ -44,6 +44,18 @@
                           $session_id_uuid: {
                             hidden: False
                           },
+                          $virt_bot_name: {
+                            hidden: False
+                          },
+                          $virt_is_bot: {
+                            hidden: False
+                          },
+                          $virt_traffic_category: {
+                            hidden: False
+                          },
+                          $virt_traffic_type: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -1540,6 +1552,18 @@
                     hidden: False
                   },
                   $session_id_uuid: {
+                    hidden: False
+                  },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
                     hidden: False
                   },
                   $window_id: {
@@ -3576,6 +3600,18 @@
                           $session_id_uuid: {
                             hidden: False
                           },
+                          $virt_bot_name: {
+                            hidden: False
+                          },
+                          $virt_is_bot: {
+                            hidden: False
+                          },
+                          $virt_traffic_category: {
+                            hidden: False
+                          },
+                          $virt_traffic_type: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -5036,6 +5072,18 @@
                             $session_id_uuid: {
                               hidden: False
                             },
+                            $virt_bot_name: {
+                              hidden: False
+                            },
+                            $virt_is_bot: {
+                              hidden: False
+                            },
+                            $virt_traffic_category: {
+                              hidden: False
+                            },
+                            $virt_traffic_type: {
+                              hidden: False
+                            },
                             $window_id: {
                               hidden: False
                             },
@@ -6341,6 +6389,18 @@
                   $session_id_uuid: {
                     hidden: False
                   },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -7369,6 +7429,18 @@
                       hidden: False
                     },
                     $session_id_uuid: {
+                      hidden: False
+                    },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
                       hidden: False
                     },
                     $window_id: {
@@ -8403,6 +8475,18 @@
                       $session_id_uuid: {
                         hidden: False
                       },
+                      $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_is_bot: {
+                        hidden: False
+                      },
+                      $virt_traffic_category: {
+                        hidden: False
+                      },
+                      $virt_traffic_type: {
+                        hidden: False
+                      },
                       $window_id: {
                         hidden: False
                       },
@@ -8603,6 +8687,18 @@
                         hidden: False
                       },
                       $session_id_uuid: {
+                        hidden: False
+                      },
+                      $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_is_bot: {
+                        hidden: False
+                      },
+                      $virt_traffic_category: {
+                        hidden: False
+                      },
+                      $virt_traffic_type: {
                         hidden: False
                       },
                       $window_id: {
@@ -9132,6 +9228,18 @@
                   $session_id_uuid: {
                     hidden: False
                   },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9368,6 +9476,18 @@
                       hidden: False
                     },
                     $session_id_uuid: {
+                      hidden: False
+                    },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
                       hidden: False
                     },
                     $window_id: {
@@ -9610,6 +9730,18 @@
                         hidden: False
                       },
                       $session_id_uuid: {
+                        hidden: False
+                      },
+                      $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_is_bot: {
+                        hidden: False
+                      },
+                      $virt_traffic_category: {
+                        hidden: False
+                      },
+                      $virt_traffic_type: {
                         hidden: False
                       },
                       $window_id: {
@@ -9892,6 +10024,18 @@
                                 hidden: False
                               },
                               $session_id_uuid: {
+                                hidden: False
+                              },
+                              $virt_bot_name: {
+                                hidden: False
+                              },
+                              $virt_is_bot: {
+                                hidden: False
+                              },
+                              $virt_traffic_category: {
+                                hidden: False
+                              },
+                              $virt_traffic_type: {
                                 hidden: False
                               },
                               $window_id: {
@@ -10182,6 +10326,18 @@
                   $session_id_uuid: {
                     hidden: False
                   },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -10428,6 +10584,18 @@
                       hidden: False
                     },
                     $session_id_uuid: {
+                      hidden: False
+                    },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
                       hidden: False
                     },
                     $window_id: {
@@ -10679,6 +10847,18 @@
                   $session_id_uuid: {
                     hidden: False
                   },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -10912,6 +11092,18 @@
                       hidden: False
                     },
                     $session_id_uuid: {
+                      hidden: False
+                    },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
                       hidden: False
                     },
                     $window_id: {
@@ -11254,6 +11446,18 @@
                     $session_id_uuid: {
                       hidden: False
                     },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -11451,6 +11655,18 @@
                           hidden: False
                         },
                         $session_id_uuid: {
+                          hidden: False
+                        },
+                        $virt_bot_name: {
+                          hidden: False
+                        },
+                        $virt_is_bot: {
+                          hidden: False
+                        },
+                        $virt_traffic_category: {
+                          hidden: False
+                        },
+                        $virt_traffic_type: {
                           hidden: False
                         },
                         $window_id: {
@@ -11662,6 +11878,18 @@
                     hidden: False
                   },
                   $session_id_uuid: {
+                    hidden: False
+                  },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
                     hidden: False
                   },
                   $window_id: {
