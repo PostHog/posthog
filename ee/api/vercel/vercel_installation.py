@@ -13,7 +13,7 @@ from ee.api.vercel.utils import expect_vercel_user_claim
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_permission import VercelPermission
 from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
-from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+from ee.billing.billing_manager import BillingAPIErrorCodes, BillingServiceOpenInvoicesError
 from ee.vercel.integration import VercelIntegration
 
 logger = structlog.get_logger(__name__)
@@ -144,7 +144,7 @@ class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin
             return Response(
                 {
                     "error": {
-                        "code": "open_invoices_error",
+                        "code": BillingAPIErrorCodes.OPEN_INVOICES_ERROR.value,
                         "message": e.message,
                         "user": {
                             "message": "This integration has unpaid invoices that must be resolved before uninstalling. Please contact support@posthog.com for help.",
