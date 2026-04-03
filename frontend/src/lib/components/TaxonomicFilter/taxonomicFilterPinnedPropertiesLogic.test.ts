@@ -28,8 +28,8 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
         expect(logic.values.pinnedFilters).toEqual([])
     })
 
-    it('togglePin adds an item with groupType, groupName, value, item, and timestamp', () => {
-        const item = { name: '$browser', id: 'prop-1' }
+    it('togglePin adds an item storing only { name } regardless of what was passed', () => {
+        const item = { name: '$browser', id: 'prop-1', description: 'some desc', tags: ['a'] }
         logic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$browser', item)
 
         const filters = logic.values.pinnedFilters
@@ -39,7 +39,7 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
                 groupType: TaxonomicFilterGroupType.EventProperties,
                 groupName: 'Event properties',
                 value: '$browser',
-                item,
+                item: { name: '$browser' },
             })
         )
         expect(typeof filters[0].timestamp).toBe('number')

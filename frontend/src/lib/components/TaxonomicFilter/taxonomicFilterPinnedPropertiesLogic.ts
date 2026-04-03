@@ -3,17 +3,7 @@ import { actions, events, kea, path, reducers, selectors } from 'kea'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import type { taxonomicFilterPinnedPropertiesLogicType } from './taxonomicFilterPinnedPropertiesLogicType'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
-
-const EXCLUDED_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
-    TaxonomicFilterGroupType.HogQLExpression,
-    TaxonomicFilterGroupType.SuggestedFilters,
-    TaxonomicFilterGroupType.RecentFilters,
-    TaxonomicFilterGroupType.PinnedFilters,
-    TaxonomicFilterGroupType.Empty,
-    TaxonomicFilterGroupType.Wildcards,
-    TaxonomicFilterGroupType.MaxAIContext,
-])
+import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
 
 export interface PinnedTaxonomicFilter {
     groupType: TaxonomicFilterGroupType
@@ -67,7 +57,7 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                 clearPinnedFilters: () => [],
                 setPinnedFilters: (_, { filters }) => filters,
                 togglePin: (state, { groupType, groupName, value, item }) => {
-                    if (EXCLUDED_GROUP_TYPES.has(groupType) || value == null) {
+                    if (META_GROUP_TYPES.has(groupType) || value == null) {
                         return state
                     }
 
@@ -81,7 +71,7 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                         groupType,
                         groupName,
                         value,
-                        item,
+                        item: { name: item?.name ?? value },
                         timestamp: Date.now(),
                     }
 
