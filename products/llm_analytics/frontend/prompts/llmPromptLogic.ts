@@ -77,6 +77,11 @@ export function isPrompt(prompt: LLMPrompt | ResolvedLLMPrompt | PromptFormValue
     return prompt !== null && 'id' in prompt
 }
 
+/** Convert prompt content (string or JSON object) to a displayable string */
+export function promptToString(value: string | Record<string, unknown>): string {
+    return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+}
+
 const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
     name: '',
     prompt: '',
@@ -788,7 +793,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 function getPromptFormDefaults(prompt: LLMPrompt): PromptFormValues {
     return {
         name: prompt.name,
-        prompt: prompt.prompt,
+        prompt: promptToString(prompt.prompt),
     }
 }
 

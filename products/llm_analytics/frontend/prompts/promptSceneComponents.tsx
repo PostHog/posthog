@@ -17,7 +17,13 @@ import { Query } from '~/queries/Query/Query'
 import { LLMPrompt, LLMPromptVersionSummary } from '~/types'
 
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
-import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import {
+    PROMPT_NAME_MAX_LENGTH,
+    PromptAnalyticsScope,
+    isPrompt,
+    llmPromptLogic,
+    promptToString,
+} from './llmPromptLogic'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
@@ -30,7 +36,7 @@ export function PromptViewDetails(): JSX.Element {
         return <></>
     }
 
-    const promptText = prompt.prompt
+    const promptText = promptToString(prompt.prompt)
     const variableMatches = promptText.match(/\{\{([^}]+)\}\}/g)
     const variables = variableMatches
         ? [...new Set(variableMatches.map((match: string) => match.slice(2, -2).trim()))]
@@ -100,10 +106,10 @@ export function PromptViewDetails(): JSX.Element {
                 {isDiffVisible ? (
                     <PromptDiffView />
                 ) : isRenderingMarkdown ? (
-                    <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3">{prompt.prompt}</LemonMarkdown>
+                    <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3">{promptText}</LemonMarkdown>
                 ) : (
                     <pre className="mt-1 max-w-3xl rounded border bg-bg-light p-3 whitespace-pre-wrap">
-                        {prompt.prompt}
+                        {promptText}
                     </pre>
                 )}
             </div>
@@ -137,8 +143,8 @@ function PromptDiffView(): JSX.Element {
     }
 
     const currentVersion = prompt.version
-    const original = comparePrompt?.prompt ?? ''
-    const modified = prompt.prompt
+    const original = comparePrompt?.prompt ? promptToString(comparePrompt.prompt) : ''
+    const modified = promptToString(prompt.prompt)
 
     return (
         <div className="mt-2 space-y-3" data-attr="llma-prompt-diff-view">

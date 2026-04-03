@@ -6857,7 +6857,7 @@ export interface DatasetItem {
 export interface LLMPrompt {
     id: string
     name: string
-    prompt: string
+    prompt: string | Record<string, unknown>
     version: number
     created_by: UserBasicType
     created_at: string
@@ -6872,7 +6872,7 @@ export interface LLMPrompt {
 export interface LLMPromptPublic {
     id: string
     name: string
-    prompt: string
+    prompt: string | Record<string, unknown>
     version: number
     created_at: string
     updated_at: string

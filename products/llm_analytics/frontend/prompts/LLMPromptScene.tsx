@@ -16,7 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic, promptToString } from './llmPromptLogic'
 import {
     PromptEditForm,
     PromptRelatedTraces,
@@ -125,7 +125,10 @@ export function LLMPromptScene(): JSX.Element {
                                     type="primary"
                                     onClick={() => {
                                         if (isPrompt(prompt)) {
-                                            setPromptFormValues({ name: prompt.name, prompt: prompt.prompt })
+                                            setPromptFormValues({
+                                                name: prompt.name,
+                                                prompt: promptToString(prompt.prompt),
+                                            })
                                             setMode(PromptMode.Edit)
                                         }
                                     }}

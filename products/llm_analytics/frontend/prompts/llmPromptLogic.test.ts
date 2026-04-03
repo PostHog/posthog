@@ -4,7 +4,7 @@ import { EventsQuery, NodeKind, TracesQuery } from '~/queries/schema/schema-gene
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
+import { PromptAnalyticsScope, PromptMode, llmPromptLogic, promptToString } from './llmPromptLogic'
 
 const mockPrompt = {
     id: 'prompt-version-2',
@@ -37,6 +37,29 @@ const mockPrompt = {
     ],
     has_more: false,
 }
+
+const mockJsonPrompt = {
+    ...mockPrompt,
+    prompt: {
+        system_prompt: { brief: 'Be concise', detailed: 'Be thorough' },
+        user_prompt_template: 'Summarize {{topic}}',
+    },
+}
+
+describe('promptToString', () => {
+    it('returns string prompts as-is', () => {
+        expect(promptToString('You are a helpful assistant.')).toBe('You are a helpful assistant.')
+    })
+
+    it('returns empty string as-is', () => {
+        expect(promptToString('')).toBe('')
+    })
+
+    it('stringifies object prompts as pretty-printed JSON', () => {
+        const obj = { system: 'Be helpful', template: '{{name}}' }
+        expect(promptToString(obj)).toBe(JSON.stringify(obj, null, 2))
+    })
+})
 
 describe('llmPromptLogic', () => {
     beforeEach(() => {
@@ -247,6 +270,24 @@ describe('llmPromptLogic', () => {
         logic.actions.setPrompt(mockPrompt)
 
         expect(logic.values.breadcrumbs[1].name).toBe('my-test-prompt v2')
+
+        logic.unmount()
+    })
+
+    it('handles JSON object prompt content without crashing', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+
+        // Simulate what loadPromptSuccess listener does: set prompt + form values
+        logic.actions.setPrompt(mockJsonPrompt)
+        logic.actions.setPromptFormValues({
+            name: mockJsonPrompt.name,
+            prompt: promptToString(mockJsonPrompt.prompt as unknown as Record<string, unknown>),
+        })
+
+        expect(logic.values.promptForm.prompt).toBe(JSON.stringify(mockJsonPrompt.prompt, null, 2))
+        // The stringified JSON contains "{{topic}}" from user_prompt_template
+        expect(logic.values.promptVariables).toEqual(['topic'])
 
         logic.unmount()
     })
