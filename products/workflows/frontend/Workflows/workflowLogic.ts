@@ -151,7 +151,8 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         setScheduleState: (scheduleState: ScheduleState) => ({ scheduleState }),
         setScheduleStartsAt: (startsAt: string | null) => ({ startsAt }),
-        setScheduleTimezone: (timezone: string) => ({ timezone }),
+        setScheduleStartsAtFromPicker: (pickerDate: string | null) => ({ pickerDate }),
+        setScheduleTimezone: (timezone: string, previousTimezone?: string) => ({ timezone, previousTimezone }),
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
@@ -529,8 +530,28 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        setScheduleStartsAtFromPicker: ({ pickerDate }) => {
+            if (!pickerDate) {
+                actions.setScheduleStartsAt(null)
+                return
+            }
+            // The picker returns browser-local time. Reinterpret as the schedule timezone.
+            const wallClock = dayjs(pickerDate).startOf('minute').format('YYYY-MM-DDTHH:mm:ss')
+            actions.setScheduleStartsAt(dayjs.tz(wallClock, values.scheduleTimezone).toISOString())
+        },
+        setScheduleTimezone: ({ timezone, previousTimezone }) => {
+            // When timezone changes, keep the wall-clock time the same by reinterpreting
+            // the current starts_at in the new timezone.
+            const oldTz = previousTimezone ?? dayjs.tz.guess()
+            if (values.scheduleStartsAt) {
+                const wallClock = dayjs(values.scheduleStartsAt).tz(oldTz).format('YYYY-MM-DDTHH:mm:ss')
+                actions.setScheduleStartsAt(dayjs.tz(wallClock, timezone).toISOString())
+            }
+        },
         resetWorkflow: () => {
-            // Re-initialize all schedule reducers atomically from the saved schedule.
+            // Re-initialize schedule reducers from the saved schedule.
+            // Using setSchedules resets all reducers atomically without triggering
+            // the setScheduleTimezone listener's wall-clock reinterpretation.
             actions.setSchedules(values.schedules)
         },
         saveWorkflowPartial: async ({ workflow }) => {
