@@ -3374,7 +3374,10 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
         schema_name=STRIPE_CHARGE_RESOURCE_NAME,
         table_name="stripe_charge",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_charge["data"],
         sync_type=ExternalDataSchema.SyncType.WEBHOOK,
     )
@@ -3540,7 +3543,10 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
         schema_name=STRIPE_CHARGE_RESOURCE_NAME,
         table_name="stripe_charge",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_charge["data"],
         sync_type=ExternalDataSchema.SyncType.WEBHOOK,
     )
