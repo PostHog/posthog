@@ -591,7 +591,6 @@
         background: color-mix(in oklab, var(--color-accent) 25%, transparent);
         border-radius: 2px;
         box-decoration-break: clone;
-        box-decoration-break: clone;
 
         &:hover {
             background: color-mix(in oklab, var(--color-accent) 50%, transparent);
