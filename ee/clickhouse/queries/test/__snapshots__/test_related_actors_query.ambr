@@ -1,0 +1,62 @@
+# serializer version: 1
+# name: TestRelatedGroupsQuery.test_query
+  '''
+  
+  SELECT DISTINCT group_type_index,
+                  group_key
+  FROM groups
+  WHERE team_id = 99999
+    AND group_type_index IN [0, 1]
+    AND (group_type_index,
+         group_key) IN
+      (SELECT tuples.1 AS group_type_index,
+              tuples.2 AS group_key
+       FROM events e ARRAY
+       JOIN arrayFilter(x -> x.2 != '', [(toUInt8(0), e.$group_0), (toUInt8(1), e.$group_1)]) AS tuples
+       WHERE team_id = 99999
+         AND e.timestamp > '2024-12-01T12:00:00.000000'
+         AND e.timestamp < '2025-03-01T12:00:00.000000'
+         AND e.person_id = '00000000-0000-4000-8000-000000000000' )
+  ORDER BY group_type_index,
+           group_key
+  '''
+# ---
+# name: TestRelatedPersonsQuery.test_query_related_people
+  '''
+  
+  SELECT DISTINCT argMax(person_id, version) AS person_id
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND distinct_id IN
+      (SELECT distinct_id
+       FROM events
+       WHERE team_id = 99999
+         AND timestamp > '2024-12-01T12:00:00.000000'
+         AND timestamp < '2025-03-01T12:00:00.000000'
+         AND $group_0 = 'org:1' )
+  GROUP BY distinct_id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestRelatedPersonsQuery.test_query_related_people.1
+  '''
+  
+  SELECT DISTINCT group_type_index,
+                  group_key
+  FROM groups
+  WHERE team_id = 99999
+    AND group_type_index IN [1]
+    AND (group_type_index,
+         group_key) IN
+      (SELECT tuples.1 AS group_type_index,
+              tuples.2 AS group_key
+       FROM events e ARRAY
+       JOIN arrayFilter(x -> x.2 != '', [(toUInt8(1), e.$group_1)]) AS tuples
+       WHERE team_id = 99999
+         AND e.timestamp > '2024-12-01T12:00:00.000000'
+         AND e.timestamp < '2025-03-01T12:00:00.000000'
+         AND e.$group_0 = 'org:1' )
+  ORDER BY group_type_index,
+           group_key
+  '''
+# ---

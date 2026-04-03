@@ -2,12 +2,11 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { Meta, StoryObj } from '@storybook/react'
 
-import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof App>
+type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/TrendsValue',
     parameters: {
@@ -129,4 +128,15 @@ export const TrendsTableBreakdownEdit: Story = createInsightStory(
 TrendsTableBreakdownEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=insights-table-graph] td' },
 }
+export const TrendsValueEditViewports: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'),
+    'edit'
+)
+TrendsValueEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-bar-value-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+
 /* eslint-enable @typescript-eslint/no-var-requires */

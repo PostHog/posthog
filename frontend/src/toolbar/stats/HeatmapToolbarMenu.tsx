@@ -6,14 +6,14 @@ import { IconMagicWand } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
+import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
+import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconSync } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -38,7 +38,10 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
             ) : !posthog.heatmaps.isEnabled ? (
                 <>
                     You can enable heatmap collection in your posthog-js configuration or{' '}
-                    <Link to={joinWithUiHost(uiHost, `${urls.settings()}#heatmaps`)} target="_blank">
+                    <Link
+                        to={joinWithUiHost(uiHost, urls.settings('environment-heatmaps', 'heatmaps'))}
+                        target="_blank"
+                    >
                         in your project config
                     </Link>
                     .
@@ -225,7 +228,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 <div className="flex items-center gap-1">
                                     <LemonLabel
                                         info="Sampling computes the result on a proportion of data of the users in the dataset, making click maps load significantly faster."
-                                        infoLink="https://posthog.com/docs/product-analytics/sampling"
+                                        infoLink="https://posthog.com/docs/toolbar/heatmaps"
                                     >
                                         Sampling
                                     </LemonLabel>

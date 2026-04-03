@@ -1,3 +1,4 @@
+import json
 import logging
 import datetime as dt
 
@@ -12,10 +13,11 @@ from temporalio.service import RPCError
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.batch_exports.service import pause_batch_export, sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule, update_schedule
+
+from products.batch_exports.backend.service import pause_batch_export, sync_batch_export
 
 pytestmark = [
     pytest.mark.django_db,
@@ -29,6 +31,8 @@ DUMMY_CONFIG = {
         "aws_access_key_id": "abc123",
         "aws_secret_access_key": "secret",
         "invalid_key": "invalid_value",
+        "use_virtual_style_addressing": "true",
+        "max_file_size_mb": "100",
     },
     "Snowflake": {
         "account": "test-account",
@@ -36,6 +40,22 @@ DUMMY_CONFIG = {
         "database": "test-database",
         "warehouse": "test-warehouse",
         "schema": "test-schema",
+    },
+    "Databricks": {
+        "http_path": "/sql/1.0/warehouses/abc",
+        "catalog": "main",
+        "schema": "default",
+        "table_name": "events",
+        "use_variant_type": "true",
+        "use_automatic_schema_evolution": "false",
+    },
+    "Postgres": {
+        "user": "test-user",
+        "password": "test-password",
+        "host": "localhost",
+        "database": "test-db",
+        "port": "5432",
+        "has_self_signed_cert": "true",
     },
 }
 
@@ -55,10 +75,11 @@ def team_2(organization):
     return create_team(organization=organization)
 
 
-def _create_batch_export(team, destination_type, timezone):
+def _create_batch_export(team, destination_type, timezone, config_overrides=None):
+    config = {**DUMMY_CONFIG[destination_type], **(config_overrides or {})}
     destination_data = {
         "type": destination_type,
-        "config": DUMMY_CONFIG[destination_type],
+        "config": config,
     }
 
     batch_export_data = {
@@ -222,3 +243,42 @@ def test_update_batch_export_schedules_raises_error_if_no_batch_exports_found(te
 
     # check that the Snowflake batch export was not updated
     _assert_schedule(temporal, batch_export_snowflake, timezone, dt.timedelta(hours=6), False)
+
+
+def _get_workflow_args(temporal: TemporalClient, batch_export: BatchExport) -> dict:
+    """Decode the workflow args from a Temporal schedule."""
+    schedule = describe_schedule(temporal, str(batch_export.id))
+    codec = temporal.data_converter.payload_codec
+    assert codec is not None
+    payloads = async_to_sync(codec.decode)([schedule.schedule.action.args[0]])
+    return json.loads(payloads[0].data)
+
+
+def test_sync_batch_export_coerces_databricks_config_types(team, temporal):
+    """Databricks boolean config values stored as strings are coerced to bools."""
+    batch_export = _create_batch_export(team, "Databricks", "UTC")
+    workflow_args = _get_workflow_args(temporal, batch_export)
+
+    assert workflow_args["use_variant_type"] is True
+    assert workflow_args["use_automatic_schema_evolution"] is False
+
+
+@pytest.mark.parametrize("has_self_signed_cert", ["true", "false"])
+def test_sync_batch_export_coerces_postgres_config_types(team, temporal, has_self_signed_cert):
+    """Postgres boolean and int config values stored as strings are coerced."""
+    batch_export = _create_batch_export(
+        team, "Postgres", "UTC", config_overrides={"has_self_signed_cert": has_self_signed_cert}
+    )
+    workflow_args = _get_workflow_args(temporal, batch_export)
+
+    assert workflow_args["has_self_signed_cert"] is (has_self_signed_cert == "true")
+    assert workflow_args["port"] == 5432
+
+
+def test_sync_batch_export_coerces_s3_config_types(team, temporal):
+    """S3 boolean and int config values stored as strings are coerced."""
+    batch_export = _create_batch_export(team, "S3", "UTC")
+    workflow_args = _get_workflow_args(temporal, batch_export)
+
+    assert workflow_args["use_virtual_style_addressing"] is True
+    assert workflow_args["max_file_size_mb"] == 100

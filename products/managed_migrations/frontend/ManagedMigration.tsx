@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { managedMigrationLogic } from './managedMigrationLogic'
+import { type ManagedMigrationForm, managedMigrationLogic } from './managedMigrationLogic'
 import { type ManagedMigration } from './types'
 
 const STATUS_COLORS = {
@@ -38,6 +38,42 @@ const STATUS_LABELS: Record<string, string> = {
 function StatusTag({ status }: { status: string }): JSX.Element {
     const label = STATUS_LABELS[status] ?? status.charAt(0).toUpperCase() + status.slice(1)
     return <LemonTag type={STATUS_COLORS[status as keyof typeof STATUS_COLORS] || 'default'}>{label}</LemonTag>
+}
+
+function AmplitudeImportOptions({
+    managedMigration,
+    setManagedMigrationValue,
+}: {
+    managedMigration: ManagedMigrationForm
+    setManagedMigrationValue: (key: string, value: any) => void
+}): JSX.Element {
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.AMPLITUDE_BATCH_IMPORT_OPTIONS}>
+            <LemonField name="import_events">
+                <LemonCheckbox
+                    checked={managedMigration.import_events !== false}
+                    onChange={(checked) => setManagedMigrationValue('import_events', checked)}
+                    label="Import events from Amplitude"
+                />
+            </LemonField>
+
+            <LemonField name="generate_identify_events">
+                <LemonCheckbox
+                    checked={managedMigration.generate_identify_events !== false}
+                    onChange={(checked) => setManagedMigrationValue('generate_identify_events', checked)}
+                    label="Generate identify events to link user IDs with device IDs"
+                />
+            </LemonField>
+
+            <LemonField name="generate_group_identify_events">
+                <LemonCheckbox
+                    checked={managedMigration.generate_group_identify_events === true}
+                    onChange={(checked) => setManagedMigrationValue('generate_group_identify_events', checked)}
+                    label="Generate group identify events from group property changes"
+                />
+            </LemonField>
+        </FlaggedFeature>
+    )
 }
 
 export function ManagedMigration(): JSX.Element {
@@ -171,38 +207,21 @@ export function ManagedMigration(): JSX.Element {
                         </LemonField>
 
                         {managedMigration.source_type === 'amplitude' && (
-                            <FlaggedFeature flag={FEATURE_FLAGS.AMPLITUDE_BATCH_IMPORT_OPTIONS}>
-                                <LemonField name="import_events">
-                                    <LemonCheckbox
-                                        checked={managedMigration.import_events !== false}
-                                        onChange={(checked) => setManagedMigrationValue('import_events', checked)}
-                                        label="Import events from Amplitude"
-                                    />
-                                </LemonField>
-
-                                <LemonField name="generate_identify_events">
-                                    <LemonCheckbox
-                                        checked={managedMigration.generate_identify_events !== false}
-                                        onChange={(checked) =>
-                                            setManagedMigrationValue('generate_identify_events', checked)
-                                        }
-                                        label="Generate identify events to link user IDs with device IDs"
-                                    />
-                                </LemonField>
-
-                                <LemonField name="generate_group_identify_events">
-                                    <LemonCheckbox
-                                        checked={managedMigration.generate_group_identify_events === true}
-                                        onChange={(checked) =>
-                                            setManagedMigrationValue('generate_group_identify_events', checked)
-                                        }
-                                        label="Generate group identify events from group property changes"
-                                    />
-                                </LemonField>
-                            </FlaggedFeature>
+                            <AmplitudeImportOptions
+                                managedMigration={managedMigration}
+                                setManagedMigrationValue={setManagedMigrationValue}
+                            />
                         )}
                     </>
                 )}
+
+                {(managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip') &&
+                    managedMigration.content_type === 'amplitude' && (
+                        <AmplitudeImportOptions
+                            managedMigration={managedMigration}
+                            setManagedMigrationValue={setManagedMigrationValue}
+                        />
+                    )}
 
                 <div className="flex gap-4">
                     <LemonField name="access_key" label="Access Key ID" className="flex-1">

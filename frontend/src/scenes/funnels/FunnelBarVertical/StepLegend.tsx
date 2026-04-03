@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconClock } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
@@ -14,9 +14,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
 
-import { FunnelStepMore } from '../FunnelStepMore'
-import { ValueInspectorButton } from '../ValueInspectorButton'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { FunnelStepMore } from '../FunnelStepMore'
 import {
     formatConvertedCount,
     formatConvertedPercentage,
@@ -26,6 +25,7 @@ import {
     getTooltipTitleForConverted,
     getTooltipTitleForDroppedOff,
 } from '../funnelUtils'
+import { ValueInspectorButton } from '../ValueInspectorButton'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
@@ -68,7 +68,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
     )
 
     return (
-        <div className="StepLegend" style={{ opacity: isOptionalStep ? 0.6 : 1 }}>
+        <div className="StepLegend" data-attr="funnel-step-legend" style={{ opacity: isOptionalStep ? 0.6 : 1 }}>
             {/* Step */}
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
@@ -93,6 +93,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
                     {!!showPersonsModal && canOpenPersonModal && !isInExperimentContext ? (
                         <ValueInspectorButton
                             onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
+                            data-attr="funnel-inspect-converted"
                         >
                             {convertedCountPresentationWithPercentage}
                         </ValueInspectorButton>
@@ -116,6 +117,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
                         {showPersonsModal && stepIndex && !isInExperimentContext ? (
                             <ValueInspectorButton
                                 onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
+                                data-attr="funnel-inspect-dropped-off"
                             >
                                 {droppedOffCountPresentationWithPercentage}
                             </ValueInspectorButton>

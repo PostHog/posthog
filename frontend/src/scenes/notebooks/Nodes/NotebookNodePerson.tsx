@@ -12,8 +12,8 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { compactNumber } from 'lib/utils'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { personLogic } from 'scenes/persons/personLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -138,6 +138,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 
 function PersonInfo(): JSX.Element | null {
     const { person } = useValues(personLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     if (!person) {
         return null
@@ -146,7 +147,7 @@ function PersonInfo(): JSX.Element | null {
     return (
         <div className="flex flex-col">
             <FirstSeen person={person} />
-            <LastSeen />
+            {currentTeam?.extra_settings?.person_last_seen_at_enabled === true && <LastSeen />}
             <MRR />
             <LifetimeValue />
             <SessionCount />
@@ -165,14 +166,14 @@ function FirstSeen({ person }: { person: PersonType }): JSX.Element {
 }
 
 function LastSeen(): JSX.Element {
-    const { info, infoLoading } = useValues(personLogic)
+    const { person, personLoading } = useValues(personLogic)
     return (
         <div className="flex items-center gap-1">
             <span className="text-secondary">Last seen:</span>{' '}
-            {infoLoading ? (
+            {personLoading ? (
                 <LemonSkeleton className="h-4 w-24" />
-            ) : info?.lastSeen ? (
-                <TZLabel time={info.lastSeen} />
+            ) : person?.last_seen_at ? (
+                <TZLabel time={person.last_seen_at} />
             ) : (
                 'unknown'
             )}

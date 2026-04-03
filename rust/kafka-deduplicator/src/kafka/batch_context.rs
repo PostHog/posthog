@@ -23,6 +23,8 @@ pub enum RebalanceEvent {
 pub enum ConsumerCommand {
     /// Resume consumption for the specified partitions (after checkpoint import completes)
     Resume(TopicPartitionList),
+    /// Seek consumer to specific offsets (after checkpoint import, before resume)
+    SeekPartitions(TopicPartitionList),
 }
 
 /// Sender for consumer commands - passed to rebalance handler
@@ -89,7 +91,7 @@ impl BatchConsumerContext {
                     // Note: setup_revoked_partitions was already called synchronously
                     // Note: File deletion happens in finalize_rebalance_cycle at end of cycle
                     if let Err(e) = handler.cleanup_revoked_partitions(&tpl).await {
-                        error!("Partition revocation cleanup failed: {}", e);
+                        error!("Partition revocation cleanup failed: {e:#}");
                     }
                 }
                 RebalanceEvent::Assign => {
@@ -107,7 +109,7 @@ impl BatchConsumerContext {
                     {
                         // This error only occurs if the consumer command channel is broken.
                         // Resume is handled by async_setup_assigned_partitions when appropriate.
-                        error!("Partition assignment async setup failed: {}", e);
+                        error!("Partition assignment async setup failed: {e:#}");
                     }
                 }
             }
@@ -127,7 +129,7 @@ impl ConsumerContext for BatchConsumerContext {
         let handler = self.rebalance_handler.clone();
         self.rt_handle.spawn(async move {
             if let Err(e) = handler.on_pre_rebalance().await {
-                error!("Pre-rebalance handler failed: {}", e);
+                error!("Pre-rebalance handler failed: {e:#}");
             }
         });
 
@@ -160,7 +162,7 @@ impl ConsumerContext for BatchConsumerContext {
                     .collect();
 
                 if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Revoke(partitions)) {
-                    error!("Failed to send revoke event to rebalance worker: {}", e);
+                    error!("Failed to send revoke event to rebalance worker: {e:#}");
                 }
             }
             Rebalance::Assign(partitions) => {
@@ -170,7 +172,7 @@ impl ConsumerContext for BatchConsumerContext {
                 );
             }
             Rebalance::Error(e) => {
-                error!("Rebalance error: {}", e);
+                error!("Rebalance error: {e:#}");
             }
         }
     }
@@ -200,9 +202,8 @@ impl ConsumerContext for BatchConsumerContext {
                 // completes via a ConsumerCommand::Resume.
                 if let Err(e) = base_consumer.pause(partitions) {
                     error!(
-                        "Failed to pause {} newly assigned partitions: {}",
-                        partitions.count(),
-                        e
+                        "Failed to pause {} newly assigned partitions: {e:#}",
+                        partitions.count()
                     );
                 } else {
                     info!(
@@ -224,14 +225,14 @@ impl ConsumerContext for BatchConsumerContext {
                 // (downloading checkpoints, creating stores, then RESUME)
                 // Handler uses rebalance_tracker.get_owned_partitions() for definitive list
                 if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Assign) {
-                    error!("Failed to send assign event to rebalance worker: {}", e);
+                    error!("Failed to send assign event to rebalance worker: {e:#}");
                 }
             }
             Rebalance::Revoke(_) => {
                 info!("Post-rebalance revoke event");
             }
             Rebalance::Error(e) => {
-                error!("Post-rebalance error: {}", e);
+                error!("Post-rebalance error: {e:#}");
             }
         }
 
@@ -239,7 +240,7 @@ impl ConsumerContext for BatchConsumerContext {
         let handler = self.rebalance_handler.clone();
         self.rt_handle.spawn(async move {
             if let Err(e) = handler.on_post_rebalance().await {
-                error!("Post-rebalance handler failed: {}", e);
+                error!("Post-rebalance handler failed: {e:#}");
             }
         });
     }
@@ -257,7 +258,7 @@ impl ConsumerContext for BatchConsumerContext {
                 );
             }
             Err(e) => {
-                warn!("Failed to commit offsets: {}", e);
+                warn!("Failed to commit offsets: {e:#}");
             }
         }
     }

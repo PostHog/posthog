@@ -2,9 +2,9 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { DateRange, FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest, UniversalFiltersGroup } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Error tracking',
@@ -47,8 +47,16 @@ export const manifest: ProductManifest = {
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
         errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
-        errorTrackingIssue: (id: string, params: { timestamp?: string; fingerprint?: string } = {}): string =>
-            combineUrl(`/error_tracking/${id}`, params).url,
+        errorTrackingIssue: (
+            id: string,
+            params: {
+                timestamp?: string
+                fingerprint?: string
+                searchQuery?: string
+                dateRange?: DateRange
+                filterGroup?: UniversalFiltersGroup
+            } = {}
+        ): string => combineUrl(`/error_tracking/${id}`, params).url,
         errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
         errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
         errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,

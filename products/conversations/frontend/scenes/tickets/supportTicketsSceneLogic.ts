@@ -1,8 +1,9 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
 import type {
     AssigneeFilterValue,
@@ -14,17 +15,30 @@ import type {
 } from '../../types'
 import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicType'
 
+export const SUPPORT_TICKETS_PAGE_SIZE = 20
+
+export interface SupportTicketsSceneLogicProps {
+    key?: string
+    distinctIds?: string[]
+}
+
 export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
+    props({} as SupportTicketsSceneLogicProps),
+    key((props: SupportTicketsSceneLogicProps) => props?.key || 'SupportTicketsScene'),
     actions({
         setStatusFilter: (statuses: TicketStatus[]) => ({ statuses }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
         setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
         setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
+        setTagsFilter: (tags: string[]) => ({ tags }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setSorting: (sorting: Sorting | null) => ({ sorting }),
+        setCurrentPage: (page: number) => ({ page }),
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
+        setTotalCount: (count: number) => ({ count }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
@@ -40,6 +54,18 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 loadTickets: () => true,
                 setTickets: () => false,
                 setTicketsLoading: (_, { loading }) => loading,
+            },
+        ],
+        currentPage: [
+            1,
+            {
+                setCurrentPage: (_, { page }) => page,
+            },
+        ],
+        totalCount: [
+            0,
+            {
+                setTotalCount: (_, { count }) => count,
             },
         ],
         statusFilter: [
@@ -75,26 +101,56 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 setAssigneeFilter: (_, { assignee }) => assignee,
             },
         ],
+        tagsFilter: [
+            [] as string[],
+            { persist: true },
+            {
+                setTagsFilter: (_, { tags }) => tags,
+            },
+        ],
         dateFrom: [
             '-7d' as string | null,
+            { persist: true },
             {
                 setDateRange: (_, { dateFrom }) => dateFrom,
             },
         ],
         dateTo: [
             null as string | null,
+            { persist: true },
             {
                 setDateRange: (_, { dateTo }) => dateTo,
+            },
+        ],
+        sorting: [
+            { columnKey: 'updated_at', order: -1 } as Sorting | null,
+            {
+                setSorting: (_, { sorting }) => sorting,
             },
         ],
     }),
     selectors({
         filteredTickets: [(s) => [s.tickets], (tickets: Ticket[]) => tickets],
+        orderBy: [
+            (s) => [s.sorting],
+            (sorting: Sorting | null): string => {
+                if (!sorting) {
+                    return '-updated_at'
+                }
+                const prefix = sorting.order === 1 ? '' : '-'
+                return `${prefix}${sorting.columnKey}`
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadTickets: async (_, breakpoint) => {
             await breakpoint(300)
             const params: Record<string, any> = {}
+
+            if (props.distinctIds && props.distinctIds.length > 0) {
+                params.distinct_ids = props.distinctIds.join(',')
+            }
+
             if (values.statusFilter.length > 0) {
                 params.status = values.statusFilter.join(',')
             }
@@ -104,6 +160,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.channelFilter !== 'all') {
                 params.channel_source = values.channelFilter
             }
+            if (values.slaFilter !== 'all') {
+                params.sla = values.slaFilter
+            }
             if (values.assigneeFilter !== 'all') {
                 if (values.assigneeFilter === 'unassigned') {
                     params.assignee = 'unassigned'
@@ -111,35 +170,54 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                     params.assignee = `${values.assigneeFilter.type}:${values.assigneeFilter.id}`
                 }
             }
+            if (values.tagsFilter.length > 0) {
+                params.tags = JSON.stringify(values.tagsFilter)
+            }
             if (values.dateFrom) {
                 params.date_from = values.dateFrom
             }
             if (values.dateTo) {
                 params.date_to = values.dateTo
             }
+            params.order_by = values.orderBy
+            params.limit = SUPPORT_TICKETS_PAGE_SIZE
+            params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
 
             try {
                 const response = await api.conversationsTickets.list(params)
                 actions.setTickets(response.results || [])
+                actions.setTotalCount(response.count ?? response.results?.length ?? 0)
             } catch {
                 lemonToast.error('Failed to load tickets')
                 actions.setTicketsLoading(false)
             }
         },
-        setStatusFilter: () => {
+        setCurrentPage: () => {
             actions.loadTickets()
+        },
+        setStatusFilter: () => {
+            actions.setCurrentPage(1)
         },
         setPriorityFilter: () => {
-            actions.loadTickets()
+            actions.setCurrentPage(1)
         },
         setChannelFilter: () => {
-            actions.loadTickets()
+            actions.setCurrentPage(1)
+        },
+        setSlaFilter: () => {
+            actions.setCurrentPage(1)
         },
         setAssigneeFilter: () => {
-            actions.loadTickets()
+            actions.setCurrentPage(1)
+        },
+        setTagsFilter: () => {
+            actions.setCurrentPage(1)
         },
         setDateRange: () => {
-            actions.loadTickets()
+            actions.setCurrentPage(1)
+        },
+        setSorting: () => {
+            actions.setCurrentPage(1)
         },
     })),
     afterMount(({ actions }) => {

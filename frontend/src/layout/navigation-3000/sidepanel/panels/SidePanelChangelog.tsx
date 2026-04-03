@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import { SidePanelDocsSkeleton } from './SidePanelDocs'
 import { sidePanelChangelogLogic } from './sidePanelChangelogLogic'
+import { SidePanelDocsSkeleton } from './SidePanelDocs'
 
 export function SidePanelChangelog(): JSX.Element {
     const { changelogUrl, iframeReady } = useValues(sidePanelChangelogLogic)

@@ -9,8 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { MetricsTab } from './MetricsTab'
 import { DeadLetterQueueTab, deadLetterQueueLogic } from './deadLetterQueueLogic'
+import { MetricsTab } from './MetricsTab'
 
 export const scene: SceneExport = {
     component: DeadLetterQueue,

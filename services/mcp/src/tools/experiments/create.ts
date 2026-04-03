@@ -1,17 +1,24 @@
 import type { z } from 'zod'
 
+import { withUiApp } from '@/resources/ui-apps'
+import type { Experiment } from '@/schema/experiments'
 import { ExperimentCreateSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ExperimentCreateSchema
 
 type Params = z.infer<typeof schema>
+type Result = WithPostHogUrl<Experiment>
 
 /**
  * Create a comprehensive A/B test experiment with guided setup
  * This tool helps users create well-configured experiments through conversation
  */
-export const createExperimentHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const createExperimentHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.experiments({ projectId }).create(params)
@@ -21,18 +28,12 @@ export const createExperimentHandler: ToolBase<typeof schema>['handler'] = async
     }
 
     const experiment = result.data
-    const experimentWithUrl = {
-        ...experiment,
-        url: `${context.api.getProjectBaseUrl(projectId)}/experiments/${experiment.id}`,
-    }
-
-    return experimentWithUrl
+    return withPostHogUrl(context, experiment, `/experiments/${experiment.id}`)
 }
 
-const tool = (): ToolBase<typeof schema> => ({
-    name: 'experiment-create',
-    schema,
-    handler: createExperimentHandler,
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('experiment', {
+        name: 'experiment-create',
+        schema,
+        handler: createExperimentHandler,
+    })

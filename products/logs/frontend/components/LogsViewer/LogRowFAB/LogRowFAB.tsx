@@ -11,6 +11,7 @@ import {
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
@@ -19,6 +20,7 @@ import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsView
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { useCellScrollControls } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
+import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 
 import { FABGroup } from './FABGroup'
 
@@ -39,10 +41,11 @@ export function LogRowFAB({
     onTogglePrettify,
     showScrollButtons = false,
 }: LogRowFABProps): JSX.Element {
-    const { tabId } = useValues(logsViewerLogic)
+    const { id } = useValues(logsViewerLogic)
     const { copyLinkToLog } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
-    const { startScrolling, stopScrolling } = useCellScrollControls({ tabId, cellKey: 'message' })
+    const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey: 'message' })
+    const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes)
 
     return (
         <div
@@ -119,6 +122,18 @@ export function LogRowFAB({
                     className="text-muted"
                     data-attr="logs-viewer-copy-link"
                 />
+                {sessionId && (
+                    <ViewRecordingButton
+                        sessionId={sessionId}
+                        timestamp={log.timestamp}
+                        size="xsmall"
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        iconOnly
+                        noPadding
+                        className="text-muted"
+                        data-attr="logs-viewer-view-recording"
+                    />
+                )}
             </FABGroup>
 
             {showScrollButtons && (

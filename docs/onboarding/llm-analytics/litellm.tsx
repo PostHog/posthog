@@ -13,8 +13,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <Blockquote>
                     <Markdown>
-                        **Note:** LiteLLM can be used as a Python SDK or as a proxy server. PostHog observability requires
-                        LiteLLM version 1.77.3 or higher.
+                        **Note:** LiteLLM can be used as a Python SDK or as a proxy server. PostHog observability
+                        requires LiteLLM version 1.77.3 or higher.
                     </Markdown>
                 </Blockquote>
             ),
@@ -57,8 +57,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <>
                     <Markdown>
-                        Configure PostHog by setting your project API key and host as well as adding `posthog` to your
-                        LiteLLM callback handlers. You can find your API key in [your project
+                        Configure PostHog by setting your project token and host as well as adding `posthog` to your
+                        LiteLLM callback handlers. You can find your project token in [your project
                         settings](https://app.posthog.com/settings/project).
                     </Markdown>
 
@@ -72,7 +72,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     import litellm
 
                                     # Set environment variables
-                                    os.environ["POSTHOG_API_KEY"] = "<ph_project_api_key>"
+                                    os.environ["POSTHOG_API_KEY"] = "<ph_project_token>"
                                     os.environ["POSTHOG_API_URL"] = "<ph_client_api_host>"  # Optional, defaults to https://app.posthog.com
 
                                     # Enable PostHog callbacks
@@ -86,16 +86,16 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 code: dedent`
                                     # config.yaml
                                     model_list:
-                                    - model_name: gpt-4o-mini
+                                    - model_name: gpt-5-mini
                                       litellm_params:
-                                        model: gpt-4o-mini
+                                        model: gpt-5-mini
 
                                     litellm_settings:
                                       success_callback: ["posthog"]
                                       failure_callback: ["posthog"]  # Optional: also log failures
 
                                     environment_variables:
-                                      POSTHOG_API_KEY: "<ph_project_api_key>"
+                                      POSTHOG_API_KEY: "<ph_project_token>"
                                       POSTHOG_API_URL: "<ph_client_api_host>"  # Optional
                                 `,
                             },
@@ -121,7 +121,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'SDK',
                                 code: dedent`
                                     response = litellm.completion(
-                                        model="gpt-4o-mini",
+                                        model="gpt-5-mini",
                                         messages=[
                                             {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
@@ -145,7 +145,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     curl -X POST http://localhost:4000/chat/completions \
                                       -H "Content-Type: application/json" \
                                       -d '{
-                                        "model": "gpt-4o-mini",
+                                        "model": "gpt-5-mini",
                                         "messages": [
                                           {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],

@@ -1,3 +1,5 @@
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { ScreenPosition, SurveyPosition } from '~/types'
 
 import { PositionButton } from './PositionButton'
@@ -16,17 +18,29 @@ const positionAlignments: Record<ScreenPosition, [string, string]> = {
 
 const gridPositions = Object.keys(positionAlignments) as ScreenPosition[]
 
-export function PositionSelector({
-    value,
-    onChange,
-    disabled,
-    toolbar,
-}: {
+interface PositionSelectorProps {
     value?: ScreenPosition
     onChange: (position: ScreenPosition) => void
     disabled?: boolean
+    tooltip?: string
     toolbar?: boolean
-}): JSX.Element {
+}
+
+export function PositionSelector(props: PositionSelectorProps): JSX.Element {
+    if (props.tooltip) {
+        return (
+            <Tooltip title={props.tooltip}>
+                <div className="w-fit">
+                    <PositionSelectorInner {...props} />
+                </div>
+            </Tooltip>
+        )
+    }
+
+    return <PositionSelectorInner {...props} />
+}
+
+function PositionSelectorInner({ value, onChange, disabled, toolbar }: PositionSelectorProps): JSX.Element {
     return (
         <div
             // toolbar styles are whack - some custom classes and inline styles are required

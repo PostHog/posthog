@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconInfo, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonModal, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
@@ -14,15 +15,17 @@ import { SyncMethodForm } from './SyncMethodForm'
 export default function SchemaForm(): JSX.Element {
     const containerRef = useFloatingContainer()
     const { toggleSchemaShouldSync, openSyncMethodModal, toggleAllTables } = useActions(sourceWizardLogic)
-    const { databaseSchema, tablesAllToggledOn, suggestedTablesMap } = useValues(sourceWizardLogic)
+    const { databaseSchema, tablesAllToggledOn, suggestedTablesMap, isDirectQueryMode } = useValues(sourceWizardLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
-        if (schema.sync_type === null) {
+        if (!isDirectQueryMode && schema.sync_type === null) {
             openSyncMethodModal(schema)
             return
         }
         toggleSchemaShouldSync(schema, checked)
     }
+
+    const shouldShowSyncColumns = !isDirectQueryMode
 
     // scroll to top of container
     useEffect(() => {
@@ -32,7 +35,12 @@ export default function SchemaForm(): JSX.Element {
     return (
         <>
             <div className="flex flex-col gap-2">
-                <div>
+                {isDirectQueryMode && (
+                    <p className="text-sm text-muted-alt mb-0">
+                        Choose which tables should be available for querying in PostHog.
+                    </p>
+                )}
+                <div className="max-h-[60vh] overflow-y-auto">
                     <LemonTable
                         emptyState="No schemas found"
                         dataSource={databaseSchema}
@@ -72,6 +80,11 @@ export default function SchemaForm(): JSX.Element {
                                             >
                                                 {schema.table}
                                             </span>
+                                            {schema.description && (
+                                                <Tooltip title={schema.description}>
+                                                    <IconInfo className="text-muted-alt text-base" />
+                                                </Tooltip>
+                                            )}
                                             {isSuggested && (
                                                 <Tooltip title={tooltip} placement="top">
                                                     <LemonTag type="primary" className="cursor-help">
@@ -97,14 +110,25 @@ export default function SchemaForm(): JSX.Element {
                                 align: 'right',
                                 tooltip:
                                     'Incremental and append-only refresh methods key on a unique field to determine the most up-to-date data.',
-                                isHidden: !databaseSchema.some((schema) => schema.sync_type),
+                                isHidden: !shouldShowSyncColumns || !databaseSchema.some((schema) => schema.sync_type),
                                 render: function RenderSyncType(_, schema) {
+                                    if (isDirectQueryMode) {
+                                        return (
+                                            <span className="text-xs text-muted-foreground">
+                                                Only selected tables are queryable in direct mode
+                                            </span>
+                                        )
+                                    }
                                     if (!schema.incremental_available && !schema.append_available) {
                                         return (
                                             <span className="text-xs text-muted-foreground">
                                                 Incremental sync not supported
                                             </span>
                                         )
+                                    }
+
+                                    if (schema.sync_type === 'webhook') {
+                                        return <LemonTag type="success">Webhook</LemonTag>
                                     }
 
                                     if (
@@ -119,12 +143,19 @@ export default function SchemaForm(): JSX.Element {
 
                                         if (field) {
                                             return (
-                                                <>
+                                                <div className="flex items-center justify-end">
+                                                    {field.nullable && (
+                                                        <Tooltip
+                                                            title={`This field is nullable. Any rows where ${field.label} is null will not be synced.`}
+                                                        >
+                                                            <IconWarning className="mr-1 text-warning text-xl" />
+                                                        </Tooltip>
+                                                    )}
                                                     <span className="leading-5">{field.label}</span>
                                                     <LemonTag className="ml-2" type="success">
                                                         {field.type}
                                                     </LemonTag>
-                                                </>
+                                                </div>
                                             )
                                         }
                                     }
@@ -136,9 +167,17 @@ export default function SchemaForm(): JSX.Element {
                                 key: 'sync_type',
                                 title: 'Sync method',
                                 align: 'right',
+                                isHidden: !shouldShowSyncColumns,
                                 tooltip:
                                     'Full refresh will refresh the full table on every sync, whereas incremental will only sync new and updated rows since the last sync',
                                 render: function RenderSyncType(_, schema) {
+                                    if (isDirectQueryMode) {
+                                        return (
+                                            <span className="text-xs text-muted-foreground">
+                                                Only selected tables are queryable in direct mode
+                                            </span>
+                                        )
+                                    }
                                     if (!schema.sync_type) {
                                         return (
                                             <div className="justify-end flex">
@@ -203,6 +242,7 @@ const SyncMethodModal = (): JSX.Element => {
             <SyncMethodForm
                 schema={currentSyncMethodModalSchema}
                 onClose={cancelSyncMethodModal}
+                isNewSource
                 onSave={(syncType, incrementalField, incrementalFieldType) => {
                     if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(

@@ -120,4 +120,33 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
             },
         })
     })
+
+    it('preserves additional legacy table config when converting HogQL data table nodes', () => {
+        const convertedNode = convertDataTableNodeToDataVisualizationNode({
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from events limit 10',
+            },
+            full: true,
+            embedded: true,
+            showReload: true,
+            columns: ['event'],
+        })
+
+        expect(convertedNode).toEqual({
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from events limit 10',
+            },
+            display: ChartDisplayType.ActionsTable,
+            full: true,
+            embedded: true,
+            showReload: true,
+            tableSettings: {
+                columns: [{ column: 'event' }],
+            },
+        })
+    })
 })

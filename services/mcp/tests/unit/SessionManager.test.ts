@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { SessionManager } from '@/lib/SessionManager'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import { SessionManager } from '@/lib/SessionManager'
 import type { State } from '@/tools/types'
 
 vi.mock('uuid', () => ({

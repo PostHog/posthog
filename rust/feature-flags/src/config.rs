@@ -3,7 +3,7 @@ use common_cookieless::CookielessConfig;
 use common_types::TeamId;
 use envconfig::Envconfig;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::ops::Deref;
@@ -41,6 +41,28 @@ impl Deref for FlexBool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceMode {
+    All,         // default — both fleets (current behavior)
+    Flags,       // /flags and /decide only
+    Definitions, // /flags/definitions only
+}
+
+impl FromStr for ServiceMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "all" => Ok(ServiceMode::All),
+            "flags" => Ok(ServiceMode::Flags),
+            "definitions" => Ok(ServiceMode::Definitions),
+            _ => Err(format!(
+                "Invalid SERVICE_MODE: '{s}'. Expected 'all', 'flags', or 'definitions'"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TeamIdCollection {
     All,
     None,
@@ -63,6 +85,16 @@ impl std::fmt::Display for ParseTeamIdsError {
 }
 
 impl std::error::Error for ParseTeamIdsError {}
+
+impl TeamIdCollection {
+    pub fn includes_team(&self, team_id: i32) -> bool {
+        match self {
+            TeamIdCollection::All => true,
+            TeamIdCollection::None => false,
+            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
+        }
+    }
+}
 
 impl FromStr for TeamIdCollection {
     type Err = ParseTeamIdsError;
@@ -109,7 +141,7 @@ impl FromStr for TeamIdCollection {
 }
 
 /// Flag definitions rate limits configuration
-/// Parses JSON from FLAG_DEFINITIONS_RATE_LIMITS environment variable
+/// Parses JSON from LOCAL_EVAL_RATE_LIMITS environment variable
 /// Format: {"team_id": "rate_string", ...}
 /// Example: {"123": "1200/minute", "456": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -128,7 +160,7 @@ impl FromStr for FlagDefinitionsRateLimits {
 
         // Parse JSON into HashMap<String, String>
         let parsed: HashMap<String, String> = serde_json::from_str(s)
-            .map_err(|e| format!("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS as JSON: {e}"))?;
+            .map_err(|e| format!("Failed to parse rate limits as JSON: {e}"))?;
 
         // Convert string keys to TeamId
         let mut rate_limits = HashMap::new();
@@ -140,6 +172,70 @@ impl FromStr for FlagDefinitionsRateLimits {
         }
 
         Ok(FlagDefinitionsRateLimits(rate_limits))
+    }
+}
+
+/// Comma-separated list of team IDs that bypass rate limiting.
+/// Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS setting.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RateLimitingAllowList(pub HashSet<TeamId>);
+
+impl FromStr for RateLimitingAllowList {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Ok(RateLimitingAllowList::default());
+        }
+
+        let mut team_ids = HashSet::new();
+        for part in s.split(',').map(|p| p.trim()) {
+            if part.is_empty() {
+                continue;
+            }
+            let team_id = part.parse::<TeamId>().map_err(|e| {
+                format!("Invalid team ID '{part}' in RATE_LIMITING_ALLOW_LIST_TEAMS: {e}")
+            })?;
+            team_ids.insert(team_id);
+        }
+
+        Ok(RateLimitingAllowList(team_ids))
+    }
+}
+
+/// Per-token rate limit overrides for the /flags endpoint.
+/// Parses JSON from FLAGS_TOKEN_RATE_LIMIT_OVERRIDES environment variable.
+/// Format: {"token_string": "rate_string", ...}
+/// Example: {"phc_abc123": "1200/minute", "phc_xyz789": "2400/hour"}
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FlagsTokenRateLimitOverrides(pub HashMap<String, String>);
+
+/// Maximum number of per-token rate limit overrides allowed.
+pub const MAX_FLAGS_RATE_LIMIT_OVERRIDES: usize = 100;
+
+impl FromStr for FlagsTokenRateLimitOverrides {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        if s.is_empty() {
+            return Ok(FlagsTokenRateLimitOverrides::default());
+        }
+
+        let parsed: HashMap<String, String> = serde_json::from_str(s).map_err(|e| {
+            format!("Failed to parse FLAGS_TOKEN_RATE_LIMIT_OVERRIDES as JSON: {e}")
+        })?;
+
+        if parsed.len() > MAX_FLAGS_RATE_LIMIT_OVERRIDES {
+            return Err(format!(
+                "Too many FLAGS_TOKEN_RATE_LIMIT_OVERRIDES entries: {} (max {MAX_FLAGS_RATE_LIMIT_OVERRIDES})",
+                parsed.len()
+            ));
+        }
+
+        Ok(FlagsTokenRateLimitOverrides(parsed))
     }
 }
 
@@ -162,6 +258,28 @@ pub struct Config {
 
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog_persons")]
     pub persons_read_database_url: String,
+
+    // Optional connection to the behavioral_cohorts database for realtime cohort membership.
+    // When empty, realtime cohort evaluation is disabled (graceful degradation).
+    #[envconfig(default = "")]
+    pub behavioral_cohorts_read_database_url: String,
+
+    // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
+    // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
+    // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
+    // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
+    // membership lookups on the hot path for those teams.
+    #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
+    pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
+
+    // Cache TTL for realtime cohort membership lookups (seconds).
+    #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
+    pub cohort_membership_cache_ttl_seconds: u64,
+
+    // Max entries in the cohort membership cache.
+    // Each entry represents one (team_id, person_uuid) pair with a map of cohort memberships.
+    #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES", default = "500000")]
+    pub cohort_membership_cache_max_entries: u64,
 
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
@@ -228,10 +346,16 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
-    // How long to wait for a connection from the pool before timing out
-    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
-    // - Decrease for faster failure detection (minimum 1s)
-    #[envconfig(default = "5")]
+    // Maximum time for a /flags request before the server aborts it (milliseconds).
+    // Must be below Envoy's route timeout (5s) so the server cleans up resources
+    // (connections, queries) before Envoy kills the downstream connection.
+    #[envconfig(default = "4500")]
+    pub request_timeout_ms: u64,
+
+    // How long to wait for a connection from the pool before timing out.
+    // Must be well under request_timeout_ms so there's still time for query + response.
+    // With Envoy at 5s and request_timeout at 4.5s, 2s leaves room for a query + serialization.
+    #[envconfig(default = "2")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -341,6 +465,12 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
+    #[envconfig(from = "GROUP_TYPE_CACHE_TTL_SECONDS", default = "300")]
+    pub group_type_cache_ttl_seconds: u64,
+
+    #[envconfig(from = "GROUP_TYPE_CACHE_MAX_ENTRIES", default = "50000")]
+    pub group_type_cache_max_entries: u64,
+
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
@@ -377,15 +507,20 @@ pub struct Config {
 
     // Flag definitions rate limiting
     // Default rate limit for all teams (requests per minute)
-    // Can be overridden per-team using FLAG_DEFINITIONS_RATE_LIMITS
+    // Can be overridden per-team using LOCAL_EVAL_RATE_LIMITS
     #[envconfig(from = "FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE", default = "600")]
     pub flag_definitions_default_rate_per_minute: u32,
 
-    // Per-team rate limit overrides for flag definitions endpoint
+    // Per-team rate limit overrides for flag definitions endpoint (shared with Django)
     // JSON format: {"team_id": "rate_string", ...}
     // Example: {"123": "1200/minute", "456": "2400/hour"}
-    #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
+    #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
+
+    // Teams that bypass rate limiting entirely (comma-separated team IDs)
+    // Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS behavior
+    #[envconfig(from = "RATE_LIMITING_ALLOW_LIST_TEAMS", default = "")]
+    pub rate_limiting_allow_list_teams: RateLimitingAllowList,
 
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
@@ -405,9 +540,10 @@ pub struct Config {
     #[envconfig(from = "FLAGS_RATE_LIMIT_ENABLED", default = "false")]
     pub flags_rate_limit_enabled: FlexBool,
 
-    // Token bucket capacity (maximum burst size)
-    // Matches Python's DecideRateThrottle default of 500
-    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "500")]
+    // Token bucket capacity (maximum burst size / enforce threshold).
+    // Set to 625 so the warn tier (80%) lands at 500, matching the legacy
+    // log-only threshold that operators' dashboards already track.
+    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "625")]
     pub flags_bucket_capacity: u32,
 
     // Token bucket replenish rate (tokens per second)
@@ -421,8 +557,10 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_ENABLED", default = "false")]
     pub flags_ip_rate_limit_enabled: FlexBool,
 
-    // IP rate limit burst size (maximum requests per IP in a burst)
-    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "1000")]
+    // IP rate limit burst size (maximum requests per IP / enforce threshold).
+    // Set to 1250 so the warn tier (80%) lands at 1000, matching the legacy
+    // log-only threshold.
+    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "1250")]
     pub flags_ip_burst_size: u32,
 
     // IP rate limit replenish rate (requests per second per IP)
@@ -430,15 +568,29 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "50.0")]
     pub flags_ip_replenish_rate: f64,
 
+    // Warn-tier ratio: the warn threshold is derived as this fraction of the enforce
+    // capacity for both token and IP limiters. E.g., 0.8 means warn at 80% of enforce.
+    // Set to 0.0 to disable the warn tier entirely.
+    #[envconfig(from = "FLAGS_WARN_CAPACITY_RATIO", default = "0.8")]
+    pub flags_warn_capacity_ratio: f64,
+
     // Log-only mode for rate limiting (defaults to true for safe rollout)
     // When true, rate limits are checked and violations logged, but requests are not blocked
     // This allows gathering metrics to tune limits before enforcing them
+    // DEPRECATED: set FLAGS_RATE_LIMIT_LOG_ONLY=false and use FLAGS_WARN_CAPACITY_RATIO instead
     #[envconfig(from = "FLAGS_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_rate_limit_log_only: FlexBool,
 
     // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
+    // DEPRECATED: set FLAGS_IP_RATE_LIMIT_LOG_ONLY=false and use FLAGS_WARN_CAPACITY_RATIO instead
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
+
+    // Per-token rate limit overrides for the /flags endpoint
+    // JSON format: {"token_string": "rate_string", ...}
+    // Example: {"phc_abc123": "1200/minute", "phc_xyz789": "2400/hour"}
+    #[envconfig(from = "FLAGS_TOKEN_RATE_LIMIT_OVERRIDES", default = "")]
+    pub flags_token_rate_limit_overrides: FlagsTokenRateLimitOverrides,
 
     // How often to clean up stale rate limiter entries (seconds)
     // The governor crate's keyed rate limiters accumulate entries for every unique key.
@@ -472,6 +624,125 @@ pub struct Config {
     // Default: 100 (sequential is faster for typical workloads of ~50 flags)
     #[envconfig(from = "PARALLEL_EVAL_THRESHOLD", default = "100")]
     pub parallel_eval_threshold: usize,
+
+    // Maximum number of large-flag batches evaluated concurrently on the Rayon pool.
+    // Bounds the rayon::spawn queue to prevent unbounded queueing latency and
+    // preserve per-batch work-stealing parallelism.
+    // 0 = auto (derived from rayon thread count).
+    #[envconfig(from = "MAX_CONCURRENT_BATCH_EVALS", default = "0")]
+    pub max_concurrent_batch_evals: usize,
+
+    // Maximum time (ms) to wait for a Rayon semaphore permit before failing fast.
+    // When the wait exceeds this threshold, the request returns 504 so that
+    // ingress can retry it on a less-loaded pod.
+    // 0 = no timeout (await indefinitely, backwards-compatible).
+    #[envconfig(from = "RAYON_SEMAPHORE_TIMEOUT_MS", default = "0")]
+    pub rayon_semaphore_timeout_ms: u64,
+
+    // When true, skip all writes to PostgreSQL and Redis.
+    // Used to safely deploy and test the personhog migration path
+    // without risking any data mutations.
+    #[envconfig(from = "SKIP_WRITES", default = "false")]
+    pub skip_writes: FlexBool,
+
+    // Explicit core count for thread pool sizing. Overrides available_parallelism()
+    // which reads the CFS quota (K8s CPU limit), not the CPU request.
+    // 0 = auto (use available_parallelism).
+    #[envconfig(from = "THREAD_POOL_CORES", default = "0")]
+    pub thread_pool_cores: usize,
+
+    // In-memory negative cache for invalid API tokens. Prevents repeated
+    // Redis/S3/PG lookups for tokens that don't correspond to any team.
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_CAPACITY", default = "10000")]
+    pub team_negative_cache_capacity: u64,
+
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
+    pub team_negative_cache_ttl_seconds: u64,
+
+    // TTL for the Redis-backed per-token auth cache (positive hits).
+    // Starts at 5 minutes as a conservative default; increase once invalidation
+    // signals are proven reliable in production.
+    #[envconfig(from = "AUTH_TOKEN_CACHE_TTL_SECONDS", default = "300")]
+    pub auth_token_cache_ttl_seconds: u64,
+
+    // When true, skip the PostgreSQL fallback for team token lookups.
+    // HyperCache (Redis/S3) is treated as the source of truth — a cache
+    // miss means the token is invalid. Transient errors (Redis/S3 timeouts)
+    // bypass the fallback entirely and are not negative-cached.
+    // Gated for safe rollout.
+    #[envconfig(from = "SKIP_PG_TEAM_FALLBACK", default = "false")]
+    pub skip_pg_team_fallback: FlexBool,
+
+    #[envconfig(from = "SERVICE_MODE", default = "all")]
+    pub service_mode: ServiceMode,
+}
+
+/// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
+///
+/// Tokio handles request I/O (DB, Redis, network) and lightweight sequential flag
+/// evaluation. Workers spend most of their time in `.await`, so half the core count
+/// is sufficient. Rayon handles CPU-bound parallel batch evaluation for large flag
+/// sets (>= PARALLEL_EVAL_THRESHOLD). Because `rayon::spawn` + `oneshot` frees the
+/// Tokio worker, the two pools never compete for the same work — but they do share
+/// the CFS budget.
+///
+/// We give Rayon the full core count and Tokio half, accepting ~50% oversubscription
+/// (e.g. 3 + 6 = 9 threads on 6 cores). This is safe because Tokio threads are mostly
+/// idle (parked in `.await`), so actual concurrent CPU demand rarely exceeds the core
+/// count. Canary testing on EU (6-core pods) showed that a strict 50/50 split
+/// (3 Tokio + 3 Rayon = 6 threads, 0% CFS throttling) starved the Rayon pool: p99
+/// parallel batch time was ~1900ms vs the fleet's ~240ms, while CPU utilization sat
+/// at only 1.3 of 6 cores. The fleet runs 12 threads on 6 cores (7–30% throttling)
+/// with no issues, confirming moderate oversubscription is well-tolerated.
+pub struct ThreadCounts {
+    pub tokio_workers: usize,
+    pub rayon_threads: usize,
+}
+
+impl ThreadCounts {
+    /// Build thread counts from an explicit core count, falling back to
+    /// `available_parallelism()` when `override_cores` is 0.
+    pub fn new(override_cores: usize) -> Self {
+        let detected = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+
+        let cores = if override_cores > 0 {
+            override_cores
+        } else {
+            detected
+        };
+
+        eprintln!(
+            "thread pool core count resolved: override_cores={}, detected_cores={}, effective_cores={}",
+            override_cores, detected, cores,
+        );
+
+        Self::from_cores(cores)
+    }
+
+    /// Default concurrency limit for the Rayon batch dispatcher.
+    ///
+    /// Targets ~3 Rayon threads per concurrent batch so each batch gets
+    /// meaningful work-stealing parallelism. With fewer threads per batch,
+    /// `into_par_iter` degrades toward sequential execution.
+    pub fn default_max_concurrent_batch_evals(&self) -> usize {
+        // Integer ceil(rayon_threads / 3): keeps ~3 threads per batch.
+        //   6 threads → 2 batches  (3 threads each)
+        //   8 threads → 3 batches  (~2.7 threads each)
+        //  12 threads → 4 batches  (3 threads each)
+        self.rayon_threads.div_ceil(3).max(1)
+    }
+
+    fn from_cores(cores: usize) -> Self {
+        let tokio_workers = (cores / 2).max(1);
+        let rayon_threads = cores.max(1);
+
+        Self {
+            tokio_workers,
+            rayon_threads,
+        }
+    }
 }
 
 impl Config {
@@ -536,13 +807,19 @@ impl Config {
                 .to_string(),
             persons_read_database_url: "postgres://posthog:posthog@localhost:5432/posthog_persons"
                 .to_string(),
+            behavioral_cohorts_read_database_url:
+                "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
+            cohort_membership_cache_ttl_seconds: 60,
+            cohort_membership_cache_max_entries: 50_000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
             min_non_persons_writer_connections: 0,
             min_persons_reader_connections: 0,
             min_persons_writer_connections: 0,
-            acquire_timeout_secs: 3,
+            request_timeout_ms: 30_000,
+            acquire_timeout_secs: 5,
             idle_timeout_secs: 300,
             test_before_acquire: FlexBool(true),
             non_persons_reader_statement_timeout_ms: 2000,
@@ -559,6 +836,8 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
             cache_ttl_seconds: 300,
+            group_type_cache_ttl_seconds: 300,
+            group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
@@ -572,6 +851,7 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
@@ -580,18 +860,29 @@ impl Config {
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
             flags_rate_limit_enabled: FlexBool(false),
-            flags_bucket_capacity: 500,
+            flags_bucket_capacity: 625,
             flags_bucket_replenish_rate: 10.0,
             flags_ip_rate_limit_enabled: FlexBool(false),
-            flags_ip_burst_size: 500,
+            flags_ip_burst_size: 1250,
             flags_ip_replenish_rate: 100.0,
+            flags_warn_capacity_ratio: 0.8,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
+            flags_token_rate_limit_overrides: FlagsTokenRateLimitOverrides::default(),
             rate_limiter_cleanup_interval_secs: 60,
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
             optimize_experience_continuity_lookups: FlexBool(true),
             parallel_eval_threshold: 100,
+            max_concurrent_batch_evals: 0,
+            rayon_semaphore_timeout_ms: 0,
+            skip_writes: FlexBool(false),
+            thread_pool_cores: 0,
+            team_negative_cache_capacity: 10_000,
+            team_negative_cache_ttl_seconds: 30,
+            skip_pg_team_fallback: FlexBool(false),
+            service_mode: ServiceMode::All,
+            auth_token_cache_ttl_seconds: 300,
         }
     }
 
@@ -659,17 +950,13 @@ impl Config {
         }
     }
 
-    pub fn is_team_excluded(&self, team_id: i32, teams_to_exclude: &TeamIdCollection) -> bool {
-        match teams_to_exclude {
-            TeamIdCollection::All => true,
-            TeamIdCollection::None => false,
-            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
-        }
-    }
-
     /// Check if persons database routing is enabled
     pub fn is_persons_db_routing_enabled(&self) -> bool {
         !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
+    }
+
+    pub fn is_behavioral_cohorts_db_configured(&self) -> bool {
+        !self.behavioral_cohorts_read_database_url.is_empty()
     }
 
     /// Get the database URL for persons reads, falling back to the default read URL
@@ -732,6 +1019,7 @@ mod tests {
         assert_eq!(config.new_analytics_capture_endpoint, "/i/v0/e/");
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
+        assert_eq!(config.skip_writes, FlexBool(false));
     }
 
     #[test]
@@ -872,9 +1160,7 @@ mod tests {
     fn test_flag_definitions_rate_limits_invalid_json() {
         let result: Result<FlagDefinitionsRateLimits, _> = "not json".parse();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS"));
+        assert!(result.unwrap_err().contains("Failed to parse rate limits"));
     }
 
     #[test]
@@ -901,6 +1187,52 @@ mod tests {
         let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
         assert_eq!(limits.0.len(), 1);
         assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_empty() {
+        let list: RateLimitingAllowList = "".parse().unwrap();
+        assert!(list.0.is_empty());
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_single_id() {
+        let list: RateLimitingAllowList = "23047".parse().unwrap();
+        assert_eq!(list.0.len(), 1);
+        assert!(list.0.contains(&23047));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_multiple_ids() {
+        let list: RateLimitingAllowList = "23047,12345,67890".parse().unwrap();
+        assert_eq!(list.0.len(), 3);
+        assert!(list.0.contains(&23047));
+        assert!(list.0.contains(&12345));
+        assert!(list.0.contains(&67890));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_whitespace() {
+        let list: RateLimitingAllowList = " 23047 , 12345 ".parse().unwrap();
+        assert_eq!(list.0.len(), 2);
+        assert!(list.0.contains(&23047));
+        assert!(list.0.contains(&12345));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_trailing_comma() {
+        let list: RateLimitingAllowList = "23047,".parse().unwrap();
+        assert_eq!(list.0.len(), 1);
+        assert!(list.0.contains(&23047));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_invalid_id() {
+        let result: Result<RateLimitingAllowList, _> = "23047,abc".parse();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Invalid team ID 'abc' in RATE_LIMITING_ALLOW_LIST_TEAMS"));
     }
 
     #[test]
@@ -998,6 +1330,116 @@ mod tests {
 
         assert_eq!(zero_config.redis_response_timeout_ms, 0);
         assert_eq!(zero_config.redis_connection_timeout_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod service_mode_tests {
+    use super::*;
+
+    #[test]
+    fn test_service_mode_from_str() {
+        assert_eq!("all".parse::<ServiceMode>().unwrap(), ServiceMode::All);
+        assert_eq!("flags".parse::<ServiceMode>().unwrap(), ServiceMode::Flags);
+        assert_eq!(
+            "definitions".parse::<ServiceMode>().unwrap(),
+            ServiceMode::Definitions
+        );
+        // case insensitive
+        assert_eq!("ALL".parse::<ServiceMode>().unwrap(), ServiceMode::All);
+        assert_eq!("Flags".parse::<ServiceMode>().unwrap(), ServiceMode::Flags);
+        assert_eq!(
+            "DEFINITIONS".parse::<ServiceMode>().unwrap(),
+            ServiceMode::Definitions
+        );
+    }
+
+    #[test]
+    fn test_service_mode_invalid() {
+        assert!("invalid".parse::<ServiceMode>().is_err());
+        assert!("".parse::<ServiceMode>().is_err());
+    }
+
+    #[test]
+    fn test_service_mode_default() {
+        let config = Config::default_test_config();
+        assert_eq!(config.service_mode, ServiceMode::All);
+    }
+}
+
+#[cfg(test)]
+mod thread_counts_tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::single_core(1, 1, 1)]
+    #[case::two_cores(2, 1, 2)]
+    #[case::four_cores(4, 2, 4)]
+    #[case::six_cores(6, 3, 6)]
+    #[case::eight_cores(8, 4, 8)]
+    #[case::sixteen_cores(16, 8, 16)]
+    fn test_thread_allocation(
+        #[case] cores: usize,
+        #[case] expected_tokio: usize,
+        #[case] expected_rayon: usize,
+    ) {
+        let counts = ThreadCounts::from_cores(cores);
+        assert_eq!(counts.tokio_workers, expected_tokio);
+        assert_eq!(counts.rayon_threads, expected_rayon);
+    }
+
+    #[test]
+    fn test_both_pools_always_have_at_least_one_thread() {
+        for cores in 1..=128 {
+            let counts = ThreadCounts::from_cores(cores);
+            assert!(
+                counts.tokio_workers >= 1,
+                "tokio must have >= 1 thread for {cores} cores"
+            );
+            assert!(
+                counts.rayon_threads >= 1,
+                "rayon must have >= 1 thread for {cores} cores"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rayon_gets_full_core_count() {
+        for cores in 1..=128 {
+            let counts = ThreadCounts::from_cores(cores);
+            assert_eq!(
+                counts.rayon_threads, cores,
+                "rayon should get full core count for {cores} cores"
+            );
+        }
+    }
+
+    #[test]
+    fn test_tokio_gets_half_cores() {
+        for cores in 2..=128 {
+            let counts = ThreadCounts::from_cores(cores);
+            assert_eq!(
+                counts.tokio_workers,
+                cores / 2,
+                "tokio should get half the cores for {cores} cores"
+            );
+        }
+    }
+
+    #[test]
+    fn test_new_with_override_uses_override() {
+        let counts = ThreadCounts::new(8);
+        assert_eq!(counts.rayon_threads, 8);
+        assert_eq!(counts.tokio_workers, 4);
+    }
+
+    #[test]
+    fn test_new_with_zero_falls_back_to_detected() {
+        let counts = ThreadCounts::new(0);
+        // Should fall back to available_parallelism, which is always >= 1
+        assert!(counts.rayon_threads >= 1);
+        assert!(counts.tokio_workers >= 1);
     }
 }
 

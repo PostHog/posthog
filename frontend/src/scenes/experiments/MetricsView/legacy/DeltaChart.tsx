@@ -9,9 +9,10 @@ import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
-import { VariantTag } from '../../ExperimentView/components'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
 import { experimentLogic } from '../../experimentLogic'
+import { isLaunched } from '../../experimentsLogic'
+import { VariantTag } from '../../ExperimentView/components'
 import {
     calculateDelta,
     conversionRateForVariant,
@@ -21,9 +22,9 @@ import {
 } from '../../legacyExperimentCalculations'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
+import { useChartColors } from '../shared/colors'
 import { GridLines } from '../shared/GridLines'
 import { MetricHeader } from '../shared/MetricHeader'
-import { useChartColors } from '../shared/colors'
 import { ChartModal } from './ChartModal'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
@@ -463,7 +464,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
         <div className="relative w-full max-w-screen">
             <ChartEmptyState
                 height={chartHeight}
-                experimentStarted={!!experiment.start_date}
+                experimentStarted={isLaunched(experiment)}
                 metric={metric}
                 error={error}
             />
@@ -505,7 +506,6 @@ export function DeltaChart({
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
-    const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
     const { openVariantDeltaTimeseriesModal } = useActions(modalsLogic)
 
     // Loading state
@@ -541,14 +541,8 @@ export function DeltaChart({
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
-            onDuplicateMetricClick={() => {
-                if (!metric.uuid) {
-                    return
-                }
-                const newUuid = crypto.randomUUID()
-                duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
-                updateExperimentMetrics()
-            }}
+            readOnly={true}
+            onDuplicateMetricClick={() => {}}
             onBreakdownChange={() => {}}
         />
     )

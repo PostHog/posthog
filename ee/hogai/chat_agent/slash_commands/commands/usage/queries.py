@@ -110,6 +110,7 @@ def get_ga_launch_date() -> datetime:
 def get_conversation_start_time(conversation_id: UUID) -> Optional[datetime]:
     """Get the start time of a conversation."""
     try:
+        # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
         conversation = Conversation.objects.get(id=conversation_id)
         return conversation.created_at
     except Conversation.DoesNotExist:

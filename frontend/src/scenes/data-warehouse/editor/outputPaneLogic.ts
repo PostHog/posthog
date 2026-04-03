@@ -6,7 +6,6 @@ export enum OutputTab {
     Results = 'results',
     Visualization = 'visualization',
     Materialization = 'materialization',
-    Endpoint = 'endpoint',
 }
 
 export interface OutputTabProps {

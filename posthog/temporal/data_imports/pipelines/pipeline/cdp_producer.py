@@ -13,20 +13,14 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.exceptions_capture import capture_exception
+from posthog.kafka_client.client import _AsyncKafkaProducer, get_async_warpstream_kafka_producer
+from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models.hog_functions import HogFunction
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
-
-
-class FakeKafka:
-    def produce(self, *args, **kwargs):
-        pass
-
-    def flush(self, *args, **kwargs):
-        pass
 
 
 class CDPProducer:
@@ -137,8 +131,11 @@ class CDPProducer:
             use_dictionary=True,
         )
 
-    def _kafka_producer(self) -> FakeKafka:
-        return FakeKafka()
+    def _get_kafka_producer(self) -> _AsyncKafkaProducer:
+        return get_async_warpstream_kafka_producer(
+            kafka_hosts=settings.KAFKA_CYCLOTRON_WARPSTREAM_HOSTS,
+            kafka_security_protocol=settings.KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL or "PLAINTEXT",
+        )
 
     async def produce_to_kafka_from_s3(self) -> None:
         fs = self._get_fs()
@@ -149,40 +146,39 @@ class CDPProducer:
 
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
-        kafka_producer = self._kafka_producer()
+        kafka_producer = self._get_kafka_producer()
 
-        for file_path in files_to_produce:
-            await self.logger.adebug(f"Producing file {file_path} to Kafka")
+        try:
+            for file_path in files_to_produce:
+                await self.logger.adebug(f"Producing file {file_path} to Kafka")
 
-            row_index = 0
+                row_index = 0
 
-            try:
-                # File I/O operations run in thread pool
-                def _process_file(file_path: str) -> int:
-                    local_row_index = 0
+                try:
                     with fs.open_input_file(file_path) as f:
                         pf = pq.ParquetFile(f)
 
                         for batch in pf.iter_batches(batch_size=10_000):
                             for row in batch.to_pylist():
                                 row_as_props = {"team_id": self.team_id, "properties": row}
-                                kafka_producer.produce(
-                                    topic="", data=row_as_props, value_serializer=self._serialize_json
+                                await kafka_producer.produce(
+                                    topic=KAFKA_DWH_CDP_RAW_TABLE,
+                                    data=row_as_props,
+                                    value_serializer=self._serialize_json,
                                 )
-                                local_row_index += 1
+                                row_index += 1
 
-                    kafka_producer.flush()
-                    return local_row_index
+                    await kafka_producer.flush()
+                    await self.logger.adebug(f"Finished producing file {file_path} to Kafka")
+                except Exception as e:
+                    capture_exception(e)
+                    await self.logger.adebug(f"Error producing file {file_path} to Kafka: {e}")
+                finally:
+                    # TODO(Gilbert09): have better row tracking so we can retry from a particular row
+                    await self.logger.adebug(f"Produced {row_index} rows")
+                    await self.logger.adebug(f"Deleting file {file_path}")
+                    await asyncio.to_thread(fs.delete_file, file_path)
 
-                row_index = await asyncio.to_thread(_process_file, file_path)
-                await self.logger.adebug(f"Finished producing file {file_path} to Kafka")
-            except Exception as e:
-                capture_exception(e)
-                await self.logger.adebug(f"Error producing file {file_path} to Kafka: {e}")
-            finally:
-                # TODO(Gilbert09): have better row tracking so we can retry from a particular row
-                await self.logger.adebug(f"Produced {row_index} rows")
-                await self.logger.adebug(f"Deleting file {file_path}")
-                await asyncio.to_thread(fs.delete_file, file_path)
-
-        await self.logger.adebug("Finished producing all CDP data to Kafka")
+            await self.logger.adebug("Finished producing all CDP data to Kafka")
+        finally:
+            await kafka_producer.close()

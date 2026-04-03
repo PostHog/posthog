@@ -6,8 +6,8 @@ import { Slide, ToastContainer } from 'react-toastify'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
 
-import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { ToolbarProps } from '~/types'
 
 import { TOOLBAR_ID } from './utils'
@@ -66,13 +66,7 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
             <root.div id={TOOLBAR_ID} className="ph-no-capture" ref={shadowRef} onMouseDown={onMouseDown}>
                 <div id="posthog-toolbar-styles" />
                 {didRender && (didLoadStyles || props.disableExternalStyles) ? <ToolbarContainer /> : null}
-                <ToastContainer
-                    autoClose={60000}
-                    transition={Slide}
-                    closeOnClick={false}
-                    draggable={false}
-                    position="bottom-center"
-                />
+                <ToastContainer autoClose={60000} transition={Slide} position="bottom-center" />
             </root.div>
         </>
     )

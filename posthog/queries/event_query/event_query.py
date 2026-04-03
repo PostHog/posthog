@@ -192,7 +192,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
-            cohort: Cohort = Cohort.objects.get(pk=prop.value)
+            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
             return False
         if is_precalculated_query(cohort):

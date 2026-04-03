@@ -14,6 +14,7 @@ function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): Erro
             return {
                 id: 'new',
                 assignee: null,
+                disabled_data: null,
                 filters: { type: FilterLogicalOperator.Or, values: [] },
                 order_key,
             }
@@ -21,6 +22,7 @@ function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): Erro
             return {
                 id: 'new',
                 assignee: null,
+                disabled_data: null,
                 description: '',
                 filters: { type: FilterLogicalOperator.And, values: [] },
                 order_key,
@@ -28,8 +30,10 @@ function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): Erro
         case 'suppression_rules':
             return {
                 id: 'new',
+                disabled_data: null,
                 filters: { type: FilterLogicalOperator.Or, values: [] },
                 order_key,
+                sampling_rate: 1.0,
             }
         default:
             throw new Error(`Unsupported rule type: ${ruleType}`)

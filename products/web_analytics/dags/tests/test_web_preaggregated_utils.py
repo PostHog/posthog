@@ -5,20 +5,10 @@ from unittest.mock import Mock
 from dagster import DagsterInstance, DagsterRunStatus, RunsFilter, SkipReason, job, op, schedule
 
 import products.web_analytics.dags.web_preaggregated as wp
-import products.web_analytics.dags.web_preaggregated_daily as wpd
-import products.web_analytics.dags.web_preaggregated_hourly as wph
 from products.web_analytics.dags.web_preaggregated import (
     web_pre_aggregate_current_day_schedule,
     web_pre_aggregate_historical_schedule,
     web_pre_aggregate_job,
-)
-from products.web_analytics.dags.web_preaggregated_daily import (
-    web_pre_aggregate_daily_job,
-    web_pre_aggregate_daily_schedule,
-)
-from products.web_analytics.dags.web_preaggregated_hourly import (
-    web_pre_aggregate_current_day_hourly_job,
-    web_pre_aggregate_current_day_hourly_schedule,
 )
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs, recreate_staging_table
 
@@ -129,8 +119,6 @@ class TestWebPreaggregatedUtils:
         schedule_functions = [
             web_pre_aggregate_historical_schedule,
             web_pre_aggregate_current_day_schedule,
-            web_pre_aggregate_daily_schedule,
-            web_pre_aggregate_current_day_hourly_schedule,
         ]
 
         for schedule_func in schedule_functions:
@@ -143,14 +131,10 @@ class TestWebPreaggregatedUtils:
 
     def test_all_schedules_have_expected_imports(self):
         assert hasattr(wp, "check_for_concurrent_runs")
-        assert hasattr(wpd, "check_for_concurrent_runs")
-        assert hasattr(wph, "check_for_concurrent_runs")
 
     def test_job_definitions_have_concurrency_limits(self):
         jobs = [
             web_pre_aggregate_job,
-            web_pre_aggregate_daily_job,
-            web_pre_aggregate_current_day_hourly_job,
         ]
 
         for web_job in jobs:

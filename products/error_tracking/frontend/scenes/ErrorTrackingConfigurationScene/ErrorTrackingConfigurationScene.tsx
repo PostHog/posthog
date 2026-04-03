@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
@@ -83,12 +83,23 @@ export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurati
             ]
         },
     }),
+
+    urlToAction(({ actions, values }) => ({
+        '*': (_, __, hashParams) => {
+            const selectedSetting = hashParams.selectedSetting as ConfigurationSceneTabType | undefined
+            if (selectedSetting && values.tab !== selectedSetting) {
+                actions.selectSetting(selectedSetting)
+            }
+        },
+    })),
 ])
 
 export const scene: SceneExport<ErrorTrackingConfigurationSceneLogicProps> = {
     component: ErrorTrackingConfigurationScene,
     logic: errorTrackingConfigurationSceneLogic,
-    paramsToProps: ({ searchParams: { tab } }) => ({ initialTab: tab }),
+    paramsToProps: ({ searchParams: { tab }, hashParams: { selectedSetting } }) => ({
+        initialTab: (tab || selectedSetting) as ConfigurationSceneTabType | undefined,
+    }),
 }
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {

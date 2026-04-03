@@ -30,7 +30,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { LineageNode as LineageNodeType } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../../saved_queries/dataWarehouseViewsLogic'
-import { multitabEditorLogic } from '../../multitabEditorLogic'
+import { sqlEditorLogic } from '../../sqlEditorLogic'
 
 interface UpstreamGraphProps {
     tabId: string
@@ -55,7 +55,7 @@ const RANK_SEP = 160
 const BRAND_YELLOW = '#f9bd2b'
 
 function LineageNode({ data, edges, tabId }: LineageNodeProps): JSX.Element {
-    const { editView } = useActions(multitabEditorLogic({ tabId }))
+    const { editView } = useActions(sqlEditorLogic({ tabId }))
     const { dataWarehouseSavedQueries } = useValues(dataWarehouseViewsLogic)
 
     const getNodeType = (type: string, lastRunAt?: string): string => {
@@ -204,7 +204,7 @@ const getLayoutedElements = (
 }
 
 function UpstreamGraphContent({ tabId }: UpstreamGraphProps): JSX.Element {
-    const { upstream, editingView } = useValues(multitabEditorLogic({ tabId }))
+    const { upstream, editingView } = useValues(sqlEditorLogic({ tabId }))
     const { fitView } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
 

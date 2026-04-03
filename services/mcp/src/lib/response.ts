@@ -9,6 +9,10 @@ const MAX_RESPONSE_CHARS = 80_000
 const TRUNCATION_MESSAGE =
     '\n\n[Response truncated - exceeded maximum length. Use more specific filters or pagination to get complete results.]'
 
+function truncate(text: string): string {
+    return text.length > MAX_RESPONSE_CHARS ? text.slice(0, MAX_RESPONSE_CHARS) + TRUNCATION_MESSAGE : text
+}
+
 function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placeholderId = { current: 0 }): any {
     if (obj === null || obj === undefined) {
         return obj
@@ -36,6 +40,10 @@ function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placehold
 }
 
 export function formatResponse(data: any): string {
+    if (typeof data === 'string') {
+        return truncate(data)
+    }
+
     const placeholderMap = new Map<string, string>()
     const processed = preprocessKeys(data, placeholderMap)
     let result = encode(processed)
@@ -44,10 +52,5 @@ export function formatResponse(data: any): string {
         result = result.replace(`${placeholder}`, jsonValue)
     }
 
-    // Truncate if response exceeds max length (Claude MCP Directory requirement)
-    if (result.length > MAX_RESPONSE_CHARS) {
-        result = result.slice(0, MAX_RESPONSE_CHARS) + TRUNCATION_MESSAGE
-    }
-
-    return result
+    return truncate(result)
 }

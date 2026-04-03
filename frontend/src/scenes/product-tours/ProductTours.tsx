@@ -6,8 +6,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { Error404 } from '~/layout/Error404'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -25,8 +25,11 @@ export const scene: SceneExport = {
 }
 
 function NewTourButton(): JSX.Element {
-    const { createAnnouncement, createBanner } = useActions(productToursLogic)
+    const { productTours } = useValues(productToursLogic)
+    const { createAnnouncement, createBanner, createTour } = useActions(productToursLogic)
     const [isModalOpen, setIsModalOpen] = useState(false)
+
+    const existingTourNames = new Set(productTours.map((tour) => tour.name).filter(Boolean))
 
     return (
         <>
@@ -38,6 +41,8 @@ function NewTourButton(): JSX.Element {
                 onClose={() => setIsModalOpen(false)}
                 onCreateAnnouncement={createAnnouncement}
                 onCreateBanner={createBanner}
+                onCreateTour={createTour}
+                existingTourNames={existingTourNames}
             />
         </>
     )

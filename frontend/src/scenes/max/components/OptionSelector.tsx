@@ -167,7 +167,7 @@ export function OptionSelector({
                             </LemonButton>
                         </div>
                     ) : (
-                        <span className="my-1.5">Type something...</span>
+                        <span className="my-1.5">Explain what you'd like instead..</span>
                     )}
                 </label>
             )}

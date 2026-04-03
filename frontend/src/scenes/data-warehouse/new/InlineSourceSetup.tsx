@@ -8,8 +8,8 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
-import { NewSourcesWizard } from './NewSourceWizard'
 import { availableSourcesDataLogic } from './availableSourcesDataLogic'
+import { NewSourcesWizard } from './NewSourceWizard'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 export type InlineSourceSetupView = 'selection' | 'connecting'

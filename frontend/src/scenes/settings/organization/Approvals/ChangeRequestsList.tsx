@@ -3,7 +3,10 @@ import { router } from 'kea-router'
 
 import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -15,7 +18,7 @@ import { getChangeRequestButtonVisibility } from 'scenes/approvals/changeRequest
 import { getApprovalActionLabel, getApprovalResourceName, getApprovalResourceUrl } from 'scenes/approvals/utils'
 import { urls } from 'scenes/urls'
 
-import { ChangeRequest, ChangeRequestState } from '~/types'
+import { AvailableFeature, ChangeRequest, ChangeRequestState } from '~/types'
 
 export function ChangeRequestsList(): JSX.Element {
     const { changeRequests, changeRequestsDataLoading, filters, hasMore } = useValues(approvalsLogic)
@@ -116,57 +119,59 @@ export function ChangeRequestsList(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
-            <div className={cn('flex flex-wrap gap-2 justify-between')}>
-                <div className="flex gap-2 items-center">
-                    <span>
-                        <b>Status</b>
-                    </span>
-                    <LemonSelect
-                        dropdownMatchSelectWidth={false}
-                        onChange={(value) => {
-                            setFilters({ state: value || undefined })
-                        }}
-                        size="small"
-                        options={[
-                            { label: 'All', value: null },
-                            { label: 'Pending', value: ChangeRequestState.Pending },
-                            { label: 'Approved', value: ChangeRequestState.Approved },
-                            { label: 'Applied', value: ChangeRequestState.Applied },
-                            { label: 'Rejected', value: ChangeRequestState.Rejected },
-                            { label: 'Expired', value: ChangeRequestState.Expired },
-                            { label: 'Failed', value: ChangeRequestState.Failed },
-                        ]}
-                        value={filters.state ?? null}
-                    />
+        <PayGateMini feature={AvailableFeature.APPROVALS}>
+            <div className="space-y-4">
+                <div className={cn('flex flex-wrap gap-2 justify-between')}>
+                    <div className="flex gap-2 items-center">
+                        <span>
+                            <b>Status</b>
+                        </span>
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
+                            onChange={(value) => {
+                                setFilters({ state: value || undefined })
+                            }}
+                            size="small"
+                            options={[
+                                { label: 'All', value: null },
+                                { label: 'Pending', value: ChangeRequestState.Pending },
+                                { label: 'Approved', value: ChangeRequestState.Approved },
+                                { label: 'Applied', value: ChangeRequestState.Applied },
+                                { label: 'Rejected', value: ChangeRequestState.Rejected },
+                                { label: 'Expired', value: ChangeRequestState.Expired },
+                                { label: 'Failed', value: ChangeRequestState.Failed },
+                            ]}
+                            value={filters.state ?? null}
+                        />
+                    </div>
                 </div>
-            </div>
 
-            <LemonTable
-                dataSource={changeRequests}
-                columns={columns}
-                rowKey="id"
-                loading={changeRequestsDataLoading}
-                nouns={['change request', 'change requests']}
-                data-attr="approvals-table"
-                emptyState="No change requests found"
-                footer={
-                    hasMore && (
-                        <div className="flex justify-center p-1">
-                            <LemonButton
-                                onClick={loadMore}
-                                className="min-w-full text-center"
-                                disabledReason={changeRequestsDataLoading ? 'Loading change requests' : ''}
-                            >
-                                <span className="flex-1 text-center">
-                                    {changeRequestsDataLoading ? 'Loading...' : 'Load more'}
-                                </span>
-                            </LemonButton>
-                        </div>
-                    )
-                }
-            />
-        </div>
+                <LemonTable
+                    dataSource={changeRequests}
+                    columns={columns}
+                    rowKey="id"
+                    loading={changeRequestsDataLoading}
+                    nouns={['change request', 'change requests']}
+                    data-attr="approvals-table"
+                    emptyState="No change requests found"
+                    footer={
+                        hasMore && (
+                            <div className="flex justify-center p-1">
+                                <LemonButton
+                                    onClick={loadMore}
+                                    className="min-w-full text-center"
+                                    disabledReason={changeRequestsDataLoading ? 'Loading change requests' : ''}
+                                >
+                                    <span className="flex-1 text-center">
+                                        {changeRequestsDataLoading ? 'Loading...' : 'Load more'}
+                                    </span>
+                                </LemonButton>
+                            </div>
+                        )
+                    }
+                />
+            </div>
+        </PayGateMini>
     )
 }
 
@@ -179,6 +184,10 @@ function ChangeRequestTableActions({
     onApprove: (id: string) => void
     onReject: (id: string, reason: string) => void
 }): JSX.Element {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
     const { showApproveButton, showRejectButton } = getChangeRequestButtonVisibility(changeRequest)
 
     return (
@@ -192,6 +201,7 @@ function ChangeRequestTableActions({
                         <LemonButton
                             fullWidth
                             type="primary"
+                            disabledReason={restrictedReason}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Approve this change request?',
@@ -224,6 +234,7 @@ function ChangeRequestTableActions({
                         <LemonButton
                             fullWidth
                             status="danger"
+                            disabledReason={restrictedReason}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Reject this change request?',

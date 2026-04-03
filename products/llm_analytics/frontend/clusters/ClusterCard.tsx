@@ -1,12 +1,13 @@
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { getSeriesColor } from 'lib/colors'
 import { urls } from 'scenes/urls'
 
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { ClusterDescription } from './ClusterDescriptionComponents'
 import { ClusterTraceList } from './ClusterTraceList'
-import { NOISE_CLUSTER_ID } from './constants'
+import { NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
 import { Cluster, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
 
 interface ClusterCardProps {
@@ -38,6 +39,8 @@ export function ClusterCard({
     const isOutlierCluster = cluster.cluster_id === NOISE_CLUSTER_ID
     const itemLabel = clusteringLevel === 'generation' ? 'generations' : 'traces'
 
+    const clusterColor = isOutlierCluster ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
+
     // Check if we have any metrics to show
     const hasMetrics =
         metrics &&
@@ -48,9 +51,16 @@ export function ClusterCard({
 
     return (
         <div
-            className={`border rounded-lg overflow-hidden transition-all ${
-                isOutlierCluster ? 'bg-surface-primary border-dashed border-warning-dark' : 'bg-surface-primary'
+            className={`rounded-lg overflow-hidden transition-all border-y border-r ${
+                isOutlierCluster ? 'bg-surface-primary border-dashed' : 'bg-surface-primary'
             }`}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                borderColor: isOutlierCluster ? 'var(--warning-dark)' : 'var(--border)',
+                borderLeftWidth: 3,
+                borderLeftColor: clusterColor,
+                borderLeftStyle: isOutlierCluster ? 'dashed' : 'solid',
+            }}
         >
             {/* Card Header */}
             <div

@@ -22,15 +22,15 @@ const createClickHelpers = (
     clickOnDate: async (day: string): Promise<void> => {
         const element = container.querySelector('.LemonCalendar__month') as HTMLElement
         if (element) {
-            userEvent.click(await within(element).findByText(day))
-            userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
+            await userEvent.click(await within(element).findByText(day))
+            await userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
         }
     },
     clickOnTime: async (props: GetLemonButtonTimePropsOpts): Promise<void> => {
         const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
         if (element) {
-            userEvent.click(element)
-            userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
+            await userEvent.click(element)
+            await userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
         }
     },
 })
@@ -72,7 +72,7 @@ describe('LemonCalendarSelect', () => {
     beforeEach(() => {
         window.HTMLElement.prototype.scrollIntoView = jest.fn()
 
-        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
+        jest.useFakeTimers({ advanceTimers: true }).setSystemTime(new Date('2023-01-10 17:22:08'))
     })
 
     afterEach(() => {
@@ -98,7 +98,7 @@ describe('LemonCalendarSelect', () => {
         await clickOnDate('27')
         expect(onChange).toHaveBeenCalledWith(dayjs('2022-02-27'))
 
-        userEvent.click(getByDataAttr(container, 'lemon-calendar-select-cancel'))
+        await userEvent.click(getByDataAttr(container, 'lemon-calendar-select-cancel'))
         expect(onClose).toHaveBeenCalled()
     })
 

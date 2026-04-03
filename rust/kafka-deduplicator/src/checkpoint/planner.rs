@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::{CheckpointFile, CheckpointInfo, CheckpointMetadata};
+use super::{
+    hash_prefix_for_partition, CheckpointFile, CheckpointInfo, CheckpointMetadata,
+    PlanningCancelledError,
+};
 use crate::kafka::types::Partition;
 use crate::metrics_const::CHECKPOINT_PLAN_FILE_TRACKED_COUNTER;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 /// Result of checkpoint planning
@@ -19,7 +23,9 @@ pub struct CheckpointPlan {
     pub files_to_upload: Vec<LocalCheckpointFile>,
 }
 
-/// Create a checkpoint plan with new metadata and list of files to upload
+/// Create a checkpoint plan with new metadata and list of files to upload.
+/// If a cancellation token is provided, planning checks it during directory walk
+/// and before hashing non-SST files so rebalance can stop export before upload starts.
 #[allow(clippy::too_many_arguments)]
 pub fn plan_checkpoint(
     local_checkpoint_attempt_dir: &Path,
@@ -30,7 +36,9 @@ pub fn plan_checkpoint(
     consumer_offset: i64,
     producer_offset: i64,
     previous_metadata: Option<&CheckpointMetadata>,
+    cancel_token: Option<&CancellationToken>,
 ) -> Result<CheckpointPlan> {
+    ensure_not_cancelled(cancel_token, "before planning start")?;
     let metadata = CheckpointMetadata::new(
         partition.topic().to_string(),
         partition.partition_number(),
@@ -39,11 +47,12 @@ pub fn plan_checkpoint(
         consumer_offset,
         producer_offset,
     );
-    let mut info = CheckpointInfo::new(metadata, remote_bucket_namespace);
+    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
+    let mut info = CheckpointInfo::new(metadata, remote_bucket_namespace, Some(hash));
     let mut files_to_upload: Vec<LocalCheckpointFile> = Vec::new();
 
     // Collect all files in local checkpoint directory
-    let local_files = collect_local_files(local_checkpoint_attempt_dir)?;
+    let local_files = collect_local_files(local_checkpoint_attempt_dir, cancel_token)?;
     info!(
         "Found {} files in local checkpoint directory",
         local_files.len()
@@ -82,17 +91,7 @@ pub fn plan_checkpoint(
         prev_meta.id
     );
 
-    // For each local file, check if it exists in previous metadata fileset
-    // IMPORTANT: each type must be handled differently to maintain
-    // a useable backup:
-    // - .sst files: upload all new files, and skip uploading old ones (retain original paths)
-    // - .log (WAL) files: upload only new files. drop old if missing from new checkpoint.
-    //                     if same-named, keep newer or disambiguate w/checksum
-    // - MANIFEST-* files: upload new files. drop old if missing from new checkpoint.
-    //                     if same-named, keep newer or disambiguate w/checksum
-    // - CURRENT    file:  upload the new file, drop the old one
-    // - OPTIONS-*  files: upload new files. drop old if missing from new checkpoint.
-    //                     if same-named, keep newer or disambiguate w/checksum
+    // Per-file rules: .sst retain old path; .log/MANIFEST/OPTIONS replace if checksum changed; CURRENT always upload new.
     for candidate in local_files {
         let filename = &candidate.filename;
         if let Some(prev_file) = prev_file_map.get(filename) {
@@ -167,15 +166,20 @@ fn retain_or_replace_duplicate(
 
 /// Collect all files in local checkpoint attempt directory of form:
 /// <local_base_path>/<topic_name>/<partition_number>/<checkpoint_id>
-fn collect_local_files(base_attempt_path: &Path) -> Result<Vec<LocalCheckpointFile>> {
+fn collect_local_files(
+    base_attempt_path: &Path,
+    cancel_token: Option<&CancellationToken>,
+) -> Result<Vec<LocalCheckpointFile>> {
     let mut files = Vec::new();
     let mut stack = vec![base_attempt_path.to_path_buf()];
 
     while let Some(current_path) = stack.pop() {
+        ensure_not_cancelled(cancel_token, "during directory walk")?;
         let entries = std::fs::read_dir(&current_path)
             .with_context(|| format!("Failed to read directory: {current_path:?}"))?;
 
         for entry in entries {
+            ensure_not_cancelled(cancel_token, "during directory walk")?;
             let entry = entry.context(format!(
                 "Failed to read directory entry from {base_attempt_path:?}"
             ))?;
@@ -184,7 +188,8 @@ fn collect_local_files(base_attempt_path: &Path) -> Result<Vec<LocalCheckpointFi
             if path.is_dir() {
                 stack.push(path);
             } else {
-                let candidate = build_candidate_file(&path).context("In build_candidate_file")?;
+                let candidate =
+                    build_candidate_file(&path, cancel_token).context("In build_candidate_file")?;
                 files.push(candidate);
             }
         }
@@ -193,7 +198,10 @@ fn collect_local_files(base_attempt_path: &Path) -> Result<Vec<LocalCheckpointFi
     Ok(files)
 }
 
-fn build_candidate_file(file_path: &Path) -> Result<LocalCheckpointFile> {
+fn build_candidate_file(
+    file_path: &Path,
+    cancel_token: Option<&CancellationToken>,
+) -> Result<LocalCheckpointFile> {
     let local_file_path = file_path.to_path_buf();
     let filename = file_path
         .file_name()
@@ -204,6 +212,7 @@ fn build_candidate_file(file_path: &Path) -> Result<LocalCheckpointFile> {
     let checksum = if filename.ends_with(".sst") {
         String::default()
     } else {
+        ensure_not_cancelled(cancel_token, "before hashing non-SST file")?;
         load_and_hash_file(file_path).context("In load_and_hash_file")?
     };
 
@@ -225,6 +234,20 @@ fn load_and_hash_file(file_path: &Path) -> Result<String> {
     let checksum = format!("{hash:x}");
 
     Ok(checksum.to_string())
+}
+
+fn ensure_not_cancelled(
+    cancel_token: Option<&CancellationToken>,
+    reason: &'static str,
+) -> Result<()> {
+    if cancel_token.is_some_and(CancellationToken::is_cancelled) {
+        return Err(PlanningCancelledError {
+            reason: reason.to_string(),
+        }
+        .into());
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -249,6 +272,7 @@ mod tests {
     use super::*;
     use chrono::Duration;
     use tempfile::TempDir;
+    use tokio_util::sync::CancellationToken;
 
     #[test]
     fn test_plan_checkpoint_no_previous() {
@@ -283,13 +307,14 @@ mod tests {
             consumer_offset,
             producer_offset,
             previous_metadata,
+            None,
         )
         .unwrap();
 
         let expected_sst1 =
-            build_candidate_file(&local_checkpoint_attempt_dir.join("file1.sst")).unwrap();
+            build_candidate_file(&local_checkpoint_attempt_dir.join("file1.sst"), None).unwrap();
         let expected_sst2 =
-            build_candidate_file(&local_checkpoint_attempt_dir.join("file2.sst")).unwrap();
+            build_candidate_file(&local_checkpoint_attempt_dir.join("file2.sst"), None).unwrap();
 
         // With no previous metadata, all files should be uploaded
         assert_eq!(plan.files_to_upload.len(), 2);
@@ -306,10 +331,11 @@ mod tests {
         assert_eq!(got_sst1, &expected_sst1);
         assert_eq!(got_sst2, &expected_sst2);
 
-        // With no previous metadata, all files should be tracked in metadata
+        // With no previous metadata, all files should be tracked in metadata with hashed paths
         assert_eq!(plan.info.metadata.files.len(), 2);
+        let hash = hash_prefix_for_partition(topic, partition_number);
         let expected_remote_path =
-            format!("{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
         assert!(plan
             .info
             .metadata
@@ -328,6 +354,13 @@ mod tests {
             .files
             .iter()
             .any(|f| f.remote_filepath.ends_with("file2.sst")));
+        // metadata key (for metadata.json) now uses hash prefix like object files
+        let meta_key = plan.info.get_metadata_key();
+        assert!(meta_key.contains(&hash));
+        assert_eq!(
+            meta_key,
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}/metadata.json")
+        );
     }
 
     #[test]
@@ -364,9 +397,9 @@ mod tests {
         std::fs::write(prev_local_attempt_dir.join("00002.sst"), b"data2").unwrap();
 
         let expected_prev_sst1 =
-            build_candidate_file(&prev_local_attempt_dir.join("00001.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00001.sst"), None).unwrap();
         let expected_prev_sst2 =
-            build_candidate_file(&prev_local_attempt_dir.join("00002.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00002.sst"), None).unwrap();
 
         let prev_remote_path =
             format!("{remote_bucket_namespace}/{topic}/{partition_number}/{prev_checkpoint_id}");
@@ -400,7 +433,7 @@ mod tests {
         std::fs::write(local_checkpoint_attempt_dir.join("00002.sst"), b"data2").unwrap();
         std::fs::write(local_checkpoint_attempt_dir.join("00003.sst"), b"data3").unwrap();
         let expected_sst3 =
-            build_candidate_file(&local_checkpoint_attempt_dir.join("00003.sst")).unwrap();
+            build_candidate_file(&local_checkpoint_attempt_dir.join("00003.sst"), None).unwrap();
 
         let plan = plan_checkpoint(
             &local_checkpoint_attempt_dir,
@@ -411,6 +444,7 @@ mod tests {
             consumer_offset,
             producer_offset,
             Some(&prev_metadata),
+            None,
         )
         .unwrap();
 
@@ -443,9 +477,10 @@ mod tests {
         assert_eq!(&sst1_file_meta.checksum, &expected_prev_sst1.checksum);
         assert_eq!(&sst2_file_meta.checksum, &expected_prev_sst2.checksum);
 
-        // Check that file3 is in metadata as a reference
+        // Check that file3 is in metadata as a reference (new files use hashed path)
+        let hash = hash_prefix_for_partition(topic, partition_number);
         let current_attempt_remote_path =
-            format!("{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
 
         let sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let sst2_remote_path = format!("{prev_remote_path}/00002.sst");
@@ -517,11 +552,11 @@ mod tests {
         std::fs::write(prev_local_attempt_dir.join("00003.sst"), b"data3").unwrap();
 
         let expected_prev_sst1 =
-            build_candidate_file(&prev_local_attempt_dir.join("00001.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00001.sst"), None).unwrap();
         let expected_prev_sst2 =
-            build_candidate_file(&prev_local_attempt_dir.join("00002.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00002.sst"), None).unwrap();
         let expected_prev_sst3 =
-            build_candidate_file(&prev_local_attempt_dir.join("00003.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00003.sst"), None).unwrap();
 
         let prev_remote_path =
             format!("{remote_bucket_namespace}/{topic}/{partition_number}/{prev_checkpoint_id}",);
@@ -569,6 +604,7 @@ mod tests {
             consumer_offset,
             producer_offset,
             Some(&prev_metadata),
+            None,
         )
         .unwrap();
 
@@ -646,17 +682,17 @@ mod tests {
         std::fs::write(prev_local_attempt_dir.join("00001.log"), b"data6").unwrap();
 
         let expected_prev_sst1 =
-            build_candidate_file(&prev_local_attempt_dir.join("00001.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00001.sst"), None).unwrap();
         let expected_prev_sst2 =
-            build_candidate_file(&prev_local_attempt_dir.join("00002.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00002.sst"), None).unwrap();
         let expected_prev_manifest =
-            build_candidate_file(&prev_local_attempt_dir.join("MANIFEST-000000")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("MANIFEST-000000"), None).unwrap();
         let expected_prev_options =
-            build_candidate_file(&prev_local_attempt_dir.join("OPTIONS-000000")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("OPTIONS-000000"), None).unwrap();
         let expected_prev_current =
-            build_candidate_file(&prev_local_attempt_dir.join("CURRENT")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("CURRENT"), None).unwrap();
         let expected_prev_log =
-            build_candidate_file(&prev_local_attempt_dir.join("00001.log")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00001.log"), None).unwrap();
 
         let prev_remote_path =
             format!("{remote_bucket_namespace}/{topic}/{partition_number}/{prev_checkpoint_id}",);
@@ -734,6 +770,7 @@ mod tests {
             consumer_offset,
             producer_offset,
             Some(&prev_metadata),
+            None,
         )
         .unwrap();
 
@@ -753,8 +790,10 @@ mod tests {
         assert_eq!(plan.info.metadata.files.len(), 7);
 
         // validate the right checkpoint metadata was retained from previous vs. current checkpoint attempts
+        // new files (sst3, CURRENT, log) use hashed path; retained use prev (unhashed)
+        let hash = hash_prefix_for_partition(topic, partition_number);
         let current_attempt_remote_path =
-            format!("{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
         let sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let sst2_remote_path = format!("{prev_remote_path}/00002.sst");
         let sst3_remote_path = format!("{current_attempt_remote_path}/00003.sst");
@@ -805,5 +844,75 @@ mod tests {
             .files
             .iter()
             .any(|f| f.remote_filepath == log_remote_path));
+    }
+
+    #[test]
+    fn test_plan_checkpoint_cancelled_before_start() {
+        let temp_dir = TempDir::new().unwrap();
+        let partition = Partition::new("test-topic".to_string(), 0);
+        let attempt_timestamp = Utc::now();
+        let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);
+        let local_checkpoint_attempt_dir = temp_dir
+            .path()
+            .join(partition.topic())
+            .join(partition.partition_number().to_string())
+            .join(&checkpoint_id);
+
+        std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
+        std::fs::write(local_checkpoint_attempt_dir.join("00001.sst"), b"data1").unwrap();
+
+        let cancel_token = CancellationToken::new();
+        cancel_token.cancel();
+
+        let err = plan_checkpoint(
+            &local_checkpoint_attempt_dir,
+            "checkpoints".to_string(),
+            partition,
+            attempt_timestamp,
+            1000,
+            0,
+            100,
+            None,
+            Some(&cancel_token),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.downcast_ref::<PlanningCancelledError>().is_some(),
+            "error should be PlanningCancelledError: {err}"
+        );
+    }
+
+    #[test]
+    fn test_collect_local_files_cancelled_during_directory_walk() {
+        let temp_dir = TempDir::new().unwrap();
+        let nested_dir = temp_dir.path().join("nested");
+        std::fs::create_dir_all(&nested_dir).unwrap();
+        std::fs::write(nested_dir.join("00001.sst"), b"data1").unwrap();
+
+        let cancel_token = CancellationToken::new();
+        cancel_token.cancel();
+
+        let err = collect_local_files(temp_dir.path(), Some(&cancel_token)).unwrap_err();
+        assert!(
+            err.downcast_ref::<PlanningCancelledError>().is_some(),
+            "error should be PlanningCancelledError: {err}"
+        );
+    }
+
+    #[test]
+    fn test_build_candidate_file_cancelled_before_hashing_non_sst() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("MANIFEST-000000");
+        std::fs::write(&file_path, b"manifest-data").unwrap();
+
+        let cancel_token = CancellationToken::new();
+        cancel_token.cancel();
+
+        let err = build_candidate_file(&file_path, Some(&cancel_token)).unwrap_err();
+        assert!(
+            err.downcast_ref::<PlanningCancelledError>().is_some(),
+            "error should be PlanningCancelledError: {err}"
+        );
     }
 }

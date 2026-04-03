@@ -1,4 +1,4 @@
-import { createRef, useEffect, useRef, useState } from 'react'
+import { createRef, useEffect, useRef } from 'react'
 
 export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I extends HTMLElement = HTMLElement>(
     itemCount: number,
@@ -9,12 +9,12 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
     itemsRef: React.RefObject<React.RefObject<I>[]>
     options?: { enabled: boolean }
 } {
-    const [focusedItemIndex, setFocusedItemIndex] = useState(activeItemIndex)
+    const focusedItemIndexRef = useRef(activeItemIndex)
     const referenceRef = useRef<R>(null)
     const itemsRef = useRef(Array.from({ length: itemCount }, () => createRef<I>()))
 
     useEffect(() => {
-        setFocusedItemIndex(activeItemIndex)
+        focusedItemIndexRef.current = activeItemIndex
     }, [activeItemIndex])
 
     function focus(itemIndex: number): void {
@@ -32,16 +32,16 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
 
         const handleKeyDown = (e: KeyboardEvent): void => {
             if (e.key === 'ArrowDown') {
-                if (focusedItemIndex < itemCount - 1) {
-                    focus(focusedItemIndex + 1)
-                    setFocusedItemIndex(focusedItemIndex + 1)
-                    e.preventDefault() // Prevents scroll
+                if (focusedItemIndexRef.current < itemCount - 1) {
+                    focusedItemIndexRef.current += 1
+                    focus(focusedItemIndexRef.current)
+                    e.preventDefault()
                 }
             } else if (e.key === 'ArrowUp') {
-                if (focusedItemIndex >= 0) {
-                    focus(focusedItemIndex - 1)
-                    setFocusedItemIndex(focusedItemIndex - 1)
-                    e.preventDefault() // Prevents scroll
+                if (focusedItemIndexRef.current >= 0) {
+                    focusedItemIndexRef.current -= 1
+                    focus(focusedItemIndexRef.current)
+                    e.preventDefault()
                 }
             }
         }
@@ -55,7 +55,7 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
         return () => {
             controller.abort()
         }
-    }, [focusedItemIndex, itemCount, enabled])
+    }, [itemCount, enabled])
 
     return { referenceRef, itemsRef }
 }

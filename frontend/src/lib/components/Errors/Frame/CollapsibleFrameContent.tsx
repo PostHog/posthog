@@ -1,5 +1,5 @@
 import { getLanguage } from 'lib/components/CodeSnippet/CodeSnippet'
-import { CollapsiblePrimitiveContent } from 'lib/ui/CollapsiblePrimitive/CollapsiblePrimitive'
+import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameContext, ErrorTrackingStackFrameRecord } from '../types'
 import { CodeVariablesInlineBanner } from './CodeVariablesInlineBanner'
@@ -24,11 +24,11 @@ export function CollapsibleFrameContent({
         return null
     }
     return (
-        <CollapsiblePrimitiveContent className="transition-[height] border-t-1">
+        <Collapsible.Panel>
             <div onClick={(e) => onFrameContextClick?.(record.context!, e)}>
                 <FrameContext context={record.context} language={getLanguage(lang)} />
                 {hasCodeVariables ? <FrameVariables variables={code_variables!} /> : <CodeVariablesInlineBanner />}
             </div>
-        </CollapsiblePrimitiveContent>
+        </Collapsible.Panel>
     )
 }

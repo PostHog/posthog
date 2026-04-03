@@ -15,7 +15,6 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { NotFound } from 'lib/components/NotFound'
@@ -27,6 +26,8 @@ import {
     getConfigSchemaArray,
     isValidField,
 } from 'scenes/data-pipelines/legacy-plugins/configUtils'
+
+import { PluginConfigSchema } from '~/legacy-plugin-scaffold'
 
 import { pipelinePluginConfigurationLogic } from './pipelinePluginConfigurationLogic'
 import { RenderApp } from './utils'

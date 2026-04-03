@@ -24,17 +24,17 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     SnowflakeBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -370,6 +370,9 @@ class SnowflakeField(Field):
 
     def to_destination_field(self) -> SnowflakeDestinationField:
         return SnowflakeDestinationField(name=self.name, type=self.snowflake_type_name, is_nullable=self.nullable)
+
+    def with_new_arrow_type(self, new_type: pa.DataType) -> "SnowflakeField":
+        return SnowflakeField(self.name, data_type_to_snowflake_type(new_type), new_type, self.nullable)
 
 
 class SnowflakeTable(Table):
@@ -785,6 +788,12 @@ class SnowflakeClient:
 
         Returns:
             A SnowflakeTable.
+
+        Raises:
+            SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
+            SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
+                mutable table and one or more fields from the primary key are missing
+                from the table.
         """
         try:
             result = await self.execute_async_query(f"""
@@ -798,16 +807,37 @@ class SnowflakeClient:
             else:
                 raise
 
-        record_batch_field_names = [field.name.lower() for field in table.fields]
+        if table.is_mutable():
+            existing = {field_metadata.name.lower() for field_metadata in metadata}
+            missing_primary_key_fields = set(table.primary_key) - existing
+            if missing_primary_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's primary key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_primary_key_fields)}. "
+                    "Please review your batch export configuration: "
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
+                )
+
+            missing_version_key_fields = set(table.version_key) - existing
+            if missing_version_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's version key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_version_key_fields)}. "
+                    "Please review your batch export configuration: "
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
+                )
+
+        record_batch_field_names = {field.name.lower() for field in table.fields}
         fields = (
             SnowflakeDestinationField(
-                metadata.name,
-                FIELD_ID_TO_NAME[metadata.type_code],  # type: ignore[arg-type]
-                metadata.is_nullable,
+                field_metadata.name,
+                FIELD_ID_TO_NAME[field_metadata.type_code],  # type: ignore[arg-type]
+                field_metadata.is_nullable,
             )
-            for metadata in metadata
-            # Only include fields that are present in the record batch schema
-            if metadata.name.lower() in record_batch_field_names
+            for field_metadata in metadata
+            if field_metadata.name.lower() in record_batch_field_names
         )
 
         return SnowflakeTable.from_snowflake_table(
@@ -1181,8 +1211,9 @@ class SnowflakeConsumer(Consumer):
         self,
         snowflake_client: SnowflakeClient,
         snowflake_table: SnowflakeTable,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.snowflake_client = snowflake_client
         self.snowflake_table = snowflake_table
@@ -1375,6 +1406,7 @@ async def insert_into_snowflake_activity_from_stage(
                 consumer = SnowflakeConsumer(
                     snowflake_client=snow_client,
                     snowflake_table=snow_consumer_table,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
                 transformer = PipelineTransformer(
@@ -1433,7 +1465,9 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Snowflake table."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

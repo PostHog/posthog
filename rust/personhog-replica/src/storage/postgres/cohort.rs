@@ -2,6 +2,8 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 
+use personhog_common::grpc::current_client_name;
+
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::CohortStorage;
@@ -19,26 +21,33 @@ impl CohortStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "check_cohort_membership".to_string(),
-        )];
+        let client = current_client_name();
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "check_cohort_membership".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+            ("client".to_string(), client.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let cohort_ids_i32: Vec<i32> = cohort_ids.iter().map(|&id| id as i32).collect();
 
-        let member_ids: Vec<i32> = sqlx::query_scalar(
+        let member_ids: Vec<i32> = sqlx::query_scalar!(
             r#"
             SELECT cohort_id
             FROM posthog_cohortpeople
             WHERE person_id = $1 AND cohort_id = ANY($2)
             "#,
+            person_id,
+            &cohort_ids_i32
         )
-        .bind(person_id)
-        .bind(&cohort_ids_i32)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
         let member_set: HashSet<i64> = member_ids.into_iter().map(|id| id as i64).collect();

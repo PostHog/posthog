@@ -6,9 +6,9 @@ import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -17,8 +17,8 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -55,29 +55,22 @@ export function Annotations(): JSX.Element {
         {
             title: 'Annotation',
             key: 'annotation',
-            width: '30%',
             render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
-                let renderedContent = <>{annotation.content ?? ''}</>
-                if ((annotation.content || '').trim().length > 30) {
-                    renderedContent = (
-                        <Tooltip
-                            title={
-                                <TextContent
-                                    text={annotation.content ?? ''}
-                                    data-attr="annotation-scene-comment-title-rendered-content"
-                                />
-                            }
-                        >
-                            {(annotation.content ?? '').slice(0, 27) + '...'}
-                        </Tooltip>
-                    )
-                }
                 return (
-                    <div className="font-semibold">
-                        <Link subtle to={urls.annotation(annotation.id)}>
-                            {renderedContent}
-                        </Link>
-                    </div>
+                    <Tooltip
+                        title={
+                            <TextContent
+                                text={annotation.content ?? ''}
+                                data-attr="annotation-scene-comment-title-rendered-content"
+                            />
+                        }
+                    >
+                        <div className="font-semibold line-clamp-2">
+                            <Link subtle to={urls.annotation(annotation.id)}>
+                                {annotation.content ?? ''}
+                            </Link>
+                        </div>
+                    </Tooltip>
                 )
             },
         },
@@ -172,6 +165,7 @@ export function Annotations(): JSX.Element {
                     >
                         <LemonButton
                             type="primary"
+                            data-attr="create-annotation"
                             onClick={() => openModalToCreateAnnotation()}
                             size="small"
                             tooltip="New annotation"

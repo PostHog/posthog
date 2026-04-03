@@ -1,0 +1,427 @@
+# serializer version: 1
+# name: TestCTETransformSnapshots.test_cte_property_variable
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              properties.os AS os_name
+          FROM
+              events
+          GROUP BY
+              properties.os)
+  SELECT
+      cnt,
+      os_name
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_range_variable_deduped_group_by
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              toStartOfDay(hour) AS start_hour,
+              toStartOfDay(hour) AS end_hour
+          FROM
+              events
+          GROUP BY
+              hour)
+  SELECT
+      cnt,
+      start_hour,
+      end_hour
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_two_variables_same_cte
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              event AS event_name,
+              distinct_id AS user_id
+          FROM
+              events
+          GROUP BY
+              event,
+              distinct_id)
+  SELECT
+      cnt,
+      event_name,
+      user_id
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_variable_preserves_non_variable_where
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              event AS event_name
+          FROM
+              events
+          WHERE
+              greater(timestamp, '2024-01-01')
+          GROUP BY
+              event)
+  SELECT
+      cnt,
+      event_name
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_variable_top_level_no_group_by_passthrough
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              event,
+              event AS event_name
+          FROM
+              events
+          GROUP BY
+              event)
+  SELECT
+      sum(cnt),
+      event_name
+  FROM
+      cte
+  GROUP BY
+      event_name
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_variable_with_group_by
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              toStartOfDay(timestamp) AS date,
+              event AS event_name
+          FROM
+              events
+          GROUP BY
+              date,
+              event)
+  SELECT
+      cnt,
+      date,
+      event_name
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_variable_without_group_by
+  '''
+  WITH
+      cte AS (SELECT
+              event AS event_name
+          FROM
+              events)
+  SELECT
+      count(),
+      event_name
+  FROM
+      cte
+  GROUP BY
+      event_name
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_top_level_variable_with_cte_present
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              event
+          FROM
+              events
+          GROUP BY
+              event)
+  SELECT
+      cnt,
+      event,
+      event AS event_name
+  FROM
+      cte
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_all_where_conditions_are_variables
+  '''
+  SELECT
+      count(),
+      event AS event_name,
+      distinct_id AS user_id
+  FROM
+      events
+  GROUP BY
+      event,
+      distinct_id
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_duplicate_placeholder_produces_single_alias
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_existing_group_by_preserved
+  '''
+  SELECT
+      toStartOfDay(timestamp) AS day,
+      count(),
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      day,
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_function_call_toDate
+  '''
+  SELECT
+      count(),
+      toDate(timestamp) AS from_date
+  FROM
+      events
+  GROUP BY
+      toDate(timestamp)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_hard_cap_timestamp_with_variable_range
+  '''
+  SELECT
+      count(),
+      toStartOfDay(timestamp) AS start_date,
+      toStartOfDay(timestamp) AS end_date
+  FROM
+      events
+  WHERE
+      greater(timestamp, minus(today(), toIntervalDay(90)))
+  GROUP BY
+      toStartOfDay(timestamp)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_like_operator
+  '''
+  SELECT
+      count(),
+      event AS pattern
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_mixed_equality_and_range
+  '''
+  SELECT
+      count(),
+      event AS name,
+      toStartOfDay(hour) AS start_hour
+  FROM
+      events
+  GROUP BY
+      event,
+      toStartOfDay(hour)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_mixed_field_and_function_call
+  '''
+  SELECT
+      count(),
+      event AS event_name,
+      toDate(timestamp) AS from_date
+  FROM
+      events
+  GROUP BY
+      event,
+      toDate(timestamp)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_nested_and_variable_removed
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  WHERE
+      equals(distinct_id, 'u1')
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_order_by_having_limit_preserved
+  '''
+  SELECT
+      event,
+      count() AS c,
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  HAVING
+      greater(c, 10)
+  ORDER BY
+      c DESC
+  LIMIT 50
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_person_property_variable
+  '''
+  SELECT
+      count(),
+      person.properties.city AS city
+  FROM
+      events
+  GROUP BY
+      person.properties.city
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_preserves_non_variable_where
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  WHERE
+      and(greater(timestamp, '2024-01-01'), equals(distinct_id, 'user1'))
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_property_variable_json_extract
+  '''
+  SELECT
+      count(),
+      properties.os AS os_name
+  FROM
+      events
+  GROUP BY
+      properties.os
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_range_on_same_function_call_deduped
+  '''
+  SELECT
+      count(),
+      toDate(timestamp) AS from_date,
+      toDate(timestamp) AS to_date
+  FROM
+      events
+  GROUP BY
+      toDate(timestamp)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_range_same_column_deduped
+  '''
+  SELECT
+      count(),
+      toStartOfDay(hour) AS start_hour,
+      toStartOfDay(hour) AS end_hour
+  FROM
+      events
+  GROUP BY
+      toStartOfDay(hour)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_single_equality
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_single_equality_with_alias
+  '''
+  SELECT
+      count() AS total,
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_three_variables_range_deduped
+  '''
+  SELECT
+      count(),
+      event AS name,
+      toStartOfDay(hour) AS start_hour,
+      toStartOfDay(hour) AS end_hour
+  FROM
+      events
+  GROUP BY
+      event,
+      toStartOfDay(hour)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_two_equality_different_columns
+  '''
+  SELECT
+      count(),
+      event AS event_name,
+      distinct_id AS user_id
+  FROM
+      events
+  GROUP BY
+      event,
+      distinct_id
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_variable_on_left_side
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---

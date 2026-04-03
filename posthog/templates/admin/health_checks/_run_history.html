@@ -1,0 +1,47 @@
+{% if workflows %}
+<table class="workflow-table">
+    <thead>
+        <tr>
+            <th>Workflow ID</th>
+            <th>Source</th>
+            <th>Status</th>
+            <th>Started</th>
+            <th>Completed</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for wf in workflows %}
+        <tr>
+            <td class="workflow-id">
+                <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ wf.id }}/{{ wf.run_id }}"
+                   target="_blank">{{ wf.id }}</a>
+            </td>
+            <td>{{ wf.source }}</td>
+            <td>
+                {% if wf.status == "RUNNING" %}
+                    <span class="status-badge status-running">Running</span>
+                {% elif wf.status == "COMPLETED" %}
+                    <span class="status-badge status-completed">Completed</span>
+                {% elif wf.status == "FAILED" %}
+                    <span class="status-badge status-failed">Failed</span>
+                {% elif wf.status == "CANCELED" %}
+                    <span class="status-badge status-canceled">Canceled</span>
+                {% elif wf.status == "CONTINUED_AS_NEW" %}
+                    <span class="status-badge status-running">Continued</span>
+                {% elif wf.status == "TERMINATED" %}
+                    <span class="status-badge status-failed">Terminated</span>
+                {% elif wf.status == "TIMED_OUT" %}
+                    <span class="status-badge status-failed">Timed out</span>
+                {% else %}
+                    <span class="status-badge">{{ wf.status }}</span>
+                {% endif %}
+            </td>
+            <td>{{ wf.start_time|date:"Y-m-d H:i:s" }}</td>
+            <td>{% if wf.close_time %}{{ wf.close_time|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty-state">No health check workflows have been run yet.</p>
+{% endif %}

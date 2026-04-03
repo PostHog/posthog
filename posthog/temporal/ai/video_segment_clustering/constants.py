@@ -1,6 +1,13 @@
 """Configuration constants for video segment clustering workflow."""
 
 from datetime import timedelta
+from uuid import UUID
+
+
+def clustering_workflow_id(team_id: int, config_id: UUID | str) -> str:
+    """Shared workflow ID for conflict resolution between initial trigger and coordinator."""
+    return f"video-segment-clustering-team-{team_id}-config-{config_id}"
+
 
 # What period to consider in clustering run, and how often to run it on schedule
 DEFAULT_LOOKBACK_WINDOW = timedelta(days=7)

@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -257,6 +258,40 @@ export const teamLogic = kea<teamLogicType>([
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
+        ],
+        // currentTeamIdStrict is currentTeamId with throwing an error to be consistent with the
+        // newly introduced currentProjectId and currentOrganizationId. To not cause a breaking change
+        // we kept currentTeamId as is for now. Ultimately throwing an error should be migrated to
+        // currentTeamId and so that currentTeamIdStrict can be removed.
+        currentTeamIdStrict: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number | string => {
+                if (!currentTeam || !currentTeam.id) {
+                    // TODO: Fix callers that access currentTeamIdStrict before the team is loaded,
+                    // then restore the throw. Temporarily falling back to "@current" to avoid crashes.
+                    posthog.captureException(new Error('currentTeamId accessed before team loaded'), {
+                        severity: 'warning',
+                        tag: 'selector_accessed_before_loaded',
+                    })
+                    return '@current'
+                }
+                return currentTeam.id
+            },
+        ],
+        currentProjectId: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number | string => {
+                if (!currentTeam || !currentTeam.project_id) {
+                    // TODO: Fix callers that access currentProjectId before the team is loaded,
+                    // then restore the throw. Temporarily falling back to "@current" to avoid crashes.
+                    posthog.captureException(new Error('currentProjectId accessed before team loaded'), {
+                        severity: 'warning',
+                        tag: 'selector_accessed_before_loaded',
+                    })
+                    return '@current'
+                }
+                return currentTeam.project_id
+            },
         ],
         isCurrentTeamUnavailable: [
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],

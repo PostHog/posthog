@@ -123,6 +123,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
                     `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+
+                // Cancel if a newer request came in while this one was in flight
+                await breakpoint()
+
                 const response = {
                     ...legacyResponse,
                     results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
@@ -131,6 +135,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
                         const insight = await insightsApi.getByNumericId(Number(filters.search))
+                        await breakpoint()
                         return {
                             ...response,
                             count: response.count + 1,
@@ -249,9 +254,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
                 }),
-                ...(filters.createdBy !== 'All users' && {
-                    created_by: JSON.stringify(filters.createdBy),
-                }),
+                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
+                ...(filters.tab !== SavedInsightsTabs.Yours &&
+                    filters.createdBy !== 'All users' && {
+                        created_by: JSON.stringify(filters.createdBy),
+                    }),
                 ...(filters.tags && filters.tags.length > 0 && { tags: JSON.stringify(filters.tags) }),
                 ...(filters.dateFrom &&
                     filters.dateFrom !== 'all' && {

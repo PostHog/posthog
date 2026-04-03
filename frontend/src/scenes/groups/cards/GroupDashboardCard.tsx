@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -7,6 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
+import { urls } from 'scenes/urls'
 
 import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
@@ -19,29 +20,32 @@ function GroupDetailDashboard({
     groupData: Group
 }): JSX.Element {
     const { groupTypeName } = useValues(groupLogic)
-    const { setProperties, setLoadLayoutFromServerOnPreview } = useActions(
-        dashboardLogic({ id: groupTypeDetailDashboard })
-    )
+    const { setExternalFilters } = useActions(dashboardLogic({ id: groupTypeDetailDashboard }))
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (groupTypeDetailDashboard && groupData) {
-            setLoadLayoutFromServerOnPreview(true)
-            setProperties([
-                {
-                    type: PropertyFilterType.EventMetadata,
-                    key: `$group_${groupData.group_type_index}`,
-                    label: groupTypeName,
-                    value: groupData.group_key,
-                    operator: PropertyOperator.Exact,
-                },
-            ])
+            setExternalFilters({
+                properties: [
+                    {
+                        type: PropertyFilterType.EventMetadata,
+                        key: `$group_${groupData.group_type_index}`,
+                        label: groupTypeName,
+                        value: String(groupData.group_key),
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            })
         }
-    }, [groupTypeDetailDashboard, groupData, groupTypeName, setProperties, setLoadLayoutFromServerOnPreview])
+    }, [groupTypeDetailDashboard, groupData, groupTypeName, setExternalFilters])
 
     return (
         <div className="flex flex-col gap-0">
             <h2>Insights</h2>
-            <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
+            <Dashboard
+                id={groupTypeDetailDashboard.toString()}
+                placement={DashboardPlacement.Group}
+                backTo={{ url: urls.group(groupData.group_type_index, groupData.group_key), name: groupTypeName }}
+            />
         </div>
     )
 }

@@ -28,7 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
@@ -74,7 +74,6 @@ class EvaluationPatternSerializer(serializers.Serializer):
     title = serializers.CharField()
     description = serializers.CharField()
     frequency = serializers.CharField()
-    example_reasoning = serializers.CharField()
     example_generation_ids = serializers.ListField(child=serializers.CharField())
 
 
@@ -197,7 +196,7 @@ def _fetch_evaluation_runs(
         """
     )
 
-    with tags_context(product=Product.LLM_ANALYTICS):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY):
         query_result = execute_hogql_query(
             query_type="EvaluationSummaryFetchRuns",
             query=query,
@@ -293,7 +292,6 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                             "title": "Clear Communication",
                             "description": "Responses consistently provided well-structured information",
                             "frequency": "common",
-                            "example_reasoning": "Good formatting and clear explanation",
                             "example_generation_ids": ["gen_abc123", "gen_ghi789"],
                         }
                     ],
@@ -302,7 +300,6 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                             "title": "Factual Errors",
                             "description": "Some responses contained inaccurate information",
                             "frequency": "occasional",
-                            "example_reasoning": "Response contained factual errors",
                             "example_generation_ids": ["gen_def456"],
                         }
                     ],
@@ -450,7 +447,8 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
                     "fail_count": result["statistics"]["fail_count"],
                     "na_count": result["statistics"]["na_count"],
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
             return Response(result, status=status.HTTP_200_OK)

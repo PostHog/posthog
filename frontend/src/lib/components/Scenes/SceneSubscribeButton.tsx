@@ -15,7 +15,12 @@ interface SceneSubscribeButtonProps extends SubscriptionBaseProps, SceneDataAttr
     dashboardId?: number
 }
 
-export function SceneSubscribeButton({ dataAttrKey, insight, dashboardId }: SceneSubscribeButtonProps): JSX.Element {
+export function SceneSubscribeButton({
+    dataAttrKey,
+    insight,
+    dashboardId,
+    disabledReasons,
+}: SceneSubscribeButtonProps): JSX.Element {
     const { push } = useActions(router)
 
     return (
@@ -23,6 +28,7 @@ export function SceneSubscribeButton({ dataAttrKey, insight, dashboardId }: Scen
             menuItem
             onClick={() => push(urlForSubscriptions({ insightShortId: insight?.short_id, dashboardId }))}
             data-attr={`${dataAttrKey}-subscribe-dropdown-menu-item`}
+            disabledReasons={disabledReasons}
         >
             <IconBell />
             Subscribe

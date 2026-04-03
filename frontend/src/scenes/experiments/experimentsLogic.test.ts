@@ -4,11 +4,18 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentProgressStatus, FeatureFlagType } from '~/types'
+import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '~/types'
 
-import { experimentsLogic, getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
+import {
+    experimentsLogic,
+    getExperimentStatus,
+    getExperimentStatusColor,
+    hasEnded,
+    isExperimentPaused,
+} from './experimentsLogic'
 
 const createMockExperiment = (overrides: any = {}): Experiment =>
     ({
@@ -17,6 +24,7 @@ const createMockExperiment = (overrides: any = {}): Experiment =>
         feature_flag_key: 'test-experiment',
         start_date: '2023-01-01T00:00:00Z',
         end_date: '2023-01-07T00:00:00Z',
+        status: ExperimentStatus.Stopped,
         archived: false,
         ...overrides,
     }) as Experiment
@@ -28,6 +36,7 @@ const mockRunningExperiment = createMockExperiment({
     name: 'Running Experiment',
     start_date: '2023-01-01T00:00:00Z',
     end_date: null,
+    status: ExperimentStatus.Running,
 })
 
 const mockDraftExperiment = createMockExperiment({
@@ -35,6 +44,7 @@ const mockDraftExperiment = createMockExperiment({
     name: 'Draft Experiment',
     start_date: null,
     end_date: null,
+    status: ExperimentStatus.Draft,
 })
 
 const mkFlag = (id: number, key: string): FeatureFlagType => ({ ...NEW_FLAG, id, key })
@@ -265,13 +275,13 @@ describe('experimentsLogic', () => {
         it('constructs correct params from filters', () => {
             logic.actions.setExperimentsFilters({
                 search: 'test',
-                status: ExperimentProgressStatus.Running,
+                status: ExperimentStatus.Running,
                 page: 2,
             })
 
             expect(logic.values.paramsFromFilters).toEqual({
                 search: 'test',
-                status: ExperimentProgressStatus.Running,
+                status: ExperimentStatus.Running,
                 page: 2,
                 limit: 100,
                 offset: 100,
@@ -289,7 +299,7 @@ describe('experimentsLogic', () => {
             const initialExperiments = { results: [mockExperiment], count: 1 }
             logic.actions.loadExperimentsSuccess(initialExperiments)
 
-            api.update.mockResolvedValue({})
+            api.create.mockResolvedValue({})
 
             await expectLogic(logic, () => {
                 logic.actions.archiveExperiment(mockExperiment.id as number)
@@ -302,9 +312,9 @@ describe('experimentsLogic', () => {
                     }),
                 })
 
-            expect(api.update).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${mockExperiment.id}`), {
-                archived: true,
-            })
+            expect(api.create).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`)
+            )
         })
 
         it('duplicates experiment and navigates to it', async () => {
@@ -351,6 +361,24 @@ describe('experimentsLogic', () => {
         })
     })
 
+    describe('activity deep-link', () => {
+        it('preserves the activity deep-link param when staying on the history tab', async () => {
+            router.actions.push(urls.experiments(), { tab: 'history', activity: 'some-uuid' })
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentsTab(ExperimentsTabs.History)
+            })
+            expect(router.values.searchParams['activity']).toEqual('some-uuid')
+        })
+
+        it('drops the activity deep-link param when switching away from the history tab', async () => {
+            router.actions.push(urls.experiments(), { tab: 'history', activity: 'some-uuid' })
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentsTab(ExperimentsTabs.All)
+            })
+            expect(router.values.searchParams['activity']).toBeUndefined()
+        })
+    })
+
     describe('selectors', () => {
         it('calculates shouldShowEmptyState correctly', () => {
             logic.actions.setExperimentsFilters({
@@ -388,42 +416,74 @@ describe('experimentsLogic', () => {
 describe('utility functions', () => {
     describe('getExperimentStatus', () => {
         it('returns Draft for experiments without start date', () => {
-            expect(getExperimentStatus(mockDraftExperiment)).toBe(ExperimentProgressStatus.Draft)
+            expect(getExperimentStatus(mockDraftExperiment)).toBe(ExperimentStatus.Draft)
         })
 
         it('returns Running for experiments with start date but no end date', () => {
-            expect(getExperimentStatus(mockRunningExperiment)).toBe(ExperimentProgressStatus.Running)
+            expect(getExperimentStatus(mockRunningExperiment)).toBe(ExperimentStatus.Running)
         })
 
-        it('returns Complete for experiments with both start and end dates', () => {
-            expect(getExperimentStatus(mockExperiment)).toBe(ExperimentProgressStatus.Complete)
-        })
-
-        it('returns Paused when feature flag is inactive', () => {
-            const pausedExperiment = createMockExperiment({
-                start_date: '2024-01-01',
-                end_date: null,
-                feature_flag: { active: false },
-            })
-            expect(getExperimentStatus(pausedExperiment)).toBe(ExperimentProgressStatus.Paused)
+        it('returns Stopped for experiments with both start and end dates', () => {
+            expect(getExperimentStatus(mockExperiment)).toBe(ExperimentStatus.Stopped)
         })
 
         it('returns Running when feature flag is active', () => {
             const runningExperiment = createMockExperiment({
                 start_date: '2024-01-01',
                 end_date: null,
+                status: ExperimentStatus.Running,
                 feature_flag: { active: true },
             })
-            expect(getExperimentStatus(runningExperiment)).toBe(ExperimentProgressStatus.Running)
+            expect(getExperimentStatus(runningExperiment)).toBe(ExperimentStatus.Running)
+        })
+    })
+
+    describe('isExperimentPaused', () => {
+        it('returns true when a running experiment has an inactive feature flag', () => {
+            const pausedExperiment = createMockExperiment({
+                start_date: '2024-01-01',
+                end_date: null,
+                status: ExperimentStatus.Running,
+                feature_flag: { active: false },
+            })
+
+            expect(isExperimentPaused(pausedExperiment)).toBe(true)
+        })
+
+        it('returns false when a running experiment has an active feature flag', () => {
+            const runningExperiment = createMockExperiment({
+                start_date: '2024-01-01',
+                end_date: null,
+                status: ExperimentStatus.Running,
+                feature_flag: { active: true },
+            })
+
+            expect(isExperimentPaused(runningExperiment)).toBe(false)
         })
     })
 
     describe('getExperimentStatusColor', () => {
         it('returns correct colors for each status', () => {
-            expect(getExperimentStatusColor(ExperimentProgressStatus.Draft)).toBe('default')
-            expect(getExperimentStatusColor(ExperimentProgressStatus.Running)).toBe('success')
-            expect(getExperimentStatusColor(ExperimentProgressStatus.Paused)).toBe('warning')
-            expect(getExperimentStatusColor(ExperimentProgressStatus.Complete)).toBe('completion')
+            expect(getExperimentStatusColor(ExperimentStatus.Draft)).toBe('default')
+            expect(getExperimentStatusColor(ExperimentStatus.Running)).toBe('success')
+            expect(getExperimentStatusColor(ExperimentStatus.Running, true)).toBe('warning')
+            expect(getExperimentStatusColor(ExperimentStatus.Stopped)).toBe('completion')
+        })
+    })
+
+    describe('hasEnded', () => {
+        it.each([
+            { status: ExperimentStatus.Running, expected: false, desc: 'running experiment' },
+            { status: ExperimentStatus.Draft, expected: false, desc: 'draft experiment' },
+            { status: ExperimentStatus.Stopped, expected: true, desc: 'stopped experiment' },
+            {
+                end_date: '2099-01-01T00:00:00Z',
+                status: undefined,
+                expected: true,
+                desc: 'legacy fallback still treats any saved end date as stopped',
+            },
+        ])('returns $expected when $desc', ({ end_date, status, expected }) => {
+            expect(hasEnded(createMockExperiment({ end_date, status }))).toBe(expected)
         })
     })
 })

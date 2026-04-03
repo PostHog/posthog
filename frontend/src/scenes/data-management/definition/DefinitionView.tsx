@@ -5,12 +5,12 @@ import { useMemo } from 'react'
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -29,11 +29,16 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus } from '~/types'
+import {
+    EventDefinition,
+    FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionVerificationStatus,
+} from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -235,30 +240,33 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             />
 
             <div className="deprecated-space-y-2">
-                <EditableField
-                    multiline
-                    name="description"
-                    markdown
-                    value={definition.description || ''}
-                    placeholder="Description (optional)"
-                    mode="view"
-                    data-attr="definition-description-view"
-                    className="definition-description"
-                    compactButtons
-                    maxLength={600}
-                />
-                <ObjectTags
-                    tags={definition.tags ?? []}
-                    data-attr="definition-tags-view"
-                    className="definition-tags"
-                    saving={definitionLoading}
-                />
-
-                <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
-                <div className="flex flex-wrap gap-2 items-center text-secondary">
-                    <div>{isProperty ? 'Property' : 'Event'} name:</div>
-                    <LemonTag className="font-mono">{definition.name}</LemonTag>
+                <h5>Description</h5>
+                <div className="definition-description my-2" data-attr="definition-description-view">
+                    {definition.description || (
+                        <span className="text-muted italic">Add a description for this {singular}</span>
+                    )}
                 </div>
+                {definition.tags && definition.tags.length > 0 && (
+                    <ObjectTags
+                        tags={definition.tags}
+                        data-attr="definition-tags-view"
+                        className="definition-tags"
+                        saving={definitionLoading}
+                    />
+                )}
+
+                {!!(definition as EventDefinition).media_preview_urls?.length && (
+                    <div className="mt-4">
+                        <h5 className="mb-2">
+                            Preview{' '}
+                            <Tooltip title="Previews show where a client side event is triggered. Upload a screenshot or design.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
+                        <ImageCarousel imageUrls={(definition as EventDefinition).media_preview_urls!} />
+                    </div>
+                )}
+                <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
             </div>
 
             <SceneDivider />
@@ -266,13 +274,23 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             <div className="flex flex-wrap">
                 {isEvent && (
                     <div className="flex flex-col flex-1">
-                        <h5>First seen</h5>
+                        <h5>
+                            First seen{' '}
+                            <Tooltip title="This is the first time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the earliest event.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
                         <b>{definition.created_at ? <TZLabel time={definition.created_at} /> : '-'}</b>
                     </div>
                 )}
                 {isEvent && (
                     <div className="flex flex-col flex-1">
-                        <h5>Last seen</h5>
+                        <h5>
+                            Last seen{' '}
+                            <Tooltip title="This is the last time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the latest event.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
                         <b>{definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : '-'}</b>
                     </div>
                 )}
@@ -281,7 +299,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                         <h5>
                             30 day queries{' '}
                             <Tooltip title="Number of times this event has been queried in the last 30 days">
-                                <IconInfo />
+                                <IconInfo className="text-sm" />
                             </Tooltip>
                         </h5>
                         <b>

@@ -6,7 +6,12 @@ from pydantic import BaseModel, Field
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTool, AssistantToolCallMessage
 
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tools.create_notebook.helpers import ArtifactStatus, create_or_update_notebook_artifact
+from ee.hogai.tools.create_notebook.helpers import (
+    ArtifactStatus,
+    create_or_update_notebook_artifact,
+    notebook_exists_for_artifact,
+    save_notebook_to_db,
+)
 
 CREATE_NOTEBOOK_PROMPT = """
 Use this tool to create a notebook document with rich content.
@@ -66,6 +71,11 @@ Our signup funnel shows the following conversion rates:
 # Updating existing notebooks:
 - If you want to update an existing notebook, use the `artifact_id` parameter to specify the ID of the existing artifact
 - *IMPORTANT*: Updating a notebook will replace the existing content with the new content
+
+# Transient vs saved notebooks:
+- By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.
+- Set save_to_notebook=True ONLY when the user explicitly asks to save, persist, or create a permanent notebook.
+- When updating an artifact that is already saved to the database, the saved notebook is automatically updated too.
 """
 
 
@@ -82,6 +92,10 @@ class CreateNotebookToolArgs(BaseModel):
     artifact_id: str | None = Field(
         default=None, description="The ID of an existing notebook artifact that you want to update."
     )
+    save_to_notebook: bool = Field(
+        default=False,
+        description="Set to true ONLY when the user explicitly asks to save/persist the notebook to the database.",
+    )
 
 
 class CreateNotebookTool(MaxTool):
@@ -95,6 +109,7 @@ class CreateNotebookTool(MaxTool):
         content: str | None = None,
         draft_content: str | None = None,
         artifact_id: str | None = None,
+        save_to_notebook: bool = False,
     ) -> tuple[str, Any]:
         if content is not None and draft_content is not None:
             return "Error: Cannot provide both 'content' and 'draft_content'. Use exactly one.", None
@@ -106,18 +121,46 @@ class CreateNotebookTool(MaxTool):
         notebook_content = draft_content if is_draft else content
         assert notebook_content is not None
 
-        artifact, status = await create_or_update_notebook_artifact(
+        artifact, status, blocks = await create_or_update_notebook_artifact(
             artifacts_manager=self._context_manager.artifacts,
             content=notebook_content,
             title=title,
             artifact_id=artifact_id,
         )
 
-        message = f"The notebook artifact has been created with artifact_id: {artifact.short_id}"
-        if status == ArtifactStatus.FAILED_TO_UPDATE:
-            message = f"Failed to update the existing notebook artifact. A new artifact has been created with artifact_id: {artifact.short_id}"
-        elif status == ArtifactStatus.UPDATED:
-            message = f"The notebook artifact with artifact_id {artifact_id} has been updated"
+        # Check if this artifact already has a saved notebook
+        is_already_saved = await notebook_exists_for_artifact(self._team, artifact.short_id)
+
+        # Save to DB if explicitly requested or if updating an already-saved notebook
+        if save_to_notebook or is_already_saved:
+            await save_notebook_to_db(
+                team=self._team,
+                user=self._user,
+                artifact=artifact,
+                blocks=blocks,
+                title=title,
+            )
+
+        # Build response message
+        if save_to_notebook or is_already_saved:
+            if status == ArtifactStatus.UPDATED:
+                message = f"The notebook artifact and saved notebook have been updated (short_id: {artifact.short_id})."
+            else:
+                message = f"The notebook has been saved with short_id: {artifact.short_id}. It is accessible at /notebooks/{artifact.short_id}."
+        else:
+            message = (
+                f"The notebook artifact has been created with artifact_id: {artifact.short_id}. "
+                "This is a transient artifact visible only in this conversation. "
+                "The user can save it by clicking 'Create notebook' in the UI, or ask you to save it."
+            )
+            if status == ArtifactStatus.FAILED_TO_UPDATE:
+                message = (
+                    f"Failed to update the existing notebook artifact. "
+                    f"A new artifact has been created with artifact_id: {artifact.short_id}. "
+                    "This is a transient artifact visible only in this conversation."
+                )
+            elif status == ArtifactStatus.UPDATED:
+                message = f"The notebook artifact with artifact_id {artifact_id} has been updated."
 
         if is_draft:
             return message, None

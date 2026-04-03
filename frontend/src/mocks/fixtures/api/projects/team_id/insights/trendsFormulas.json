@@ -1,7 +1,7 @@
 {
     "id": 27,
     "short_id": "eGJCmxwx",
-    "name": "",
+    "name": null,
     "derived_name": "Yay, Nay on Pageview count & Pageleave count",
     "filters": {},
     "query": {

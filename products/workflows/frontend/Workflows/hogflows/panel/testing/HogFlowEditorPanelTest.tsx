@@ -16,9 +16,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { HogFunctionTestEditor } from 'scenes/hog-functions/configuration/HogFunctionTest'

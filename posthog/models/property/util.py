@@ -977,7 +977,14 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
     return prop
 
 
+_ALLOWED_ISSUE_FILTER_KEYS = {"name", "status", "issue_description", "first_seen"}
+
+
 def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFilter):
+    # Allowlist prevents ORM relationship traversal via Django's __ notation
+    if property.key not in _ALLOWED_ISSUE_FILTER_KEYS:
+        raise ValueError(f"Unsupported error tracking filter key: {property.key}")
+
     operator = property.operator
     value = property.value
     field = property.key
@@ -994,6 +1001,7 @@ def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFi
         in [
             PropertyOperator.IS_NOT,
             PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_ICONTAINS_MULTI,
             PropertyOperator.NOT_REGEX,
             PropertyOperator.IS_SET,
             PropertyOperator.NOT_IN,
@@ -1011,6 +1019,8 @@ def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFi
         query += "__isnull"
         value = True
     elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
+        query += "__icontains"
+    elif operator == PropertyOperator.ICONTAINS_MULTI or operator == PropertyOperator.NOT_ICONTAINS_MULTI:
         query += "__icontains"
     elif operator == PropertyOperator.REGEX:
         query += "__regex"

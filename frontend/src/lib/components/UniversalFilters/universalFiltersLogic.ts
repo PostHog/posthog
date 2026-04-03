@@ -2,23 +2,70 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 
 import {
     createDefaultPropertyFilter,
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
+import {
+    hasRecentContext,
+    recentTaxonomicFiltersLogic,
+} from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { EntityTypes } from '~/types'
 import {
     ActionFilter,
+    AnyPropertyFilter,
+    EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
+    PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
+    SessionRecordingPlaylistType,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue } from '../TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+    isQuickFilterItem,
+    quickFilterToPropertyFilters,
+} from '../TaxonomicFilter/types'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
+
+function isApplicableSavedFilter(
+    item: unknown
+): item is SessionRecordingPlaylistType & { filters: NonNullable<SessionRecordingPlaylistType['filters']> } {
+    return typeof item === 'object' && item !== null && 'short_id' in item && 'filters' in item && item.filters != null
+}
+
+function recordRecentFromPropertyFilter(propertyFilter: AnyPropertyFilter): void {
+    if (!recentTaxonomicFiltersLogic.isMounted()) {
+        return
+    }
+    const key = 'key' in propertyFilter ? propertyFilter.key : undefined
+    const filterType = 'type' in propertyFilter ? propertyFilter.type : undefined
+    if (!key || !filterType) {
+        return
+    }
+    const groupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filterType]
+    if (!groupType) {
+        return
+    }
+    recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+        groupType,
+        groupType,
+        key,
+        { name: key },
+        teamLogic.values.currentTeamId ?? undefined,
+        propertyFilter
+    )
+}
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
@@ -63,13 +110,11 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addGroupFilter: (
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey: TaxonomicFilterValue,
-            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string },
-            originalQuery?: string
+            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string }
         ) => ({
             taxonomicGroup,
             propertyKey,
             item,
-            originalQuery,
         }),
     }),
 
@@ -116,9 +161,15 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.HogQLExpression,
                         TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.PageviewUrls,
+                        TaxonomicFilterGroupType.Screens,
+                        TaxonomicFilterGroupType.EmailAddresses,
                         TaxonomicFilterGroupType.Logs,
                         TaxonomicFilterGroupType.LogAttributes,
                         TaxonomicFilterGroupType.LogResourceAttributes,
+                        TaxonomicFilterGroupType.Spans,
+                        TaxonomicFilterGroupType.SpanAttributes,
+                        TaxonomicFilterGroupType.SpanResourceAttributes,
                     ].includes(t)
                 ),
         ],
@@ -127,11 +178,135 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
     listeners(({ props, values, actions }) => ({
         setGroupType: () => props.onChange(values.filterGroup),
         setGroupValues: () => props.onChange(values.filterGroup),
-        replaceGroupValue: () => props.onChange(values.filterGroup),
+        replaceGroupValue: ({ value }) => {
+            props.onChange(values.filterGroup)
+            if (typeof value === 'object' && 'key' in value && 'type' in value && 'value' in value) {
+                const filterValue = (value as AnyPropertyFilter).value
+                const hasValue = filterValue && !(Array.isArray(filterValue) && filterValue.length === 0)
+                if (hasValue) {
+                    recordRecentFromPropertyFilter(value as AnyPropertyFilter)
+                }
+            }
+        },
         removeGroupValue: () => props.onChange(values.filterGroup),
 
-        addGroupFilter: ({ taxonomicGroup, propertyKey, item, originalQuery }) => {
+        addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.ReplaySavedFilters) {
+                if (isApplicableSavedFilter(item)) {
+                    sessionRecordingSavedFiltersLogic.findMounted()?.actions.requestApplySavedFilter(item)
+                }
+                return
+            }
             const newValues = [...values.filterGroup.values]
+
+            if (hasRecentContext(item) && item._recentContext.propertyFilter) {
+                newValues.push(item._recentContext.propertyFilter)
+                recordRecentFromPropertyFilter(item._recentContext.propertyFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (isQuickFilterItem(item)) {
+                if (item.eventName) {
+                    const eventFilter: ActionFilter = {
+                        id: item.eventName,
+                        name: item.eventName,
+                        type: EntityTypes.EVENTS,
+                        properties: quickFilterToPropertyFilters(item),
+                    }
+                    newValues.push(eventFilter)
+                } else {
+                    for (const propertyFilter of quickFilterToPropertyFilters(item)) {
+                        newValues.push(propertyFilter)
+                    }
+                }
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewUrls
+            ) {
+                const urlFilter: EventPropertyFilter = {
+                    key: '$current_url',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.IContains,
+                    type: PropertyFilterType.Event,
+                }
+                if (taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents) {
+                    const eventFilter: ActionFilter = {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: EntityTypes.EVENTS,
+                        properties: [urlFilter],
+                    }
+                    newValues.push(eventFilter)
+                } else {
+                    newValues.push(urlFilter)
+                }
+                recordRecentFromPropertyFilter(urlFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.Screens
+            ) {
+                const screenNameFilter: EventPropertyFilter = {
+                    key: '$screen_name',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+                if (taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents) {
+                    const eventFilter: ActionFilter = {
+                        id: '$screen',
+                        name: '$screen',
+                        type: EntityTypes.EVENTS,
+                        properties: [screenNameFilter],
+                    }
+                    newValues.push(eventFilter)
+                } else {
+                    newValues.push(screenNameFilter)
+                }
+                recordRecentFromPropertyFilter(screenNameFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.AutocaptureEvents) {
+                const elTextFilter: EventPropertyFilter = {
+                    key: '$el_text',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+                const eventFilter: ActionFilter = {
+                    id: '$autocapture',
+                    name: '$autocapture',
+                    type: EntityTypes.EVENTS,
+                    properties: [elTextFilter],
+                }
+                newValues.push(eventFilter)
+                recordRecentFromPropertyFilter(elTextFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.EmailAddresses) {
+                const emailFilter: PersonPropertyFilter = {
+                    key: 'email',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Person,
+                }
+                newValues.push(emailFilter)
+                recordRecentFromPropertyFilter(emailFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
 
             if (taxonomicGroup.type === TaxonomicFilterGroupType.FeatureFlags) {
                 if (!item.key) {
@@ -152,8 +327,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         propertyKey,
                         propertyType,
                         taxonomicGroup,
-                        values.describeProperty,
-                        originalQuery
+                        values.describeProperty
                     )
                     newValues.push(newPropertyFilter)
                 } else {

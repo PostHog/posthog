@@ -189,7 +189,7 @@ describe('HogFlow Quota Limiting', () => {
             }
 
             const result = await shouldBlockHogFlowDueToQuota(item, {
-                hub: { quotaLimiting: mockQuotaLimiting },
+                quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
             })
 
@@ -212,7 +212,7 @@ describe('HogFlow Quota Limiting', () => {
             }
 
             const result = await shouldBlockHogFlowDueToQuota(item, {
-                hub: { quotaLimiting: mockQuotaLimiting },
+                quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
             })
 
@@ -242,7 +242,7 @@ describe('HogFlow Quota Limiting', () => {
             }
 
             const result = await shouldBlockHogFlowDueToQuota(item, {
-                hub: { quotaLimiting: mockQuotaLimiting },
+                quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
             })
 

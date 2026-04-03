@@ -4,7 +4,7 @@ import { randomString } from '../../utils'
 import { expect, test } from '../../utils/playwright-test-base'
 
 async function deleteSurvey(page: Page, name: string): Promise<void> {
-    await page.locator('[data-attr=info-actions-panel]').click()
+    await page.locator('[data-attr=open-context-panel-button]').first().click()
     await page.locator('[data-attr=survey-delete]').click()
 
     await expect(page.locator('.LemonModal__layout')).toBeVisible()
@@ -149,8 +149,8 @@ test.describe('CRUD Survey', () => {
 
     test('can set responses limit', async ({ page }) => {
         await expect(page.locator('h1')).toContainText('Surveys')
-        await page.locator('[data-attr=new-survey]').click()
-        await page.locator('[data-attr=new-blank-survey]').click()
+        // Navigate directly to the full editor since response limits aren't in the guided wizard
+        await page.goto('/surveys/new')
 
         await page.locator('[data-attr="scene-title-textarea"]').fill(name)
 
@@ -177,8 +177,8 @@ test.describe('CRUD Survey', () => {
 
     test('can set cancellation events', async ({ page }) => {
         await expect(page.locator('h1')).toContainText('Surveys')
-        await page.locator('[data-attr=new-survey]').click()
-        await page.locator('[data-attr=new-blank-survey]').click()
+        // Navigate directly to the full editor since cancellation events aren't in the guided wizard
+        await page.goto('/surveys/new')
 
         await page.locator('[data-attr="scene-title-textarea"]').fill(name)
 

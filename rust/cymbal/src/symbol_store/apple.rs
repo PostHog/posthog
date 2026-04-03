@@ -1,0 +1,258 @@
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::io::{Cursor, Read};
+
+use async_trait::async_trait;
+use serde::Deserialize;
+use symbolic::debuginfo::Archive;
+use symbolic::demangle::{Demangle, DemangleOptions};
+use symbolic::symcache::{SymCache, SymCacheConverter};
+use zip::ZipArchive;
+
+use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym};
+
+use crate::{
+    error::{AppleError, ResolveError},
+    symbol_store::{caching::Countable, Fetcher, Parser},
+};
+
+/// Manifest format for source files bundled in the dSYM ZIP under `__source/`
+#[derive(Deserialize)]
+struct SourceManifest {
+    #[allow(dead_code)]
+    version: u32,
+    /// Maps absolute DWARF source path → ZIP-relative path
+    files: HashMap<String, String>,
+}
+
+pub struct ParsedAppleSymbols {
+    symcache_data: Vec<u8>,
+    /// Source file contents indexed by DWARF absolute path.
+    /// None if the bundle doesn't contain source files.
+    sources: Option<HashMap<String, String>>,
+    /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
+    decompressed_bytes: usize,
+}
+
+impl Countable for ParsedAppleSymbols {
+    fn byte_count(&self) -> usize {
+        self.decompressed_bytes
+    }
+}
+
+pub struct AppleProvider {}
+
+#[derive(Debug, Clone)]
+pub enum AppleRef {}
+
+#[async_trait]
+impl Fetcher for AppleProvider {
+    type Ref = AppleRef;
+    type Fetched = Vec<u8>;
+    type Err = ResolveError;
+
+    async fn fetch(&self, _: i32, _: AppleRef) -> Result<Vec<u8>, Self::Err> {
+        unreachable!("AppleRef is impossible to construct, so cannot be passed")
+    }
+}
+
+#[async_trait]
+impl Parser for AppleProvider {
+    type Source = Vec<u8>;
+    type Set = ParsedAppleSymbols;
+    type Err = ResolveError;
+
+    async fn parse(&self, source: Self::Source) -> Result<ParsedAppleSymbols, ResolveError> {
+        // Try to unwrap symbol_data container first (new format),
+        // fall back to raw ZIP for backward compatibility with existing uploads.
+        // TODO(2026-09-24): Remove raw ZIP fallback once all old uploads have expired.
+        let (zip_data, decompressed_bytes) =
+            match read_symbol_data_with_byte_count::<AppleDsym>(source.clone()) {
+                Ok((dsym, bytes)) => (dsym.data, bytes),
+                Err(_) => {
+                    let len = source.len();
+                    (source, len)
+                }
+            };
+        ParsedAppleSymbols::from_dsym_zip(zip_data, decompressed_bytes)
+    }
+}
+
+impl ParsedAppleSymbols {
+    pub fn from_dsym_zip(
+        zip_data: Vec<u8>,
+        decompressed_bytes: usize,
+    ) -> Result<Self, ResolveError> {
+        let cursor = Cursor::new(zip_data);
+        let mut archive =
+            ZipArchive::new(cursor).map_err(|e| AppleError::ParseError(e.to_string()))?;
+
+        let dwarf_data = Self::extract_dwarf_from_zip(&mut archive)?;
+
+        let symcache_data = Self::convert_to_symcache(&dwarf_data)?;
+
+        // Try to load source files from the bundle (graceful — old bundles without source still work)
+        let sources = Self::extract_sources_from_zip(&mut archive);
+
+        Ok(Self {
+            symcache_data,
+            sources,
+            decompressed_bytes,
+        })
+    }
+
+    /// Extract source files from a dSYM ZIP that contains a `__source/manifest.json`.
+    /// Returns None if no source manifest is found (backward compatible).
+    fn extract_sources_from_zip(
+        archive: &mut ZipArchive<Cursor<Vec<u8>>>,
+    ) -> Option<HashMap<String, String>> {
+        // Read and parse manifest
+        let manifest: SourceManifest = {
+            let mut manifest_file = archive.by_name("__source/manifest.json").ok()?;
+            let mut manifest_data = Vec::new();
+            manifest_file.read_to_end(&mut manifest_data).ok()?;
+            serde_json::from_slice(&manifest_data).ok()?
+        };
+
+        let mut sources = HashMap::new();
+
+        for (dwarf_path, zip_path) in &manifest.files {
+            if let Ok(mut file) = archive.by_name(zip_path) {
+                let mut content = String::new();
+                if file.read_to_string(&mut content).is_ok() {
+                    sources.insert(dwarf_path.clone(), content);
+                }
+            }
+        }
+
+        if sources.is_empty() {
+            None
+        } else {
+            Some(sources)
+        }
+    }
+
+    /// Get the source content for a given DWARF absolute path.
+    pub fn get_source(&self, dwarf_path: &str) -> Option<&str> {
+        self.sources
+            .as_ref()
+            .and_then(|s| s.get(dwarf_path))
+            .map(|s| s.as_str())
+    }
+
+    fn extract_dwarf_from_zip(
+        archive: &mut ZipArchive<Cursor<Vec<u8>>>,
+    ) -> Result<Vec<u8>, ResolveError> {
+        // New format: single DWARF binary stored as "dwarf" at root level
+        if let Ok(mut file) = archive.by_name("dwarf") {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data)
+                .map_err(|e| AppleError::ParseError(e.to_string()))?;
+            return Ok(data);
+        }
+
+        // Old format: full dSYM bundle with Contents/Resources/DWARF/<name>
+        // TODO(2026-09-24): Remove this fallback once all old uploads have expired.
+        for i in 0..archive.len() {
+            let mut file = archive
+                .by_index(i)
+                .map_err(|e| AppleError::ParseError(e.to_string()))?;
+
+            let name = file.name().to_string();
+
+            if name.contains("/Contents/Resources/DWARF/") && !name.ends_with('/') {
+                let mut data = Vec::new();
+                file.read_to_end(&mut data)
+                    .map_err(|e| AppleError::ParseError(e.to_string()))?;
+                return Ok(data);
+            }
+        }
+
+        Err(AppleError::ParseError("No DWARF file found in dSYM bundle".to_string()).into())
+    }
+
+    fn convert_to_symcache(dwarf_data: &[u8]) -> Result<Vec<u8>, ResolveError> {
+        let archive =
+            Archive::parse(dwarf_data).map_err(|e| AppleError::ParseError(e.to_string()))?;
+
+        let obj = archive
+            .objects()
+            .next()
+            .ok_or_else(|| AppleError::ParseError("No objects in archive".to_string()))?
+            .map_err(|e| AppleError::ParseError(e.to_string()))?;
+
+        let mut converter = SymCacheConverter::new();
+        converter
+            .process_object(&obj)
+            .map_err(|e| AppleError::ParseError(e.to_string()))?;
+
+        let mut buffer = Vec::new();
+        converter
+            .serialize(&mut Cursor::new(&mut buffer))
+            .map_err(|e| AppleError::ParseError(e.to_string()))?;
+
+        Ok(buffer)
+    }
+
+    pub fn lookup(&self, addr: u64) -> Result<Option<SymbolInfo>, ResolveError> {
+        let symcache = SymCache::parse(&self.symcache_data)
+            .map_err(|e| AppleError::ParseError(e.to_string()))?;
+
+        let lookup_result = symcache.lookup(addr).next();
+
+        match lookup_result {
+            Some(result) => {
+                let raw_name = result.function().name_for_demangling();
+
+                // Short name (no params/return type) for display as resolved_name
+                let display_name = raw_name
+                    .demangle(DemangleOptions::name_only())
+                    .unwrap_or_else(|| raw_name.to_string());
+
+                // Full demangled name for mangled_name (includes params and return type)
+                let full_name = raw_name
+                    .demangle(DemangleOptions::complete())
+                    .unwrap_or_else(|| raw_name.to_string());
+
+                let full_path = result.file().map(|f| f.full_path());
+
+                let filename = full_path.as_ref().and_then(|path| extract_filename(path));
+
+                Ok(Some(SymbolInfo {
+                    display_name,
+                    full_name,
+                    filename,
+                    full_path,
+                    line: result.line(),
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
+fn extract_filename(full_path: &str) -> Option<String> {
+    use std::path::Path;
+    Path::new(full_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+}
+
+#[derive(Debug, Clone)]
+pub struct SymbolInfo {
+    /// Short demangled name (no params/return type) for display
+    pub display_name: String,
+    /// Full demangled name (with params and return type)
+    pub full_name: String,
+    pub filename: Option<String>,
+    /// The full absolute path from DWARF debug info, used for source lookup
+    pub full_path: Option<String>,
+    pub line: u32,
+}
+
+impl Display for AppleRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AppleRef")
+    }
+}

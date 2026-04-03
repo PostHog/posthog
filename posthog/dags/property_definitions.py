@@ -6,7 +6,8 @@ import pydantic
 
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.dags.common import JobOwners
-from posthog.models.property_definition import PropertyDefinition
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
 @dataclass(frozen=True)

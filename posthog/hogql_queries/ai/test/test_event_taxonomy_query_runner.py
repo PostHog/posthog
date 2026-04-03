@@ -17,7 +17,8 @@ from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.models import Action, PropertyDefinition
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -478,6 +479,32 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].property, "prop")
         self.assertEqual(response.results[0].sample_count, 2)
+
+    def test_dynamic_property_patterns_are_omitted(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={
+                "$feature_enrollment/beta-flag": "true",
+                "$feature_interaction/new-dashboard": "true",
+                "$product_tour_dismissed/tour123": "true",
+                "$product_tour_shown/tour123": "true",
+                "$product_tour_completed/tour456": "true",
+                "survey_dismissed/abc": "true",
+                "survey_responded/abc": "true",
+                "visible_prop": "value",
+            },
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "visible_prop")
 
     @snapshot_clickhouse_queries
     def test_retrieves_action_properties(self):

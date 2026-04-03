@@ -215,6 +215,54 @@ describe('savedInsightsLogic', () => {
         )
     })
 
+    it('discards stale API responses when a newer request is in flight', async () => {
+        const pendingRequests: Array<{
+            resolve: (value: [number, any]) => void
+            search: string
+        }> = []
+        let onRequestArrived: (() => void) | null = null
+        const waitForNextRequest = (): Promise<void> =>
+            new Promise<void>((r) => {
+                onRequestArrived = r
+            })
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': (req) => {
+                    const search = req.url.searchParams.get('search') ?? ''
+                    return new Promise<[number, any]>((resolve) => {
+                        pendingRequests.push({ resolve, search })
+                        onRequestArrived?.()
+                        onRequestArrived = null
+                    })
+                },
+            },
+        })
+
+        // Fire two loads — both go in-flight concurrently
+        const req1 = waitForNextRequest()
+        logic.actions.loadInsights(false)
+        await req1
+
+        const req2 = waitForNextRequest()
+        logic.actions.loadInsights(false)
+        await req2
+
+        expect(pendingRequests).toHaveLength(2)
+
+        // Resolve out of order: second (fresh) first, then first (stale)
+        pendingRequests[1].resolve([200, createSavedInsights('fresh', 0)])
+        pendingRequests[0].resolve([200, createSavedInsights('stale', 0)])
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The stale response that arrived last must NOT overwrite the fresh one
+        await expectLogic(logic).toMatchValues({
+            insights: partial({
+                results: partial([partial({ name: 'fresh 1' })]),
+            }),
+        })
+    })
+
     describe('reacts to external updates', () => {
         it('loads insights when a dashboard is duplicated', async () => {
             await expectLogic(logic, () => {

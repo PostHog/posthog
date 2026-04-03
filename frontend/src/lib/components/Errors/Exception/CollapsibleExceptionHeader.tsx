@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -31,20 +31,22 @@ export function CollapsibleExceptionHeader({
 
     return (
         <div className="pb-1">
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center min-w-0">
                 {loading ? (
                     <LemonSkeleton className="w-[25%] h-2" />
                 ) : (
                     <>
-                        {runtime && <RuntimeIcon runtime={runtime} className="ml-1" />}
-                        <span className="font-semibold text-lg mb-0">{type}</span>
+                        {runtime && <RuntimeIcon runtime={runtime} className="ml-1 shrink-0" />}
+                        <Tooltip title={type} delayMs={300}>
+                            <span className="font-semibold text-lg mb-0 truncate">{type}</span>
+                        </Tooltip>
                         {part && <FingerprintRecordPartDisplay part={part} />}
                     </>
                 )}
             </div>
             {(loading || value) && (
                 <div
-                    className={cn('text-[var(--gray-8)] leading-6', {
+                    className={cn('text-[var(--gray-8)] leading-6 whitespace-pre-wrap', {
                         'line-clamp-1': truncate,
                     })}
                 >

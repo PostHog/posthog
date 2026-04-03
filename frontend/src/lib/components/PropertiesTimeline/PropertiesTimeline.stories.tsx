@@ -1,14 +1,14 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { PropertiesTimeline } from '.'
 import { Meta } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { ChartDisplayType, PersonActorType } from '~/types'
 
-import { RawPropertiesTimelineResult } from './propertiesTimelineLogic'
+import { PropertiesTimeline } from '.'
+import { PropertiesTimelineProps, RawPropertiesTimelineResult } from './propertiesTimelineLogic'
 
-const meta: Meta<typeof PropertiesTimeline> = {
+const meta: Meta<PropertiesTimelineProps> = {
     title: 'Components/Properties Timeline',
     component: PropertiesTimeline,
 }

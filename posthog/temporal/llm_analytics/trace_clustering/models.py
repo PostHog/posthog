@@ -51,7 +51,13 @@ class ClusteringWorkflowInputs:
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
     # Optional property filters to scope which traces are included in clustering
     # Uses PostHog's standard property filter format (same as evaluations, feature flags, etc.)
-    trace_filters: list[dict[str, Any]] = field(default_factory=list)
+    event_filters: list[dict[str, Any]] = field(default_factory=list)
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
+    job_name: str = ""
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
 
 
 @dataclass
@@ -76,7 +82,13 @@ class ClusteringActivityInputs:
     clustering_method_params: dict[str, Any] = field(default_factory=dict)
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
     # Optional property filters to scope which traces are included in clustering
-    trace_filters: list[dict[str, Any]] = field(default_factory=list)
+    event_filters: list[dict[str, Any]] = field(default_factory=list)
+    job_id: str = ""
+    job_name: str = ""
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
 
 
 @dataclass
@@ -231,6 +243,10 @@ class GenerateLabelsActivityInputs:
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
 
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
+
 
 @dataclass
 class GenerateLabelsActivityOutputs:
@@ -271,3 +287,9 @@ class EmitEventsActivityInputs:
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
     clustering_params: ClusteringParams | None = None  # Params used for this run
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
+    job_name: str = ""
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}

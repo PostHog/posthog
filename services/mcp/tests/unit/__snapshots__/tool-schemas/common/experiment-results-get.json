@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "experimentId": {
+            "description": "The ID of the experiment to get comprehensive results for",
+            "type": "number"
+        },
+        "refresh": {
+            "description": "Force refresh of results instead of using cached values",
+            "type": "boolean"
+        }
+    },
+    "required": ["experimentId", "refresh"],
+    "type": "object"
+}

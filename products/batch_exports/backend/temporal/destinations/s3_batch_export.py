@@ -20,16 +20,16 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     S3BatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -227,7 +227,9 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
@@ -413,8 +415,8 @@ class ConcurrentS3Consumer(Consumer):
         data_interval_end: str,
         batch_export_model: BatchExportModel | None,
         file_format: str,
-        aws_access_key_id: str | None,
-        aws_secret_access_key: str | None,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
         kms_key_id: str | None = None,
         max_file_size_mb: int | None = None,
         compression: str | None = None,
@@ -424,7 +426,7 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
     ):
-        super().__init__()
+        super().__init__(model=batch_export_model.name if batch_export_model else "events")
 
         if (isinstance(aws_access_key_id, str) and aws_access_key_id.strip() == "") or (
             isinstance(aws_secret_access_key, str) and aws_secret_access_key.strip() == ""
@@ -481,6 +483,9 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
     ):
+        if not s3_inputs.aws_access_key_id or not s3_inputs.aws_secret_access_key:
+            raise InvalidCredentialsError()
+
         return cls(
             bucket=s3_inputs.bucket_name,
             region_name=s3_inputs.region,

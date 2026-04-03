@@ -1,3 +1,6 @@
 {
-    "name": "@posthog/products-data-warehouse"
+    "name": "@posthog/products-data-warehouse",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    }
 }

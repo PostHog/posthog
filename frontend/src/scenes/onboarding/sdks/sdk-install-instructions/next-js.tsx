@@ -20,9 +20,10 @@ function NextEnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[`NEXT_PUBLIC_POSTHOG_KEY=${currentTeam?.api_token}`, `NEXT_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`].join(
-                '\n'
-            )}
+            {[
+                `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`,
+                `NEXT_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`,
+            ].join('\n')}
         </CodeSnippet>
     )
 }
@@ -42,7 +43,7 @@ import type { AppProps } from 'next/app'
 export default function App({ Component, pageProps }: AppProps) {
 
   useEffect(() => {
-    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
       ${
           isPersonProfilesDisabled
@@ -107,7 +108,7 @@ import { PostHogProvider as PHProvider } from 'posthog-js/react'
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
       ${
           isPersonProfilesDisabled
@@ -135,7 +136,7 @@ function NextInstrumentationClientSnippet(): JSX.Element {
             {`// instrumentation-client.js
 import posthog from 'posthog-js'
 
-posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
+posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     defaults: '${SDK_DEFAULTS_DATE}'
 });
@@ -156,7 +157,7 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
             <h3>Add environment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
-                Netlify, AWS). You can find your project API key in your project settings.
+                Netlify, AWS). You can find your project token in your project settings.
             </p>
             <p>
                 These values need to start with <code>NEXT_PUBLIC_</code> to be accessible on the client-side.

@@ -131,6 +131,7 @@ class SlackConversationRunnerWorkflowInputs:
     slack_thread_key: str
     user_id: int
     conversation_id: str | None = None  # Provided if continuing an existing conversation
+    is_new_conversation: bool = False  # True when the bot is mentioned in a thread for the first time
 
 
 @workflow.defn(name="slack-conversation-processing")
@@ -261,7 +262,12 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
             if elapsed_seconds >= 120:
                 thinking_message += " (This is taking a little longer, hang tight.)"
             await _update_slack_message(
-                integration, inputs.channel, inputs.initial_message_ts, thinking_message, conversation_url
+                integration,
+                inputs.channel,
+                inputs.initial_message_ts,
+                thinking_message,
+                conversation_url,
+                show_disclaimer=inputs.is_new_conversation,
             )
 
     thinking_task = asyncio.create_task(update_thinking_message())
@@ -324,6 +330,7 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
             inputs.thread_ts,
             final_response,
             conversation_url=conversation_url,
+            show_disclaimer=inputs.is_new_conversation,
         )
         logger.info(
             "slack_conversation_response_sent",
@@ -338,6 +345,7 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
             inputs.thread_ts,
             "Sorry, I couldn't generate a response. Please try again.",
             conversation_url=conversation_url,
+            show_disclaimer=inputs.is_new_conversation,
         )
 
     await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
@@ -355,7 +363,9 @@ def _absolutize_markdown_links(text: str) -> str:
     return re.sub(r"\[([^\]]+)\]\((/(?!/)[^)]*)\)", replace_link, text)
 
 
-def _build_slack_message_blocks(text: str, conversation_url: str | None = None) -> list[dict]:
+def _build_slack_message_blocks(
+    text: str, conversation_url: str | None = None, show_disclaimer: bool = False
+) -> list[dict]:
     """Build Slack message blocks from text."""
     blocks: list[dict] = []
 
@@ -365,6 +375,14 @@ def _build_slack_message_blocks(text: str, conversation_url: str | None = None) 
     for para in paragraphs:
         if para.strip():
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": para}})
+
+    if show_disclaimer:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "_Messages in this thread will be visible in PostHog._"}],
+            }
+        )
 
     if conversation_url:
         blocks.append(
@@ -389,11 +407,12 @@ async def _post_slack_message(
     thread_ts: str,
     text: str,
     conversation_url: str | None = None,
+    show_disclaimer: bool = False,
 ) -> None:
     """Helper to post a new Slack message in a thread."""
     from posthog.models.integration import SlackIntegration
 
-    blocks = _build_slack_message_blocks(text, conversation_url)
+    blocks = _build_slack_message_blocks(text, conversation_url, show_disclaimer=show_disclaimer)
     slack = SlackIntegration(integration)
     try:
         slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
@@ -407,11 +426,12 @@ async def _update_slack_message(
     ts: str,
     text: str,
     conversation_url: str | None = None,
+    show_disclaimer: bool = False,
 ) -> None:
     """Helper to update a Slack message."""
     from posthog.models.integration import SlackIntegration
 
-    blocks = _build_slack_message_blocks(text, conversation_url)
+    blocks = _build_slack_message_blocks(text, conversation_url, show_disclaimer=show_disclaimer)
     slack = SlackIntegration(integration)
     try:
         slack.client.chat_update(channel=channel, ts=ts, text=text, blocks=blocks)

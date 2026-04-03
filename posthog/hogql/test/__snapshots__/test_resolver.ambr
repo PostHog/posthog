@@ -44,6 +44,18 @@
                           $session_id_uuid: {
                             hidden: False
                           },
+                          $virt_bot_name: {
+                            hidden: False
+                          },
+                          $virt_is_bot: {
+                            hidden: False
+                          },
+                          $virt_traffic_category: {
+                            hidden: False
+                          },
+                          $virt_traffic_type: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -147,7 +159,10 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
                       }
                     }
                   }
@@ -958,7 +973,10 @@
                                         hidden: False
                                       }
                                     },
-                                    hidden: False
+                                    hidden: False,
+                                    name: None,
+                                    top_level_settings: None,
+                                    workload: None
                                   },
                                   to_field: None
                                 }
@@ -1034,7 +1052,10 @@
                                 hidden: False
                               }
                             },
-                            hidden: False
+                            hidden: False,
+                            name: None,
+                            top_level_settings: None,
+                            workload: None
                           },
                           to_field: None
                         }
@@ -1287,7 +1308,10 @@
                                         hidden: False
                                       }
                                     },
-                                    hidden: False
+                                    hidden: False,
+                                    name: None,
+                                    top_level_settings: None,
+                                    workload: None
                                   },
                                   to_field: None
                                 }
@@ -1360,7 +1384,10 @@
                                 hidden: False
                               }
                             },
-                            hidden: False
+                            hidden: False,
+                            name: None,
+                            top_level_settings: None,
+                            workload: None
                           },
                           to_field: None
                         }
@@ -1527,6 +1554,18 @@
                   $session_id_uuid: {
                     hidden: False
                   },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -1633,7 +1672,10 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                name: None,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -1857,7 +1899,10 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -1936,7 +1981,10 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -2284,7 +2332,10 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -2360,7 +2411,10 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -2610,7 +2664,10 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  name: None,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -3174,7 +3231,10 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
                       }
                     }
                   }
@@ -3540,6 +3600,18 @@
                           $session_id_uuid: {
                             hidden: False
                           },
+                          $virt_bot_name: {
+                            hidden: False
+                          },
+                          $virt_is_bot: {
+                            hidden: False
+                          },
+                          $virt_traffic_category: {
+                            hidden: False
+                          },
+                          $virt_traffic_type: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -3643,7 +3715,10 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
                       }
                     }
                   }
@@ -4455,7 +4530,10 @@
                                           hidden: False
                                         }
                                       },
-                                      hidden: False
+                                      hidden: False,
+                                      name: None,
+                                      top_level_settings: None,
+                                      workload: None
                                     },
                                     to_field: None
                                   }
@@ -4531,7 +4609,10 @@
                                   hidden: False
                                 }
                               },
-                              hidden: False
+                              hidden: False,
+                              name: None,
+                              top_level_settings: None,
+                              workload: None
                             },
                             to_field: None
                           }
@@ -4784,7 +4865,10 @@
                                           hidden: False
                                         }
                                       },
-                                      hidden: False
+                                      hidden: False,
+                                      name: None,
+                                      top_level_settings: None,
+                                      workload: None
                                     },
                                     to_field: None
                                   }
@@ -4857,7 +4941,10 @@
                                   hidden: False
                                 }
                               },
-                              hidden: False
+                              hidden: False,
+                              name: None,
+                              top_level_settings: None,
+                              workload: None
                             },
                             to_field: None
                           }
@@ -4985,6 +5072,18 @@
                             $session_id_uuid: {
                               hidden: False
                             },
+                            $virt_bot_name: {
+                              hidden: False
+                            },
+                            $virt_is_bot: {
+                              hidden: False
+                            },
+                            $virt_traffic_category: {
+                              hidden: False
+                            },
+                            $virt_traffic_type: {
+                              hidden: False
+                            },
                             $window_id: {
                               hidden: False
                             },
@@ -5088,7 +5187,10 @@
                               hidden: False
                             }
                           },
-                          hidden: False
+                          hidden: False,
+                          name: None,
+                          top_level_settings: None,
+                          workload: None
                         }
                       }
                     }
@@ -5312,7 +5414,10 @@
                                               hidden: False
                                             }
                                           },
-                                          hidden: False
+                                          hidden: False,
+                                          name: None,
+                                          top_level_settings: None,
+                                          workload: None
                                         },
                                         to_field: None
                                       }
@@ -5391,7 +5496,10 @@
                                       hidden: False
                                     }
                                   },
-                                  hidden: False
+                                  hidden: False,
+                                  name: None,
+                                  top_level_settings: None,
+                                  workload: None
                                 },
                                 to_field: None
                               }
@@ -5739,7 +5847,10 @@
                                               hidden: False
                                             }
                                           },
-                                          hidden: False
+                                          hidden: False,
+                                          name: None,
+                                          top_level_settings: None,
+                                          workload: None
                                         },
                                         to_field: None
                                       }
@@ -5815,7 +5926,10 @@
                                       hidden: False
                                     }
                                   },
-                                  hidden: False
+                                  hidden: False,
+                                  name: None,
+                                  top_level_settings: None,
+                                  workload: None
                                 },
                                 to_field: None
                               }
@@ -6275,6 +6389,18 @@
                   $session_id_uuid: {
                     hidden: False
                   },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -6378,7 +6504,10 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                name: None,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -6602,7 +6731,10 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -6681,7 +6813,10 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -7029,7 +7164,10 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -7105,7 +7243,10 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -7290,6 +7431,18 @@
                     $session_id_uuid: {
                       hidden: False
                     },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -7393,7 +7546,10 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  name: None,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -7618,7 +7774,10 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -7697,7 +7856,10 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -8045,7 +8207,10 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -8121,7 +8286,10 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -8307,6 +8475,18 @@
                       $session_id_uuid: {
                         hidden: False
                       },
+                      $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_is_bot: {
+                        hidden: False
+                      },
+                      $virt_traffic_category: {
+                        hidden: False
+                      },
+                      $virt_traffic_type: {
+                        hidden: False
+                      },
                       $window_id: {
                         hidden: False
                       },
@@ -8410,7 +8590,10 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    name: None,
+                    top_level_settings: None,
+                    workload: None
                   }
                 }
               }
@@ -8506,6 +8689,18 @@
                       $session_id_uuid: {
                         hidden: False
                       },
+                      $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_is_bot: {
+                        hidden: False
+                      },
+                      $virt_traffic_category: {
+                        hidden: False
+                      },
+                      $virt_traffic_type: {
+                        hidden: False
+                      },
                       $window_id: {
                         hidden: False
                       },
@@ -8612,7 +8807,10 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    name: None,
+                    top_level_settings: None,
+                    workload: None
                   }
                 }
               }
@@ -8669,6 +8867,9 @@
                       is_identified: {
                         hidden: False
                       },
+                      last_seen_at: {
+                        hidden: False
+                      },
                       pdi: {
                         hidden: False
                       },
@@ -8686,7 +8887,10 @@
                       }
                     },
                     filter: None,
-                    hidden: False
+                    hidden: False,
+                    name: None,
+                    top_level_settings: None,
+                    workload: None
                   }
                 }
               }
@@ -9024,6 +9228,18 @@
                   $session_id_uuid: {
                     hidden: False
                   },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9127,7 +9343,10 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                name: None,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -9259,6 +9478,18 @@
                     $session_id_uuid: {
                       hidden: False
                     },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -9362,7 +9593,10 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  name: None,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -9498,6 +9732,18 @@
                       $session_id_uuid: {
                         hidden: False
                       },
+                      $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_is_bot: {
+                        hidden: False
+                      },
+                      $virt_traffic_category: {
+                        hidden: False
+                      },
+                      $virt_traffic_type: {
+                        hidden: False
+                      },
                       $window_id: {
                         hidden: False
                       },
@@ -9601,7 +9847,10 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    name: None,
+                    top_level_settings: None,
+                    workload: None
                   }
                 }
               }
@@ -9777,6 +10026,18 @@
                               $session_id_uuid: {
                                 hidden: False
                               },
+                              $virt_bot_name: {
+                                hidden: False
+                              },
+                              $virt_is_bot: {
+                                hidden: False
+                              },
+                              $virt_traffic_category: {
+                                hidden: False
+                              },
+                              $virt_traffic_type: {
+                                hidden: False
+                              },
                               $window_id: {
                                 hidden: False
                               },
@@ -9880,7 +10141,10 @@
                                 hidden: False
                               }
                             },
-                            hidden: False
+                            hidden: False,
+                            name: None,
+                            top_level_settings: None,
+                            workload: None
                           }
                         }
                       }
@@ -10062,6 +10326,18 @@
                   $session_id_uuid: {
                     hidden: False
                   },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -10165,7 +10441,10 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                name: None,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -10222,7 +10501,10 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    name: None,
+                    top_level_settings: None,
+                    workload: None
                   },
                   to_field: None
                 }
@@ -10304,6 +10586,18 @@
                     $session_id_uuid: {
                       hidden: False
                     },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -10407,7 +10701,10 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  name: None,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -10466,7 +10763,10 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    name: None,
+                    top_level_settings: None,
+                    workload: None
                   },
                   to_field: None
                 }
@@ -10545,6 +10845,18 @@
                     hidden: False
                   },
                   $session_id_uuid: {
+                    hidden: False
+                  },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
                     hidden: False
                   },
                   $window_id: {
@@ -10650,7 +10962,10 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                name: None,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -10695,7 +11010,10 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  name: None,
+                  top_level_settings: None,
+                  workload: None
                 },
                 to_field: None
               }
@@ -10774,6 +11092,18 @@
                       hidden: False
                     },
                     $session_id_uuid: {
+                      hidden: False
+                    },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
                       hidden: False
                     },
                     $window_id: {
@@ -10879,7 +11209,10 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  name: None,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -10926,7 +11259,10 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  name: None,
+                  top_level_settings: None,
+                  workload: None
                 },
                 to_field: None
               }
@@ -10998,7 +11334,10 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                name: None,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -11107,6 +11446,18 @@
                     $session_id_uuid: {
                       hidden: False
                     },
+                    $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_is_bot: {
+                      hidden: False
+                    },
+                    $virt_traffic_category: {
+                      hidden: False
+                    },
+                    $virt_traffic_type: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -11210,7 +11561,10 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  name: None,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -11301,6 +11655,18 @@
                           hidden: False
                         },
                         $session_id_uuid: {
+                          hidden: False
+                        },
+                        $virt_bot_name: {
+                          hidden: False
+                        },
+                        $virt_is_bot: {
+                          hidden: False
+                        },
+                        $virt_traffic_category: {
+                          hidden: False
+                        },
+                        $virt_traffic_type: {
                           hidden: False
                         },
                         $window_id: {
@@ -11406,7 +11772,10 @@
                           hidden: False
                         }
                       },
-                      hidden: False
+                      hidden: False,
+                      name: None,
+                      top_level_settings: None,
+                      workload: None
                     }
                   }
                 }
@@ -11509,6 +11878,18 @@
                     hidden: False
                   },
                   $session_id_uuid: {
+                    hidden: False
+                  },
+                  $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_is_bot: {
+                    hidden: False
+                  },
+                  $virt_traffic_category: {
+                    hidden: False
+                  },
+                  $virt_traffic_type: {
                     hidden: False
                   },
                   $window_id: {
@@ -11614,7 +11995,10 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                name: None,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -11666,7 +12050,10 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                name: None,
+                top_level_settings: None,
+                workload: None
               }
             }
           }

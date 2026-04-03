@@ -4,11 +4,11 @@ from snowflake.connector.errors import DatabaseError, ForbiddenError, Programmin
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -78,7 +78,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         required=True,
                         defaultValue="password",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="Password",
                                 value="password",
                                 fields=cast(
@@ -101,7 +101,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="Key pair",
                                 value="keypair",
                                 fields=cast(
@@ -162,23 +162,24 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
         }
 
-    def get_schemas(self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
 
-        db_schemas = get_snowflake_schemas(config)
+        db_schemas = get_snowflake_schemas(config, names=names)
 
         for table_name, columns in db_schemas.items():
-            column_info = [(col_name, col_type) for col_name, col_type in columns]
-
-            incremental_field_tuples = filter_snowflake_incremental_fields(column_info)
+            incremental_field_tuples = filter_snowflake_incremental_fields(columns)
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
                     "type": field_type,
                     "field": field_name,
                     "field_type": field_type,
+                    "nullable": nullable,
                 }
-                for field_name, field_type in incremental_field_tuples
+                for field_name, field_type, nullable in incremental_field_tuples
             ]
 
             schemas.append(

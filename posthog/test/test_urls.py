@@ -6,20 +6,6 @@ from rest_framework import status
 
 
 class TestUrls(APIBaseTest):
-    def test_logout_temporary_token_reset(self):
-        # update temporary token
-        self.user.temporary_token = "token123"
-        self.user.save()
-
-        # logout
-        with self.settings(TEST=False):
-            response = self.client.post("/logout", follow=True)
-            self.assertRedirects(response, "/login")
-
-        # no more token
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.temporary_token, None)
-
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
 
@@ -66,7 +52,10 @@ class TestUrls(APIBaseTest):
             headers={"referer": "https://not-permitted.com"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to a permitted domain." in str(response.content))
+        content = response.content.decode()
+        self.assertIn("Domain not authorized", content)
+        self.assertIn("not-permitted.com", content)
+        self.assertIn("/settings/project-toolbar#authorized-urls", content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com", headers={"referer": "https://not.com"}

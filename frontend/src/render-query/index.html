@@ -26,7 +26,11 @@
                 document.body.prepend(div)
             }
             if (!window.process) {
-                window.process = { cwd: function () { return '' } }
+                window.process = {
+                    cwd: function () {
+                        return ''
+                    },
+                }
             }
         </script>
         <div id="root"></div>

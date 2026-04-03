@@ -1,0 +1,190 @@
+{
+    "id": "019ce221-942b-0000-6929-15f99a355144",
+    "name": "User stuck in onboarding alert",
+    "description": "Detect users who start onboarding but don’t complete it and alert your team so they can reach out and help. Configure the delay to give new users time to finish onboarding (for example 24 hours), then set the conditional step to check whether the user has not completed your activation event (such as onboarding_completed, first_project_created, or another key milestone). If the event hasn’t happened, the workflow sends a Slack alert so the team can investigate.",
+    "version": 1,
+    "created_at": "2026-03-12T12:59:37.387738Z",
+    "created_by": {
+        "id": 310726,
+        "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+        "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+        "first_name": "Sara",
+        "last_name": "Miteva",
+        "email": "sara@posthog.com",
+        "is_email_verified": true,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "updated_at": "2026-03-12T13:00:29.765956Z",
+    "trigger": {
+        "type": "event",
+        "filters": {}
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_delay_c1dfac91-0bcd-461d-b26b-f73a3b1575da",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "action_conditional_branch_54b8bed3-b431-4354-94e7-f13516df272c",
+            "from": "action_delay_c1dfac91-0bcd-461d-b26b-f73a3b1575da",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_54b8bed3-b431-4354-94e7-f13516df272c",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "action_function_04b2f3f7-7126-4659-8eb3-9a128250ab14",
+            "from": "action_conditional_branch_54b8bed3-b431-4354-94e7-f13516df272c",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_04b2f3f7-7126-4659-8eb3-9a128250ab14",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "User has signed up",
+            "description": "Select your signup event.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {}
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_c1dfac91-0bcd-461d-b26b-f73a3b1575da",
+            "name": "Wait for 7 days",
+            "description": "Wait for 7 days.",
+            "on_error": null,
+            "created_at": 1773320291980,
+            "updated_at": 1773320291980,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "7d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_54b8bed3-b431-4354-94e7-f13516df272c",
+            "name": "Onboarding completed?",
+            "description": "Select your onboarding event and check if it's completed.",
+            "on_error": null,
+            "created_at": 1773320322113,
+            "updated_at": 1773320322113,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_04b2f3f7-7126-4659-8eb3-9a128250ab14",
+            "name": "Alert team",
+            "description": "Pick your Slack channel and alert the team if the user is stuck.",
+            "on_error": null,
+            "created_at": 1773320353698,
+            "updated_at": 1773320353698,
+            "filters": null,
+            "type": "function",
+            "config": {
+                "inputs": {
+                    "slack_workspace": {
+                        "value": 54567,
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "⚠️ *User stuck in onboarding*\n\n*{person.name}* signed up but hasn't completed onboarding after 24 hours."
+                                }
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "type": "button",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "View user in PostHog"
+                                        },
+                                        "url": "{person.url}"
+                                    }
+                                ]
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": "*{person.name}* is stuck in onboarding",
+                        "templating": "hog"
+                    }
+                },
+                "template_id": "template-slack"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_13_79cf2b11cc.jpg",
+    "tags": ["onboarding", "slack"],
+    "scope": "global"
+}

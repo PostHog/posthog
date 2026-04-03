@@ -10,9 +10,10 @@ use serde_json::Value;
 use crate::{
     error::{EventError, PipelineFailure, PipelineResult},
     recursively_sanitize_properties, sanitize_string,
+    types::event::PropertiesContainer,
 };
 
-use super::{exception::add_error_to_event, IncomingEvent};
+use super::IncomingEvent;
 
 // Adds team info, and folds set, set_once and ip address data into the event properties
 pub fn prepare_events(
@@ -179,10 +180,13 @@ fn transform_event(
         group3_created_at: None,
         group4_created_at: None,
         person_mode,
+        captured_at: None,
+        historical_migration: None,
     };
 
     if timestamp_was_invalid {
-        add_error_to_event(&mut event, "Timestamp was future dated")
+        event
+            .attach_error("Timestamp was future dated".into())
             .expect("We can parse the raw event we just serialised")
     }
 

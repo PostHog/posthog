@@ -30,6 +30,7 @@ export function MessageTemplateCard({
                         <iframe
                             srcDoc={emailHtml}
                             sandbox="allow-same-origin"
+                            title="Message template preview"
                             className="w-full h-full border-0 bg-white pointer-events-none"
                         />
                     ) : (

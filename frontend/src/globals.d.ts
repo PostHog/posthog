@@ -3,6 +3,16 @@ import posthog from 'posthog-js'
 import { ExportedData } from '~/exporter/types'
 
 declare global {
+    // Monaco Editor environment configuration
+    // See: https://github.com/microsoft/monaco-editor/blob/main/docs/integrate-esm.md
+    interface MonacoEnvironment {
+        getWorker?(moduleId: string, label: string): Worker
+        getWorkerUrl?(moduleId: string, label: string): string
+    }
+
+    // eslint-disable-next-line no-var
+    var MonacoEnvironment: MonacoEnvironment | undefined
+
     interface Window {
         JS_URL?: string
         JS_POSTHOG_API_KEY?: string
@@ -10,8 +20,6 @@ declare global {
         JS_POSTHOG_UI_HOST?: string
         JS_POSTHOG_SELF_CAPTURE?: boolean
         JS_CAPTURE_TIME_TO_SEE_DATA?: boolean
-        JS_KEA_VERBOSE_LOGGING?: boolean
-        APP_STATE_LOGGING_SAMPLE_RATE?: string
         posthog?: posthog
         ESBUILD_LOAD_SCRIPT: (name) => void
         ESBUILD_LOAD_CHUNKS: (name) => void

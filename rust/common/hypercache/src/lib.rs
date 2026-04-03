@@ -27,6 +27,8 @@
 //! # }
 //! ```
 
+pub mod writer;
+
 use anyhow::Result;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as AwsS3SdkClient;
@@ -48,6 +50,9 @@ use tracing::debug;
 
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
 const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
+
+/// Metric name for tracking Redis failure reasons (timeout, get_error, pickle_error, json_error)
+const HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME: &str = "posthog_hypercache_redis_miss_reason";
 
 /// Tombstone metric for tracking "impossible" failures that should never happen in production.
 /// This is duplicated from feature_flags::metrics::consts::TOMBSTONE_COUNTER because hypercache
@@ -164,14 +169,20 @@ pub struct HyperCacheConfig {
     pub redis_timeout: Duration,
     pub s3_timeout: Duration,
     pub namespace: String,
-    pub value: String,
+    pub object_name: String,
     pub token_based: bool,
+    pub enable_etag: bool,
     pub django_cache_version: String,
 }
 
 impl HyperCacheConfig {
     /// Create config with explicit settings (defaults django_cache_version to "1")
-    pub fn new(namespace: String, value: String, s3_region: String, s3_bucket: String) -> Self {
+    pub fn new(
+        namespace: String,
+        object_name: String,
+        s3_region: String,
+        s3_bucket: String,
+    ) -> Self {
         Self {
             s3_bucket,
             s3_region,
@@ -179,8 +190,9 @@ impl HyperCacheConfig {
             redis_timeout: Duration::from_millis(500),
             s3_timeout: Duration::from_secs(3),
             namespace,
-            value,
+            object_name,
             token_based: false,
+            enable_etag: false,
             django_cache_version: "1".to_string(),
         }
     }
@@ -188,7 +200,7 @@ impl HyperCacheConfig {
     /// Create config with custom django cache version
     pub fn with_django_cache_version(
         namespace: String,
-        value: String,
+        object_name: String,
         s3_region: String,
         s3_bucket: String,
         django_cache_version: String,
@@ -200,8 +212,9 @@ impl HyperCacheConfig {
             redis_timeout: Duration::from_millis(500),
             s3_timeout: Duration::from_secs(3),
             namespace,
-            value,
+            object_name,
             token_based: false,
+            enable_etag: false,
             django_cache_version,
         }
     }
@@ -236,10 +249,13 @@ impl HyperCacheConfig {
         if self.token_based {
             format!(
                 "cache/team_tokens/{}/{}/{}",
-                key_str, self.namespace, self.value
+                key_str, self.namespace, self.object_name
             )
         } else {
-            format!("cache/teams/{}/{}/{}", key_str, self.namespace, self.value)
+            format!(
+                "cache/teams/{}/{}/{}",
+                key_str, self.namespace, self.object_name
+            )
         }
     }
 }
@@ -316,7 +332,7 @@ impl HyperCacheReader {
                     &[
                         ("result".to_string(), "hit_redis".to_string()),
                         ("namespace".to_string(), self.config.namespace.clone()),
-                        ("value".to_string(), self.config.value.clone()),
+                        ("value".to_string(), self.config.object_name.clone()),
                     ],
                     1,
                 );
@@ -334,11 +350,22 @@ impl HyperCacheReader {
                     error = %e,
                     "HyperCache Redis miss, trying S3"
                 );
+                // Note: granular reason metrics (get_error, pickle_error, json_error)
+                // are emitted inside try_get_from_redis
             }
             Err(_) => {
                 debug!(
                     cache_key = %redis_cache_key,
                     "HyperCache Redis timeout, trying S3"
+                );
+                inc(
+                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                    &[
+                        ("reason".to_string(), "timeout".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.object_name.clone()),
+                    ],
+                    1,
                 );
             }
         }
@@ -357,7 +384,7 @@ impl HyperCacheReader {
                     &[
                         ("result".to_string(), "hit_s3".to_string()),
                         ("namespace".to_string(), self.config.namespace.clone()),
-                        ("value".to_string(), self.config.value.clone()),
+                        ("value".to_string(), self.config.object_name.clone()),
                     ],
                     1,
                 );
@@ -390,18 +417,7 @@ impl HyperCacheReader {
             &[
                 ("result".to_string(), "missing".to_string()),
                 ("namespace".to_string(), self.config.namespace.clone()),
-                ("value".to_string(), self.config.value.clone()),
-            ],
-            1,
-        );
-
-        // Also increment the tombstone counter for hypercache misses - this should never happen
-        inc(
-            TOMBSTONE_COUNTER_NAME,
-            &[
-                ("namespace".to_string(), self.config.namespace.clone()),
-                ("operation".to_string(), "hypercache_miss".to_string()),
-                ("component".to_string(), self.config.value.clone()),
+                ("value".to_string(), self.config.object_name.clone()),
             ],
             1,
         );
@@ -459,7 +475,7 @@ impl HyperCacheReader {
                             &[
                                 ("result".to_string(), "hit_fallback".to_string()),
                                 ("namespace".to_string(), self.config.namespace.clone()),
-                                ("value".to_string(), self.config.value.clone()),
+                                ("value".to_string(), self.config.object_name.clone()),
                             ],
                             1,
                         );
@@ -475,7 +491,7 @@ impl HyperCacheReader {
                                     "operation".to_string(),
                                     "hypercache_fallback_miss".to_string(),
                                 ),
-                                ("component".to_string(), self.config.value.clone()),
+                                ("component".to_string(), self.config.object_name.clone()),
                             ],
                             1,
                         );
@@ -514,6 +530,15 @@ impl HyperCacheReader {
                                     "Failed to parse JSON from Redis data for key '{}': {}",
                                     cache_key, e
                                 );
+                                inc(
+                                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                                    &[
+                                        ("reason".to_string(), "json_error".to_string()),
+                                        ("namespace".to_string(), self.config.namespace.clone()),
+                                        ("value".to_string(), self.config.object_name.clone()),
+                                    ],
+                                    1,
+                                );
                             }
                         }
                     }
@@ -522,6 +547,15 @@ impl HyperCacheReader {
                             "Failed to deserialize pickle from Redis data for key '{}': {}",
                             cache_key, e
                         );
+                        inc(
+                            HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                            &[
+                                ("reason".to_string(), "pickle_error".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.object_name.clone()),
+                            ],
+                            1,
+                        );
                     }
                 }
             }
@@ -529,6 +563,15 @@ impl HyperCacheReader {
                 debug!(
                     "Failed to get raw bytes from Redis for key '{}': {}",
                     cache_key, e
+                );
+                inc(
+                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                    &[
+                        ("reason".to_string(), "get_error".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.object_name.clone()),
+                    ],
+                    1,
                 );
             }
         }
@@ -627,7 +670,7 @@ mod tests {
         assert_eq!(config.s3_region, "eu-west-1");
         assert_eq!(config.s3_endpoint, None);
         assert_eq!(config.namespace, "test_namespace");
-        assert_eq!(config.value, "test_value");
+        assert_eq!(config.object_name, "test_value");
         assert_eq!(config.django_cache_version, "1"); // Default value
     }
 

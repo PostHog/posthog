@@ -14,12 +14,19 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../../react_flow_utils/constants'
 import { HogFlowAction } from '../../types'
 import { useHogFlowStep } from '../HogFlowSteps'
-import { StepViewMetrics } from './StepViewMetrics'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
+import { StepViewMetrics } from './StepViewMetrics'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
-    const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted, selectedNodeCanBeCopiedOrMoved } =
-        useValues(hogFlowEditorLogic)
+    const {
+        selectedNode,
+        mode,
+        nodesById,
+        selectedNodeCanBeDeleted,
+        selectedNodeCanBeCopiedOrMoved,
+        animatingEdgePair,
+        workflow,
+    } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
@@ -42,7 +49,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         cancelEditingDescription,
     } = useActions(stepViewLogic(stepViewLogicProps))
 
-    const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
+    const shouldShowMetricsSummary = mode === 'metrics' && workflow.trigger?.type !== 'batch'
+    const height = shouldShowMetricsSummary ? NODE_HEIGHT + 10 : NODE_HEIGHT
 
     const Step = useHogFlowStep(action)
     const { selectedColor, colorLight, color, icon } = useMemo(() => {
@@ -61,15 +69,16 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     }, [action, isSelected, Step])
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
+    const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
 
     return (
         <div
-            className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary"
+            className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary transition-[border-color] duration-300"
             style={{
                 width: NODE_WIDTH,
                 height,
                 borderWidth: 1,
-                borderColor: selectedColor,
+                borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
                 boxShadow: `0px 2px 0px 0px ${colorLight}`,
                 zIndex: 0,
             }}
@@ -218,7 +227,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
             ) : null}
-            {mode === 'metrics' && (
+            {shouldShowMetricsSummary && (
                 <div
                     style={{
                         borderTopColor: colorLight,

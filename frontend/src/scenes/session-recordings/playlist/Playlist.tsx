@@ -29,9 +29,9 @@ import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
@@ -97,11 +97,11 @@ export function Playlist({
         activeSessionRecordingId,
         totalFiltersCount,
         sessionRecordingsResponseLoading,
-        pinnedRecordings,
+        visiblePinnedRecordings: pinnedRecordings,
         otherRecordings,
         hasNext,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId } =
+    const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId, loadSessionRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
     const onScrollListEdge = (edge: 'bottom' | 'top'): void => {
@@ -228,14 +228,17 @@ export function Playlist({
     return (
         <div className="flex flex-col min-w-60 h-full">
             {!notebookNode && type !== 'collection' && (
-                <DraggableToNotebook className="mb-2" href={urls.replay(ReplayTabs.Home, filters)}>
-                    <RecordingsUniversalFiltersEmbedButton
-                        filters={filters}
-                        setFilters={setFilters}
-                        totalFiltersCount={totalFiltersCount}
-                        currentSessionRecordingId={activeSessionRecordingId}
-                    />
-                </DraggableToNotebook>
+                <div className="mb-2 flex gap-2">
+                    <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
+                        <RecordingsUniversalFiltersEmbedButton
+                            filters={filters}
+                            setFilters={setFilters}
+                            totalFiltersCount={totalFiltersCount}
+                            currentSessionRecordingId={activeSessionRecordingId}
+                            onReload={() => loadSessionRecordings()}
+                        />
+                    </DraggableToNotebook>
+                </div>
             )}
             <div
                 ref={playlistRef}
@@ -273,7 +276,7 @@ export function Playlist({
                                             filters={filters}
                                             setFilters={setFilters}
                                             type={type}
-                                            shortId={logicKey}
+                                            shortId={type === 'collection' ? logicKey : undefined}
                                         />
                                     </div>
                                 </div>

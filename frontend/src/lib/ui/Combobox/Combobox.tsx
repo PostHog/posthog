@@ -30,7 +30,7 @@ interface ComboboxContextType {
 
 const ComboboxContext = createContext<ComboboxContextType | null>(null)
 
-interface ComboboxProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface ComboboxProps extends React.HTMLAttributes<HTMLDivElement> {
     children: ReactNode
     insideMenu?: boolean
 }
@@ -160,6 +160,7 @@ const Search = ({
                 autoFocus={autoFocus}
                 role="combobox"
                 size="default"
+                aria-expanded={context.searchValue !== ''}
                 aria-controls="combobox-listbox"
                 showFocusPulse
             />

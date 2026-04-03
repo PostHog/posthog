@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -6,15 +7,15 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
 
-import { QuickSurveyForm } from './QuickSurveyModal'
 import { QuickSurveyType } from './quick-create/types'
+import { QuickSurveyForm } from './QuickSurveyModal'
 import { FunnelContext } from './utils/opportunityDetection'
 
 jest.mock('scenes/surveys/SurveyAppearancePreview', () => ({
     SurveyAppearancePreview: () => <div data-testid="preview">Preview</div>,
 }))
 jest.mock('scenes/surveys/SurveySettings', () => ({
-    SurveyPopupToggle: () => null,
+    SurveyEnableToggle: () => null,
 }))
 
 const mockFlag = {
@@ -44,7 +45,7 @@ describe('QuickSurveyForm API payloads', () => {
                 '/api/projects/:team_id/surveys': () => [200, { id: 'new-survey' }],
             },
             patch: {
-                '/api/environments/@current/add_product_intent/': () => [200, {}],
+                '/api/environments/:team_id/add_product_intent/': () => [200, {}],
             },
         })
     })

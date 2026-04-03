@@ -17,7 +17,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 
@@ -196,5 +197,14 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<GetGroupTypeMappingsByProjectIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         route_request!(self, get_group_type_mappings_by_project_ids, request)
+    }
+
+    // Person property updates (routed to leader)
+
+    async fn update_person_properties(
+        &self,
+        request: Request<UpdatePersonPropertiesRequest>,
+    ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
+        route_request!(self, update_person_properties, request)
     }
 }

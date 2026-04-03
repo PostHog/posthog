@@ -2,8 +2,6 @@ from posthog.test.base import BaseTest
 
 from django.db import IntegrityError
 
-from parameterized import parameterized
-
 from posthog.models.health_issue import HealthIssue
 
 
@@ -109,13 +107,7 @@ class TestHealthIssue(BaseTest):
                 status=HealthIssue.Status.ACTIVE,
             )
 
-    @parameterized.expand(
-        [
-            ("resolve", HealthIssue.Status.RESOLVED),
-            ("dismiss", HealthIssue.Status.DISMISSED),
-        ]
-    )
-    def test_status_transitions(self, method_name, expected_status):
+    def test_resolve_transitions_status(self):
         issue = HealthIssue.objects.create(
             team=self.team,
             kind="test_kind",
@@ -123,9 +115,21 @@ class TestHealthIssue(BaseTest):
             payload={},
             unique_hash="test_hash",
         )
-        getattr(issue, method_name)()
+        issue.resolve()
         issue.refresh_from_db()
-        self.assertEqual(issue.status, expected_status)
+        self.assertEqual(issue.status, HealthIssue.Status.RESOLVED)
+
+    def test_resolve_already_resolved_raises(self):
+        issue = HealthIssue.objects.create(
+            team=self.team,
+            kind="test_kind",
+            severity="warning",
+            payload={},
+            unique_hash="test_hash",
+            status=HealthIssue.Status.RESOLVED,
+        )
+        with self.assertRaises(ValueError):
+            issue.resolve()
 
     def test_resolve_sets_resolved_at(self):
         issue = HealthIssue.objects.create(
@@ -138,17 +142,3 @@ class TestHealthIssue(BaseTest):
         issue.resolve()
         issue.refresh_from_db()
         self.assertIsNotNone(issue.resolved_at)
-
-    def test_reactivate_clears_resolved_at(self):
-        issue = HealthIssue.objects.create(
-            team=self.team,
-            kind="test_kind",
-            severity="warning",
-            payload={},
-            unique_hash="test_hash",
-        )
-        issue.resolve()
-        issue.reactivate()
-        issue.refresh_from_db()
-        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
-        self.assertIsNone(issue.resolved_at)

@@ -1,7 +1,13 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
-import { processResultsForSurveyQuestions, surveyLogic } from 'scenes/surveys/surveyLogic'
+import {
+    mergeResponsesByQuestion,
+    processOpenEndedResults,
+    processResultsForSurveyQuestions,
+    surveyLogic,
+} from 'scenes/surveys/surveyLogic'
+import { OpenEndedColumnMap } from 'scenes/surveys/utils'
 
 import { initKeaTests } from '~/test/init'
 import {
@@ -12,6 +18,7 @@ import {
     OpenQuestionProcessedResponses,
     PropertyFilterType,
     PropertyOperator,
+    ResponsesByQuestion,
     Survey,
     SurveyEventName,
     SurveyEventProperties,
@@ -20,7 +27,6 @@ import {
     SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveyRates,
-    SurveyRawResults,
     SurveySchedule,
     SurveyStats,
     SurveyType,
@@ -1729,46 +1735,90 @@ describe('survey stats calculation', () => {
 })
 
 describe('processResultsForSurveyQuestions', () => {
+    // Input format: AggregateRow[] = [question_id, label, count][]
     describe('Rating Questions', () => {
-        it('processes 10-point scale correctly (0-10)', () => {
+        it.each([
+            {
+                name: '10-point NPS scale (0-10)',
+                scale: 10 as const,
+                rows: [
+                    ['rating-q', '0', 1],
+                    ['rating-q', '5', 2],
+                    ['rating-q', '10', 1],
+                ] as [string, string, number][],
+                expectedTotal: 4,
+                expectedLength: 11,
+                expectedSlots: [
+                    { index: 0, label: '0', value: 1 },
+                    { index: 5, label: '5', value: 2 },
+                    { index: 10, label: '10', value: 1 },
+                    { index: 1, label: '1', value: 0 },
+                ],
+            },
+            {
+                name: '5-point scale (1-5)',
+                scale: 5 as const,
+                rows: [
+                    ['rating-q', '1', 1],
+                    ['rating-q', '3', 2],
+                    ['rating-q', '5', 1],
+                ] as [string, string, number][],
+                expectedTotal: 4,
+                expectedLength: 5,
+                expectedSlots: [
+                    { index: 0, label: '1', value: 1 },
+                    { index: 1, label: '2', value: 0 },
+                    { index: 2, label: '3', value: 2 },
+                    { index: 3, label: '4', value: 0 },
+                    { index: 4, label: '5', value: 1 },
+                ],
+            },
+            {
+                name: '3-point scale rejects out-of-range values',
+                scale: 3 as const,
+                rows: [
+                    ['rating-q', '1', 1],
+                    ['rating-q', '2', 1],
+                    ['rating-q', '3', 1],
+                    ['rating-q', '0', 1],
+                ] as [string, string, number][],
+                expectedTotal: 3,
+                expectedLength: 3,
+                expectedSlots: [
+                    { index: 0, label: '1', value: 1 },
+                    { index: 1, label: '2', value: 1 },
+                    { index: 2, label: '3', value: 1 },
+                ],
+            },
+        ])('processes $name', ({ scale, rows, expectedTotal, expectedLength, expectedSlots }) => {
             const questions = [
                 {
-                    id: 'rating-q1',
+                    id: 'rating-q',
                     type: SurveyQuestionType.Rating as const,
                     question: 'Rate us',
-                    scale: 10 as const,
+                    scale,
                     display: 'number' as const,
                     lowerBoundLabel: 'Poor',
                     upperBoundLabel: 'Excellent',
                 },
             ]
-            const results = [
-                ['0'], // User 1: rated 0 for question 0
-                ['5'], // User 2: rated 5 for question 0
-                ['10'], // User 3: rated 10 for question 0
-                ['5'], // User 4: rated 5 for question 0
-                ['invalid'], // User 5: invalid response (should be ignored)
-                [''], // User 6: empty response (should be ignored)
-            ]
 
-            const processed = processResultsForSurveyQuestions(questions, results)
-            const ratingData = processed['rating-q1'] as ChoiceQuestionProcessedResponses
+            const processed = processResultsForSurveyQuestions(questions, rows)
+            const ratingData = processed['rating-q'] as ChoiceQuestionProcessedResponses
 
             expect(ratingData.type).toBe(SurveyQuestionType.Rating)
-            expect(ratingData.totalResponses).toBe(4) // 4 valid responses
-            expect(ratingData.data).toHaveLength(11) // 0-10 = 11 values
+            expect(ratingData.totalResponses).toBe(expectedTotal)
+            expect(ratingData.data).toHaveLength(expectedLength)
 
-            // Check specific ratings for NPS (0-10 scale)
-            expect(ratingData.data[0]).toEqual({ label: '0', value: 1, isPredefined: true })
-            expect(ratingData.data[5]).toEqual({ label: '5', value: 2, isPredefined: true })
-            expect(ratingData.data[10]).toEqual({ label: '10', value: 1, isPredefined: true })
-            expect(ratingData.data[1]).toEqual({ label: '1', value: 0, isPredefined: true })
+            for (const { index, label, value } of expectedSlots) {
+                expect(ratingData.data[index]).toEqual({ label, value, isPredefined: true })
+            }
         })
 
-        it('processes 5-point scale correctly - reveals the bug', () => {
+        it('ignores non-numeric labels', () => {
             const questions = [
                 {
-                    id: 'rating-q2',
+                    id: 'rating-q',
                     type: SurveyQuestionType.Rating as const,
                     question: 'Rate us',
                     scale: 5 as const,
@@ -1777,61 +1827,20 @@ describe('processResultsForSurveyQuestions', () => {
                     upperBoundLabel: 'Excellent',
                 },
             ]
-            // Each user response array contains answers to all questions in order
-            const results: SurveyRawResults = [
-                ['1'], // User 1: rating 1 for question 0
-                ['3'], // User 2: rating 3 for question 0
-                ['5'], // User 3: rating 5 for question 0
-                ['3'], // User 4: rating 3 for question 0
+            const rows: [string, string, number][] = [
+                ['rating-q', 'invalid', 3],
+                ['rating-q', '3', 2],
             ]
 
-            const processed = processResultsForSurveyQuestions(questions, results)
-            const ratingData = processed['rating-q2'] as ChoiceQuestionProcessedResponses
+            const processed = processResultsForSurveyQuestions(questions, rows)
+            const ratingData = processed['rating-q'] as ChoiceQuestionProcessedResponses
 
-            expect(ratingData.type).toBe(SurveyQuestionType.Rating)
-            expect(ratingData.totalResponses).toBe(4) // Should count all 4 responses including rating "5"
-            expect(ratingData.data).toHaveLength(5) // Should have 5 elements for a 5-point scale
-
-            // After fix: Regular scales should show labels 1-5 (not 0-4)
-            expect(ratingData.data[0]).toEqual({ label: '1', value: 1, isPredefined: true }) // One person rated 1
-            expect(ratingData.data[1]).toEqual({ label: '2', value: 0, isPredefined: true }) // No one rated 2
-            expect(ratingData.data[2]).toEqual({ label: '3', value: 2, isPredefined: true }) // Two people rated 3
-            expect(ratingData.data[3]).toEqual({ label: '4', value: 0, isPredefined: true }) // No one rated 4
-            expect(ratingData.data[4]).toEqual({ label: '5', value: 1, isPredefined: true }) // One person rated 5
-        })
-
-        it('demonstrates the bounds checking bug with 3-point scale', () => {
-            const questions = [
-                {
-                    id: 'rating-q3',
-                    type: SurveyQuestionType.Rating as const,
-                    question: 'Rate us',
-                    scale: 3 as const,
-                    display: 'number' as const,
-                    lowerBoundLabel: 'Poor',
-                    upperBoundLabel: 'Excellent',
-                },
-            ]
-            const results = [
-                ['1'], // User 1: should be valid
-                ['2'], // User 2: should be valid
-                ['3'], // User 3: should be valid after fix
-                ['0'], // User 4: should be invalid for 1-N scale
-            ]
-
-            const processed = processResultsForSurveyQuestions(questions, results)
-            const ratingData = processed['rating-q3'] as ChoiceQuestionProcessedResponses
-
-            // After fix: Should count 3 valid responses (1, 2, 3), reject 0
-            expect(ratingData.totalResponses).toBe(3) // Should count ratings 1, 2, 3 but not 0
-            expect(ratingData.data[0]).toEqual({ label: '1', value: 1, isPredefined: true })
-            expect(ratingData.data[1]).toEqual({ label: '2', value: 1, isPredefined: true })
-            expect(ratingData.data[2]).toEqual({ label: '3', value: 1, isPredefined: true })
+            expect(ratingData.totalResponses).toBe(2)
         })
     })
 
     describe('Single Choice Questions', () => {
-        it('processes single choice correctly', () => {
+        it('processes counts, sorts by value, and zero-fills predefined choices', () => {
             const questions = [
                 {
                     id: 'single-q1',
@@ -1840,51 +1849,28 @@ describe('processResultsForSurveyQuestions', () => {
                     choices: ['Yes', 'No', 'Maybe'],
                 },
             ]
-            const results = [
-                ['Yes', null, 'user1', '2024-01-15T10:00:00Z'], // User 1: picked Yes for question 0
-                ['No', null, 'user2', '2024-01-15T10:15:00Z'], // User 2: picked No for question 0
-                ['Yes', null, 'user3', '2024-01-15T10:30:00Z'], // User 3: picked Yes for question 0
-                ['Custom answer', null, 'user4', '2024-01-15T10:45:00Z'], // User 4: picked custom answer for question 0
+            const rows: [string, string, number][] = [
+                ['single-q1', 'Yes', 2],
+                ['single-q1', 'No', 1],
+                ['single-q1', 'Custom answer', 1],
             ]
 
-            const processed = processResultsForSurveyQuestions(questions, results)
+            const processed = processResultsForSurveyQuestions(questions, rows)
             const singleData = processed['single-q1'] as ChoiceQuestionProcessedResponses
 
             expect(singleData.type).toBe(SurveyQuestionType.SingleChoice)
             expect(singleData.totalResponses).toBe(4)
 
-            // Check that all values exist (order may vary due to sorting)
             const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
-            expect(dataMap.get('Yes')).toEqual({
-                label: 'Yes',
-                value: 2,
-                isPredefined: true,
-                distinctId: 'user3',
-                personDisplayName: undefined,
-                timestamp: '2024-01-15T10:30:00Z',
-            })
-            expect(dataMap.get('No')).toEqual({
-                label: 'No',
-                value: 1,
-                isPredefined: true,
-                distinctId: 'user2',
-                personDisplayName: undefined,
-                timestamp: '2024-01-15T10:15:00Z',
-            })
+            expect(dataMap.get('Yes')).toEqual({ label: 'Yes', value: 2, isPredefined: true })
+            expect(dataMap.get('No')).toEqual({ label: 'No', value: 1, isPredefined: true })
             expect(dataMap.get('Maybe')).toEqual({ label: 'Maybe', value: 0, isPredefined: true })
-            expect(dataMap.get('Custom answer')).toEqual({
-                label: 'Custom answer',
-                value: 1,
-                isPredefined: false,
-                distinctId: 'user4',
-                personDisplayName: undefined,
-                timestamp: '2024-01-15T10:45:00Z',
-            })
+            expect(dataMap.get('Custom answer')).toEqual({ label: 'Custom answer', value: 1, isPredefined: false })
         })
     })
 
     describe('Multiple Choice Questions', () => {
-        it('processes multiple choice correctly', () => {
+        it('uses __total__ for totalResponses and counts per-choice', () => {
             const questions = [
                 {
                     id: 'multi-q1',
@@ -1893,58 +1879,30 @@ describe('processResultsForSurveyQuestions', () => {
                     choices: ['A', 'B', 'C'],
                 },
             ]
-            // For multiple choice questions, the response at questionIndex is an array of selected choices
-            const results: SurveyRawResults = [
-                [['A', 'B'], null, 'user1', '2024-01-15T10:00:00Z'], // User 1: picked A and B for question 0
-                [['A'], null, 'user2', '2024-01-15T10:15:00Z'], // User 2: picked A only for question 0
-                [['C', 'Custom'], null, 'user3', '2024-01-15T10:30:00Z'], // User 3: picked C and a custom answer for question 0
+            const rows: [string, string, number][] = [
+                ['multi-q1', 'A', 2],
+                ['multi-q1', 'B', 1],
+                ['multi-q1', 'C', 1],
+                ['multi-q1', 'Custom', 1],
+                ['multi-q1', '__total__', 3],
             ]
 
-            const processed = processResultsForSurveyQuestions(questions, results)
+            const processed = processResultsForSurveyQuestions(questions, rows)
             const multiData = processed['multi-q1'] as ChoiceQuestionProcessedResponses
 
             expect(multiData.type).toBe(SurveyQuestionType.MultipleChoice)
             expect(multiData.totalResponses).toBe(3)
 
-            // Check that data exists for each choice
             const dataMap = new Map(multiData.data.map((item) => [item.label, item]))
-            expect(dataMap.get('A')).toEqual({
-                label: 'A',
-                value: 2,
-                isPredefined: true,
-                distinctId: 'user2',
-                personDisplayName: undefined,
-                timestamp: '2024-01-15T10:15:00Z',
-            })
-            expect(dataMap.get('B')).toEqual({
-                label: 'B',
-                value: 1,
-                isPredefined: true,
-                distinctId: 'user1',
-                personDisplayName: undefined,
-                timestamp: '2024-01-15T10:00:00Z',
-            })
-            expect(dataMap.get('C')).toEqual({
-                label: 'C',
-                value: 1,
-                isPredefined: true,
-                distinctId: 'user3',
-                personDisplayName: undefined,
-                timestamp: '2024-01-15T10:30:00Z',
-            })
-            expect(dataMap.get('Custom')).toEqual({
-                label: 'Custom',
-                value: 1,
-                isPredefined: false,
-                distinctId: 'user3',
-                personDisplayName: undefined,
-                timestamp: '2024-01-15T10:30:00Z',
-            })
+            expect(dataMap.get('A')).toEqual({ label: 'A', value: 2, isPredefined: true })
+            expect(dataMap.get('B')).toEqual({ label: 'B', value: 1, isPredefined: true })
+            expect(dataMap.get('C')).toEqual({ label: 'C', value: 1, isPredefined: true })
+            expect(dataMap.get('Custom')).toEqual({ label: 'Custom', value: 1, isPredefined: false })
         })
     })
 
     describe('Open Questions', () => {
-        it('processes open text correctly', () => {
+        it('returns total count with empty data (raw data comes from open-ended query)', () => {
             const questions = [
                 {
                     id: 'open-q1',
@@ -1952,163 +1910,217 @@ describe('processResultsForSurveyQuestions', () => {
                     question: 'Tell us more',
                 },
             ]
-            const results = [
-                ['Great product!', 'John', 'user123', '2024-01-15T10:30:00Z'], // User 1: response, person_display_name, distinct_id, timestamp
-                ['Could be better', null, 'user456', '2024-01-15T11:45:00Z'], // User 2: response, no person props, distinct_id, timestamp
-                ['', null, 'user789', '2024-01-15T12:00:00Z'], // User 3: empty response (should be ignored)
-            ] as Array<Array<string | string[]>>
+            const rows: [string, string, number][] = [['open-q1', '__total__', 42]]
 
-            const processed = processResultsForSurveyQuestions(questions, results)
+            const processed = processResultsForSurveyQuestions(questions, rows)
             const openData = processed['open-q1'] as OpenQuestionProcessedResponses
 
             expect(openData.type).toBe(SurveyQuestionType.Open)
-            expect(openData.totalResponses).toBe(2) // Empty response ignored
-            expect(openData.data).toHaveLength(2)
-
-            expect(openData.data[0]).toEqual({
-                distinctId: 'user123',
-                response: 'Great product!',
-                personDisplayName: 'John',
-                timestamp: '2024-01-15T10:30:00Z',
-            })
-            expect(openData.data[1]).toEqual({
-                distinctId: 'user456',
-                response: 'Could be better',
-                personDisplayName: undefined,
-                timestamp: '2024-01-15T11:45:00Z',
-            })
+            expect(openData.totalResponses).toBe(42)
+            expect(openData.data).toHaveLength(0)
         })
     })
 
-    describe('Latest Person Data Storage', () => {
-        it('stores latest person data for single choice questions', () => {
-            const questions = [
-                {
-                    id: 'single-latest',
-                    type: SurveyQuestionType.SingleChoice as const,
-                    question: 'Pick one',
-                    choices: ['Yes', 'No'],
-                },
-            ]
-            // Multiple people picking the same choice - should store the LATEST person's data
-            const results = [
-                ['Yes', 'Alice', 'user1', '2024-01-15T10:00:00Z'], // Alice picks Yes at 10:00
-                ['Yes', 'Bob', 'user2', '2024-01-15T11:00:00Z'], // Bob picks Yes at 11:00 (later)
-                ['Yes', 'Carol', 'user3', '2024-01-15T12:00:00Z'], // Carol picks Yes at 12:00 (latest)
-                ['No', 'Dave', 'user4', '2024-01-15T13:00:00Z'], // Dave picks No
-            ]
+    it('returns empty object for null rows', () => {
+        const questions = [{ id: 'q1', type: SurveyQuestionType.Open as const, question: 'Q' }]
+        expect(processResultsForSurveyQuestions(questions, null)).toEqual({})
+    })
 
-            const processed = processResultsForSurveyQuestions(questions, results)
-            const singleData = processed['single-latest'] as ChoiceQuestionProcessedResponses
+    it('skips Link questions', () => {
+        const questions = [
+            { id: 'link-q', type: SurveyQuestionType.Link as const, question: 'Visit', link: 'https://example.com' },
+        ]
+        const rows: [string, string, number][] = [['link-q', '__total__', 5]]
+        expect(processResultsForSurveyQuestions(questions, rows)).toEqual({})
+    })
 
-            expect(singleData.totalResponses).toBe(4)
+    it('handles multiple questions in one result set', () => {
+        const questions = [
+            {
+                id: 'rating-q',
+                type: SurveyQuestionType.Rating as const,
+                question: 'Rate',
+                scale: 5 as const,
+                display: 'number' as const,
+                lowerBoundLabel: '',
+                upperBoundLabel: '',
+            },
+            {
+                id: 'choice-q',
+                type: SurveyQuestionType.SingleChoice as const,
+                question: 'Pick',
+                choices: ['A', 'B'],
+            },
+        ]
+        const rows: [string, string, number][] = [
+            ['rating-q', '3', 10],
+            ['choice-q', 'A', 5],
+            ['choice-q', 'B', 3],
+        ]
 
-            const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
+        const processed = processResultsForSurveyQuestions(questions, rows)
+        expect(processed['rating-q']).not.toBeUndefined()
+        expect(processed['choice-q']).not.toBeUndefined()
+        expect((processed['choice-q'] as ChoiceQuestionProcessedResponses).totalResponses).toBe(8)
+    })
+})
 
-            // "Yes" should have Carol's data (latest timestamp)
-            expect(dataMap.get('Yes')).toEqual({
-                label: 'Yes',
-                value: 3,
-                isPredefined: true,
-                distinctId: 'user3',
-                personDisplayName: 'Carol',
-                timestamp: '2024-01-15T12:00:00Z',
-            })
+describe('processOpenEndedResults', () => {
+    it('collects raw responses for open text questions', () => {
+        const questions = [{ id: 'open-q1', type: SurveyQuestionType.Open as const, question: 'Tell us more' }]
+        const columnMap: OpenEndedColumnMap = {
+            'open-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.Open },
+        }
+        const rows = [
+            ['Great product!', 'user123', '2024-01-15T10:30:00Z'],
+            ['Could be better', 'user456', '2024-01-15T11:45:00Z'],
+            ['', 'user789', '2024-01-15T12:00:00Z'],
+        ]
 
-            // "No" should have Dave's data (only person who picked it)
-            expect(dataMap.get('No')).toEqual({
-                label: 'No',
-                value: 1,
-                isPredefined: true,
-                distinctId: 'user4',
-                personDisplayName: 'Dave',
-                timestamp: '2024-01-15T13:00:00Z',
-            })
+        const result = processOpenEndedResults(questions, columnMap, rows)
+        const openData = result['open-q1'] as OpenQuestionProcessedResponses
+
+        expect(openData.type).toBe(SurveyQuestionType.Open)
+        expect(openData.totalResponses).toBe(2)
+        expect(openData.data).toHaveLength(2)
+        expect(openData.data[0]).toEqual({
+            distinctId: 'user123',
+            response: 'Great product!',
+            timestamp: '2024-01-15T10:30:00Z',
         })
-
-        it('stores latest person data for multiple choice questions', () => {
-            const questions = [
-                {
-                    id: 'multi-latest',
-                    type: SurveyQuestionType.MultipleChoice as const,
-                    question: 'Pick many',
-                    choices: ['A', 'B', 'C'],
-                },
-            ]
-            // Multiple people picking the same choices - should store the LATEST person's data for each choice
-            const results: SurveyRawResults = [
-                [['A', 'B'], 'Alice', 'user1', '2024-01-15T10:00:00Z'], // Alice picks A,B at 10:00
-                [['A'], 'Bob', 'user2', '2024-01-15T11:00:00Z'], // Bob picks A at 11:00 (later for A)
-                [['B', 'C'], 'Carol', 'user3', '2024-01-15T12:00:00Z'], // Carol picks B,C at 12:00 (later for B)
-            ]
-
-            const processed = processResultsForSurveyQuestions(questions, results)
-            const multiData = processed['multi-latest'] as ChoiceQuestionProcessedResponses
-
-            expect(multiData.totalResponses).toBe(3)
-
-            const dataMap = new Map(multiData.data.map((item) => [item.label, item]))
-
-            // "A" should have Bob's data (latest person to pick A)
-            expect(dataMap.get('A')).toEqual({
-                label: 'A',
-                value: 2, // Alice and Bob both picked A
-                isPredefined: true,
-                distinctId: 'user2',
-                personDisplayName: 'Bob',
-                timestamp: '2024-01-15T11:00:00Z',
-            })
-
-            // "B" should have Carol's data (latest person to pick B)
-            expect(dataMap.get('B')).toEqual({
-                label: 'B',
-                value: 2, // Alice and Carol both picked B
-                isPredefined: true,
-                distinctId: 'user3',
-                personDisplayName: 'Carol',
-                timestamp: '2024-01-15T12:00:00Z',
-            })
-
-            // "C" should have Carol's data (only person to pick C)
-            expect(dataMap.get('C')).toEqual({
-                label: 'C',
-                value: 1,
-                isPredefined: true,
-                distinctId: 'user3',
-                personDisplayName: 'Carol',
-                timestamp: '2024-01-15T12:00:00Z',
-            })
+        expect(openData.data[1]).toEqual({
+            distinctId: 'user456',
+            response: 'Could be better',
+            timestamp: '2024-01-15T11:45:00Z',
         })
+    })
 
-        it('stores latest person display name, handling null values gracefully', () => {
-            const questions = [
-                {
-                    id: 'single-invalid-props',
-                    type: SurveyQuestionType.SingleChoice as const,
-                    question: 'Pick one',
-                    choices: ['Option'],
-                },
-            ]
-            const results = [
-                ['Option', 'invalid', 'user1', '2024-01-15T10:00:00Z'], // Invalid display name (not same as distinct_id)
-                ['Option', 'Bob', 'user2', '2024-01-15T11:00:00Z'], // Valid display name "Bob"
-                ['Option', null, 'user3', '2024-01-15T12:00:00Z'], // Empty props (most recent)
-            ]
+    it('collects non-predefined "Other" text from single choice with hasOpenChoice', () => {
+        const questions = [
+            {
+                id: 'choice-q1',
+                type: SurveyQuestionType.SingleChoice as const,
+                question: 'Pick one',
+                choices: ['Yes', 'No', 'Other'],
+                hasOpenChoice: true,
+            },
+        ]
+        const columnMap: OpenEndedColumnMap = {
+            'choice-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.SingleChoice },
+        }
+        const rows = [
+            ['Yes', 'user1', '2024-01-15T10:00:00Z'],
+            ['Something custom', 'user2', '2024-01-15T11:00:00Z'],
+            ['No', 'user3', '2024-01-15T12:00:00Z'],
+        ]
 
-            const processed = processResultsForSurveyQuestions(questions, results)
-            const singleData = processed['single-invalid-props'] as ChoiceQuestionProcessedResponses
+        const result = processOpenEndedResults(questions, columnMap, rows)
+        const choiceData = result['choice-q1'] as ChoiceQuestionProcessedResponses
 
-            const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
+        expect(choiceData.data).toHaveLength(1)
+        expect(choiceData.data[0].label).toBe('Something custom')
+        expect(choiceData.data[0].distinctId).toBe('user2')
+    })
 
-            // Should have user3's data (latest timestamp) with undefined personDisplayName (null value)
-            expect(dataMap.get('Option')).toEqual({
-                label: 'Option',
-                value: 3,
-                isPredefined: true,
-                distinctId: 'user3',
-                personDisplayName: undefined,
-                timestamp: '2024-01-15T12:00:00Z',
-            })
-        })
+    it('collects non-predefined "Other" text from multiple choice with hasOpenChoice', () => {
+        const questions = [
+            {
+                id: 'multi-q1',
+                type: SurveyQuestionType.MultipleChoice as const,
+                question: 'Pick many',
+                choices: ['A', 'B', 'Other'],
+                hasOpenChoice: true,
+            },
+        ]
+        const columnMap: OpenEndedColumnMap = {
+            'multi-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.MultipleChoice },
+        }
+        const rows = [
+            [['A', 'Custom text'], 'user1', '2024-01-15T10:00:00Z'],
+            [['B'], 'user2', '2024-01-15T11:00:00Z'],
+        ]
+
+        const result = processOpenEndedResults(questions, columnMap, rows)
+        const choiceData = result['multi-q1'] as ChoiceQuestionProcessedResponses
+
+        expect(choiceData.data).toHaveLength(1)
+        expect(choiceData.data[0].label).toBe('Custom text')
+    })
+
+    it('returns empty object for null rows', () => {
+        expect(processOpenEndedResults([], {}, null)).toEqual({})
+    })
+})
+
+describe('mergeResponsesByQuestion', () => {
+    it('merges open question: takes data from open-ended, totalResponses from aggregate', () => {
+        const aggregate: ResponsesByQuestion = {
+            'open-q': { type: SurveyQuestionType.Open, data: [], totalResponses: 100 },
+        }
+        const openEnded: ResponsesByQuestion = {
+            'open-q': {
+                type: SurveyQuestionType.Open,
+                data: [{ distinctId: 'u1', response: 'Great', timestamp: '2024-01-15T10:00:00Z' }],
+                totalResponses: 1,
+            },
+        }
+
+        const merged = mergeResponsesByQuestion(aggregate, openEnded)
+        const result = merged['open-q'] as OpenQuestionProcessedResponses
+
+        expect(result.data).toHaveLength(1)
+        expect(result.totalResponses).toBe(100)
+    })
+
+    it('merges choice question with open choice: appends "Other" data to aggregate data', () => {
+        const aggregate: ResponsesByQuestion = {
+            'choice-q': {
+                type: SurveyQuestionType.SingleChoice,
+                data: [{ label: 'Yes', value: 5, isPredefined: true }],
+                totalResponses: 6,
+                noResponseCount: 0,
+            },
+        }
+        const openEnded: ResponsesByQuestion = {
+            'choice-q': {
+                type: SurveyQuestionType.SingleChoice,
+                data: [{ label: 'Custom answer', value: 1, isPredefined: false, distinctId: 'u1', timestamp: 'ts' }],
+                totalResponses: 0,
+                noResponseCount: 0,
+            },
+        }
+
+        const merged = mergeResponsesByQuestion(aggregate, openEnded)
+        const result = merged['choice-q'] as ChoiceQuestionProcessedResponses
+
+        expect(result.data).toHaveLength(2)
+        expect(result.totalResponses).toBe(6)
+    })
+
+    it('passes through aggregate-only questions unchanged', () => {
+        const aggregate: ResponsesByQuestion = {
+            'rating-q': {
+                type: SurveyQuestionType.Rating,
+                data: [{ label: '5', value: 10, isPredefined: true }],
+                totalResponses: 10,
+                noResponseCount: 0,
+            },
+        }
+
+        const merged = mergeResponsesByQuestion(aggregate, {})
+        expect(merged['rating-q']).toEqual(aggregate['rating-q'])
+    })
+
+    it('passes through open-ended-only questions when no aggregate exists', () => {
+        const openEnded: ResponsesByQuestion = {
+            'open-q': {
+                type: SurveyQuestionType.Open,
+                data: [{ distinctId: 'u1', response: 'Hello', timestamp: 'ts' }],
+                totalResponses: 1,
+            },
+        }
+
+        const merged = mergeResponsesByQuestion({}, openEnded)
+        expect(merged['open-q']).toEqual(openEnded['open-q'])
     })
 })

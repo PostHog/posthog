@@ -2,6 +2,7 @@ import dagster
 
 from posthog.dags import (
     delete_persons_from_trigger_log,
+    detach_distinct_id,
     distinct_id_usage,
     ingestion_assets,
     person_property_reconciliation,
@@ -18,6 +19,7 @@ defs = dagster.Definitions(
     ],
     jobs=[
         delete_persons_from_trigger_log.delete_persons_from_trigger_log_job,
+        detach_distinct_id.detach_distinct_id_job,
         distinct_id_usage.distinct_id_usage_monitoring,
         person_property_reconciliation.person_property_reconciliation_job,
         persondistinctids_without_person_cleanup.persondistinctids_without_person_cleanup_job,

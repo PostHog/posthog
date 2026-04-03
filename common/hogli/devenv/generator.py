@@ -35,7 +35,46 @@ class DevenvConfig(BaseModel):
 
 
 # Docker compose command building
-DOCKER_COMPOSE_BASE = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+
+# Native services that codespaces run as Docker containers instead of local
+# Rust/Go binaries. The profile is None when the service is part of the base
+# compose stack and starts without an explicit profile.
+CODESPACE_SERVICE_PROFILES: dict[str, str | None] = {
+    "capture": "capture",  # profile-gated in docker-compose.dev.yml
+    "feature-flags": None,  # always starts from dev.yml
+    "property-defs-rs": None,  # always starts from codespace overlay
+    "capture-replay": "capture_replay",
+    "capture-ai": "capture_ai",
+    "cyclotron-janitor": "codespace_cyclotron",
+    "livestream": "codespace_livestream",
+}
+
+
+def _is_codespace() -> bool:
+    return os.environ.get("POSTHOG_DEVBOX") == "1"
+
+
+def _get_docker_compose_base() -> str:
+    if _is_codespace():
+        return "docker compose -f docker-compose.dev.yml -f docker-compose.codespace.yml -f docker-compose.profiles.yml"
+    return "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+
+
+def get_effective_docker_profiles(profiles: list[str], resolved_units: set[str] | None = None) -> list[str]:
+    """Return docker compose profiles after codespace-specific translation."""
+    effective_profiles = set(profiles)
+
+    if _is_codespace() and resolved_units:
+        for service_name, profile in CODESPACE_SERVICE_PROFILES.items():
+            if service_name in resolved_units and profile:
+                effective_profiles.add(profile)
+
+    return sorted(effective_profiles)
+
+
+def should_skip_native_process(name: str, resolved_units: set[str] | None = None) -> bool:
+    """Return whether a process should be omitted from mprocs in codespace mode."""
+    return _is_codespace() and name in CODESPACE_SERVICE_PROFILES and (resolved_units is None or name in resolved_units)
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
@@ -48,10 +87,11 @@ def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> 
     Returns:
         Complete docker compose command string
     """
+    base = _get_docker_compose_base()
     if profiles:
         profile_flags = " ".join(f"--profile {p}" for p in profiles)
-        return f"{DOCKER_COMPOSE_BASE} {profile_flags} {action}"
-    return f"{DOCKER_COMPOSE_BASE} {action}"
+        return f"{base} {profile_flags} {action}"
+    return f"{base} {action}"
 
 
 class ConfigGenerator(ABC):
@@ -117,10 +157,18 @@ class MprocsGenerator(ConfigGenerator):
         """
         procs: dict[str, dict[str, Any]] = {}
 
+        # Info process is always first
+        procs["info"] = self._build_info_process(resolved)
+
         # Iterate in original mprocs.yaml order to preserve ordering
         for name in self.registry.get_processes():
             proc_config = self.registry.get_process_config(name)
             if not proc_config:
+                continue
+
+            # In codespace mode, native Rust/Go services run as Docker
+            # containers — skip them from the mprocs process list.
+            if should_skip_native_process(name, resolved.units):
                 continue
 
             # Include if: in resolved units, or autostart: false (manual start)
@@ -152,11 +200,23 @@ class MprocsGenerator(ConfigGenerator):
 
             # Special handling for docker-compose
             if name == "docker-compose":
-                proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
+                proc_config = self._generate_docker_compose_config(
+                    resolved.get_docker_profiles_list(), resolved_units=resolved.units
+                )
 
             # Special handling for nodejs - set capability groups based on resolved nodejs_* capabilities
             if name == "nodejs":
                 proc_config = self._add_nodejs_capability_groups(proc_config, resolved)
+
+            # Special handling for backend/nodejs - wire up personhog env vars when capability is active
+            if name == "backend":
+                proc_config = self._add_personhog_env(proc_config, resolved)
+            if name == "nodejs":
+                proc_config = self._add_personhog_env(proc_config, resolved)
+
+            # Special handling for temporal-worker - install uv groups when capabilities require them
+            if name == "temporal-worker":
+                proc_config = self._add_uv_groups(proc_config, resolved)
 
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
@@ -173,6 +233,54 @@ class MprocsGenerator(ConfigGenerator):
             scrollback=global_settings.get("scrollback", 10000),
             posthog_config=source_config,
         )
+
+    def _build_info_process(self, resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Build the info process shell command with environment summary and news.
+
+        News is read at runtime from devenv/news.txt so developers always see the
+        latest items without re-running hogli dev:generate.
+        """
+        process_count = len(resolved.units)
+        products = sorted(resolved.intents) if resolved.intents else ["(none)"]
+
+        # ANSI color codes matching PostHog brand
+        orange = r"\033[38;2;245;78;0m"  # #F54E00
+        blue = r"\033[38;2;29;74;255m"  # #1D4AFF
+        gray = r"\033[38;5;245m"
+        bold = r"\033[1m"
+        reset = r"\033[0m"
+
+        # news.txt sits next to intent-map.yaml in the devenv/ directory, which
+        # is at the repo root — the same cwd mprocs launches from.
+        news_path = "devenv/news.txt"
+
+        shell = f"""\
+echo ''
+printf '{orange}{bold}  PostHog Dev Environment{reset}\\n'
+printf '{gray}  ─────────────────────────────────────{reset}\\n'
+echo ''
+if [ -f {news_path} ]; then
+    printf '  {orange}{bold}News:{reset}\\n'
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] && continue
+        printf '    {gray}·{reset} %s\\n' "$line"
+    done < {news_path}
+    echo ''
+fi
+printf '  {bold}Commands:{reset}\\n'
+printf '    {blue}hogli dev:setup{reset}    Configure which services run\\n'
+printf '    {blue}hogli dev:explain{reset}  Show why each service is running\\n'
+echo ''
+printf '{gray}  ─────────────────────────────────────{reset}\\n'
+printf '  {bold}Products:{reset}  {blue}{", ".join(products)}{reset}\\n'
+printf '  {bold}Processes:{reset} {process_count} active\\n'
+printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
+echo ''
+printf '{gray}  ─────────────────────────────────────{reset}\\n'
+printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
+printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
+"""
+        return {"shell": shell}
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
         """Add a startup message to a process config.
@@ -195,15 +303,21 @@ class MprocsGenerator(ConfigGenerator):
         proc_config["shell"] = message + original_shell
         return proc_config
 
-    def _generate_docker_compose_config(self, profiles: list[str]) -> dict[str, Any]:
+    def _generate_docker_compose_config(
+        self, profiles: list[str], resolved_units: set[str] | None = None
+    ) -> dict[str, Any]:
         """Generate docker-compose process config with profile flags.
 
         Args:
             profiles: List of docker compose profiles to activate
+            resolved_units: Resolved unit names (used in codespace mode to
+                inject profiles for native services running as containers)
 
         Returns:
             Process configuration dict with modified shell command
         """
+        profiles = get_effective_docker_profiles(profiles, resolved_units)
+
         # Build the profile flags (may be empty for minimal stack)
         if profiles:
             message = f"echo '▶ docker-compose: profiles: {', '.join(profiles)} (configure via: hogli dev:setup)' && "
@@ -211,10 +325,11 @@ class MprocsGenerator(ConfigGenerator):
             message = "echo '▶ docker-compose: core services only (configure via: hogli dev:setup)' && "
 
         up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
-        logs_cmd = build_docker_compose_command(profiles, "logs --tail=0 -f")
+        logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
 
         return {
-            "shell": f"{message}{up_cmd} && {logs_cmd}",
+            "shell": f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}",
+            "ready_pattern": "docker-compose ready",
         }
 
     def _add_nodejs_capability_groups(
@@ -242,6 +357,43 @@ class MprocsGenerator(ConfigGenerator):
 
         return proc_config
 
+    def _add_personhog_env(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Add PERSONHOG_* env vars to backend when personhog capability is active."""
+        if "personhog" not in resolved.capabilities:
+            return proc_config
+
+        original_shell = proc_config.get("shell", "")
+        if original_shell:
+            env_exports = (
+                "export PERSONHOG_ADDR='127.0.0.1:50052' PERSONHOG_ENABLED='true' PERSONHOG_ROLLOUT_PERCENTAGE='100'"
+            )
+            proc_config["shell"] = f"{env_exports} && {original_shell}"
+
+        return proc_config
+
+    def _add_uv_groups(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Prepend uv sync --group and model download commands when uv_groups are resolved.
+
+        Currently handles the sentiment group (installs torch/optimum and downloads the ONNX model).
+        """
+        if not resolved.uv_groups:
+            return proc_config
+
+        original_shell = proc_config.get("shell", "")
+        if not original_shell:
+            return proc_config
+
+        # Build uv sync command with all resolved groups
+        group_flags = " ".join(f"--group {g}" for g in sorted(resolved.uv_groups))
+        prefix = f"uv sync {group_flags} --inexact"
+
+        # Add model download for sentiment group
+        if "sentiment" in resolved.uv_groups:
+            prefix += " && uv run --group sentiment bin/download-sentiment-model"
+
+        proc_config["shell"] = f"{prefix} && {original_shell}"
+        return proc_config
+
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:
         """Wrap shell command to log output to /tmp/posthog-{name}.log.
 
@@ -267,6 +419,7 @@ class MprocsGenerator(ConfigGenerator):
             # Add header comment for log mode
             if config.posthog_config and config.posthog_config.log_to_files:
                 f.write("# Log mode: Output logged to /tmp/posthog-*.log\n")
+
             yaml.dump(config.to_yaml_dict(), f, default_flow_style=False, sort_keys=False)
         return output_path
 
@@ -343,6 +496,11 @@ def get_generated_mprocs_path() -> Path:
     if main_repo:
         main_path = main_repo / ".posthog" / ".generated" / "mprocs.yaml"
         if main_path.exists():
+            # Create local symlink so bin/start (which uses $REPOSITORY_ROOT) finds it
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            if local_path.is_symlink():
+                local_path.unlink()
+            local_path.symlink_to(main_path)
             return main_path
 
     return local_path

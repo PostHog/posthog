@@ -3,11 +3,13 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { AppContext, PropertyDefinition } from '~/types'
+import { AppContext, PropertyDefinition, PropertyType } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
@@ -256,6 +258,66 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    it('filters local data warehouse person properties to numeric ones when requested', async () => {
+        const databaseLogic = databaseTableListLogic()
+        databaseLogic.mount()
+        databaseLogic.actions.loadDatabaseSuccess({
+            tables: {
+                companies: {
+                    id: 'companies',
+                    name: 'companies',
+                    type: 'data_warehouse',
+                    format: 'Parquet',
+                    url_pattern: '',
+                    fields: {
+                        revenue: {
+                            name: 'revenue',
+                            hogql_value: 'companies.revenue',
+                            type: 'integer',
+                            schema_valid: true,
+                        },
+                        name: {
+                            name: 'name',
+                            hogql_value: 'companies.name',
+                            type: 'string',
+                            schema_valid: true,
+                        },
+                    },
+                },
+            },
+            joins: [],
+        } as any)
+
+        const joinsLogic = dataWarehouseJoinsLogic()
+        joinsLogic.mount()
+        joinsLogic.actions.loadJoinsSuccess([
+            {
+                id: 'join-1',
+                source_table_name: 'persons',
+                joining_table_name: 'companies',
+                field_name: 'company',
+            },
+        ])
+
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-data-warehouse-person-properties',
+            listGroupType: TaxonomicFilterGroupType.DataWarehousePersonProperties,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.DataWarehousePersonProperties],
+            showNumericalPropsOnly: true,
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps).toMatchValues({
+            localItems: {
+                count: 1,
+                results: [
+                    partial({ id: 'company.revenue', name: 'company: revenue', property_type: PropertyType.Numeric }),
+                ],
+                searchQuery: '',
+            },
+        })
+    })
+
     describe('expandable list of event properties', () => {
         beforeEach(() => {
             logic = infiniteListLogic({
@@ -398,39 +460,7 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
 
         await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
-            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css', originalQuery: undefined },
-        })
-    })
-
-    it('swaps in query when url is sent', async () => {
-        const logicWithProps = infiniteListLogic({
-            taxonomicFilterLogicKey: 'test-e-prop',
-            listGroupType: TaxonomicFilterGroupType.EventProperties,
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
-            showNumericalPropsOnly: false,
-        })
-        logicWithProps.mount()
-
-        await expectLogic(logicWithProps, () =>
-            logicWithProps.actions.setSearchQuery('http://localhost:8010/project/1/replay/playlists')
-        ).toMatchValues({
-            swappedInQuery: '$current_url',
-        })
-    })
-
-    it('swaps in query when email is sent', async () => {
-        const logicWithProps = infiniteListLogic({
-            taxonomicFilterLogicKey: 'test-e-prop',
-            listGroupType: TaxonomicFilterGroupType.PersonProperties,
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
-            showNumericalPropsOnly: false,
-        })
-        logicWithProps.mount()
-
-        await expectLogic(logicWithProps, () =>
-            logicWithProps.actions.setSearchQuery('test@example.com')
-        ).toMatchValues({
-            swappedInQuery: 'email',
+            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
         })
     })
 })

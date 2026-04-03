@@ -26,13 +26,14 @@ import { LogEntryLevel } from '~/types'
 import type { logsViewerLogicType } from './logsViewerLogicType'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 'ERROR']
-export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 'ERROR']
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
+export const LOG_GROUP_LIMIT = 10
+export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
 
 export type LogsViewerLogicProps = {
     logicKey?: string
-    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs'
+    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs' | 'data_modeling_run'
     sourceId: string
     groupByInstanceId?: boolean
     searchGroups?: string[]
@@ -62,7 +63,7 @@ export type GroupedLogEntry = {
 }
 
 export type LogEntryParams = {
-    sourceType: 'hog_function' | 'hog_flow'
+    sourceType: 'hog_function' | 'hog_flow' | 'data_modeling_run'
     sourceId: string
     levels: LogEntryLevel[]
     searchGroups: string[]
@@ -78,9 +79,11 @@ const toKey = (log: LogEntry): string => {
 }
 
 export const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
-    // TRICKY: CH query is timezone aware so we dont send iso, and we need to convert to UTC
+    // TRICKY: HogQL interprets bare timestamps as being in the team's timezone,
+    // so we must format in the team timezone (not UTC).
     // See https://github.com/PostHog/posthog/pull/45651
-    return timestamp.tz('UTC').format('YYYY-MM-DD HH:mm:ss.SSS')
+    const teamTimezone = teamLogic.findMounted()?.values.currentTeam?.timezone ?? 'UTC'
+    return timestamp.tz(teamTimezone).format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
 const buildBoundaryFilters = (request: LogEntryParams): string => {
@@ -89,6 +92,7 @@ const buildBoundaryFilters = (request: LogEntryParams): string => {
         AND log_source_id = ${request.sourceId}
         AND timestamp > {filters.dateRange.from}
         AND timestamp < {filters.dateRange.to}
+        AND lower(level) IN (${hogql.raw(request.levels.map((level) => `'${level.toLowerCase()}'`).join(','))})
     `
 }
 
@@ -139,22 +143,28 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
     )
 }
 
-const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
+const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: string[]): Promise<LogEntry[]> => {
+    const excludeFilter =
+        excludeInstanceIds && excludeInstanceIds.length > 0 ? hogql`AND instance_id NOT IN ${excludeInstanceIds}` : ''
+
     const query = hogql`
         SELECT instance_id, timestamp, level, message
         FROM log_entries
         WHERE 1=1
         ${hogql.raw(buildBoundaryFilters(request))}
         AND instance_id in (
-            SELECT DISTINCT instance_id
+            SELECT instance_id
             FROM log_entries
             WHERE 1=1
             ${hogql.raw(buildBoundaryFilters(request))}
             ${hogql.raw(buildSearchFilters(request))}
-            ORDER BY timestamp ${hogql.raw(request.order)}
-            LIMIT ${LOG_VIEWER_LIMIT}
+            ${hogql.raw(excludeFilter as string)}
+            GROUP BY instance_id
+            ORDER BY max(timestamp) ${hogql.raw(request.order)}
+            LIMIT ${LOG_GROUP_LIMIT}
         )
-        ORDER BY timestamp DESC`
+        ORDER BY timestamp DESC
+        LIMIT ${LOG_GROUP_TOTAL_LOGS_LIMIT}`
 
     const response = await api.queryHogQL(
         query,
@@ -178,7 +188,7 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
     )
 }
 
-const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
+export const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
     const byId: Record<string, GroupedLogEntry> = {}
     const dedupeCache = new Set<string>()
 
@@ -240,7 +250,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         filters: [
             {
                 search: '',
-                levels: props.defaultFilters?.levels ?? DEFAULT_LOG_LEVELS,
+                levels: props.defaultFilters?.levels ?? ALL_LOG_LEVELS,
                 date_from: props.defaultFilters?.dateFrom ?? '-7d',
                 date_to: props.defaultFilters?.dateTo,
             } as LogsViewerFilters,
@@ -335,10 +345,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
                         dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
-                        limit: values.groupedLogs.length + LOG_VIEWER_LIMIT,
                     }
 
-                    const results = await loadGroupedLogs(logParams)
+                    const existingInstanceIds = values.groupedLogs.map((group) => group.instanceId)
+                    const results = await loadGroupedLogs(logParams, existingInstanceIds)
 
                     if (!results.length) {
                         actions.markLogsEnd()

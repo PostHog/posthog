@@ -3,9 +3,9 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconGear, IconLock, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { IconBrackets, IconGear, IconLock, IconPlus, IconToggleOff, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -30,8 +30,9 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
-import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
+import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
+import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputConfiguration } from './types'
@@ -272,12 +273,14 @@ function DictionaryField({
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
     const value = input.value ?? {}
-    const [entries, setEntries] = useState<[string, string][]>(Object.entries(value))
-    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
+    const [entries, setEntries] = useState<[string, any][]>(() => Object.entries(value))
+    const prevFilteredEntriesRef = useRef<[string, any][]>(entries)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
-        const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+        const filteredEntries = entries.filter(
+            ([key, val]) => key.trim() !== '' || typeof val !== 'string' || val.trim() !== ''
+        )
 
         // Compare with previous filtered entries to avoid unnecessary updates
         if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
@@ -292,7 +295,7 @@ function DictionaryField({
     }, [entries, onChange])
 
     const handleEnableIncludeObject = (): void => {
-        setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])
+        setEntries((prev) => [[EXTEND_OBJECT_KEY, '{event.properties}'], ...prev])
     }
 
     return (
@@ -310,9 +313,11 @@ function DictionaryField({
                             disabled={key === EXTEND_OBJECT_KEY}
                             className="flex-1 min-w-60"
                             onChange={(key) => {
-                                const newEntries = [...entries]
-                                newEntries[index] = [key, newEntries[index][1]]
-                                setEntries(newEntries)
+                                setEntries((prev) => {
+                                    const newEntries = [...prev]
+                                    newEntries[index] = [key, newEntries[index][1]]
+                                    return newEntries
+                                })
                             }}
                             placeholder="Key"
                         />
@@ -322,12 +327,15 @@ function DictionaryField({
                         className="overflow-hidden flex-2"
                         input={{ ...input, value: val }}
                         onChange={(val) => {
-                            const newEntries = [...entries]
-                            newEntries[index] = [newEntries[index][0], val.value ?? '']
                             if (val.templating) {
                                 onChange?.({ ...input, templating: val.templating })
                             }
-                            setEntries(newEntries)
+
+                            setEntries((prev) => {
+                                const newEntries = [...prev]
+                                newEntries[index] = [newEntries[index][0], val.value ?? '']
+                                return newEntries
+                            })
                         }}
                         templating={templating}
                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
@@ -337,9 +345,11 @@ function DictionaryField({
                         icon={<IconX />}
                         size="small"
                         onClick={() => {
-                            const newEntries = [...entries]
-                            newEntries.splice(index, 1)
-                            setEntries(newEntries)
+                            setEntries((prev) => {
+                                const newEntries = [...prev]
+                                newEntries.splice(index, 1)
+                                return newEntries
+                            })
                         }}
                     />
                 </div>
@@ -349,12 +359,50 @@ function DictionaryField({
                 size="small"
                 type="secondary"
                 onClick={() => {
-                    setEntries([...entries, ['', '']])
+                    setEntries((prev) => [...prev, ['', '']])
                 }}
             >
                 Add entry
             </LemonButton>
         </div>
+    )
+}
+
+function BooleanField({
+    input,
+    onChange,
+    disabled,
+    templating,
+    sampleGlobalsWithInputs,
+}: {
+    input: CyclotronJobInputType
+    onChange?: (value: CyclotronJobInputType) => void
+    disabled?: boolean
+    templating: boolean
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+}): JSX.Element {
+    const isTemplateMode = typeof input.value === 'string'
+
+    if (isTemplateMode) {
+        // Boolean fields only support Hog templating - Liquid renders as strings
+        // which bypasses boolean type guarantees
+        const hogInput = input.templating === 'liquid' ? { ...input, templating: 'hog' as const } : input
+        return (
+            <CyclotronJobTemplateInput
+                input={hogInput}
+                onChange={(val) => onChange?.({ ...val, templating: 'hog' })}
+                templating={templating}
+                sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+            />
+        )
+    }
+
+    return (
+        <LemonSwitch
+            checked={!!input.value}
+            onChange={(checked) => onChange?.({ ...input, value: checked })}
+            disabled={disabled}
+        />
     )
 }
 
@@ -427,7 +475,13 @@ function CyclotronJobInputRenderer({
             )
         case 'boolean':
             return (
-                <LemonSwitch checked={input.value} onChange={(checked) => onValueChange(checked)} disabled={disabled} />
+                <BooleanField
+                    input={input}
+                    onChange={onChange}
+                    disabled={disabled}
+                    templating={templating}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
             )
         case 'integration':
             return (
@@ -468,12 +522,21 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
-        default:
+        default: {
+            const CustomRenderer = CUSTOM_INPUT_RENDERERS[schema.type]
+            if (CustomRenderer) {
+                return (
+                    <Suspense>
+                        <CustomRenderer schema={schema} value={input.value} onChange={onValueChange} />
+                    </Suspense>
+                )
+            }
             return (
                 <strong className="text-danger">
                     Unknown field type "<code>{schema.type}</code>".
                 </strong>
             )
+        }
     }
 }
 
@@ -702,6 +765,28 @@ function CyclotronJobInputWithSchema({
                                     </Tooltip>
                                 ) : undefined}
                             </LemonLabel>
+                            {schema.type === 'boolean' && (schema.templating ?? true) && (
+                                <LemonSelect
+                                    size="xsmall"
+                                    type="tertiary"
+                                    value={typeof value?.value === 'string' ? 'conditional' : 'toggle'}
+                                    options={[
+                                        { value: 'toggle', label: 'Toggle', icon: <IconToggleOff /> },
+                                        { value: 'conditional', label: 'Conditional', icon: <IconBrackets /> },
+                                    ]}
+                                    onChange={(mode) => {
+                                        if (mode === 'toggle') {
+                                            onChange({ ...value, value: false })
+                                        } else {
+                                            onChange({
+                                                ...value,
+                                                value: `{event.property.foo = 'bar'}`,
+                                                templating: 'hog',
+                                            })
+                                        }
+                                    }}
+                                />
+                            )}
                             {showSource && (
                                 <LemonTag type="muted" className="font-mono">
                                     inputs.{schema.key}

@@ -12,10 +12,17 @@ class SQLResultsFormatter:
 
     MAX_CELL_LENGTH = 500
 
-    def __init__(self, query: AssistantHogQLQuery | HogQLQuery, results: list[dict[str, Any]], columns: list[str]):
+    def __init__(
+        self,
+        query: AssistantHogQLQuery | HogQLQuery,
+        results: list[dict[str, Any]],
+        columns: list[str],
+        max_cell_length: int | None = MAX_CELL_LENGTH,
+    ):
         self._query = query
         self._results = results
         self._columns = columns
+        self._max_cell_length = max_cell_length
         self._has_truncated_values = False
 
     @property
@@ -31,9 +38,9 @@ class SQLResultsFormatter:
             isinstance(cell, str) and cell_str and cell_str[0] in ("{", "[")
         )
 
-        if is_json_like and len(cell_str) > self.MAX_CELL_LENGTH:
+        if self._max_cell_length is not None and is_json_like and len(cell_str) > self._max_cell_length:
             self._has_truncated_values = True
-            return cell_str[: self.MAX_CELL_LENGTH] + TRUNCATED_MARKER
+            return cell_str[: self._max_cell_length] + TRUNCATED_MARKER
 
         return cell_str
 

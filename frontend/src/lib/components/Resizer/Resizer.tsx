@@ -18,6 +18,7 @@ export type ResizerProps = ResizerLogicProps & {
      */
     handleClassName?: string
     visible?: boolean
+    marginTop?: number
 }
 
 export function Resizer({ visible = true, ...props }: ResizerProps): JSX.Element {
@@ -46,6 +47,7 @@ export function Resizer({ visible = true, ...props }: ResizerProps): JSX.Element
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 [props.placement]: props.offset ?? 0,
+                ...(props.marginTop && { marginTop: props.marginTop }),
             }}
             onMouseDown={(e) => {
                 if (e.button === 0) {

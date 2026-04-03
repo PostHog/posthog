@@ -9,7 +9,12 @@ const schema = DocumentationSearchSchema
 
 type Params = z.infer<typeof schema>
 
-export const searchDocsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { content: Array<{ type: string; text: string }> }
+
+export const searchDocsHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const { query } = params
     const inkeepApiKey = context.env.INKEEP_API_KEY
 
@@ -27,7 +32,7 @@ export const searchDocsHandler: ToolBase<typeof schema>['handler'] = async (cont
     return { content: [{ type: 'text', text: resultText }] }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'docs-search',
     schema,
     handler: searchDocsHandler,

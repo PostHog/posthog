@@ -186,6 +186,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                 ):
                     serialized_result.update({"breakdown_value": (period_row[-1])})
                 else:
+                    # nosemgrep: idor-lookup-without-team (ID from team-scoped ClickHouse result)
                     serialized_result.update({"breakdown_value": Cohort.objects.get(pk=period_row[-1]).name})
 
             summary.append(serialized_result)

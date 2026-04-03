@@ -191,4 +191,41 @@ describe('dateFilterLogic', () => {
         })
         expect(onChange).not.toHaveBeenCalled()
     })
+
+    it.each([
+        // Relative dates should never have time precision
+        ['-30d', null, false, false, 'day'],
+        ['-7d', '-1d', false, false, 'day'],
+        ['-1dStart', '-1dEnd', false, false, 'day'],
+        ['-24h', null, false, false, 'day'],
+        ['mStart', null, false, false, 'day'],
+        // Fixed dates without time should not have time precision
+        ['2024-01-15', null, false, false, 'day'],
+        ['2024-01-15', '2024-01-16', false, false, 'day'],
+        // Fixed dates with time should have time precision
+        ['2024-01-15T10:30:00', null, true, false, 'minute'],
+        ['2024-01-15', '2024-01-16T14:45:00', false, true, 'day'],
+        ['2024-01-15T10:30:00', '2024-01-16T14:45:00', true, true, 'minute'],
+        // Midnight times should not count as time precision
+        ['2024-01-15T00:00:00', null, false, false, 'day'],
+    ])(
+        'handles date %s, %s correctly (fromPrecision: %s, toPrecision: %s, granularity: %s)',
+        async (dateFrom, dateTo, expectedFromPrecision, expectedToPrecision, expectedGranularity) => {
+            const testLogic = dateFilterLogic({
+                key: `test-${dateFrom}-${dateTo}`,
+                onChange: jest.fn(),
+                dateFrom,
+                dateTo,
+                dateOptions: dateMapping,
+                isDateFormatted: false,
+            })
+            testLogic.mount()
+
+            await expectLogic(testLogic).toMatchValues({
+                dateFromHasTimePrecision: expectedFromPrecision,
+                dateToHasTimePrecision: expectedToPrecision,
+                fixedRangeGranularity: expectedGranularity,
+            })
+        }
+    )
 })

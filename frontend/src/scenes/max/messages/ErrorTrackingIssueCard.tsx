@@ -11,9 +11,10 @@ import { RuntimeIcon } from 'products/error_tracking/frontend/components/Runtime
 
 interface ErrorTrackingIssueCardProps {
     issue: MaxErrorTrackingIssuePreview
+    showUserCount?: boolean
 }
 
-export function ErrorTrackingIssueCard({ issue }: ErrorTrackingIssueCardProps): JSX.Element {
+export function ErrorTrackingIssueCard({ issue, showUserCount = true }: ErrorTrackingIssueCardProps): JSX.Element {
     const runtime = getRuntimeFromLib(issue.library)
 
     return (
@@ -31,7 +32,9 @@ export function ErrorTrackingIssueCard({ issue }: ErrorTrackingIssueCardProps): 
                             {issue.status}
                         </LemonTag>
                         <span className="text-xs text-muted">{issue.occurrences.toLocaleString()} occurrences</span>
-                        <span className="text-xs text-muted">{issue.users.toLocaleString()} users</span>
+                        {showUserCount && (
+                            <span className="text-xs text-muted">{issue.users.toLocaleString()} users</span>
+                        )}
                         {issue.last_seen && (
                             <span className="text-xs text-muted">
                                 <TZLabel time={issue.last_seen} />

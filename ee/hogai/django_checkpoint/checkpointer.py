@@ -250,6 +250,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         }
 
         with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
             updated_checkpoint, _ = ConversationCheckpoint.objects.update_or_create(
                 id=checkpoint["id"],
                 thread_id=thread_id,
@@ -315,6 +316,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             # `put_writes` and `put` are concurrently called without guaranteeing the call order
             # so we need to ensure the checkpoint is created before creating writes.
             # Thread.lock() will prevent race conditions though to the same checkpoints within a single pod.
+            # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
             checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
                 id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
             )
