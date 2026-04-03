@@ -328,7 +328,10 @@ impl PersonLookup for PostgresStorage {
         common_metrics::histogram(
             DB_ROWS_RETURNED,
             &[
-                ("operation".to_string(), "delete_distinct_ids_for_persons".to_string()),
+                (
+                    "operation".to_string(),
+                    "delete_distinct_ids_for_persons".to_string(),
+                ),
                 ("pool".to_string(), "primary".to_string()),
                 ("client".to_string(), client.to_string()),
             ],
