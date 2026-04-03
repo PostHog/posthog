@@ -1,5 +1,5 @@
 import { type VariantProps } from 'class-variance-authority'
-import { XIcon } from 'lucide-react'
+import { IconX } from '@posthog/icons'
 import * as React from 'react'
 
 import { Button, type buttonVariants } from './button'
@@ -38,7 +38,7 @@ const ChipClose = React.forwardRef<
             className={cn('opacity-50 hover:opacity-100', className)}
             {...props}
         >
-            {children ?? <XIcon />}
+            {children ?? <IconX />}
         </Button>
     )
 })

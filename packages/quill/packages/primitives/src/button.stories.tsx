@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { TrashIcon } from 'lucide-react'
+import { IconTrash } from '@posthog/icons'
 
 import { Button } from './button'
 import { Kbd } from './kbd'
@@ -40,19 +40,19 @@ export const WithIcons = {
     render: () => (
         <div className="flex flex-wrap gap-2">
             <Button>
-                <TrashIcon /> Default
+                <IconTrash /> Default
             </Button>
             <Button variant="primary">
-                <TrashIcon /> Primary
+                <IconTrash /> Primary
             </Button>
             <Button variant="outline">
-                <TrashIcon /> Outline
+                <IconTrash /> Outline
             </Button>
             <Button variant="destructive">
-                <TrashIcon /> Destructive
+                <IconTrash /> Destructive
             </Button>
             <Button variant="link">
-                <TrashIcon /> Link
+                <IconTrash /> Link
             </Button>
         </div>
     ),
@@ -88,19 +88,19 @@ export const IconOnly = {
     render: () => (
         <div className="flex flex-wrap gap-2">
             <Button size="icon">
-                <TrashIcon />
+                <IconTrash />
             </Button>
             <Button variant="primary" size="icon">
-                <TrashIcon />
+                <IconTrash />
             </Button>
             <Button variant="outline" size="icon">
-                <TrashIcon />
+                <IconTrash />
             </Button>
             <Button variant="destructive" size="icon">
-                <TrashIcon />
+                <IconTrash />
             </Button>
             <Button variant="link" size="icon">
-                <TrashIcon />
+                <IconTrash />
             </Button>
         </div>
     ),
@@ -111,37 +111,37 @@ export const Sizes = {
         <div className="grid grid-cols-[70px_30px_100px] gap-x-4 gap-y-2 items-center justify-items-start">
             <Button size="lg">Large</Button>
             <Button size="icon-lg">
-                <TrashIcon />
+                <IconTrash />
             </Button>
             <Button size="lg">
-                <TrashIcon />
+                <IconTrash />
                 With icon
             </Button>
 
             <Button size="default">Default</Button>
             <Button size="icon">
-                <TrashIcon />
+                <IconTrash />
             </Button>
             <Button size="default">
-                <TrashIcon />
+                <IconTrash />
                 With icon
             </Button>
 
             <Button size="sm">Small</Button>
             <Button size="icon-sm">
-                <TrashIcon />
+                <IconTrash />
             </Button>
             <Button size="sm">
-                <TrashIcon />
+                <IconTrash />
                 With icon
             </Button>
 
             <Button size="xs">Extra small</Button>
             <Button size="icon-xs">
-                <TrashIcon />
+                <IconTrash />
             </Button>
             <Button size="xs">
-                <TrashIcon />
+                <IconTrash />
                 With icon
             </Button>
         </div>
@@ -175,7 +175,7 @@ export const Misc = {
     render: () => (
         <div className="max-w-sm">
             <Button left className="w-full">Aligned left</Button>
-            <Button left className="w-full"><TrashIcon /> Aligned left</Button>
+            <Button left className="w-full"><IconTrash /> Aligned left</Button>
         </div>
     ),
 } satisfies Story

@@ -27,7 +27,7 @@ export default defineConfig({
                 '@posthog/quill-tokens',
                 '@base-ui/react',
                 /^@base-ui\/react\//,
-                'lucide-react',
+                '@posthog/icons',
                 'cmdk',
                 'vaul',
                 'react-resizable-panels',

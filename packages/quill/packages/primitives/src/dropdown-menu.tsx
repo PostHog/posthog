@@ -1,5 +1,5 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
-import { ChevronRightIcon, CheckIcon } from 'lucide-react'
+import { IconChevronRight, IconCheck } from '@posthog/icons'
 import * as React from 'react'
 
 import { Button } from './button'
@@ -122,7 +122,7 @@ function DropdownMenuSubTrigger({
             {...props}
         >
             {children}
-            <ChevronRightIcon className="rtl:rotate-180 ms-auto" />
+            <IconChevronRight className="rtl:rotate-180 ms-auto" />
         </MenuPrimitive.SubmenuTrigger>
     )
 }
@@ -177,7 +177,7 @@ function DropdownMenuCheckboxItem({
                 data-slot="dropdown-menu-checkbox-item-indicator"
             >
                 <MenuPrimitive.CheckboxItemIndicator>
-                    <CheckIcon />
+                    <IconCheck />
                 </MenuPrimitive.CheckboxItemIndicator>
             </span>
             {children}
@@ -213,7 +213,7 @@ function DropdownMenuRadioItem({
                 data-slot="dropdown-menu-radio-item-indicator"
             >
                 <MenuPrimitive.RadioItemIndicator>
-                    <CheckIcon />
+                    <IconCheck />
                 </MenuPrimitive.RadioItemIndicator>
             </span>
             {children}

@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Progress, ProgressLabel, ProgressValue } from './progress'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './empty'
 import { Button } from './button'
-import { ArrowRightIcon, Folder } from 'lucide-react'
+import { IconArrowRight, IconFolder } from '@posthog/icons'
 
 const meta: Meta<typeof Empty> = {
     title: 'Primitives/Empty',
@@ -20,7 +20,7 @@ export const Default: Story = {
             <Empty>
                 <EmptyHeader>
                     <EmptyMedia variant="icon">
-                        <Folder />
+                        <IconFolder />
                     </EmptyMedia>
                     <EmptyTitle>No Projects yet</EmptyTitle>
                     <EmptyDescription>
@@ -32,7 +32,7 @@ export const Default: Story = {
                     <Button>Create Project</Button>
                     <Button variant="outline">Import Project</Button>
                 </EmptyContent>
-                <Button variant="link-muted" size="sm" render={<a href="#">Learn More <ArrowRightIcon /></a>} />
+                <Button variant="link-muted" size="sm" render={<a href="#">Learn More <IconArrowRight /></a>} />
             </Empty>
         )
     },

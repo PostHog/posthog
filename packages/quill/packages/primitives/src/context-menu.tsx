@@ -1,5 +1,5 @@
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
-import { ChevronRightIcon, CheckIcon } from 'lucide-react'
+import { IconChevronRight, IconCheck } from '@posthog/icons'
 import * as React from 'react'
 
 import { Button } from './button'
@@ -126,7 +126,7 @@ function ContextMenuSubTrigger({
             {...props}
         >
             {children}
-            <ChevronRightIcon className="rtl:rotate-180 ms-auto" />
+            <IconChevronRight className="rtl:rotate-180 ms-auto" />
         </ContextMenuPrimitive.SubmenuTrigger>
     )
 }
@@ -166,7 +166,7 @@ function ContextMenuCheckboxItem({
         >
             <span className="pointer-events-none absolute end-2 flex items-center justify-center">
                 <ContextMenuPrimitive.CheckboxItemIndicator>
-                    <CheckIcon />
+                    <IconCheck />
                 </ContextMenuPrimitive.CheckboxItemIndicator>
             </span>
             {children}
@@ -199,7 +199,7 @@ function ContextMenuRadioItem({
         >
             <span className="pointer-events-none absolute end-2 flex items-center justify-center">
                 <ContextMenuPrimitive.RadioItemIndicator>
-                    <CheckIcon />
+                    <IconCheck />
                 </ContextMenuPrimitive.RadioItemIndicator>
             </span>
             {children}

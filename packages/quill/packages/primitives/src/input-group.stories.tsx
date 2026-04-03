@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
-import { CheckIcon, CopyIcon, CreditCardIcon, EyeOffIcon, InfoIcon, LucideArrowUpRight, MailIcon, RefreshCcwIcon, Search, SearchIcon, Star, StarIcon } from 'lucide-react'
+import { IconCheck, IconCopy, IconCreditCard, IconEye, IconInfo, IconArrowUpRight, IconLetter, IconRefresh, IconSearch, IconStar, IconStarFilled } from '@posthog/icons'
 import { useState } from 'react'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './field'
 import { Input } from './input'
@@ -23,7 +23,7 @@ export const Default: Story = {
         <InputGroup className="max-w-xs">
             <InputGroupInput placeholder="Search..." />
             <InputGroupAddon>
-                <Search />
+                <IconSearch />
             </InputGroupAddon>
             <InputGroupAddon align="inline-end">12 results</InputGroupAddon>
         </InputGroup>
@@ -41,7 +41,7 @@ export const InlineEnd: Story = {
                     placeholder="Enter password"
                 />
                 <InputGroupAddon align="inline-end">
-                    <EyeOffIcon />
+                    <IconEye />
                 </InputGroupAddon>
             </InputGroup>
             <FieldDescription>Icon positioned at the end.</FieldDescription>
@@ -59,7 +59,7 @@ export const BlockEnd: Story = {
                     placeholder="Enter password"
                 />
                 <InputGroupAddon align="inline-end">
-                    <EyeOffIcon />
+                    <IconEye />
                 </InputGroupAddon>
             </InputGroup>
             <FieldDescription>Icon positioned at the end.</FieldDescription>
@@ -101,29 +101,29 @@ export const Icons: Story = {
             <InputGroup>
                 <InputGroupInput placeholder="Search..." />
                 <InputGroupAddon>
-                    <SearchIcon />
+                    <IconSearch />
                 </InputGroupAddon>
             </InputGroup>
             <InputGroup>
                 <InputGroupInput type="email" placeholder="Enter your email" />
                 <InputGroupAddon>
-                    <MailIcon />
+                    <IconLetter />
                 </InputGroupAddon>
             </InputGroup>
             <InputGroup>
                 <InputGroupInput placeholder="Card number" />
                 <InputGroupAddon>
-                    <CreditCardIcon />
+                    <IconCreditCard />
                 </InputGroupAddon>
                 <InputGroupAddon align="inline-end">
-                    <CheckIcon />
+                    <IconCheck />
                 </InputGroupAddon>
             </InputGroup>
             <InputGroup>
                 <InputGroupInput placeholder="Card number" />
                 <InputGroupAddon align="inline-end">
-                    <StarIcon />
-                    <InfoIcon />
+                    <IconStarFilled />
+                    <IconInfo />
                 </InputGroupAddon>
             </InputGroup>
         </div>
@@ -149,7 +149,7 @@ export const Buttons: Story = {
                                 setIsCopied(true)
                             }}
                         >
-                            {isCopied ? <CheckIcon /> : <CopyIcon />}
+                            {isCopied ? <IconCheck /> : <IconCopy />}
                         </InputGroupButton>
                     </InputGroupAddon>
                 </InputGroup>
@@ -159,7 +159,7 @@ export const Buttons: Story = {
                         <InputGroupAddon>
                             <PopoverTrigger render={
                                 <InputGroupButton size="icon-xs">
-                                    <InfoIcon />
+                                    <IconInfo />
                                 </InputGroupButton>
                             } />
                         </InputGroupAddon>
@@ -183,7 +183,7 @@ export const Buttons: Story = {
                             onClick={() => setIsFavorite(!isFavorite)}
                             size="icon-xs"
                         >
-                            <Star
+                            <IconStar
                                 data-favorite={isFavorite}
                                 className="data-[favorite=true]:fill-blue-600 data-[favorite=true]:stroke-blue-600"
                             />
@@ -222,7 +222,7 @@ export const Invalid: Story = {
             <div className="grid w-full max-w-sm gap-6">
                 <InputGroup>
                     <InputGroupAddon>
-                        <MailIcon />
+                        <IconLetter />
                     </InputGroupAddon>
                     <InputGroupInput placeholder="Oops"  aria-invalid="true" />
                 </InputGroup>
@@ -237,7 +237,7 @@ export const Invalid: Story = {
                     <InputGroupAddon align="block-end" className="border-t border-input/30">
                         <InputGroupText>Line 1, Column 1</InputGroupText>
                         <InputGroupButton size="sm" className="ml-auto" variant="primary">
-                            Run <LucideArrowUpRight />
+                            Run <IconArrowUpRight />
                         </InputGroupButton>
                     </InputGroupAddon>
                 </InputGroup>
@@ -255,7 +255,7 @@ export const KBD: Story = {
                         <Kbd>⌘K</Kbd>
                     </InputGroupAddon>
                     <InputGroupAddon>
-                        <SearchIcon className="text-muted-foreground" />
+                        <IconSearch className="text-muted-foreground" />
                     </InputGroupAddon>
                     <InputGroupInput placeholder="Search..." />
                 </InputGroup>
@@ -286,7 +286,7 @@ export const Textarea: Story = {
                     <InputGroupAddon align="block-end" className="border-t border-input/30">
                         <InputGroupText>Line 1, Column 1</InputGroupText>
                         <InputGroupButton size="sm" className="ml-auto" variant="primary">
-                            Run <LucideArrowUpRight />
+                            Run <IconArrowUpRight />
                         </InputGroupButton>
                     </InputGroupAddon>
                 </InputGroup>
@@ -300,7 +300,7 @@ export const Textarea: Story = {
                     <InputGroupAddon align="block-end" className="border-t border-input/30">
                         <InputGroupText>Line 1, Column 1</InputGroupText>
                         <InputGroupButton size="sm" className="ml-auto" variant="primary">
-                            Run <LucideArrowUpRight />
+                            Run <IconArrowUpRight />
                         </InputGroupButton>
                     </InputGroupAddon>
 
@@ -309,10 +309,10 @@ export const Textarea: Story = {
                             script.js
                         </InputGroupText>
                         <InputGroupButton className="ml-auto" size="icon-xs">
-                            <RefreshCcwIcon />
+                            <IconRefresh />
                         </InputGroupButton>
                         <InputGroupButton size="icon-xs">
-                            <CopyIcon />
+                            <IconCopy />
                         </InputGroupButton>
                     </InputGroupAddon>
                 </InputGroup>

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { CheckIcon, CopyIcon } from 'lucide-react'
+import { IconCheck, IconCopy } from '@posthog/icons'
 import { useRef, useState } from 'react'
 
 import { Button } from './button'
@@ -246,11 +246,11 @@ export const Anchored: Story = {
             <div className="flex items-center justify-center p-20">
                 <Button ref={buttonRef} size="icon" variant="outline" onClick={handleCopy}>
                     <span className="relative flex items-center justify-center">
-                        <CopyIcon
+                        <IconCopy
                             className="size-3.5 absolute transition-[opacity,filter] duration-150 ease-out"
                             style={{ opacity: copied ? 0 : 1, filter: copied ? 'blur(4px)' : 'blur(0px)' }}
                         />
-                        <CheckIcon
+                        <IconCheck
                             className="size-3.5 absolute transition-[opacity,filter] duration-150 ease-out"
                             style={{ opacity: copied ? 1 : 0, filter: copied ? 'blur(0px)' : 'blur(4px)' }}
                         />

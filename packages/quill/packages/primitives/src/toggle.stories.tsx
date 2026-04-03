@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
-import { Bold, Italic, Underline, X } from 'lucide-react'
+import { Bold, Italic, Underline } from 'lucide-react'
+import { IconX } from '@posthog/icons'
 import { ToggleGroup, ToggleGroupItem } from './toggle-group'
 import { Toggle } from './toggle'
 
@@ -38,7 +39,7 @@ export const Disabled: Story = {
     render: () => {
         return (
             <Toggle aria-label="Toggle disabled" disabled>
-                <X />
+                <IconX />
                 Disabled
             </Toggle>
         )

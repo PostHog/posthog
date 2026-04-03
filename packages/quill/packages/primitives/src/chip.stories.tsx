@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { TagIcon } from 'lucide-react'
+import { IconBadge } from '@posthog/icons'
 
 import { Chip, ChipClose, ChipGroup } from './chip'
 
@@ -28,7 +28,7 @@ export const WithClose: Story = {
 export const WithIcon: Story = {
     render: () => (
         <Chip>
-            <TagIcon />
+            <IconBadge />
             Tagged
         </Chip>
     ),
@@ -37,7 +37,7 @@ export const WithIcon: Story = {
 export const WithIconAndClose: Story = {
     render: () => (
         <Chip>
-            <TagIcon />
+            <IconBadge />
             Tagged
             <ChipClose onClick={() => alert('removed')} />
         </Chip>

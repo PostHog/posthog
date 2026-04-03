@@ -1,5 +1,5 @@
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
-import { XIcon } from 'lucide-react'
+import { IconX } from '@posthog/icons'
 import * as React from 'react'
 
 import { Button } from './button'
@@ -65,7 +65,7 @@ function DialogContent({
                         data-slot="dialog-close"
                         render={<Button className="absolute top-2 end-2" size="icon-sm" />}
                     >
-                        <XIcon />
+                        <IconX />
                         <span className="sr-only">Close</span>
                     </DialogPrimitive.Close>
                 )}

@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tool
 import { useState } from 'react'
 import { Card, CardTitle, CardHeader } from './card'
 import { Button } from './button'
-import { InfoIcon } from 'lucide-react'
+import { IconInfo } from '@posthog/icons'
 
 const meta = {
     title: 'Primitives/Tooltips',
@@ -109,7 +109,7 @@ export const IconOnlyTriggers: Story = {
                         <Tooltip>
                             <div className="flex flex-col gap-2 items-center">
                                 Delay 0
-                                <TooltipTrigger delay={0} render={<Button size="icon" variant="outline"><InfoIcon className="size-4" /></Button>} />
+                                <TooltipTrigger delay={0} render={<Button size="icon" variant="outline"><IconInfo className="size-4" /></Button>} />
                             </div>
                             <TooltipContent>
                                 Icon only tooltip trigger should open immediately.

@@ -1,5 +1,5 @@
 import { Command as CommandPrimitive } from 'cmdk'
-import { SearchIcon, CheckIcon } from 'lucide-react'
+import { IconSearch, IconCheck } from '@posthog/icons'
 import * as React from 'react'
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog'
@@ -65,7 +65,7 @@ function CommandInput({
                     {...props}
                 />
                 <InputGroupAddon>
-                    <SearchIcon className="size-3.5 shrink-0 opacity-50" />
+                    <IconSearch className="size-3.5 shrink-0 opacity-50" />
                 </InputGroupAddon>
             </InputGroup>
         </div>
@@ -142,7 +142,7 @@ function CommandItem({
             {...props}
         >
             {children}
-            <CheckIcon className="ms-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100" />
+            <IconCheck className="ms-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100" />
         </CommandPrimitive.Item>
     )
 }

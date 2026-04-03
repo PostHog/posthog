@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Button } from './button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './card'
 import { Item, ItemTitle, ItemContent, ItemSeparator, ItemDescription, ItemMedia, ItemGroup } from './item'
-import { UserIcon } from 'lucide-react'
+import { IconUser } from '@posthog/icons'
 import { Label } from './label'
 import { Field, FieldLabel } from './field'
 
@@ -94,7 +94,7 @@ export const CardWithItems: Story = {
                         <Item variant="pressable" render={
                             // eslint-disable-next-line react/forbid-elements
                             <a href="#">
-                                <ItemMedia variant="icon"><UserIcon /></ItemMedia>
+                                <ItemMedia variant="icon"><IconUser /></ItemMedia>
                                 <ItemContent>
                                     <ItemTitle>Alice</ItemTitle>
                                     <ItemDescription>Admin</ItemDescription>
@@ -104,7 +104,7 @@ export const CardWithItems: Story = {
                         <Item variant="pressable" render={
                             // eslint-disable-next-line react/forbid-elements
                             <a href="#">
-                                <ItemMedia variant="icon"><UserIcon /></ItemMedia>
+                                <ItemMedia variant="icon"><IconUser /></ItemMedia>
                                 <ItemContent>
                                     <ItemTitle>Bob</ItemTitle>
                                     <ItemDescription>Member</ItemDescription>

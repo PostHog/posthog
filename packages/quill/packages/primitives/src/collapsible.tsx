@@ -1,5 +1,5 @@
 import { Collapsible as CollapsiblePrimitive } from '@base-ui/react/collapsible'
-import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
+import { IconChevronDown } from '@posthog/icons'
 import * as React from 'react'
 
 import { Button } from './button'
@@ -21,13 +21,13 @@ function CollapsibleTrigger({ children, className, ...props }: CollapsiblePrimit
             {...props}
         >
             {children}
-            <ChevronDownIcon
+            <IconChevronDown
                 data-slot="collapsible-trigger-icon"
                 className="pointer-events-none shrink-0 group-data-[panel-open]/collapsible-trigger:hidden"
             />
-            <ChevronUpIcon
+            <IconChevronDown
                 data-slot="collapsible-trigger-icon"
-                className="pointer-events-none hidden shrink-0 group-data-[panel-open]/collapsible-trigger:inline"
+                className="rotate-180 pointer-events-none hidden shrink-0 group-data-[panel-open]/collapsible-trigger:inline"
             />
         </CollapsiblePrimitive.Trigger>
     )

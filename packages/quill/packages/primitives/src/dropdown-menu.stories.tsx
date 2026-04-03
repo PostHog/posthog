@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { Copy, ExpandIcon, Folder, MoreVertical, Pencil, TrashIcon } from 'lucide-react'
+import { IconCopy, IconExpand, IconFolder, IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -38,33 +38,33 @@ export const Default: Story = {
                 <DropdownMenuContent>
                     <DropdownMenuGroup>
                         <DropdownMenuItem>
-                            <Copy />
+                            <IconCopy />
                             Copy
                             <Kbd>⌘C</Kbd>
                         </DropdownMenuItem>
                         <DropdownMenuItem>
-                            <Pencil />
+                            <IconPencil />
                             Rename
                         </DropdownMenuItem>
                         <DropdownMenuItem variant="destructive">
-                            <TrashIcon />
+                            <IconTrash />
                             Delete
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuSub open={subOpen} onOpenChange={setSubOpen}>
                         <DropdownMenuSubTrigger>
-                            <MoreVertical />
+                            <IconEllipsis />
                             More
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
                             <DropdownMenuItem>
-                                <Folder />
+                                <IconFolder />
                                 Open in folder
                                 <Kbd>⌘O</Kbd>
                             </DropdownMenuItem>
                             <DropdownMenuItem>
-                                <ExpandIcon />
+                                <IconExpand />
                                 Expand
                             </DropdownMenuItem>
                         </DropdownMenuSubContent>

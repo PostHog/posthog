@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { BadgeCheckIcon, CheckIcon, ChevronRightIcon } from 'lucide-react'
+import { IconCheckCircle, IconCheck, IconChevronRight } from '@posthog/icons'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -52,14 +52,14 @@ export const Pressable: Story = {
                 // eslint-disable-next-line react/forbid-elements
                 <a href="#">
                     <ItemMedia variant="icon">
-                        <BadgeCheckIcon className="size-5" />
+                        <IconCheckCircle className="size-5" />
                     </ItemMedia>
                     <ItemContent>
                         <ItemTitle>Your profile has been verified.</ItemTitle>
                         <ItemDescription>A simple item with title and description.</ItemDescription>
                     </ItemContent>
                     <ItemActions>
-                        <ChevronRightIcon className="size-4" />
+                        <IconChevronRight className="size-4" />
                     </ItemActions>
                 </a>
             }
@@ -228,7 +228,7 @@ export const ItemCheckboxInDropdown: Story = {
                                                 </ItemContent>
                                                 <ItemMedia variant="checkbox">
                                                     {props['aria-checked'] ? (
-                                                        <CheckIcon className="size-4" />
+                                                        <IconCheck className="size-4" />
                                                     ) : (
                                                         <div className="size-4" />
                                                     )}
