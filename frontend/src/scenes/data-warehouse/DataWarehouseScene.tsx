@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
+import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -28,6 +29,10 @@ export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(dataWarehouseSceneLogic)
     const { searchParams } = useValues(router)
+
+    if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
+        return <NotFound object="Data warehouse" />
+    }
 
     return (
         <SceneContent>

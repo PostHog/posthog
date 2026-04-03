@@ -86,6 +86,7 @@ export function SettingsTab(): JSX.Element {
         databaseNameChecking,
         isValidDatabaseName,
         canProvision,
+        retryDatabaseName,
         initialPassword,
         isResettingPassword,
     } = useValues(warehouseProvisioningLogic)
@@ -95,6 +96,8 @@ export function SettingsTab(): JSX.Element {
     const hasWarehouse = warehouseStatus && warehouseStatus.state !== 'deleted'
     const isReady = warehouseStatus?.state === 'ready'
     const isFailed = warehouseStatus?.state === 'failed'
+    const showProvisionForm = !hasWarehouse || isFailed
+    const canRetryProvision = !!retryDatabaseName && /^[a-z][a-z0-9_-]{2,62}$/.test(retryDatabaseName)
 
     return (
         <div className="mt-4 space-y-4 max-w-160">
@@ -123,8 +126,13 @@ export function SettingsTab(): JSX.Element {
                     <Spinner />
                     <span>Loading warehouse status...</span>
                 </div>
-            ) : !hasWarehouse ? (
+            ) : showProvisionForm ? (
                 <div className="space-y-4">
+                    {isFailed && (
+                        <LemonBanner type="error">
+                            Provisioning failed: {warehouseStatus?.status_message || 'Unknown error'}
+                        </LemonBanner>
+                    )}
                     <div>
                         <LemonLabel>Database name</LemonLabel>
                         <div className="flex items-center gap-2">
@@ -149,9 +157,11 @@ export function SettingsTab(): JSX.Element {
                             !databaseNameChecking &&
                             databaseNameAvailable !== true && (
                                 <p className="text-danger text-xs mt-1">
-                                    {databaseNameAvailable === false
-                                        ? 'This database name is already taken.'
-                                        : 'Unable to verify database name availability.'}
+                                    {isFailed
+                                        ? 'Availability checks are advisory during retry provisioning.'
+                                        : databaseNameAvailable === false
+                                          ? 'This database name is already taken.'
+                                          : 'Unable to verify database name availability.'}
                                 </p>
                             )}
                         {databaseName && !isValidDatabaseName && (
@@ -171,34 +181,38 @@ export function SettingsTab(): JSX.Element {
                     <LemonButton
                         type="primary"
                         loading={isProvisioning}
-                        disabledReason={!canProvision ? 'Enter an available database name' : undefined}
+                        disabledReason={
+                            isFailed
+                                ? !canRetryProvision
+                                    ? 'Enter a valid database name'
+                                    : undefined
+                                : !canProvision
+                                  ? 'Enter an available database name'
+                                  : undefined
+                        }
                         onClick={() => {
                             LemonDialog.open({
-                                title: 'Provision managed warehouse?',
+                                title: isFailed
+                                    ? 'Retry managed warehouse provisioning?'
+                                    : 'Provision managed warehouse?',
                                 description:
                                     'This will create dedicated AWS resources (Aurora database, S3 bucket, IAM roles) for your team. This typically takes 5-15 minutes.',
                                 primaryButton: {
-                                    children: 'Provision',
-                                    onClick: () => provisionWarehouse({ databaseName }),
+                                    children: isFailed ? 'Retry provisioning' : 'Provision',
+                                    onClick: () => provisionWarehouse({ databaseName: retryDatabaseName }),
                                 },
                                 secondaryButton: {
                                     children: 'Cancel',
                                 },
                             })
                         }}
-                        data-attr="provision-warehouse"
+                        data-attr={isFailed ? 'retry-provision-warehouse' : 'provision-warehouse'}
                     >
-                        Provision warehouse
+                        {isFailed ? 'Retry provisioning' : 'Provision warehouse'}
                     </LemonButton>
                 </div>
             ) : (
                 <div className="space-y-4">
-                    {isFailed && (
-                        <LemonBanner type="error">
-                            Provisioning failed: {warehouseStatus?.status_message || 'Unknown error'}
-                        </LemonBanner>
-                    )}
-
                     {isInProgress && (
                         <LemonBanner type="info">
                             <div className="flex items-center gap-2">
@@ -255,17 +269,7 @@ export function SettingsTab(): JSX.Element {
                                 Reset password
                             </LemonButton>
                         )}
-                        {isFailed && (
-                            <LemonButton
-                                type="primary"
-                                loading={isProvisioning}
-                                onClick={() => provisionWarehouse({ databaseName })}
-                                data-attr="retry-provision-warehouse"
-                            >
-                                Retry provisioning
-                            </LemonButton>
-                        )}
-                        {(isReady || isFailed) && (
+                        {isReady && (
                             <LemonButton
                                 type="secondary"
                                 status="danger"
