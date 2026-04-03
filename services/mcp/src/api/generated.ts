@@ -30482,10 +30482,10 @@ export namespace Schemas {
     }
 
     export interface UserBlastRadiusResponse {
-      /** Number of users matching the condition */
-      users_affected: number;
-      /** Total number of users in the project */
-      total_users: number;
+      /** Number of entities matching the condition (users or groups depending on group_type_index) */
+      affected: number;
+      /** Total number of entities of this type in the project */
+      total: number;
     }
 
     export interface ViewLinkValidation {

@@ -5,7 +5,6 @@ import { useActions, useMountedLogic } from 'kea'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -398,7 +397,6 @@ const SUGGESTED_FILTERS_ARGS = {
 }
 
 const SUGGESTED_FILTERS_PARAMETERS = {
-    featureFlags: [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS],
     testOptions: { waitForSelector: '.taxonomic-infinite-list' },
 }
 

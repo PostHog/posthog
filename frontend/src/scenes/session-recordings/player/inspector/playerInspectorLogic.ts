@@ -45,7 +45,11 @@ import {
 } from '~/types'
 
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
-import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import {
+    DoctorDiagnostics,
+    SessionRecordingPlayerLogicProps,
+    sessionRecordingPlayerLogic,
+} from '../sessionRecordingPlayerLogic'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
@@ -370,7 +374,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'uuidToIndex',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerTime', 'skipToFirstMatchingEvent'],
+            ['currentPlayerTime', 'skipToFirstMatchingEvent', 'doctorDiagnostics'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
             featureFlagLogic,
@@ -799,9 +803,58 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             { resultEqualityCheck: equal },
         ],
 
+        runtimeDoctorEvents: [
+            (s) => [s.start, s.doctorDiagnostics],
+            (start: Dayjs | null, doctorDiagnostics: DoctorDiagnostics | null): InspectorListItemDoctor[] => {
+                if (!start) {
+                    return []
+                }
+
+                const items: InspectorListItemDoctor[] = []
+
+                if (doctorDiagnostics && doctorDiagnostics.assetErrorTotal > 0) {
+                    items.push({
+                        type: 'doctor',
+                        timestamp: start,
+                        timeInRecording: 0,
+                        tag: `asset errors (${doctorDiagnostics.assetErrorTotal} total)`,
+                        search: `asset errors ${doctorDiagnostics.assetErrorTypeNames}`,
+                        data: doctorDiagnostics.assetErrors,
+                        highlightColor: 'warning',
+                        key: 'doctor-asset-errors',
+                    })
+                }
+
+                const warningCount = doctorDiagnostics?.rrwebWarningCount ?? 0
+                if (doctorDiagnostics && warningCount > 0) {
+                    const summary = doctorDiagnostics.rrwebWarningSummary ?? {}
+                    items.push({
+                        type: 'doctor',
+                        timestamp: start,
+                        timeInRecording: 0,
+                        tag: `rrweb warnings (${warningCount})`,
+                        search: 'rrweb warnings',
+                        data: Object.keys(summary).length > 0 ? summary : { total: warningCount },
+                        highlightColor: 'warning',
+                        key: 'doctor-rrweb-warnings',
+                    })
+                }
+
+                return items
+            },
+            { resultEqualityCheck: equal },
+        ],
+
         allContextItems: [
-            (s) => [s.start, s.processedSnapshotData, s.windowNumberForID, s.sessionPlayerMetaData, s.segments],
-            (start, processedSnapshotData, windowNumberForID, sessionPlayerMetaData, segments) => {
+            (s) => [
+                s.start,
+                s.processedSnapshotData,
+                s.windowNumberForID,
+                s.sessionPlayerMetaData,
+                s.segments,
+                s.runtimeDoctorEvents,
+            ],
+            (start, processedSnapshotData, windowNumberForID, sessionPlayerMetaData, segments, runtimeDoctorEvents) => {
                 const items: InspectorListItem[] = []
 
                 segments
@@ -826,6 +879,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 // Add all pre-processed context items at once
                 items.push(...(processedSnapshotData?.contextItems || []))
+
+                // Add runtime doctor events (asset errors, rrweb warnings)
+                items.push(...runtimeDoctorEvents)
 
                 // now we've calculated everything else,
                 // we always start with a context row
