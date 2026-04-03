@@ -2,14 +2,19 @@ import pytest
 from unittest.mock import Mock, patch
 
 import temporalio.exceptions
+from parameterized import parameterized
 
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     backfill_precalculated_person_properties_activity,
+    evaluate_combined_filters_sync,
     flush_kafka_batch_async,
 )
-from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.filter_storage import combine_filter_bytecodes, store_filters
 from posthog.temporal.messaging.types import PersonPropertyFilter
+
+from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.operation import Operation
 
 
 class TestFlushKafkaBatchAsync:
@@ -180,3 +185,112 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
 
         # Basic verification that the filter was stored correctly
         assert inputs.filter_storage_key == storage_key
+
+
+class TestCombineFilterBytecodes:
+    """Tests for combine_filter_bytecodes."""
+
+    def test_single_filter(self):
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="h1",
+                bytecode=["_H", 1, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12],
+                cohort_ids=[10],
+                property_key="$browser",
+            ),
+        ]
+        result = combine_filter_bytecodes(filters)
+        assert result[0] == "_H"
+        assert result[1] == 1
+        assert result[2] == Operation.STRING
+        assert result[3] == "h1"
+        # Body without header
+        assert result[4:-2] == [31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
+        # Trailing DICT
+        assert result[-2] == Operation.DICT
+        assert result[-1] == 1
+
+    def test_multiple_filters(self):
+        filters = [
+            PersonPropertyFilter(condition_hash="h1", bytecode=["_H", 1, 29], cohort_ids=[1], property_key=None),
+            PersonPropertyFilter(condition_hash="h2", bytecode=["_H", 1, 30], cohort_ids=[2], property_key=None),
+        ]
+        result = combine_filter_bytecodes(filters)
+        assert result == ["_H", 1, Operation.STRING, "h1", 29, Operation.STRING, "h2", 30, Operation.DICT, 2]
+
+    def test_skips_malformed_bytecodes(self):
+        filters = [
+            PersonPropertyFilter(condition_hash="bad", bytecode=["_H", 1], cohort_ids=[1], property_key=None),
+            PersonPropertyFilter(condition_hash="good", bytecode=["_H", 1, 29], cohort_ids=[2], property_key=None),
+        ]
+        result = combine_filter_bytecodes(filters)
+        assert result == ["_H", 1, Operation.STRING, "good", 29, Operation.DICT, 1]
+
+    def test_executes_and_returns_dict(self):
+        filters = [
+            PersonPropertyFilter(condition_hash="h1", bytecode=["_H", 1, 29], cohort_ids=[1], property_key=None),
+            PersonPropertyFilter(condition_hash="h2", bytecode=["_H", 1, 30], cohort_ids=[2], property_key=None),
+        ]
+        combined = combine_filter_bytecodes(filters)
+        result = execute_bytecode(combined, {})
+        assert result.result == {"h1": True, "h2": False}
+
+    @parameterized.expand(
+        [
+            ({"person": {"properties": {"$browser": "Chrome"}}}, {"browser_set": True}),
+            ({"person": {"properties": {}}}, {"browser_set": False}),
+        ]
+    )
+    def test_executes_with_person_properties(self, globals_input, expected_result):
+        # Bytecode for: person.properties.$browser != NULL (is_set check)
+        browser_bytecode = ["_H", 1, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="browser_set",
+                bytecode=browser_bytecode,
+                cohort_ids=[10],
+                property_key="$browser",
+            ),
+        ]
+        combined = combine_filter_bytecodes(filters)
+
+        result = execute_bytecode(combined, globals_input)
+        assert result.result == expected_result
+
+    @parameterized.expand(
+        [
+            ({"person": {"properties": {"$browser": "Chrome"}}}, {"browser_set": True, "host_set": False}),
+            (
+                {"person": {"properties": {"$browser": "Chrome", "$host": "example.com"}}},
+                {"browser_set": True, "host_set": True},
+            ),
+        ]
+    )
+    def test_executes_multiple_property_filters(self, globals_input, expected_result):
+        browser_bytecode = ["_H", 1, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
+        host_bytecode = ["_H", 1, 31, 32, "$host", 32, "properties", 32, "person", 1, 3, 12]
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="browser_set", bytecode=browser_bytecode, cohort_ids=[10], property_key="$browser"
+            ),
+            PersonPropertyFilter(
+                condition_hash="host_set", bytecode=host_bytecode, cohort_ids=[10], property_key="$host"
+            ),
+        ]
+        combined = combine_filter_bytecodes(filters)
+
+        result = execute_bytecode(combined, globals_input)
+        assert result.result == expected_result
+
+
+class TestEvaluateCombinedFiltersSync:
+    """Tests for evaluate_combined_filters_sync."""
+
+    def test_returns_dict_on_success(self):
+        combined = ["_H", 1, Operation.STRING, "h1", 29, Operation.DICT, 1]
+        result = evaluate_combined_filters_sync(combined, {}, "person-1")
+        assert result == {"h1": True}
+
+    def test_returns_empty_dict_on_error(self):
+        result = evaluate_combined_filters_sync(["_H", 1, 999], {}, "person-1")
+        assert result == {}

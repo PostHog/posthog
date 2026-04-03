@@ -461,6 +461,34 @@ class TestRunEvaluationWorkflow:
             assert exc_info.value.non_retryable is True
             assert exc_info.value.details[0] == {"error_type": "parse_error"}
 
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data):
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "o3-pro",
+                "provider_key_id": None,
+            },
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        with pytest.raises(ApplicationError, match="not available on the trial plan") as exc_info:
+            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.details[0]["error_type"] == "model_not_allowed"
+
 
 class TestExecuteHogEvalActivity:
     @pytest.mark.asyncio

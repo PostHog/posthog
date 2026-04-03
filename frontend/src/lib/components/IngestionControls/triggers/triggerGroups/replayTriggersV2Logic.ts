@@ -1,8 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -32,7 +30,7 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
         confirmCreateFromLegacy: true,
     }),
     loaders(({ values, actions }) => ({
-        saveConfigState: [
+        _savingState: [
             null as boolean | null,
             {
                 saveConfig: async () => {
@@ -42,11 +40,6 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                     })
                     return true
                 },
-            },
-        ],
-        confirmCreateFromLegacyState: [
-            null as boolean | null,
-            {
                 confirmCreateFromLegacy: async () => {
                     const groups = values.previewLegacyGroups
                     if (groups.length === 0) {
@@ -246,20 +239,6 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
         updateTriggerGroup: async () => {
             // Auto-save after updating
             await asyncActions.saveConfig()
-        },
-        saveConfigSuccess: () => {
-            lemonToast.success('Trigger group saved')
-        },
-        saveConfigFailure: ({ error }) => {
-            lemonToast.error('Failed to save trigger group. Please try again.')
-            console.error('Error saving trigger group:', error)
-        },
-        confirmCreateFromLegacySuccess: () => {
-            lemonToast.success('Created trigger groups from legacy settings')
-        },
-        confirmCreateFromLegacyFailure: ({ error }) => {
-            lemonToast.error('Failed to create trigger groups from legacy settings')
-            console.error('Error creating trigger groups from legacy:', error)
         },
     })),
     // Load config from currentTeam on mount

@@ -2,9 +2,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
@@ -178,6 +181,7 @@ function PlayerWrapper({
         totalFiltersCount,
         nextSessionRecording,
         pinnedFilters,
+        sessionRecordingsResponseLoading,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
@@ -231,6 +235,29 @@ function PlayerWrapper({
                     }
                     playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
                 />
+            ) : sessionRecordingsResponseLoading ? (
+                <div className="relative flex flex-col h-full p-4">
+                    {/* Player skeleton background */}
+                    <div className="flex-1 flex flex-col gap-2">
+                        {/* Video area skeleton */}
+                        <LemonSkeleton className="flex-1 w-full rounded" />
+                        {/* Controller bar skeleton */}
+                        <div className="flex gap-2">
+                            <LemonSkeleton className="h-10 w-20" />
+                            <LemonSkeleton className="h-10 flex-1" />
+                            <LemonSkeleton className="h-10 w-32" />
+                        </div>
+                    </div>
+
+                    {/* Centered hedgehog overlay */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <FilmCameraHog height={150} />
+                        <div className="mt-4 flex items-center gap-2">
+                            <Spinner textColored />
+                            <span className="text-secondary">Loading recordings...</span>
+                        </div>
+                    </div>
+                </div>
             ) : (
                 <div className="mt-20">
                     <EmptyMessage
