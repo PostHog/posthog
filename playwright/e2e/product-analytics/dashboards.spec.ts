@@ -44,7 +44,7 @@ test.describe('Dashboards', () => {
         await test.step('select to edit an insight', async () => {
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Edit')
-            await expect(page).toHaveURL(/\/sql(?:\?|#|$)/)
+            await expect(page).toHaveURL(/\/insights\/.+\/edit(?:\?|$)/)
         })
 
         await test.step('edit the insight name and save', async () => {
@@ -228,7 +228,7 @@ test.describe('Dashboards', () => {
         await test.step('open the insight from the dashboard', async () => {
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Edit')
-            await expect(page).toHaveURL(/\/sql(?:\?|#|$)/)
+            await expect(page).toHaveURL(/\/insights\/.+\/edit(?:\?|$)/)
             // Wait for the insight to fully load before interacting with the
             // side panel — InsightPanelDangerZone only renders the delete
             // button once the insight data is available in the store.
