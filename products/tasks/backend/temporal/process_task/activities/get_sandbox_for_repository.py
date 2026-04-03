@@ -207,7 +207,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                         extra={"branch": ctx.branch, "stderr": update_result.stderr},
                     )
 
-            depth_flag = " --depth 1" if shallow else ""
+            depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
             fetch_and_checkout = (
                 f"cd {shlex.quote(repo_path)} && "
                 f"git fetch{depth_flag} origin -- {shlex.quote(ctx.branch)} && "

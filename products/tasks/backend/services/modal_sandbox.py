@@ -461,7 +461,7 @@ class ModalSandbox:
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
         org_path = f"/tmp/workspace/repos/{org}"
 
-        depth_flag = " --depth 1" if shallow else ""
+        depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
