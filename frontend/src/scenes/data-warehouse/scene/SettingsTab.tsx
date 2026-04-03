@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconEye, IconHide, IconX } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -11,7 +12,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { DataWarehouseProvisioningState, DataWarehouseProvisioningStatus } from '~/types'
+import { DataWarehouseProvisioningConnection, DataWarehouseProvisioningState } from '~/types'
 
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 
@@ -31,16 +32,10 @@ function stateToTagType(state: DataWarehouseProvisioningState): 'success' | 'war
     }
 }
 
-function ConnectionDetails({
-    warehouseDatabase,
-}: {
-    warehouseDatabase: DataWarehouseProvisioningStatus['warehouse_database']
-}): JSX.Element {
-    const host = warehouseDatabase.endpoint
-    const port = String(warehouseDatabase.port)
-    const dbName = warehouseDatabase.database_name
-    const username = warehouseDatabase.username
-    const psqlCmd = `psql "host=${host} port=${port} dbname=${dbName} user=${username} sslmode=require"`
+function ConnectionDetails({ connection }: { connection: DataWarehouseProvisioningConnection }): JSX.Element {
+    const { host, port, database, username, password } = connection
+    const [showPassword, setShowPassword] = useState(false)
+    const psqlCmd = `psql "host=${host} port=${port} dbname=${database} user=${username} sslmode=require"`
 
     return (
         <div className="border rounded p-4 space-y-3">
@@ -55,13 +50,13 @@ function ConnectionDetails({
                 <div>
                     <LemonLabel>Port</LemonLabel>
                     <CodeSnippet compact thing="port">
-                        {port}
+                        {String(port)}
                     </CodeSnippet>
                 </div>
                 <div>
                     <LemonLabel>Database</LemonLabel>
                     <CodeSnippet compact thing="database">
-                        {dbName}
+                        {database}
                     </CodeSnippet>
                 </div>
                 <div>
@@ -70,6 +65,24 @@ function ConnectionDetails({
                         {username}
                     </CodeSnippet>
                 </div>
+            </div>
+            <div>
+                <LemonLabel>Password</LemonLabel>
+                <CodeSnippet
+                    compact
+                    thing="password"
+                    actions={
+                        <LemonButton
+                            size="small"
+                            noPadding
+                            icon={showPassword ? <IconHide /> : <IconEye />}
+                            onClick={() => setShowPassword(!showPassword)}
+                            tooltip={showPassword ? 'Hide password' : 'Show password'}
+                        />
+                    }
+                >
+                    {showPassword ? password : '••••••••••••••••••'}
+                </CodeSnippet>
             </div>
             <div>
                 <LemonLabel>Connect with psql</LemonLabel>
@@ -104,9 +117,11 @@ export function SettingsTab(): JSX.Element {
         <div className="mt-4 space-y-4 max-w-160">
             <div>
                 <h2 className="mb-2">Managed Warehouse</h2>
-                <p className="text-muted mb-4">
-                    Provision a dedicated data warehouse with Aurora, S3, and isolated compute for your team.
-                </p>
+                {!isReady && (
+                    <p className="text-muted mb-4">
+                        Provision a dedicated data warehouse with Aurora, S3, and isolated compute for your team.
+                    </p>
+                )}
             </div>
 
             {warehouseStatusLoading && !warehouseStatus ? (
@@ -218,8 +233,8 @@ export function SettingsTab(): JSX.Element {
                         )}
                     </div>
 
-                    {isReady && warehouseStatus?.warehouse_database && (
-                        <ConnectionDetails warehouseDatabase={warehouseStatus.warehouse_database} />
+                    {isReady && warehouseStatus?.connection && (
+                        <ConnectionDetails connection={warehouseStatus.connection} />
                     )}
 
                     <div className="flex gap-2">
