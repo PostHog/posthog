@@ -7,15 +7,29 @@ export const ApprovalActionKey = {
 
 export type ApprovalActionKeyType = (typeof ApprovalActionKey)[keyof typeof ApprovalActionKey]
 
-export const APPROVAL_ACTIONS: Record<string, { label: string; description: string }> = {
-    [ApprovalActionKey.FEATURE_FLAG_ENABLE]: { label: 'Enable feature flag', description: 'enable this feature flag' },
+export type ApprovalContext = 'feature_flag' | 'experiment'
+
+interface ApprovalActionConfig {
+    label: string
+    description: string
+    contextDescriptions?: Partial<Record<ApprovalContext, string>>
+}
+
+export const APPROVAL_ACTIONS: Record<string, ApprovalActionConfig> = {
+    [ApprovalActionKey.FEATURE_FLAG_ENABLE]: {
+        label: 'Enable feature flag',
+        description: 'enable this feature flag',
+        contextDescriptions: { experiment: 'resume this experiment' },
+    },
     [ApprovalActionKey.FEATURE_FLAG_DISABLE]: {
         label: 'Disable feature flag',
         description: 'disable this feature flag',
+        contextDescriptions: { experiment: 'pause this experiment' },
     },
     [ApprovalActionKey.FEATURE_FLAG_UPDATE]: {
         label: 'Update feature flag',
         description: 'update feature flag fields',
+        contextDescriptions: { experiment: 'update this experiment' },
     },
 }
 
@@ -23,8 +37,15 @@ export function getApprovalActionLabel(actionKey: string): string {
     return APPROVAL_ACTIONS[actionKey]?.label || actionKey.replace(/[._]/g, ' ')
 }
 
-export function getApprovalActionDescription(actionKey: string): string {
-    return APPROVAL_ACTIONS[actionKey]?.description || actionKey.replace(/[._]/g, ' ')
+export function getApprovalActionDescription(actionKey: string, context?: ApprovalContext): string {
+    const action = APPROVAL_ACTIONS[actionKey]
+    if (!action) {
+        return actionKey.replace(/[._]/g, ' ')
+    }
+    if (context && action.contextDescriptions?.[context]) {
+        return action.contextDescriptions[context]
+    }
+    return action.description
 }
 
 export const ApprovalResourceType = {
@@ -47,6 +68,24 @@ export function getApprovalResourceUrl(actionKey: string, resourceId: string | n
 
 export function getApprovalResourceLabel(resourceType: string): string {
     return APPROVAL_RESOURCE_CONFIG[resourceType]?.label || resourceType.replace(/_/g, ' ')
+}
+
+export type ApprovalResourceTypeValue = (typeof ApprovalResourceType)[keyof typeof ApprovalResourceType]
+
+export interface ChangeRequestCreatedEventDetail {
+    resourceType: ApprovalResourceTypeValue
+    resourceId: string | number
+}
+
+export function dispatchChangeRequestCreated(detail: ChangeRequestCreatedEventDetail): void {
+    window.dispatchEvent(
+        new CustomEvent('change-request-created', {
+            detail: {
+                resourceType: detail.resourceType,
+                resourceId: String(detail.resourceId),
+            },
+        })
+    )
 }
 
 export function getApprovalResourceName(resourceType: string, intent: Record<string, any>): string | null {

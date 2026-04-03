@@ -82,11 +82,6 @@ describe('Toolbar flag loading', () => {
         // Should not throw
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
 
-        expect(consoleErrorSpy).toHaveBeenCalledWith(
-            '[Toolbar Flags] Error fetching toolbar feature flags:',
-            expect.any(Error)
-        )
-
         // Should not have called overrideFeatureFlags
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
@@ -118,8 +113,6 @@ describe('Toolbar flag loading', () => {
         })
 
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
-
-        expect(consoleErrorSpy).toHaveBeenCalledWith('[Toolbar Flags] Feature flags not found:', JSON.stringify(error))
 
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 

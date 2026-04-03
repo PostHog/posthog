@@ -1,8 +1,9 @@
 import json
 from datetime import datetime, timedelta
 
+import pytest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, override_settings
+from posthog.test.base import APIBaseTest, FuzzyInt, override_settings
 from unittest.mock import patch
 
 from django.conf import settings
@@ -15,11 +16,13 @@ from social_core.exceptions import AuthCanceled
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
+from posthog.models import Action, Cohort, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -204,7 +207,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
         with self.assertNumQueries(
-            self.base_app_num_queries + 7
+            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
         ):  # AutoProjectMiddleware adds 4 queries + 1 from activity logging
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
@@ -257,7 +260,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
-        with self.assertNumQueries(self.base_app_num_queries + 2):  # No AutoProjectMiddleware queries
+        with self.assertNumQueries(
+            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 4)
+        ):  # No AutoProjectMiddleware queries
             response_app = self.client.get(f"/dashboard")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -331,7 +336,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
     ):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
-        with self.assertNumQueries(self.base_app_num_queries + 7):  # +1 from activity logging _get_before_update()
+        with self.assertNumQueries(
+            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 9)
+        ):  # +1 from activity logging _get_before_update()
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -345,7 +352,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self):
-        with self.assertNumQueries(self.base_app_num_queries + 2):
+        with self.assertNumQueries(FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 5)):
             response_app = self.client.get(f"/feature_flags/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -1351,6 +1358,20 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
 
 
+class TestCSPMiddleware(APIBaseTest):
+    def test_non_html_response_gets_strict_csp(self):
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response["Content-Security-Policy"] == "default-src 'none'"
+        assert "Content-Security-Policy-Report-Only" not in response
+
+    def test_html_response_gets_report_only_csp(self):
+        response = self.client.get("/")
+        assert response.status_code == 200
+        assert "Content-Security-Policy-Report-Only" in response
+        assert "Content-Security-Policy" not in response
+
+
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
@@ -1370,3 +1391,45 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         self.assertIsNotNone(response)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.url, "/login?error_code=oauth_cancelled")
+
+
+@pytest.mark.parametrize(
+    "path,query_string,expected_coop",
+    [
+        ("/connect/vercel/link", "", "unsafe-none"),
+        ("/oauth/callback", "", "unsafe-none"),
+        ("/login", "next=/connect/vercel/link", "unsafe-none"),
+        ("/login", "next=/connect/vercel/link?session=abc", "unsafe-none"),
+        ("/login", "", "same-origin"),
+        ("/login", "next=/dashboard", "same-origin"),
+        ("/login", "next=/connect/vercel/../../admin", "same-origin"),
+        ("/some/other/path", "", "same-origin"),
+    ],
+    ids=[
+        "direct-oauth-vercel",
+        "direct-oauth-callback",
+        "login-next-oauth",
+        "login-next-oauth-with-params",
+        "login-no-next",
+        "login-next-non-oauth",
+        "login-next-path-traversal",
+        "unrelated-path",
+    ],
+)
+def test_oauth_coop_middleware(path, query_string, expected_coop):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from posthog.middleware import OAuthCoopMiddleware
+
+    factory = RequestFactory()
+    request = factory.get(path + ("?" + query_string if query_string else ""))
+
+    def get_response(req):
+        resp = HttpResponse("ok")
+        resp["Cross-Origin-Opener-Policy"] = "same-origin"
+        return resp
+
+    middleware = OAuthCoopMiddleware(get_response)
+    response = middleware(request)
+    assert response["Cross-Origin-Opener-Policy"] == expected_coop

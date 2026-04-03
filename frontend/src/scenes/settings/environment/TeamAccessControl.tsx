@@ -22,13 +22,6 @@ export function TeamAccessControl(): JSX.Element {
     if (useAccessControlRedesign) {
         return (
             <div className="space-y-6">
-                <div className="space-y-2">
-                    <p className="mb-0">
-                        Use access control rules to manage access for this project and its resources. You can set
-                        defaults for everyone, specific roles, or specific members.
-                    </p>
-                </div>
-
                 {currentTeam?.id ? <ResourcesAccessControlsV2 projectId={`${currentTeam.id}`} /> : null}
 
                 <Link
@@ -54,7 +47,6 @@ export function TeamAccessControl(): JSX.Element {
             >
                 Try the new UI
             </LemonButton>
-            <p>Control access to your project and its resources</p>
             <AccessControlObject
                 resource="project"
                 resource_id={`${currentTeam?.id}`}

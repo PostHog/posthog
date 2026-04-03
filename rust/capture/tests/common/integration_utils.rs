@@ -28,7 +28,6 @@ use base64::Engine;
 use common_redis::MockRedisClient;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use health::HealthRegistry;
 use limiters::token_dropper::TokenDropper;
 use serde_json::{from_str, Number, Value};
 use time::format_description::well_known::{Iso8601, Rfc3339};
@@ -954,8 +953,23 @@ impl Event for MemorySink {
     }
 }
 
+pub fn test_lifecycle_handlers() -> (
+    lifecycle::ReadinessHandler,
+    lifecycle::LivenessHandler,
+    lifecycle::MonitorGuard,
+) {
+    let manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .build();
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    let monitor = manager.monitor_background();
+    (readiness, liveness, monitor)
+}
+
 fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
-    let liveness = HealthRegistry::new("integration_tests");
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let sink = MemorySink::default();
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(unit.fixed_time)
@@ -979,10 +993,12 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     (
         router(
             timesource,
-            liveness.clone(),
-            sink.clone(),
+            readiness,
+            liveness,
+            Arc::new(sink.clone()),
             redis,
-            None, // TODO: add global rate limiter for prod ship
+            None, // global_rate_limiter_token_distinctid
+            None, // global_rate_limiter_token
             quota_limiter,
             TokenDropper::default(),
             None, // event_restriction_service

@@ -27,8 +27,9 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE: int = get_from_env(
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: int = get_from_env(
     "FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT", 100000, type_cast=int
 )
-FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: int = get_from_env(
-    "FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS", 1, type_cast=int
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: int = min(
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS", 1, type_cast=int),
+    6,  # events_recent has 7-day TTL; cap with 1-day margin
 )
 
 # Feature flag cache refresh settings
@@ -68,4 +69,21 @@ TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env(
 # "fixing" it to avoid race conditions with async cache update tasks.
 TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
+)
+
+# Feature flag limits to prevent memory issues during flag evaluation/caching.
+# These limits are configurable via environment variables and can be overridden
+# in Helm charts per environment.
+#
+# Defaults are set well above observed production maximums to avoid impacting
+# normal usage while protecting against extreme outliers.
+
+# Maximum number of feature flags allowed per team
+MAX_FEATURE_FLAGS_PER_TEAM: int = get_from_env("MAX_FEATURE_FLAGS_PER_TEAM", 2000, type_cast=int)
+
+# Maximum size in bytes for a single flag's filters JSON
+MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
+    "MAX_FEATURE_FLAG_FILTER_SIZE_BYTES",
+    512 * 1024,
+    type_cast=int,  # 512KB
 )

@@ -11,6 +11,7 @@ import {
     IconPencil,
     IconPlusSmall,
     IconShortcut,
+    IconStar,
 } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
@@ -18,29 +19,36 @@ import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import {
+    LemonTree,
+    LemonTreeRef,
+    LemonTreeSelectMode,
+    LemonTreeSize,
+    TreeDataItem,
+} from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { MenuItems } from './menus/MenuItems'
+import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
-import { MenuItems } from './menus/MenuItems'
-import { projectTreeLogic } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -50,6 +58,12 @@ export interface ProjectTreeProps {
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
+    /** Override the select mode from the internal logic */
+    selectModeOverride?: LemonTreeSelectMode
+    /** Override the checked items from the internal logic */
+    checkedItemsOverride?: Record<string, boolean>
+    /** Override the onItemChecked handler from the internal logic */
+    onItemCheckedOverride?: (id: string, checked: boolean) => void
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -110,6 +124,9 @@ export function ProjectTree({
     searchPlaceholder,
     treeSize = 'default',
     showRecents,
+    selectModeOverride,
+    checkedItemsOverride,
+    onItemCheckedOverride,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems } = useValues(projectTreeDataLogic)
@@ -126,7 +143,7 @@ export function ProjectTree({
         scrollTargetId,
         editingItemId,
         sortMethod: projectSortMethod,
-        selectMode,
+        selectMode: projectTreeSelectMode,
         sortMethod,
     } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
@@ -138,7 +155,7 @@ export function ProjectTree({
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        onItemChecked,
+        onItemChecked: projectTreeOnItemChecked,
         moveCheckedItems,
         clearScrollTarget,
         setEditingItemId,
@@ -146,6 +163,9 @@ export function ProjectTree({
         setSelectMode,
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
+
+    const selectMode = selectModeOverride ?? projectTreeSelectMode
+    const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
@@ -177,7 +197,20 @@ export function ProjectTree({
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
+    const isAIFirst = useFeatureFlag('AI_FIRST')
+
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+
+    // Apply checked items override for external control (e.g. product selection)
+    if (checkedItemsOverride) {
+        const applyChecked = (items: TreeDataItem[]): TreeDataItem[] =>
+            items.map((item) => ({
+                ...item,
+                checked: checkedItemsOverride[item.id] ?? false,
+                children: item.children ? applyChecked(item.children) : undefined,
+            }))
+        treeData = applyChecked(treeData)
+    }
 
     // Filter out Data pipelines item if it's been clicked
     if (dataPipelinesClicked) {
@@ -188,19 +221,32 @@ export function ProjectTree({
         if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
-                name: 'Example shortcuts',
+                name: isAIFirst ? 'Starred items' : 'Example shortcuts',
                 type: 'category',
                 displayName: (
                     <div
-                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
-                            'mt-2': fullFileSystemFiltered.length === 0,
+                        className={cn('border border-primary text-xs font-normal rounded-xs p-2 -mx-1', {
+                            'mt-2': fullFileSystemFiltered.length === 0 && !isAIFirst,
+                            'mb-2': !isAIFirst,
                         })}
                     >
-                        Shortcuts are added by pressing{' '}
-                        <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                        side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file
-                        menu click{' '}
-                        <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.{' '}
+                        {isAIFirst ? (
+                            <>
+                                Starred items are added by pressing{' '}
+                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                                side-clicking a panel item, then "Add to starred", or inside an app's resources file
+                                menu click{' '}
+                                <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
+                            </>
+                        ) : (
+                            <>
+                                Shortcuts are added by pressing{' '}
+                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                                side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources
+                                file menu click{' '}
+                                <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
+                            </>
+                        )}{' '}
                         {fullFileSystemFiltered.length > 0 && (
                             <span className="cursor-pointer underline" onClick={() => setShortcutHelperDismissed(true)}>
                                 Dismiss.
@@ -218,7 +264,7 @@ export function ProjectTree({
                     item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
             )
 
-            if (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) {
+            if ((fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) && !isAIFirst) {
                 const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',
@@ -290,7 +336,6 @@ export function ProjectTree({
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
             data={treeData}
-            mode="tree"
             selectMode={selectMode}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
             isItemActive={isItemActive}
@@ -301,6 +346,14 @@ export function ProjectTree({
             onItemClick={(item, event) => {
                 event.preventDefault()
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
+                    return
+                }
+
+                if (item?.id.startsWith('project://-load-more/')) {
+                    const path = item.id.substring('project://-load-more/'.length)
+                    if (path) {
+                        loadFolder(path)
+                    }
                     return
                 }
 
@@ -318,11 +371,13 @@ export function ProjectTree({
                 if (item?.record?.path) {
                     setLastViewedId(item?.id || '')
                 }
-                if (item?.id.startsWith('project://-load-more/')) {
-                    const path = item.id.substring('project://-load-more/'.length)
-                    if (path) {
-                        loadFolder(path)
-                    }
+
+                if (item?.id.startsWith('shortcuts')) {
+                    eventUsageLogic.actions.reportNavbarStarredItemClicked(
+                        item?.record?.type || 'unknown',
+                        item?.name || 'unknown',
+                        !!isAIFirst
+                    )
                 }
 
                 // False, because we handle focus of content in LemonTree with mainContentRef prop
@@ -410,6 +465,9 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
+                if (selectMode === 'multi') {
+                    return undefined
+                }
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
@@ -421,6 +479,10 @@ export function ProjectTree({
                 )
             }}
             itemSideActionButton={(item) => {
+                if (selectMode === 'multi') {
+                    return undefined
+                }
+
                 const showDropdownMenu =
                     root === 'products://' ||
                     root === 'custom-products://' ||
@@ -429,13 +491,13 @@ export function ProjectTree({
                 if (showDropdownMenu) {
                     if (item.name === 'Product analytics') {
                         return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconPlusSmall className="text-tertiary" />
                             </ButtonPrimitive>
                         )
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
                         return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconChevronRight className="size-3 text-tertiary rotate-90" />
                             </ButtonPrimitive>
                         )
@@ -541,6 +603,15 @@ export function ProjectTree({
                         return <>View all</>
                     }
                     return <>Create a new {nameNode}</>
+                }
+
+                if (root === 'data-and-people://' || root === 'project://' || root === 'shortcuts://') {
+                    const key = item.record?.sceneKey
+                    const description = sceneConfigurations[key]?.description
+                    if (description) {
+                        return <>{description}</>
+                    }
+                    return undefined
                 }
 
                 return undefined
@@ -700,7 +771,7 @@ export function ProjectTree({
                                             'text-primary': selectMode === 'multi',
                                         })}
                                     />
-                                    Add shortcut
+                                    {isAIFirst ? 'Add to starred' : 'Add shortcut'}
                                 </>
                             ),
                         }),

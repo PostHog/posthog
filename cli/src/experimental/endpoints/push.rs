@@ -82,7 +82,7 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
     println!("Comparing local files with PostHog...");
     println!();
 
-    // 3. Fetch remote endpoints and insight variables
+    // 3. Fetch remote endpoints and insight variables (only if needed)
     let remote_list = fetch_all_endpoints(args.debug)?;
     let remote_by_name: HashMap<String, EndpointResponse> = remote_list
         .results
@@ -90,11 +90,19 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
         .map(|e| (e.name.clone(), e))
         .collect();
 
-    let existing_variables = fetch_insight_variables(args.debug)?;
-    let vars_by_code_name: HashMap<String, InsightVariable> = existing_variables
-        .into_iter()
-        .map(|v| (v.code_name.clone(), v))
-        .collect();
+    let has_variables = endpoints
+        .iter()
+        .any(|e| e.variables.as_ref().map(|v| !v.is_empty()).unwrap_or(false));
+
+    let vars_by_code_name: HashMap<String, InsightVariable> = if has_variables {
+        let existing_variables = fetch_insight_variables(args.debug)?;
+        existing_variables
+            .into_iter()
+            .map(|v| (v.code_name.clone(), v))
+            .collect()
+    } else {
+        HashMap::new()
+    };
 
     // 4. Determine actions for each endpoint
     let mut actions: Vec<PushAction> = Vec::new();

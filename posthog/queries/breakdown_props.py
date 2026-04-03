@@ -32,6 +32,8 @@ from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 from posthog.session_recordings.queries.session_query import SessionQuery
 
 ALL_USERS_COHORT_ID = 0
+# Keep in sync with NOT_IN_COHORT_ID in frontend/src/scenes/insights/utils.tsx
+NOT_IN_COHORT_ID = 2**52
 
 
 def get_breakdown_prop_values(
@@ -381,8 +383,12 @@ def _parse_breakdown_cohorts(cohorts: list[Cohort], hogql_context: HogQLContext)
     return queries, params
 
 
-def get_breakdown_cohort_name(cohort_id: int, team: Team) -> str:
+def get_breakdown_cohort_name(cohort_id: int, team: Team, not_in_cohort_name: str | None = None) -> str:
     if cohort_id == ALL_USERS_COHORT_ID:
         return "all users"
+    elif cohort_id == NOT_IN_COHORT_ID:
+        if not_in_cohort_name:
+            return f"Not in {not_in_cohort_name}"
+        return "Not in cohort"
     else:
         return Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id).name

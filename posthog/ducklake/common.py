@@ -1,6 +1,23 @@
+"""DuckLake configuration helpers.
+
+Two-tier config system:
+- **Dev mode** (USE_LOCAL_SETUP=True): every helper returns hardcoded localhost
+  defaults from the DEFAULTS / DUCKGRES_DEFAULTS dicts, optionally overridden
+  by environment variables. No database rows need to exist.
+- **Production**: per-team config is read from the DuckLakeCatalog and
+  DuckgresServer models. The get_*_for_team() lookups return None only when
+  the row is genuinely missing; callers should treat that as an error or
+  provision the row via admin.
+
+The `get_team_config()` and `get_duckgres_config()` entry-points encapsulate
+this branching so callers don't need to check the mode themselves.
+"""
+
 from __future__ import annotations
 
 import os
+import re
+import logging
 from typing import TYPE_CHECKING, TypedDict
 
 import duckdb
@@ -8,7 +25,11 @@ import psycopg
 from psycopg import sql
 
 if TYPE_CHECKING:
-    from posthog.ducklake.models import DuckLakeCatalog
+    from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
+
+DUCKLAKE_CATALOG_RESET_ENV_VAR = "POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET"
+
+logger = logging.getLogger(__name__)
 
 DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_HOST": "localhost",
@@ -59,6 +80,11 @@ def is_dev_mode() -> bool:
         return True
 
 
+def is_ducklake_catalog_reset_allowed() -> bool:
+    """Allow destructive catalog resets only when local startup opted in explicitly."""
+    return is_dev_mode() and os.getenv(DUCKLAKE_CATALOG_RESET_ENV_VAR) == "1"
+
+
 def _get_config_from_env_strict() -> dict[str, str]:
     """Get config from environment variables, raising if required vars are missing."""
     config = {}
@@ -84,6 +110,54 @@ def get_ducklake_catalog_for_team(team_id: int) -> DuckLakeCatalog | None:
     try:
         return DuckLakeCatalog.objects.get(team_id=team_id)
     except DuckLakeCatalog.DoesNotExist:
+        return None
+
+
+DUCKGRES_DEFAULTS: dict[str, str] = {
+    "DUCKGRES_HOST": "localhost",
+    "DUCKGRES_PORT": "5432",
+    "DUCKGRES_FLIGHT_PORT": "8815",
+    "DUCKGRES_DATABASE": "ducklake",
+    "DUCKGRES_USERNAME": "posthog",
+    "DUCKGRES_PASSWORD": "posthog",
+}
+
+
+def get_duckgres_config(team_id: int) -> dict[str, str]:
+    """Get duckgres connection config for a specific team.
+
+    In dev mode, returns localhost defaults from DUCKGRES_DEFAULTS (overridable
+    via env vars). In production, reads from the DuckgresServer model.
+    """
+    if is_dev_mode():
+        return {key: os.environ.get(key, default) or default for key, default in DUCKGRES_DEFAULTS.items()}
+
+    server = get_duckgres_server_for_team(team_id)
+    if server is not None:
+        return {
+            "DUCKGRES_HOST": server.host,
+            "DUCKGRES_PORT": str(server.port),
+            "DUCKGRES_FLIGHT_PORT": str(server.flight_port),
+            "DUCKGRES_DATABASE": server.database,
+            "DUCKGRES_USERNAME": server.username,
+            "DUCKGRES_PASSWORD": server.password,
+        }
+    raise ValueError(f"No DuckgresServer configured for team {team_id}")
+
+
+def get_duckgres_server_for_team(team_id: int) -> DuckgresServer | None:
+    """Look up DuckgresServer for a team.
+
+    Returns None if no team-specific server is configured or in dev mode.
+    """
+    if is_dev_mode():
+        return None
+
+    from posthog.ducklake.models import DuckgresServer
+
+    try:
+        return DuckgresServer.objects.get(team_id=team_id)
+    except DuckgresServer.DoesNotExist:
         return None
 
 
@@ -184,11 +258,8 @@ class PsycopgConnectionConfig(TypedDict):
     autocommit: bool
 
 
-def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
-    """Ensure the DuckLake Postgres catalog database exists."""
-    if config is None:
-        config = get_config()
-
+def _get_maintenance_conn_kwargs(config: dict[str, str]) -> tuple[PsycopgConnectionConfig, str]:
+    """Build psycopg connection kwargs targeting the maintenance DB and return the target DB name."""
     catalog_dsn = get_ducklake_connection_string(config)
     params = parse_postgres_dsn(catalog_dsn)
     target_db = params.get("dbname")
@@ -203,6 +274,15 @@ def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
         "password": params.get("password") or "posthog",
         "autocommit": True,
     }
+    return conn_kwargs, target_db
+
+
+def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
+    """Ensure the DuckLake Postgres catalog database exists."""
+    if config is None:
+        config = get_config()
+
+    conn_kwargs, target_db = _get_maintenance_conn_kwargs(config)
 
     try:
         with psycopg.connect(**conn_kwargs) as conn:
@@ -212,7 +292,7 @@ def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
                     return
 
                 cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db)))
-                owner = params.get("user")
+                owner = conn_kwargs.get("user")
                 if owner:
                     cur.execute(
                         sql.SQL("GRANT ALL PRIVILEGES ON DATABASE {} TO {}").format(
@@ -224,8 +304,55 @@ def ensure_ducklake_catalog(config: dict[str, str] | None = None) -> None:
         raise RuntimeError("Unable to ensure DuckLake catalog exists. Is Postgres running and accessible?") from exc
 
 
+_VERSION_MISMATCH_PATTERNS = (
+    "ducklake catalog version",
+    "ducklake version",
+    "only ducklake versions",
+)
+
+
+def is_version_mismatch(exc: Exception) -> bool:
+    """Check if an exception is a DuckLake catalog version mismatch."""
+    msg = str(exc).lower()
+    return any(pattern in msg for pattern in _VERSION_MISMATCH_PATTERNS)
+
+
+def reset_ducklake_catalog(config: dict[str, str] | None = None) -> None:
+    """Drop and recreate the DuckLake catalog database. Dev mode only."""
+    if not is_dev_mode():
+        raise RuntimeError("reset_ducklake_catalog is only allowed in dev mode")
+    if not is_ducklake_catalog_reset_allowed():
+        raise RuntimeError(f"DuckLake catalog reset requires local dev opt-in via {DUCKLAKE_CATALOG_RESET_ENV_VAR}=1")
+
+    if config is None:
+        config = get_config()
+
+    conn_kwargs, target_db = _get_maintenance_conn_kwargs(config)
+
+    with psycopg.connect(**conn_kwargs) as conn:
+        with conn.cursor() as cur:
+            # Terminate existing connections so DROP succeeds
+            cur.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
+                (target_db,),
+            )
+            cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(target_db)))
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db)))
+            owner = conn_kwargs.get("user")
+            if owner:
+                cur.execute(
+                    sql.SQL("GRANT ALL PRIVILEGES ON DATABASE {} TO {}").format(
+                        sql.Identifier(target_db),
+                        sql.Identifier(owner),
+                    )
+                )
+
+
 def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "ducklake") -> bool:
-    """Initialize DuckLake: ensure catalog exists, configure connection, and attach catalog."""
+    """Initialize DuckLake: ensure catalog exists, configure connection, and attach catalog.
+
+    In dev mode, automatically resets the catalog database on version mismatch.
+    """
     if config is None:
         config = get_config()
 
@@ -240,10 +367,45 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
                 attached = False
             else:
                 raise
+        except (duckdb.NotImplementedException, duckdb.InvalidInputException) as exc:
+            if not is_dev_mode():
+                raise
+            if not is_version_mismatch(exc):
+                raise
+            if not is_ducklake_catalog_reset_allowed():
+                raise RuntimeError(
+                    "DuckLake catalog reset is disabled. "
+                    f"Set {DUCKLAKE_CATALOG_RESET_ENV_VAR}=1 to allow local catalog recreation."
+                ) from exc
+            logger.warning("DuckLake version mismatch detected, resetting catalog: %s", exc)
+            conn.close()
+            reset_ducklake_catalog(config)
+            conn = duckdb.connect()
+            attach_catalog(conn, config, alias=alias)
+            attached = True
         run_smoke_check(conn, alias=alias)
         return attached
     finally:
         conn.close()
+
+
+_IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
+
+
+def sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
+    """Normalize identifiers so they are safe for DuckDB (lowercase alnum + underscores).
+
+    Non-alphanumeric runs are collapsed into a single underscore.
+    If the result is empty, ``default_prefix`` is used as the identifier.
+    If the result starts with a digit, ``default_prefix`` is prepended.
+    Truncated to 63 characters (DuckDB identifier limit).
+    """
+    cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
+    if not cleaned:
+        cleaned = default_prefix
+    if cleaned[0].isdigit():
+        cleaned = f"{default_prefix}_{cleaned}"
+    return cleaned[:63]
 
 
 __all__ = [
@@ -251,11 +413,17 @@ __all__ = [
     "escape",
     "get_config",
     "get_ducklake_connection_string",
+    "get_duckgres_config",
+    "get_duckgres_server_for_team",
     "get_team_config",
     "get_ducklake_data_path",
     "ensure_ducklake_catalog",
     "initialize_ducklake",
+    "is_ducklake_catalog_reset_allowed",
+    "is_version_mismatch",
     "parse_postgres_dsn",
     "is_dev_mode",
+    "reset_ducklake_catalog",
     "run_smoke_check",
+    "sanitize_ducklake_identifier",
 ]

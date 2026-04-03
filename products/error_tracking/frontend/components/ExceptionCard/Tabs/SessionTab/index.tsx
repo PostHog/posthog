@@ -20,6 +20,7 @@ import {
     TabsPrimitiveList,
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { cn } from 'lib/utils/css-classes'
 
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SubHeader } from '../SubHeader'
@@ -30,13 +31,13 @@ export interface SessionTabProps extends TabsPrimitiveContentProps {
     timestamp?: string
 }
 
-export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Element {
+export function SessionTab({ timestamp, className, ...props }: SessionTabProps): JSX.Element {
     const { sessionId } = useValues(errorPropertiesLogic)
     const { loading, currentSessionTab } = useValues(exceptionCardLogic)
     const { setCurrentSessionTab } = useActions(exceptionCardLogic)
 
     return (
-        <TabsPrimitiveContent {...props}>
+        <TabsPrimitiveContent {...props} className={cn('flex flex-col', className)}>
             {match([loading, sessionId])
                 .with([true, P.any], () => (
                     <div className="flex justify-center items-center h-[300px]">
@@ -46,8 +47,12 @@ export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Elemen
                 .with([false, P.nullish], () => <NoSessionIdFound />)
                 .with([false, P.string], ([_, sessionId]) => (
                     <BindLogic logic={sessionTabLogic} props={{ timestamp, sessionId }}>
-                        <TabsPrimitive value={currentSessionTab} onValueChange={setCurrentSessionTab}>
-                            <SubHeader className="p-0">
+                        <TabsPrimitive
+                            value={currentSessionTab}
+                            onValueChange={setCurrentSessionTab}
+                            className="flex flex-col flex-1 min-h-0"
+                        >
+                            <SubHeader className="p-0 shrink-0">
                                 <TabsPrimitiveList className="flex justify-start gap-2 w-full h-full items-center">
                                     <TabsPrimitiveTrigger className="px-2 h-full" value="timeline">
                                         Timeline
@@ -115,7 +120,7 @@ export function SessionTimelineTab(): JSX.Element {
     }, [sessionId, timestamp])
 
     return (
-        <TabsPrimitiveContent value="timeline">
+        <TabsPrimitiveContent value="timeline" className="flex-1 min-h-0 overflow-y-auto">
             {collector && (
                 <SessionTimeline
                     ref={sessionTimelineRef}

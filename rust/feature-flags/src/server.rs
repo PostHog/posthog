@@ -5,10 +5,18 @@ use std::time::Duration;
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
-use crate::config::Config;
+use crate::cohorts::membership::{
+    CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
+    RealtimeCohortMembershipProvider,
+};
+use crate::config::{Config, TeamIdCollection};
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::flags::flag_group_type_mapping::GroupTypeCacheManager;
+use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
+use crate::tokio_monitor::TokioRuntimeMonitor;
+use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
@@ -21,8 +29,12 @@ use tokio::net::TcpListener;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
 
-pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
-where
+pub async fn serve<F>(
+    config: Config,
+    listener: TcpListener,
+    rayon_dispatcher: RayonDispatcher,
+    shutdown: F,
+) where
     F: Future<Output = ()> + Send + 'static,
 {
     // Configure compression based on environment variable
@@ -108,10 +120,36 @@ where
         Some(config.cache_ttl_seconds),
     ));
 
+    let group_type_cache = Arc::new(GroupTypeCacheManager::new(
+        database_pools.persons_reader.clone(),
+        Some(config.group_type_cache_max_entries),
+        Some(config.group_type_cache_ttl_seconds),
+    ));
+
+    // Initialize the cohort membership provider for realtime/behavioral cohorts.
+    // Requires both the behavioral cohorts DB pool AND a non-empty team ID collection.
+    // When "none" (default), NoOp is used regardless of DB availability,
+    // so no realtime cohort queries hit the hot path.
+    let cohort_membership_provider: Arc<dyn CohortMembershipProvider> =
+        if config.realtime_cohort_evaluation_team_ids != TeamIdCollection::None {
+            if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
+                let realtime = RealtimeCohortMembershipProvider::new(pool);
+                Arc::new(CachedCohortMembershipProvider::new(
+                    realtime,
+                    Some(config.cohort_membership_cache_ttl_seconds),
+                    Some(config.cohort_membership_cache_max_entries),
+                ))
+            } else {
+                Arc::new(NoOpCohortMembershipProvider)
+            }
+        } else {
+            Arc::new(NoOpCohortMembershipProvider)
+        };
+
     let health = HealthRegistry::new("liveness");
 
     // Liveness checks only verify the process is alive (simple heartbeat loop).
-    // Readiness checks (in router.rs) verify DB connectivity before accepting traffic.
+    // Readiness checks (in router.rs) verify the pod isn't shutting down via a preStop marker file.
     let simple_loop = health
         .register(
             "simple_loop".to_string(),
@@ -133,6 +171,12 @@ where
         cohort_cache_clone
             .start_monitoring(cohort_cache_monitor_interval)
             .await;
+    });
+
+    // Start Tokio runtime monitoring
+    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
+    tokio::spawn(async move {
+        tokio_monitor.start_monitoring().await;
     });
 
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
@@ -239,9 +283,8 @@ where
         };
 
     // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
-    let flags_with_cohorts_redis_client = dedicated_redis_client
-        .clone()
-        .unwrap_or_else(|| redis_client.clone());
+    // Uses the shared cache (redis_client) - same cache Django writes to via HyperCache
+    let flags_with_cohorts_redis_client = redis_client.clone();
 
     let mut flags_with_cohorts_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
@@ -302,6 +345,47 @@ where
             }
         };
 
+    let team_negative_cache = NegativeCache::new(
+        config.team_negative_cache_capacity,
+        config.team_negative_cache_ttl_seconds,
+    );
+    tracing::info!(
+        capacity = config.team_negative_cache_capacity,
+        ttl_seconds = config.team_negative_cache_ttl_seconds,
+        "Created team negative cache for invalid API tokens"
+    );
+
+    // Auth token cache: read-through cache for secret + personal API key validation.
+    // Uses the flags Redis client for cache reads/writes. No in-memory negative cache —
+    // Python signal handlers invalidate Redis on scope/key changes, but cannot reach
+    // Rust's in-memory cache, which would cause stale denials.
+    let auth_redis = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+    let auth_token_inner = Arc::new(common_cache::ReadThroughCache::new(
+        auth_redis.clone(),
+        auth_redis,
+        common_cache::CacheConfig::with_ttl(
+            crate::api::auth::TOKEN_CACHE_PREFIX,
+            config.auth_token_cache_ttl_seconds,
+        ),
+        None,
+    ));
+    let auth_token_cache = Arc::new(common_cache::ReadThroughCacheWithMetrics::new(
+        auth_token_inner,
+        "auth",
+        "token",
+        &[],
+    ));
+    tracing::info!("Created auth token read-through cache (no negative cache)");
+
+    if *config.skip_writes {
+        tracing::warn!(
+            "SKIP_WRITES is enabled: all writes to PostgreSQL and Redis are disabled. \
+             This instance is running in read-only mode for safe performance testing."
+        );
+    }
+
     // Warn about deprecated environment variables
     if std::env::var("TEAM_CACHE_TTL_SECONDS").is_ok() {
         tracing::warn!(
@@ -316,11 +400,14 @@ where
         );
     }
 
+    let service_mode = config.service_mode.clone();
+
     let app = router::router(
         redis_client,
         dedicated_redis_client,
         database_pools,
         cohort_cache,
+        group_type_cache,
         geoip_service,
         health,
         feature_flags_billing_limiter,
@@ -330,10 +417,18 @@ where
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
+        rayon_dispatcher,
+        team_negative_cache,
+        auth_token_cache,
+        cohort_membership_provider,
         config,
     );
 
-    tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+    tracing::info!(
+        service_mode = ?service_mode,
+        "listening on {:?}",
+        listener.local_addr().unwrap()
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

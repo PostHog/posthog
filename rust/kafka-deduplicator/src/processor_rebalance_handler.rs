@@ -1,16 +1,18 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use futures::future::{join_all, Shared};
-use rdkafka::TopicPartitionList;
+use rdkafka::{Offset, TopicPartitionList};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::checkpoint::import::CheckpointImporter;
+use crate::checkpoint::metadata::CheckpointMetadata;
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_context::{ConsumerCommand, ConsumerCommandSender};
 use crate::kafka::offset_tracker::OffsetTracker;
@@ -18,12 +20,15 @@ use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
-    CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER, PARTITION_STORE_FALLBACK_EMPTY,
-    PARTITION_STORE_SETUP_SKIPPED, REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-    REBALANCE_PARTITION_STATE_CHANGE, REBALANCE_RESUME_SKIPPED_NO_OWNED,
+    CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER, LOCAL_STORE_RESTORE_COUNTER,
+    PARTITION_STORE_FALLBACK_EMPTY, PARTITION_STORE_SETUP_SKIPPED,
+    REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_PARTITION_STATE_CHANGE,
+    REBALANCE_RESUME_SKIPPED_NO_OWNED,
 };
 use crate::rebalance_tracker::RebalanceTracker;
 use crate::store_manager::StoreManager;
+use crate::utils::async_helpers::unwrap_blocking_task;
+use crate::utils::format_store_path;
 
 /// Type alias for the shared task handle. The closure maps JoinHandle's Result to ()
 /// so it can be Clone (required by Shared).
@@ -57,10 +62,15 @@ where
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
     /// Max parallel directory deletions during rebalance cleanup
     rebalance_cleanup_parallelism: usize,
+    /// Maximum age of local metadata.json before falling back to S3 import
+    local_checkpoint_max_staleness: Duration,
     /// In-flight checkpoint import tasks (per partition). Cancel on revoke; await before resume; stale entries allow re-claim.
     partition_setup_tasks: DashMap<Partition, PartitionSetupTask>,
     /// Reason a partition got a fallback empty store (no_importer | import_failed | import_cancelled) for metrics.
     partition_fallback_reasons: Arc<DashMap<Partition, &'static str>>,
+    /// Metadata from successfully restored partitions (local or S3). Used in finalize to seed
+    /// OffsetTracker and seek consumer without re-reading metadata.json from disk.
+    partition_restored_metadata: Arc<DashMap<Partition, CheckpointMetadata>>,
 }
 
 impl<T, P> ProcessorRebalanceHandler<T, P>
@@ -74,6 +84,7 @@ where
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
         rebalance_cleanup_parallelism: usize,
+        local_checkpoint_max_staleness: Duration,
     ) -> Self {
         Self {
             store_manager,
@@ -82,8 +93,10 @@ where
             offset_tracker,
             checkpoint_importer,
             rebalance_cleanup_parallelism,
+            local_checkpoint_max_staleness,
             partition_setup_tasks: DashMap::new(),
             partition_fallback_reasons: Arc::new(DashMap::new()),
+            partition_restored_metadata: Arc::new(DashMap::new()),
         }
     }
 
@@ -94,6 +107,7 @@ where
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
         rebalance_cleanup_parallelism: usize,
+        local_checkpoint_max_staleness: Duration,
     ) -> Self {
         Self {
             store_manager,
@@ -102,8 +116,10 @@ where
             offset_tracker,
             checkpoint_importer,
             rebalance_cleanup_parallelism,
+            local_checkpoint_max_staleness,
             partition_setup_tasks: DashMap::new(),
             partition_fallback_reasons: Arc::new(DashMap::new()),
+            partition_restored_metadata: Arc::new(DashMap::new()),
         }
     }
 
@@ -201,6 +217,7 @@ where
                 // Handle is dropped, task continues but we won't wait for it
             }
             self.partition_fallback_reasons.remove(partition);
+            self.partition_restored_metadata.remove(partition);
         }
     }
 
@@ -225,168 +242,41 @@ where
         let coordinator = self.rebalance_tracker.clone();
         let importer = self.checkpoint_importer.clone();
         let fallback_reasons = Arc::clone(&self.partition_fallback_reasons);
+        let restored_metadata = Arc::clone(&self.partition_restored_metadata);
+        let local_max_staleness = self.local_checkpoint_max_staleness;
 
         tokio::spawn(async move {
-            // === CHECKPOINT 1: Before starting ===
-            if cancel_token.is_cancelled() || !coordinator.is_partition_owned(&partition) {
-                metrics::counter!(
-                    PARTITION_STORE_SETUP_SKIPPED,
-                    "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
-                )
-                .increment(1);
-                fallback_reasons.insert(partition.clone(), "import_cancelled");
+            if should_skip_setup(
+                &partition,
+                &cancel_token,
+                &coordinator,
+                &store_manager,
+                &fallback_reasons,
+            ) {
                 return;
             }
 
-            // Skip if store already exists (handles rapid revoke→assign race)
-            if store_manager
-                .get(partition.topic(), partition.partition_number())
-                .is_some()
+            if try_restore_from_local(
+                &partition,
+                &store_manager,
+                &restored_metadata,
+                local_max_staleness,
+            )
+            .await
             {
-                metrics::counter!(
-                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                    "result" => "skipped",
-                    "reason" => "store_exists",
-                )
-                .increment(1);
                 return;
             }
 
-            // Try checkpoint import WITH per-partition cancellation token
-            // RAII cleanup guard handles partial downloads on failure/timeout/cancel
-            // Fallback empty store creation is handled centrally at resume time.
-            if let Some(ref importer) = importer {
-                match importer
-                    .import_checkpoint_for_topic_partition_cancellable(
-                        partition.topic(),
-                        partition.partition_number(),
-                        Some(&cancel_token), // Per-partition token - stops S3 download on revoke
-                    )
-                    .await
-                {
-                    Ok(path) => {
-                        // === CHECKPOINT 2: After download completes ===
-                        // Check if we should skip registration (token cancelled or ownership lost)
-                        let is_cancelled = cancel_token.is_cancelled();
-                        let is_owned = coordinator.is_partition_owned(&partition);
-
-                        if is_cancelled || !is_owned {
-                            let reason = if is_cancelled {
-                                "cancelled"
-                            } else {
-                                "not_owned"
-                            };
-                            metrics::counter!(
-                                PARTITION_STORE_SETUP_SKIPPED,
-                                "reason" => reason,
-                            )
-                            .increment(1);
-                            fallback_reasons.insert(partition.clone(), "import_cancelled");
-
-                            // Clean up the successfully imported directory since we can't use it.
-                            // With unique Utc::now() timestamps, each import attempt creates a new path,
-                            // so there's no collision risk with a new task - it will create its own directory.
-                            if path.exists() {
-                                match std::fs::remove_dir_all(&path) {
-                                    Ok(_) => {
-                                        metrics::counter!(
-                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
-                                            "result" => "success",
-                                        )
-                                        .increment(1);
-                                        info!(
-                                            topic = partition.topic(),
-                                            partition = partition.partition_number(),
-                                            path = %path.display(),
-                                            reason = reason,
-                                            "Cleaned up unused checkpoint import"
-                                        );
-                                    }
-                                    Err(e) => {
-                                        metrics::counter!(
-                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
-                                            "result" => "failed",
-                                        )
-                                        .increment(1);
-                                        warn!(
-                                            topic = partition.topic(),
-                                            partition = partition.partition_number(),
-                                            path = %path.display(),
-                                            error = %e,
-                                            "Failed to clean up checkpoint import, orphan cleaner will handle it"
-                                        );
-                                    }
-                                }
-                            }
-                            return;
-                        }
-
-                        // Register imported store
-                        match store_manager.restore_imported_store(
-                            partition.topic(),
-                            partition.partition_number(),
-                            &path,
-                        ) {
-                            Ok(_) => {
-                                metrics::counter!(
-                                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                                    "result" => "success",
-                                )
-                                .increment(1);
-                                info!(
-                                    topic = partition.topic(),
-                                    partition = partition.partition_number(),
-                                    path = %path.display(),
-                                    "Imported checkpoint for partition"
-                                );
-                            }
-                            Err(e) => {
-                                metrics::counter!(
-                                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                                    "result" => "failed",
-                                    "reason" => "restore",
-                                )
-                                .increment(1);
-                                error!(
-                                    topic = partition.topic(),
-                                    partition = partition.partition_number(),
-                                    error = %e,
-                                    "Failed to restore checkpoint"
-                                );
-                                fallback_reasons.insert(partition.clone(), "import_failed");
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        // Only log if not cancelled (expected during revoke)
-                        if !cancel_token.is_cancelled() {
-                            metrics::counter!(
-                                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                                "result" => "failed",
-                                "reason" => "import",
-                            )
-                            .increment(1);
-                            warn!(
-                                topic = partition.topic(),
-                                partition = partition.partition_number(),
-                                error = %e,
-                                "Failed to import checkpoint"
-                            );
-                            fallback_reasons.insert(partition.clone(), "import_failed");
-                        } else {
-                            fallback_reasons.insert(partition.clone(), "import_cancelled");
-                        }
-                    }
-                }
-            } else {
-                metrics::counter!(
-                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                    "result" => "skipped",
-                    "reason" => "disabled",
-                )
-                .increment(1);
-                fallback_reasons.insert(partition.clone(), "no_importer");
-            }
+            try_import_from_s3(
+                &partition,
+                &cancel_token,
+                &coordinator,
+                &store_manager,
+                &importer,
+                &fallback_reasons,
+                &restored_metadata,
+            )
+            .await;
         })
     }
 
@@ -450,7 +340,7 @@ where
                     .await
                 {
                     Ok(_) => {
-                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => reason)
+                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => reason, "assignment_mode" => "consumer_group")
                             .increment(1);
                         warn!(
                             topic = partition.topic(),
@@ -463,7 +353,7 @@ where
                         error!(
                             topic = partition.topic(),
                             partition = partition.partition_number(),
-                            error = %e,
+                            error = ?e,
                             "Failed to create fallback store - processor will retry on first message"
                         );
                     }
@@ -478,12 +368,79 @@ where
             .await
         {
             warn!(
-                error = %e,
+                error = ?e,
                 "Partition directory cleanup failed - orphan cleaner will handle it"
             );
         }
 
-        // Step 5: Resume consumption
+        // Step 5: Seek consumer to restored offsets and seed OffsetTracker.
+        //
+        // For each owned partition, use metadata cached during partition setup (local or S3
+        // restore). Falls back to reading metadata.json from disk if the cache entry is missing.
+        // If consumer_offset > 0, the store was restored from a prior checkpoint and we seek
+        // the consumer to that position so it resumes exactly where processing left off.
+        // We also seed OffsetTracker so the first checkpoint export reflects the correct
+        // committed and producer offsets rather than starting from zero.
+        //
+        // Partitions with no valid metadata (empty fallback stores) are naturally skipped
+        // because their consumer_offset is 0 or metadata doesn't exist.
+        let mut seek_tpl = TopicPartitionList::new();
+        for p in &owned {
+            // Use cached metadata from partition setup, fall back to disk read
+            let metadata = match self.partition_restored_metadata.remove(p) {
+                Some((_, m)) => Some(m),
+                None => {
+                    let store_path = format_store_path(
+                        self.store_manager.base_path(),
+                        p.topic(),
+                        p.partition_number(),
+                    );
+                    CheckpointMetadata::load_from_dir(&store_path).await.ok()
+                }
+            };
+
+            if let Some(metadata) = metadata {
+                if metadata.consumer_offset > 0 {
+                    self.offset_tracker.init_partition_from_metadata(
+                        p,
+                        metadata.consumer_offset,
+                        metadata.producer_offset,
+                    );
+                    seek_tpl
+                        .add_partition_offset(
+                            p.topic(),
+                            p.partition_number(),
+                            Offset::Offset(metadata.consumer_offset),
+                        )
+                        .unwrap_or_else(|e| {
+                            warn!(
+                                topic = p.topic(),
+                                partition = p.partition_number(),
+                                error = ?e,
+                                "Failed to add partition to seek list — will resume from broker offset"
+                            );
+                        });
+                    debug!(
+                        topic = p.topic(),
+                        partition = p.partition_number(),
+                        consumer_offset = metadata.consumer_offset,
+                        producer_offset = metadata.producer_offset,
+                        "Seeding OffsetTracker and seeking consumer from metadata"
+                    );
+                }
+            }
+        }
+        if seek_tpl.count() > 0 {
+            info!(
+                seek_count = seek_tpl.count(),
+                "Seeking consumer to restored offsets before resume"
+            );
+            if let Err(e) = consumer_command_tx.send(ConsumerCommand::SeekPartitions(seek_tpl)) {
+                warn!("Failed to send seek command: {e:#} — will resume from broker offsets");
+            }
+        }
+
+        // Step 6: Resume consumption
         if owned.is_empty() {
             info!("No owned partitions to resume");
             metrics::counter!(REBALANCE_RESUME_SKIPPED_NO_OWNED).increment(1);
@@ -497,12 +454,324 @@ where
                 "Resuming all owned partitions (rebalance cycle complete)"
             );
             if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(resume_tpl)) {
-                error!("Failed to send resume command after store setup: {}", e);
-                return Err(anyhow::anyhow!("Failed to send resume command: {}", e));
+                error!("Failed to send resume command after store setup: {e:#}");
+                return Err(anyhow::Error::from(e).context("Failed to send resume command"));
             }
         }
 
         Ok(())
+    }
+}
+
+// ============================================
+// PARTITION SETUP HELPERS
+// ============================================
+
+/// Check if partition setup should be skipped.
+///
+/// Returns `true` (skip) when the partition was cancelled, is no longer owned,
+/// or already has a registered store (rapid revoke→assign race).
+fn should_skip_setup(
+    partition: &Partition,
+    cancel_token: &CancellationToken,
+    coordinator: &Arc<RebalanceTracker>,
+    store_manager: &Arc<StoreManager>,
+    fallback_reasons: &Arc<DashMap<Partition, &'static str>>,
+) -> bool {
+    if cancel_token.is_cancelled() || !coordinator.is_partition_owned(partition) {
+        metrics::counter!(
+            PARTITION_STORE_SETUP_SKIPPED,
+            "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
+            "assignment_mode" => "consumer_group",
+        )
+        .increment(1);
+        fallback_reasons.insert(partition.clone(), "import_cancelled");
+        return true;
+    }
+
+    if store_manager
+        .get(partition.topic(), partition.partition_number())
+        .is_some()
+    {
+        metrics::counter!(
+            REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+            "result" => "skipped",
+            "reason" => "store_exists",
+            "assignment_mode" => "consumer_group",
+        )
+        .increment(1);
+        return true;
+    }
+
+    false
+}
+
+/// Attempt to restore from local RocksDB data.
+///
+/// Returns `true` if a fresh local store was restored (caller should skip S3 import).
+/// Returns `false` if local data is stale, missing, or corrupt (fall through to S3).
+async fn try_restore_from_local(
+    partition: &Partition,
+    store_manager: &Arc<StoreManager>,
+    restored_metadata: &Arc<DashMap<Partition, CheckpointMetadata>>,
+    local_max_staleness: Duration,
+) -> bool {
+    // metadata.json is updated on every Kafka offset commit, so its
+    // updated_at reflects the last time this pod was actively consuming.
+    let local_metadata = store_manager
+        .try_restore_local_store(
+            partition.topic(),
+            partition.partition_number(),
+            local_max_staleness,
+        )
+        .await;
+
+    if let Some(metadata) = local_metadata {
+        // Fresh local data: open RocksDB from the existing partition directory.
+        // Use spawn_blocking because RocksDB::open is a blocking operation.
+        let topic = partition.topic().to_string();
+        let partition_number = partition.partition_number();
+        let store_path = format_store_path(store_manager.base_path(), &topic, partition_number);
+        match unwrap_blocking_task(
+            tokio::task::spawn_blocking({
+                let store_manager = Arc::clone(store_manager);
+                move || store_manager.restore_imported_store(&topic, partition_number, &store_path)
+            }),
+            "restore_local_store task panicked",
+        )
+        .await
+        {
+            Ok(_) => {
+                metrics::counter!(
+                    LOCAL_STORE_RESTORE_COUNTER,
+                    "result" => "fresh",
+                )
+                .increment(1);
+                info!(
+                    topic = partition.topic(),
+                    partition = partition.partition_number(),
+                    consumer_offset = metadata.consumer_offset,
+                    producer_offset = metadata.producer_offset,
+                    "Restored local store — skipping S3 import"
+                );
+                restored_metadata.insert(partition.clone(), metadata);
+                return true;
+            }
+            Err(e) => {
+                warn!(
+                    topic = partition.topic(),
+                    partition = partition.partition_number(),
+                    error = %e,
+                    "Failed to open local store, falling back to S3 import"
+                );
+            }
+        }
+    } else {
+        // Stale, missing, or corrupt — record which and fall through to S3 import.
+        let store_path = format_store_path(
+            store_manager.base_path(),
+            partition.topic(),
+            partition.partition_number(),
+        );
+        let metadata_path = store_path.join(crate::checkpoint::metadata::METADATA_FILENAME);
+        let result_label = if !metadata_path.exists() {
+            "missing"
+        } else if CheckpointMetadata::load_from_dir(&store_path)
+            .await
+            .is_err()
+        {
+            "corrupt"
+        } else {
+            "stale"
+        };
+        metrics::counter!(
+            LOCAL_STORE_RESTORE_COUNTER,
+            "result" => result_label,
+        )
+        .increment(1);
+        debug!(
+            topic = partition.topic(),
+            partition = partition.partition_number(),
+            result = result_label,
+            "Local store not usable, falling back to S3 import"
+        );
+    }
+
+    false
+}
+
+/// Attempt to import a checkpoint from S3.
+///
+/// Uses the per-partition cancellation token to stop S3 downloads on revoke.
+/// Records fallback reasons on failure so finalize_rebalance_cycle can create empty stores.
+async fn try_import_from_s3(
+    partition: &Partition,
+    cancel_token: &CancellationToken,
+    coordinator: &Arc<RebalanceTracker>,
+    store_manager: &Arc<StoreManager>,
+    importer: &Option<Arc<CheckpointImporter>>,
+    fallback_reasons: &Arc<DashMap<Partition, &'static str>>,
+    restored_metadata: &Arc<DashMap<Partition, CheckpointMetadata>>,
+) {
+    let Some(importer) = importer else {
+        metrics::counter!(
+            REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+            "result" => "skipped",
+            "reason" => "disabled",
+            "assignment_mode" => "consumer_group",
+        )
+        .increment(1);
+        fallback_reasons.insert(partition.clone(), "no_importer");
+        return;
+    };
+
+    match importer
+        .import_checkpoint_for_topic_partition_cancellable(
+            partition.topic(),
+            partition.partition_number(),
+            Some(cancel_token),
+        )
+        .await
+    {
+        Ok(path) => {
+            // Check if we should skip registration (token cancelled or ownership lost)
+            let is_cancelled = cancel_token.is_cancelled();
+            let is_owned = coordinator.is_partition_owned(partition);
+
+            if is_cancelled || !is_owned {
+                let reason = if is_cancelled {
+                    "cancelled"
+                } else {
+                    "not_owned"
+                };
+                metrics::counter!(
+                    PARTITION_STORE_SETUP_SKIPPED,
+                    "reason" => reason,
+                    "assignment_mode" => "consumer_group",
+                )
+                .increment(1);
+                fallback_reasons.insert(partition.clone(), "import_cancelled");
+
+                // Clean up the successfully imported directory since we can't use it.
+                if path.exists() {
+                    match tokio::fs::remove_dir_all(&path).await {
+                        Ok(_) => {
+                            metrics::counter!(
+                                CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                "result" => "success",
+                                "assignment_mode" => "consumer_group",
+                            )
+                            .increment(1);
+                            info!(
+                                topic = partition.topic(),
+                                partition = partition.partition_number(),
+                                path = %path.display(),
+                                reason = reason,
+                                "Cleaned up unused checkpoint import"
+                            );
+                        }
+                        Err(e) => {
+                            metrics::counter!(
+                                CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                "result" => "failed",
+                                "assignment_mode" => "consumer_group",
+                            )
+                            .increment(1);
+                            warn!(
+                                topic = partition.topic(),
+                                partition = partition.partition_number(),
+                                path = %path.display(),
+                                error = ?e,
+                                "Failed to clean up checkpoint import, orphan cleaner will handle it"
+                            );
+                        }
+                    }
+                }
+                return;
+            }
+
+            // Register imported store (sync RocksDB open; run on blocking pool)
+            let topic = partition.topic().to_string();
+            let partition_number = partition.partition_number();
+            let import_path = path.clone();
+            match unwrap_blocking_task(
+                tokio::task::spawn_blocking({
+                    let store_manager = Arc::clone(store_manager);
+                    move || {
+                        store_manager.restore_imported_store(&topic, partition_number, &import_path)
+                    }
+                }),
+                "restore_imported_store task panicked",
+            )
+            .await
+            {
+                Ok(_) => {
+                    metrics::counter!(
+                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                        "result" => "success",
+                        "assignment_mode" => "consumer_group",
+                    )
+                    .increment(1);
+                    info!(
+                        topic = partition.topic(),
+                        partition = partition.partition_number(),
+                        path = %path.display(),
+                        "Imported checkpoint for partition"
+                    );
+                    // Cache metadata so finalize can seed OffsetTracker without re-reading disk
+                    match CheckpointMetadata::load_from_dir(&path).await {
+                        Ok(metadata) => {
+                            restored_metadata.insert(partition.clone(), metadata);
+                        }
+                        Err(e) => {
+                            warn!(
+                                topic = partition.topic(),
+                                partition = partition.partition_number(),
+                                error = ?e,
+                                "Failed to load metadata after import — finalize will re-read from disk"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    metrics::counter!(
+                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                        "result" => "failed",
+                        "reason" => "restore",
+                        "assignment_mode" => "consumer_group",
+                    )
+                    .increment(1);
+                    error!(
+                        topic = partition.topic(),
+                        partition = partition.partition_number(),
+                        error = %e,
+                        "Failed to restore checkpoint"
+                    );
+                    fallback_reasons.insert(partition.clone(), "import_failed");
+                }
+            }
+        }
+        Err(e) => {
+            // Only log if not cancelled (expected during revoke)
+            if !cancel_token.is_cancelled() {
+                metrics::counter!(
+                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                    "result" => "failed",
+                    "reason" => "import",
+                    "assignment_mode" => "consumer_group",
+                )
+                .increment(1);
+                warn!(
+                    topic = partition.topic(),
+                    partition = partition.partition_number(),
+                    error = ?e,
+                    "Failed to import checkpoint"
+                );
+                fallback_reasons.insert(partition.clone(), "import_failed");
+            } else {
+                fallback_reasons.insert(partition.clone(), "import_cancelled");
+            }
+        }
     }
 }
 
@@ -537,6 +806,7 @@ where
                 "topic" => partition.topic().to_string(),
                 "partition" => partition.partition_number().to_string(),
                 "op" => "assign",
+                "assignment_mode" => "consumer_group",
             )
             .increment(1);
         }
@@ -585,6 +855,7 @@ where
                 "topic" => partition.topic().to_string(),
                 "partition" => partition.partition_number().to_string(),
                 "op" => "revoke",
+                "assignment_mode" => "consumer_group",
             )
             .increment(1);
         }
@@ -652,9 +923,17 @@ where
         // stays true during finalize. That prevents orphan/capacity cleanup from deleting dirs we're setting up.
         let is_last = self.rebalance_tracker.rebalancing_count() == 1;
         if is_last {
-            self.finalize_rebalance_cycle(consumer_command_tx, true)
-                .await?;
+            // IMPORTANT: Always call finish_rebalancing even if finalize errors, otherwise the
+            // counter leaks and is_rebalancing() returns true permanently — blocking all
+            // checkpoint exports and offset commits.
+            let result = self
+                .finalize_rebalance_cycle(consumer_command_tx, true)
+                .await;
             self.rebalance_tracker.finish_rebalancing();
+            if let Err(e) = result {
+                error!("Finalize failed after decrementing rebalance counter: {e:#}");
+                return Err(e);
+            }
         } else {
             self.rebalance_tracker.finish_rebalancing();
             if !self.rebalance_tracker.is_rebalancing() {
@@ -757,9 +1036,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checkpoint::config::DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS;
     use crate::kafka::batch_message::KafkaMessage;
     use crate::kafka::offset_tracker::OffsetTracker;
     use crate::kafka::partition_router::PartitionRouterConfig;
+    use crate::rocksdb::store::RocksDbConfig;
     use crate::store::DeduplicationStoreConfig;
     use crate::test_utils::create_test_tracker;
     use rdkafka::Offset;
@@ -780,6 +1061,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -793,6 +1075,7 @@ mod tests {
                 offset_tracker.clone(),
                 None,
                 16, // rebalance_cleanup_parallelism
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
         assert!(handler.router.is_none());
 
@@ -810,6 +1093,7 @@ mod tests {
             offset_tracker,
             None,
             16, // rebalance_cleanup_parallelism
+            Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
         );
         assert!(handler_with_router.router.is_some());
     }
@@ -820,6 +1104,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -838,6 +1123,7 @@ mod tests {
             offset_tracker,
             None,
             16, // rebalance_cleanup_parallelism
+            Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
         );
 
         // Initially no workers
@@ -882,6 +1168,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -900,6 +1187,7 @@ mod tests {
             offset_tracker,
             None,
             16, // rebalance_cleanup_parallelism
+            Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
         );
 
         // Assign partition and create a store
@@ -934,7 +1222,7 @@ mod tests {
         assert_eq!(router.worker_count(), 0);
 
         // Files are NOT immediately deleted - finalize_rebalance_cycle handles this
-        let partition_dir = temp_dir.path().join("test-topic_0");
+        let partition_dir = temp_dir.path().join("test-topic").join("0");
         assert!(
             partition_dir.exists(),
             "Partition directory still exists (orphan cleaner will handle cleanup)"
@@ -951,6 +1239,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
@@ -987,6 +1276,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1005,6 +1295,7 @@ mod tests {
             offset_tracker,
             None,
             16, // rebalance_cleanup_parallelism
+            Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
         );
 
         // Step 1: Initial assignment
@@ -1052,6 +1343,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
@@ -1059,7 +1351,7 @@ mod tests {
         // Create a store (this creates the directory)
         store_manager.get_or_create("test-topic", 0).await.unwrap();
 
-        let partition_dir = temp_dir.path().join("test-topic_0");
+        let partition_dir = temp_dir.path().join("test-topic").join("0");
         assert!(partition_dir.exists(), "Partition directory should exist");
 
         // Step 1: Unregister store (store is dropped, RocksDB is closed)
@@ -1089,6 +1381,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1101,6 +1394,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // First assignment
@@ -1135,6 +1429,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1147,6 +1442,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1166,7 +1462,7 @@ mod tests {
         // Now do async setup - should send Resume command
         handler.async_setup_assigned_partitions(&tx).await.unwrap();
 
-        // Check that Resume command was sent
+        // Check that Resume command was sent (no importer, so only Resume is sent)
         let command = rx.try_recv().expect("Should have received a command");
         match command {
             ConsumerCommand::Resume(resume_partitions) => {
@@ -1175,6 +1471,9 @@ mod tests {
                     2,
                     "Resume command should contain all assigned partitions"
                 );
+            }
+            ConsumerCommand::SeekPartitions(_) => {
+                panic!("Handler has no importer; should not send SeekPartitions");
             }
         }
 
@@ -1194,6 +1493,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1206,6 +1506,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1249,7 +1550,20 @@ mod tests {
 
         // Should have received exactly one Resume command (from the last rebalance)
         let cmd = rx.try_recv().expect("Should have received Resume command");
-        let ConsumerCommand::Resume(tpl) = cmd;
+        let tpl = match &cmd {
+            ConsumerCommand::Resume(t) => t.clone(),
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx
+                    .try_recv()
+                    .expect("Should have received Resume after SeekPartitions");
+                match cmd2 {
+                    ConsumerCommand::Resume(t) => t,
+                    ConsumerCommand::SeekPartitions(_) => {
+                        panic!("Expected Resume, got SeekPartitions")
+                    }
+                }
+            }
+        };
         // Should resume both partitions
         assert_eq!(tpl.count(), 2, "Should resume all owned partitions");
 
@@ -1270,6 +1584,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1282,6 +1597,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1343,6 +1659,23 @@ mod tests {
                     "Partition 1 should NOT be in Resume (not owned)"
                 );
             }
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx
+                    .try_recv()
+                    .expect("Should have received Resume after SeekPartitions");
+                let ConsumerCommand::Resume(resume_partitions) = cmd2 else {
+                    panic!("Expected Resume command, got {:?}", cmd2);
+                };
+                assert_eq!(resume_partitions.count(), 2);
+                let partition_nums: Vec<i32> = resume_partitions
+                    .elements()
+                    .iter()
+                    .map(|e| e.partition())
+                    .collect();
+                assert!(partition_nums.contains(&0));
+                assert!(partition_nums.contains(&2));
+                assert!(!partition_nums.contains(&1));
+            }
         }
 
         // Verify stores
@@ -1367,6 +1700,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1379,6 +1713,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1408,6 +1743,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_counter_not_leaked_on_finalize_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
+        };
+        let coordinator = create_test_tracker();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
+
+        let handler: ProcessorRebalanceHandler<String, TestProcessor> =
+            ProcessorRebalanceHandler::new(
+                store_manager,
+                coordinator.clone(),
+                offset_tracker,
+                None,
+                16,
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
+            );
+
+        let mut partitions = rdkafka::TopicPartitionList::new();
+        partitions
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        handler.setup_assigned_partitions(&partitions);
+        assert_eq!(coordinator.rebalancing_count(), 1);
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(rx);
+
+        let result = handler.async_setup_assigned_partitions(&tx).await;
+        assert!(result.is_err());
+
+        assert_eq!(
+            coordinator.rebalancing_count(),
+            0,
+            "Counter must be decremented even when finalize fails (channel broken)"
+        );
+    }
+
+    #[tokio::test]
     async fn test_async_setup_skips_store_creation_for_unowned_partition() {
         // Test that async_setup_single_partition skips store creation
         // when the partition is no longer owned (was revoked during async setup).
@@ -1415,6 +1792,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1427,6 +1805,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1474,7 +1853,7 @@ mod tests {
         );
 
         // Verify: the partition directory should not exist either
-        let partition_1_dir = temp_dir.path().join("test-topic_1");
+        let partition_1_dir = temp_dir.path().join("test-topic").join("1");
         assert!(
             !partition_1_dir.exists(),
             "Partition 1 directory should not exist (store creation was skipped)"
@@ -1492,6 +1871,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1504,6 +1884,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1578,6 +1959,14 @@ mod tests {
                 let elements = tpl.elements();
                 assert_eq!(elements[0].partition(), 0, "Should resume partition 0");
             }
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx.try_recv().expect("Should have received Resume");
+                let ConsumerCommand::Resume(tpl) = cmd2 else {
+                    panic!("Expected Resume command, got {:?}", cmd2);
+                };
+                assert_eq!(tpl.count(), 1);
+                assert_eq!(tpl.elements()[0].partition(), 0);
+            }
         }
 
         // Verify partition 0's store still exists after B completes
@@ -1594,6 +1983,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1606,6 +1996,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1654,6 +2045,20 @@ mod tests {
                 let topics: Vec<&str> = elements.iter().map(|e| e.topic()).collect();
                 assert!(topics.contains(&"topic-a"), "topic-a:0 should be resumed");
                 assert!(topics.contains(&"topic-b"), "topic-b:0 should be resumed");
+            }
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx.try_recv().expect("Should have received Resume");
+                let ConsumerCommand::Resume(tpl) = cmd2 else {
+                    panic!("Expected Resume command, got {:?}", cmd2);
+                };
+                assert_eq!(tpl.count(), 2);
+                let topics: Vec<String> = tpl
+                    .elements()
+                    .iter()
+                    .map(|e| e.topic().to_string())
+                    .collect();
+                assert!(topics.contains(&"topic-a".to_string()));
+                assert!(topics.contains(&"topic-b".to_string()));
             }
         }
 

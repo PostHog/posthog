@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
 
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
-import { IconSlack } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 
 import { SubscriptionType } from '~/types'
@@ -21,6 +21,8 @@ interface SubscriptionListItemProps {
 }
 
 export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {
+    const selectedInsightsCount = subscription.dashboard_export_insights?.length
+
     return (
         <LemonButton
             type="secondary"
@@ -51,7 +53,12 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
                     <div className="text-link font-medium">{subscription.title}</div>
-                    <div className="text-sm text-text-3000">{capitalizeFirstLetter(subscription.summary)}</div>
+                    <div className="text-sm text-text-3000">
+                        {capitalizeFirstLetter(subscription.summary)}
+                        {selectedInsightsCount
+                            ? ` · ${pluralize(selectedInsightsCount, 'insight', 'insights', true)}`
+                            : null}
+                    </div>
                 </div>
                 {subscription.target_type === 'email' ? (
                     <ProfileBubbles
@@ -83,6 +90,8 @@ export function ManageSubscriptions({
 
     const { subscriptions, subscriptionsLoading } = useValues(logic)
     const { deleteSubscription } = useActions(logic)
+
+    const subscriptionResourceNoun = !insightShortId && dashboardId ? 'dashboard' : 'insight'
 
     return (
         <>
@@ -116,7 +125,7 @@ export function ManageSubscriptions({
                     </div>
                 ) : (
                     <div className="flex flex-col p-4 items-center text-center">
-                        <h3>There are no subscriptions for this insight</h3>
+                        <h3>There are no subscriptions for this {subscriptionResourceNoun}</h3>
 
                         <p>Once subscriptions are created they will display here. </p>
 

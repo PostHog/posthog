@@ -122,12 +122,12 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
         const stateToUrl = (): [string, Record<string, string>] => {
             const { properties, dateRange } = values
 
-            const urlParams = {}
+            const urlParams: Record<string, string> = {}
             if (properties.length > 0) {
-                urlParams['properties'] = properties
+                urlParams['properties'] = JSON.stringify(properties)
             }
             if (dateRange) {
-                urlParams['dateRange'] = dateRange
+                urlParams['dateRange'] = JSON.stringify(dateRange)
             }
 
             return [urls.sessionAttributionExplorer(), urlParams]

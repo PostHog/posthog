@@ -3,15 +3,24 @@ from pathlib import Path
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 
 from posthog.schema import (
-    DataWarehouseNode,
+    DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
     DateRange,
     EventsNode,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
+    PropertyOperator,
     StepOrderValue,
 )
 
@@ -20,6 +29,7 @@ from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQ
 from posthog.test.test_journeys import journeys_for
 from posthog.types import AnyPropertyFilter
 
+from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse"
@@ -33,6 +43,10 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             self.cleanUpLeadWarehouse()
         if getattr(self, "cleanUpOpportunityWarehouse", None):
             self.cleanUpOpportunityWarehouse()
+        if getattr(self, "cleanUpCrossMatchWarehouseOne", None):
+            self.cleanUpCrossMatchWarehouseOne()
+        if getattr(self, "cleanUpCrossMatchWarehouseTwo", None):
+            self.cleanUpCrossMatchWarehouseTwo()
 
     def setup_data_warehouse(self):
         table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
@@ -44,6 +58,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     "clickhouse": "Nullable(Int64)",
                     "hogql": "IntegerDatabaseField",
                 },
+                "id_decimal": {"clickhouse": "Decimal(18, 2)", "hogql": "DecimalDatabaseField"},
                 "uuid": {"clickhouse": "String", "hogql": "StringDatabaseField"},
                 "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
                 "created": {
@@ -123,6 +138,41 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
 
         return opportunity_table.name
 
+    def setup_same_config_different_tables_data_warehouse(self):
+        table_one, _source, _credential, _df, self.cleanUpCrossMatchWarehouseOne = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "cross_match_table_one_data.csv",
+            table_name="cross_match_table_one",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {
+                    "clickhouse": "DateTime64(3, 'UTC')",
+                    "hogql": "DateTimeDatabaseField",
+                },
+                "step_tag": {
+                    "clickhouse": "String",
+                    "hogql": "StringDatabaseField",
+                },
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+        table_two, _source, _credential, _df, self.cleanUpCrossMatchWarehouseTwo = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "cross_match_table_two_data.csv",
+            table_name="cross_match_table_two",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {
+                    "clickhouse": "DateTime64(3, 'UTC')",
+                    "hogql": "DateTimeDatabaseField",
+                },
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+        return table_one.name, table_two.name
+
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse(self):
         table_name = self.setup_data_warehouse()
@@ -131,18 +181,18 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2025-11-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="uuid",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="uuid",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
             ],
@@ -194,11 +244,11 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2025-11-01"),
                 series=[
                     EventsNode(event="$pageview"),
-                    DataWarehouseNode(
+                    FunnelsDataWarehouseNode(
                         id=table_name,
                         table_name=table_name,
                         id_field="uuid",
-                        distinct_id_field="toUUID(user_id)",
+                        aggregation_target_field="toUUID(user_id)",
                         timestamp_field="created",
                     ),
                 ],
@@ -219,18 +269,50 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2025-11-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                ),
+            ],
+        )
+
+        with freeze_time("2025-11-07"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 5
+        assert results[1]["count"] == 1
+
+    def test_funnels_data_warehouse_decimal_id_column(self):
+        table_name = self.setup_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                FunnelsDataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id_decimal",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                ),
+                FunnelsDataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id_decimal",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
             ],
@@ -252,22 +334,24 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2025-11-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id_with_nulls",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id_with_nulls",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
             ],
         )
+        assert isinstance(funnels_query.series[0], FunnelsDataWarehouseNode)  # for mypy
+        assert isinstance(funnels_query.series[1], FunnelsDataWarehouseNode)  # for mypy
 
         # throws an error because of nulls in id field
         with freeze_time("2025-11-07"):
@@ -293,6 +377,65 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert results[0]["count"] == 4
         assert results[1]["count"] == 1
 
+    def test_funnels_event_step_filtering_on_warehouse_person_property(self):
+        table_name = self.setup_data_warehouse()
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=table_name,
+            joining_table_key="user_id",
+            field_name=table_name,
+        )
+
+        matching_user_id = "bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539"
+        non_matching_user_id = "8cadb28f-1825-f158-73fa-3f228865b540"
+
+        _create_person(
+            distinct_ids=["person1"],
+            team_id=self.team.pk,
+            properties={"email": matching_user_id},
+        )
+        _create_person(
+            distinct_ids=["person2"],
+            team_id=self.team.pk,
+            properties={"email": non_matching_user_id},
+        )
+
+        _create_event(team=self.team, event="$pageview", distinct_id="person1", timestamp="2025-11-04T10:00:00Z")
+        _create_event(team=self.team, event="$checkout", distinct_id="person1", timestamp="2025-11-04T11:00:00Z")
+        _create_event(team=self.team, event="$pageview", distinct_id="person2", timestamp="2025-11-05T10:00:00Z")
+        _create_event(team=self.team, event="$checkout", distinct_id="person2", timestamp="2025-11-05T11:00:00Z")
+        flush_persons_and_events()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        DataWarehousePersonPropertyFilter(
+                            key=f"{table_name}.event_name",
+                            operator=PropertyOperator.EXACT,
+                            value="payment_succeeded",
+                        )
+                    ],
+                ),
+                EventsNode(event="$checkout"),
+            ],
+        )
+
+        response = FunnelsQueryRunner(
+            query=funnels_query,
+            team=self.team,
+        ).calculate()
+
+        results = response.results
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
+
     @snapshot_clickhouse_queries
     def test_funnels_salesforce_lead_to_opportunity(self):
         lead_table_name, opportunity_table_name = self.setup_salesforce_data_warehouse()
@@ -301,25 +444,25 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2024-05-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=lead_table_name,
                     table_name=lead_table_name,
                     id_field="id",
-                    distinct_id_field="coalesce(converted_opportunity_id, id)",
+                    aggregation_target_field="coalesce(converted_opportunity_id, id)",
                     timestamp_field="created_date",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=opportunity_table_name,
                     table_name=opportunity_table_name,
                     id_field="id",
-                    distinct_id_field="id",
+                    aggregation_target_field="id",
                     timestamp_field="created_date",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=opportunity_table_name,
                     table_name=opportunity_table_name,
                     id_field="id",
-                    distinct_id_field="id",
+                    aggregation_target_field="id",
                     timestamp_field="close_date",
                 ),
             ],
@@ -347,18 +490,18 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2024-05-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=opportunity_table_name,
                     table_name=opportunity_table_name,
                     id_field="id",
-                    distinct_id_field="id",
+                    aggregation_target_field="id",
                     timestamp_field="created_date",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=opportunity_table_name,
                     table_name=opportunity_table_name,
                     id_field="id",
-                    distinct_id_field="id",
+                    aggregation_target_field="id",
                     timestamp_field="close_date",
                 ),
             ],
@@ -372,3 +515,38 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         results = response.results
         assert results[0]["count"] == 2
         assert results[1]["count"] == 0
+
+    def test_funnels_different_tables_same_config_do_not_share_step_filters(self):
+        table_one_name, table_two_name = self.setup_same_config_different_tables_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                FunnelsDataWarehouseNode(
+                    id=table_one_name,
+                    table_name=table_one_name,
+                    id_field="id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                    properties=[DataWarehousePropertyFilter(key="step_tag", value="go", operator="exact")],
+                ),
+                FunnelsDataWarehouseNode(
+                    id=table_two_name,
+                    table_name=table_two_name,
+                    id_field="id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                    properties=[],
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.UNORDERED),
+        )
+
+        with freeze_time("2025-11-07"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 2

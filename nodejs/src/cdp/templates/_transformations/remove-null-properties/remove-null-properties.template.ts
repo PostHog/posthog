@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'beta',
+    status: 'stable',
     type: 'transformation',
     id: 'template-remove-null-properties',
     name: 'Remove Null Properties',

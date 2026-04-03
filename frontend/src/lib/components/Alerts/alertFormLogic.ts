@@ -1,5 +1,6 @@
-import { actions, connect, kea, key, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -12,11 +13,12 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
-import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
-import { AlertType, AlertTypeWrite } from './types'
+import { AlertSimulationResult, AlertType, AlertTypeWrite, AnomalyPoint } from './types'
 
 export type AlertFormType = Pick<
     AlertType,
@@ -30,6 +32,7 @@ export type AlertFormType = Pick<
     | 'checks'
     | 'config'
     | 'skip_weekend'
+    | 'detector_config'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
@@ -50,6 +53,20 @@ export interface AlertFormLogicProps {
     insightId: QueryBasedInsightModel['id']
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
+    insightInterval?: IntervalType
+}
+
+function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
+    switch (interval) {
+        case 'hour':
+            return AlertCalculationInterval.HOURLY
+        case 'week':
+            return AlertCalculationInterval.WEEKLY
+        case 'month':
+            return AlertCalculationInterval.MONTHLY
+        default:
+            return AlertCalculationInterval.DAILY
+    }
 }
 
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
@@ -75,7 +92,48 @@ export const alertFormLogic = kea<alertFormLogicType>([
         deleteAlert: true,
         snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
         clearSnooze: true,
+        simulateAlert: true,
+        clearSimulation: true,
+        setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
     }),
+
+    reducers({
+        simulationDateFrom: [
+            null as string | null,
+            {
+                setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+    }),
+
+    loaders(({ props, values }) => ({
+        simulationResult: [
+            null as AlertSimulationResult | null,
+            {
+                simulateAlert: async (): Promise<AlertSimulationResult | null> => {
+                    const detectorConfig = values.alertForm.detector_config
+                    if (!detectorConfig || !props.insightId) {
+                        return null
+                    }
+                    const defaultRange =
+                        values.alertForm.calculation_interval === AlertCalculationInterval.HOURLY
+                            ? '-48h'
+                            : values.alertForm.calculation_interval === AlertCalculationInterval.WEEKLY
+                              ? '-12w'
+                              : values.alertForm.calculation_interval === AlertCalculationInterval.MONTHLY
+                                ? '-12m'
+                                : '-30d'
+                    return await api.alerts.simulate({
+                        insight: props.insightId,
+                        detector_config: detectorConfig,
+                        series_index: values.alertForm.config?.series_index ?? 0,
+                        date_from: values.simulationDateFrom ?? defaultRange,
+                    })
+                },
+                clearSimulation: () => null,
+            },
+        ],
+    })),
 
     forms(({ props, values }) => ({
         alertForm: {
@@ -103,8 +161,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     },
                     subscribed_users: [],
                     checks: [],
-                    calculation_interval: AlertCalculationInterval.DAILY,
+                    calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
                     skip_weekend: false,
+                    detector_config: null,
                     insight: props.insightId,
                 } as AlertFormType),
             errors: ({ name }) => ({
@@ -125,6 +184,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ...alert.config,
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
+                    detector_config: alert.detector_config ?? null,
                 }
 
                 // absolute value alert can only have absolute threshold
@@ -141,10 +201,21 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
+                // Must use alert.id (not the server-returned ID) to look up the logic instance where pending notifications were queued.
+                // For new alerts alert.id is undefined, keying the logic as 'new' — using the server-returned ID would miss the queued state.
+                const notifLogic = alertNotificationLogic({ alertId: alert.id })
+
+                const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
+                    if (notifLogic.values.pendingNotifications.length > 0) {
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, alert.name)
+                    }
+                }
+
                 try {
                     if (alert.id === undefined) {
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
+                        await flushPendingNotifications(updatedAlert.id)
                         lemonToast.success(`Alert created.`)
                         upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
@@ -154,6 +225,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
+                    await flushPendingNotifications(updatedAlert.id)
                     lemonToast.success(`Alert saved.`)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
@@ -224,6 +296,40 @@ export const alertFormLogic = kea<alertFormLogicType>([
             submitAlertFormSuccess: async () => {
                 // Background sync to pick up any server-side changes
                 getParentLogic()?.actions.loadAlerts()
+            },
+            simulateAlertSuccess: ({ simulationResult }) => {
+                const parent = getParentLogic()
+                if (!parent || !simulationResult) {
+                    return
+                }
+
+                let anomalyPoints: AnomalyPoint[]
+
+                if (simulationResult.breakdown_results && simulationResult.breakdown_results.length > 0) {
+                    // For breakdowns, create anomaly points per breakdown value.
+                    // Each breakdown result maps to a chart series by its position in the results array.
+                    anomalyPoints = simulationResult.breakdown_results.flatMap((br, seriesIndex) =>
+                        br.triggered_indices.map((idx) => ({
+                            index: idx,
+                            date: br.dates[idx] ?? '',
+                            score: br.scores[idx] ?? null,
+                            seriesIndex,
+                        }))
+                    )
+                } else {
+                    const seriesIndex = values.alertForm.config?.series_index ?? 0
+                    anomalyPoints = simulationResult.triggered_indices.map((idx) => ({
+                        index: idx,
+                        date: simulationResult.dates[idx] ?? '',
+                        score: simulationResult.scores[idx] ?? null,
+                        seriesIndex,
+                    }))
+                }
+
+                parent.actions.setSimulationAnomalyPoints(anomalyPoints)
+            },
+            simulateAlertFailure: ({ error }) => {
+                lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },
         }
     }),

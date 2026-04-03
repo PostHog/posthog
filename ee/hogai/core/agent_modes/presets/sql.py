@@ -75,7 +75,7 @@ The assistant used the todo list because:
 3. This approach allows for tracking progress across the entire request
 """.strip()
 
-MODE_DESCRIPTION = "Specialized mode capable of generating and executing SQL queries. This mode allows you to query the ClickHouse database, which contains both data collected by PostHog (events, groups, persons, sessions) and data warehouse sources connected by the user, such as SQL tables, CRMs, and external systems. This mode can also be used to search for specific data that can be used in other modes."
+SQL_MODE_DESCRIPTION = "Specialized mode capable of generating and executing SQL queries. This mode allows you to query the ClickHouse database, which contains both data collected by PostHog (events, groups, persons, sessions) and data warehouse sources connected by the user, such as SQL tables, CRMs, and external systems. This mode can also be used to search for specific data that can be used in other modes."
 
 
 class SQLAgentToolkit(AgentToolkit):
@@ -102,7 +102,7 @@ class SQLAgentToolkit(AgentToolkit):
 
 sql_agent = AgentModeDefinition(
     mode=AgentMode.SQL,
-    mode_description=MODE_DESCRIPTION,
+    mode_description=SQL_MODE_DESCRIPTION,
     toolkit_class=SQLAgentToolkit,
     node_class=ChatAgentExecutable,
     tools_node_class=ChatAgentToolsExecutable,
@@ -111,7 +111,7 @@ sql_agent = AgentModeDefinition(
 
 chat_agent_plan_sql_agent = AgentModeDefinition(
     mode=AgentMode.SQL,
-    mode_description=MODE_DESCRIPTION,
+    mode_description=SQL_MODE_DESCRIPTION,
     toolkit_class=SQLAgentToolkit,
     node_class=ChatAgentPlanExecutable,
     tools_node_class=ChatAgentPlanToolsExecutable,

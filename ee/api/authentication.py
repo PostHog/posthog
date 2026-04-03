@@ -105,6 +105,7 @@ class MultitenantSAMLAuth(SAMLAuth):
             organization_domain = (
                 organization_domain_or_id
                 if isinstance(organization_domain_or_id, OrganizationDomain)
+                # nosemgrep: idor-lookup-without-org (pre-auth SAML flow, lookup by UUID on verified domains)
                 else OrganizationDomain.objects.verified_domains().get(id=organization_domain_or_id)
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
@@ -246,6 +247,7 @@ class MultitenantSAMLAuth(SAMLAuth):
             raise AuthFailed(self, "Authentication request is invalid. Missing IdP identifier.")
 
         try:
+            # nosemgrep: idor-lookup-without-org (pre-auth SAML validation, UUID from IdP round-trip)
             organization_domain = OrganizationDomain.objects.verified_domains().get(id=idp_name)
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
             saml_logger.warning(
@@ -281,6 +283,13 @@ class MultitenantSAMLAuth(SAMLAuth):
 class CustomGoogleOAuth2(GoogleOAuth2):
     def auth_extra_arguments(self):
         extra_args = super().auth_extra_arguments()
+        is_reauth = self.strategy.request.GET.get("reauth") == "true"
+        if not is_reauth:
+            prompt_tokens = [token for token in str(extra_args.get("prompt", "")).split() if token]
+            if "select_account" not in prompt_tokens:
+                prompt_tokens.append("select_account")
+            extra_args["prompt"] = " ".join(prompt_tokens)
+
         email = self.strategy.request.GET.get("email")
 
         if email:

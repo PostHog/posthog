@@ -20,6 +20,18 @@
     border-radius: 0;
 }
 
+.CodeEditor__vim-status-bar {
+    input[type='text'] {
+        padding: 0;
+        margin: 0;
+        font: inherit;
+        color: inherit;
+        background: transparent;
+        border: none;
+        outline: none;
+    }
+}
+
 .CodeEditorResizeable,
 .CodeEditorInline {
     .monaco-editor {

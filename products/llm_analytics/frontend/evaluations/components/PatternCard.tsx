@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconCheck, IconMinus, IconX } from '@posthog/icons'
@@ -5,6 +7,7 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { sanitizeTraceUrlSearchParams } from '../../utils'
 import { EvaluationPattern, EvaluationRun } from '../types'
 
 export interface PatternCardProps {
@@ -14,6 +17,8 @@ export interface PatternCardProps {
 }
 
 export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JSX.Element {
+    const { searchParams } = useValues(router)
+    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const borderClass = type === 'pass' ? 'border-success' : type === 'fail' ? 'border-danger' : 'border-muted'
     const iconClass = type === 'pass' ? 'text-success' : type === 'fail' ? 'text-danger' : 'text-muted'
     const Icon = type === 'pass' ? IconCheck : type === 'fail' ? IconX : IconMinus
@@ -35,7 +40,13 @@ export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JS
                             return (
                                 <Tooltip key={genId} title={run.reasoning}>
                                     <Link
-                                        to={urls.llmAnalyticsTrace(run.trace_id, { event: genId, tab: 'evals' })}
+                                        to={
+                                            combineUrl(urls.llmAnalyticsTrace(run.trace_id), {
+                                                ...traceSearchParams,
+                                                event: genId,
+                                                tab: 'evals',
+                                            }).url
+                                        }
                                         className="text-xs font-mono text-primary hover:underline"
                                         data-attr="llma-evaluation-summary-example-link"
                                         onClick={() => {

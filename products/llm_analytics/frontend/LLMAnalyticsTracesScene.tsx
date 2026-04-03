@@ -1,4 +1,5 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -17,9 +18,19 @@ import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDis
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
+import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
+import {
+    formatLLMCost,
+    formatLLMLatency,
+    formatLLMUsage,
+    getTraceTimestamp,
+    normalizeMessages,
+    sanitizeTraceUrlSearchParams,
+} from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
+    useMountedLogic(traceReviewsLazyLoaderLogic)
+
     const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
         useActions(llmAnalyticsSharedLogic)
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
@@ -28,6 +39,7 @@ export function LLMAnalyticsTraces(): JSX.Element {
     return (
         <div data-attr="llm-trace-table">
             <DataTable
+                attachTo={llmAnalyticsSharedLogic}
                 query={{
                     ...tracesQuery,
                     showSavedFilters: true,
@@ -77,7 +89,18 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 title: 'Trace Name',
                 render: TraceNameColumn,
             },
+            review: llmAnalyticsColumnRenderers.review,
+            promptVersion: {
+                title: 'Prompt version',
+                render: PromptVersionColumn,
+            },
+            promptVersionId: {
+                title: 'Prompt version ID',
+                render: PromptVersionIdColumn,
+            },
             person: llmAnalyticsColumnRenderers.person,
+            __llm_sentiment: llmAnalyticsColumnRenderers.__llm_sentiment,
+            __llm_tools: llmAnalyticsColumnRenderers.__llm_tools,
             errors: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
@@ -104,11 +127,19 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
 
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
+    const { searchParams } = useValues(router)
+    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <strong>
             <Tooltip title={row.id}>
                 <Link
-                    to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    to={
+                        combineUrl(urls.llmAnalyticsTrace(row.id), {
+                            ...nonTraceSearchParams,
+                            back_to: 'traces',
+                            timestamp: getTraceTimestamp(row.createdAt),
+                        }).url
+                    }
                     data-attr="trace-id-link"
                 >
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
@@ -120,11 +151,19 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
+    const { searchParams } = useValues(router)
+    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <div className="flex items-center gap-2">
             <strong>
                 <Link
-                    to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    to={
+                        combineUrl(urls.llmAnalyticsTrace(row.id), {
+                            ...nonTraceSearchParams,
+                            back_to: 'traces',
+                            timestamp: getTraceTimestamp(row.createdAt),
+                        }).url
+                    }
                     data-attr="trace-name-link"
                 >
                     {row.traceName || '–'}
@@ -140,6 +179,56 @@ const TimestampColumn: QueryContextColumnComponent = ({ record }) => {
     return <TZLabel time={row.createdAt} />
 }
 TimestampColumn.displayName = 'TimestampColumn'
+
+const PromptVersionColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    const promptVersions = Array.from(
+        new Set(
+            row.events
+                .map((event) => event.properties?.['$ai_prompt_version'])
+                .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
+                .map((value) => String(value))
+                .filter((value) => value.length > 0)
+        )
+    )
+
+    if (promptVersions.length === 0) {
+        return <>–</>
+    }
+
+    const primaryVersion = promptVersions[0]
+
+    return (
+        <Tooltip title={promptVersions.map((version) => `v${version}`).join(', ')}>
+            <span className="block max-w-28 truncate font-mono text-xs">v{primaryVersion}</span>
+        </Tooltip>
+    )
+}
+PromptVersionColumn.displayName = 'PromptVersionColumn'
+
+const PromptVersionIdColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    const promptVersionIds = Array.from(
+        new Set(
+            row.events
+                .map((event) => event.properties?.['$ai_prompt_version_id'])
+                .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        )
+    )
+
+    if (promptVersionIds.length === 0) {
+        return <>–</>
+    }
+
+    const primaryVersionId = promptVersionIds[0]
+
+    return (
+        <Tooltip title={promptVersionIds.join(', ')}>
+            <span className="block max-w-56 truncate font-mono text-xs">{primaryVersionId}</span>
+        </Tooltip>
+    )
+}
+PromptVersionIdColumn.displayName = 'PromptVersionIdColumn'
 
 const LatencyColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
@@ -177,7 +266,13 @@ ErrorsColumn.displayName = 'ErrorsColumn'
 
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    const inputNormalized = normalizeMessages(row.inputState?.messages, 'user')
+    let inputNormalized
+    try {
+        inputNormalized = normalizeMessages(row.inputState?.messages, 'user')
+    } catch (e) {
+        console.warn('Error normalizing trace inputState', e)
+        return <>–</>
+    }
     if (!inputNormalized.length) {
         return <>–</>
     }
@@ -197,7 +292,13 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
             </LemonTag>
         )
     }
-    const outputNormalized = normalizeMessages(row.outputState?.messages, 'assistant')
+    let outputNormalized
+    try {
+        outputNormalized = normalizeMessages(row.outputState?.messages, 'assistant')
+    } catch (e) {
+        console.warn('Error normalizing trace outputState', e)
+        return <>–</>
+    }
     if (!outputNormalized.length) {
         return <>–</>
     }

@@ -99,7 +99,6 @@
                                                                                                          join_algorithm='auto')) SETTINGS readonly=2,
                                                                                                                                           max_execution_time=600,
                                                                                                                                           allow_experimental_object_type=1,
-                                                                                                                                          format_csv_allow_double_quotes=0,
                                                                                                                                           max_ast_elements=4000000,
                                                                                                                                           max_expanded_ast_elements=4000000,
                                                                                                                                           max_bytes_before_external_group_by=0,
@@ -216,9 +215,50 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$new_view'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))), in(aggregation_target,
+                                                                                                                                                                                                                                                                                                                                                              (SELECT aggregation_target AS aggregation_target
+                                                                                                                                                                                                                                                                                                                                                               FROM
+                                                                                                                                                                                                                                                                                                                                                                 (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, '$new_view'), 1, 0) AS step_0, if(equals(e.event, '$new_view'), 1, 0) AS step_1
+                                                                                                                                                                                                                                                                                                                                                                  FROM events AS e
+                                                                                                                                                                                                                                                                                                                                                                  LEFT OUTER JOIN
+                                                                                                                                                                                                                                                                                                                                                                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                     FROM person_distinct_id_overrides
+                                                                                                                                                                                                                                                                                                                                                                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                     GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$new_view'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+                                                                                                                                                                                                                                                                                                                                                               GROUP BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(greater(countIf(ifNull(equals(step_0, 1), 0)), 0), 0), ifNull(greater(countIf(ifNull(equals(step_1, 1), 0)), 0), 0))))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0)
+           UNION ALL SELECT arrayFilter(x -> 0, [tuple(accurateCastOrNull(0, 'Float64'), accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'), '', [0])]) AS events_array,
+                            [''] AS prop,
+                            tuple(0, '', arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [accurateCastOrNull(0, 'Float64')])), arrayMap(x -> arrayFilter(y -> 0, [accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')]), arrayFilter(z -> 0, [1])), 1) AS af_tuple,
+                            0 AS step_reached,
+                            1 AS steps,
+                            '' AS breakdown,
+                            arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [accurateCastOrNull(0, 'Float64')])) AS timings,
+                            1 AS steps_bitfield,
+                            aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$new_view'), 1, 0) AS step_0,
+                     if(equals(e.event, '$new_view'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$new_view'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
-           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+           HAVING and(ifNull(greater(countIf(ifNull(equals(step_0, 1), 0)), 0), 0), ifNull(equals(countIf(ifNull(equals(step_1, 1), 0)), 0), 0)))
         WHERE bitTest(steps_bitfield, 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
      ORDER BY source.id ASC
@@ -226,7 +266,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -350,7 +389,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -466,7 +504,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -522,7 +559,6 @@
                                                join_algorithm='auto')) SETTINGS readonly=2,
                                                                                 max_execution_time=600,
                                                                                 allow_experimental_object_type=1,
-                                                                                format_csv_allow_double_quotes=0,
                                                                                 max_ast_elements=4000000,
                                                                                 max_expanded_ast_elements=4000000,
                                                                                 max_bytes_before_external_group_by=0,
@@ -617,7 +653,6 @@
                                                join_algorithm='auto')) SETTINGS readonly=2,
                                                                                 max_execution_time=600,
                                                                                 allow_experimental_object_type=1,
-                                                                                format_csv_allow_double_quotes=0,
                                                                                 max_ast_elements=4000000,
                                                                                 max_expanded_ast_elements=4000000,
                                                                                 max_bytes_before_external_group_by=0,
@@ -711,7 +746,6 @@
                                                join_algorithm='auto')) SETTINGS readonly=2,
                                                                                 max_execution_time=600,
                                                                                 allow_experimental_object_type=1,
-                                                                                format_csv_allow_double_quotes=0,
                                                                                 max_ast_elements=4000000,
                                                                                 max_expanded_ast_elements=4000000,
                                                                                 max_bytes_before_external_group_by=0,
@@ -818,7 +852,6 @@
                                                join_algorithm='auto')) SETTINGS readonly=2,
                                                                                 max_execution_time=600,
                                                                                 allow_experimental_object_type=1,
-                                                                                format_csv_allow_double_quotes=0,
                                                                                 max_ast_elements=4000000,
                                                                                 max_expanded_ast_elements=4000000,
                                                                                 max_bytes_before_external_group_by=0,
@@ -913,7 +946,6 @@
                                                join_algorithm='auto')) SETTINGS readonly=2,
                                                                                 max_execution_time=600,
                                                                                 allow_experimental_object_type=1,
-                                                                                format_csv_allow_double_quotes=0,
                                                                                 max_ast_elements=4000000,
                                                                                 max_expanded_ast_elements=4000000,
                                                                                 max_bytes_before_external_group_by=0,
@@ -1008,7 +1040,6 @@
                                                join_algorithm='auto')) SETTINGS readonly=2,
                                                                                 max_execution_time=600,
                                                                                 allow_experimental_object_type=1,
-                                                                                format_csv_allow_double_quotes=0,
                                                                                 max_ast_elements=4000000,
                                                                                 max_expanded_ast_elements=4000000,
                                                                                 max_bytes_before_external_group_by=0,
@@ -1087,7 +1118,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -1162,9 +1192,50 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))), in(aggregation_target,
+                                                                                                                                                                                                                                                                                                                                                              (SELECT aggregation_target AS aggregation_target
+                                                                                                                                                                                                                                                                                                                                                               FROM
+                                                                                                                                                                                                                                                                                                                                                                 (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, '$pageview'), 1, 0) AS step_0, if(equals(e.event, '$pageview'), 1, 0) AS step_1
+                                                                                                                                                                                                                                                                                                                                                                  FROM events AS e
+                                                                                                                                                                                                                                                                                                                                                                  LEFT OUTER JOIN
+                                                                                                                                                                                                                                                                                                                                                                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                     FROM person_distinct_id_overrides
+                                                                                                                                                                                                                                                                                                                                                                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                     GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+                                                                                                                                                                                                                                                                                                                                                               GROUP BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(greater(countIf(ifNull(equals(step_0, 1), 0)), 0), 0), ifNull(greater(countIf(ifNull(equals(step_1, 1), 0)), 0), 0))))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0)
+           UNION ALL SELECT arrayFilter(x -> 0, [tuple(accurateCastOrNull(0, 'Float64'), accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'), '', [0])]) AS events_array,
+                            [''] AS prop,
+                            tuple(0, '', arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [accurateCastOrNull(0, 'Float64')])), arrayMap(x -> arrayFilter(y -> 0, [accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')]), arrayFilter(z -> 0, [1])), 1) AS af_tuple,
+                            0 AS step_reached,
+                            1 AS steps,
+                            '' AS breakdown,
+                            arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [accurateCastOrNull(0, 'Float64')])) AS timings,
+                            1 AS steps_bitfield,
+                            aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_0,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
-           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+           HAVING and(ifNull(greater(countIf(ifNull(equals(step_0, 1), 0)), 0), 0), ifNull(equals(countIf(ifNull(equals(step_1, 1), 0)), 0), 0)))
         WHERE bitTest(steps_bitfield, 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
      ORDER BY source.id ASC
@@ -1172,7 +1243,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -1263,9 +1333,50 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))), in(aggregation_target,
+                                                                                                                                                                                                                                                                                                                                                              (SELECT aggregation_target AS aggregation_target
+                                                                                                                                                                                                                                                                                                                                                               FROM
+                                                                                                                                                                                                                                                                                                                                                                 (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, '$pageview'), 1, 0) AS step_0, if(equals(e.event, '$pageview'), 1, 0) AS step_1
+                                                                                                                                                                                                                                                                                                                                                                  FROM events AS e
+                                                                                                                                                                                                                                                                                                                                                                  LEFT OUTER JOIN
+                                                                                                                                                                                                                                                                                                                                                                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                     FROM person_distinct_id_overrides
+                                                                                                                                                                                                                                                                                                                                                                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                     GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+                                                                                                                                                                                                                                                                                                                                                               GROUP BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(greater(countIf(ifNull(equals(step_0, 1), 0)), 0), 0), ifNull(greater(countIf(ifNull(equals(step_1, 1), 0)), 0), 0))))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0)
+           UNION ALL SELECT arrayFilter(x -> 0, [tuple(accurateCastOrNull(0, 'Float64'), accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'), '', [0])]) AS events_array,
+                            [''] AS prop,
+                            tuple(0, '', arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [accurateCastOrNull(0, 'Float64')])), arrayMap(x -> arrayFilter(y -> 0, [accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')]), arrayFilter(z -> 0, [1])), 1) AS af_tuple,
+                            0 AS step_reached,
+                            1 AS steps,
+                            '' AS breakdown,
+                            arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [accurateCastOrNull(0, 'Float64')])) AS timings,
+                            1 AS steps_bitfield,
+                            aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_0,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
-           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+           HAVING and(ifNull(greater(countIf(ifNull(equals(step_0, 1), 0)), 0), 0), ifNull(equals(countIf(ifNull(equals(step_1, 1), 0)), 0), 0)))
         WHERE bitTest(steps_bitfield, 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
      ORDER BY source.id ASC
@@ -1291,7 +1402,6 @@
      LIMIT 1000000000) SETTINGS readonly=2,
                                 max_execution_time=600,
                                 allow_experimental_object_type=1,
-                                format_csv_allow_double_quotes=0,
                                 max_ast_elements=4000000,
                                 max_expanded_ast_elements=4000000,
                                 max_bytes_before_external_group_by=0,
@@ -1387,9 +1497,50 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))), in(aggregation_target,
+                                                                                                                                                                                                                                                                                                                                                              (SELECT aggregation_target AS aggregation_target
+                                                                                                                                                                                                                                                                                                                                                               FROM
+                                                                                                                                                                                                                                                                                                                                                                 (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, '$pageview'), 1, 0) AS step_0, if(equals(e.event, '$pageview'), 1, 0) AS step_1
+                                                                                                                                                                                                                                                                                                                                                                  FROM events AS e
+                                                                                                                                                                                                                                                                                                                                                                  LEFT OUTER JOIN
+                                                                                                                                                                                                                                                                                                                                                                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                     FROM person_distinct_id_overrides
+                                                                                                                                                                                                                                                                                                                                                                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                     GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+                                                                                                                                                                                                                                                                                                                                                               GROUP BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(greater(countIf(ifNull(equals(step_0, 1), 0)), 0), 0), ifNull(greater(countIf(ifNull(equals(step_1, 1), 0)), 0), 0))))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0)
+           UNION ALL SELECT arrayFilter(x -> 0, [tuple(accurateCastOrNull(0, 'Float64'), accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'), '', [0])]) AS events_array,
+                            [''] AS prop,
+                            tuple(0, '', arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [accurateCastOrNull(0, 'Float64')])), arrayMap(x -> arrayFilter(y -> 0, [accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')]), arrayFilter(z -> 0, [1])), 1) AS af_tuple,
+                            0 AS step_reached,
+                            1 AS steps,
+                            '' AS breakdown,
+                            arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [accurateCastOrNull(0, 'Float64')])) AS timings,
+                            1 AS steps_bitfield,
+                            aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_0,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
-           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+           HAVING and(ifNull(greater(countIf(ifNull(equals(step_0, 1), 0)), 0), 0), ifNull(equals(countIf(ifNull(equals(step_1, 1), 0)), 0), 0)))
         WHERE bitTest(steps_bitfield, 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
      ORDER BY source.id ASC
@@ -1429,7 +1580,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -1533,7 +1683,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -1617,7 +1766,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -1712,7 +1860,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -1877,7 +2024,6 @@
                                                                                                          join_algorithm='auto')) SETTINGS readonly=2,
                                                                                                                                           max_execution_time=600,
                                                                                                                                           allow_experimental_object_type=1,
-                                                                                                                                          format_csv_allow_double_quotes=0,
                                                                                                                                           max_ast_elements=4000000,
                                                                                                                                           max_expanded_ast_elements=4000000,
                                                                                                                                           max_bytes_before_external_group_by=0,
@@ -2007,7 +2153,6 @@
                                                join_algorithm='auto')) SETTINGS readonly=2,
                                                                                 max_execution_time=600,
                                                                                 allow_experimental_object_type=1,
-                                                                                format_csv_allow_double_quotes=0,
                                                                                 max_ast_elements=4000000,
                                                                                 max_expanded_ast_elements=4000000,
                                                                                 max_bytes_before_external_group_by=0,
@@ -2079,7 +2224,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -2119,7 +2263,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -2183,7 +2326,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -2225,7 +2367,6 @@
      LIMIT 1000000000) SETTINGS readonly=2,
                                 max_execution_time=600,
                                 allow_experimental_object_type=1,
-                                format_csv_allow_double_quotes=0,
                                 max_ast_elements=4000000,
                                 max_expanded_ast_elements=4000000,
                                 max_bytes_before_external_group_by=0,
@@ -2291,7 +2432,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -2378,7 +2518,6 @@
                                                join_algorithm='auto')) SETTINGS readonly=2,
                                                                                 max_execution_time=600,
                                                                                 allow_experimental_object_type=1,
-                                                                                format_csv_allow_double_quotes=0,
                                                                                 max_ast_elements=4000000,
                                                                                 max_expanded_ast_elements=4000000,
                                                                                 max_bytes_before_external_group_by=0,
@@ -2480,7 +2619,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,
@@ -2571,7 +2709,6 @@
                                join_algorithm='auto') SETTINGS readonly=2,
                                                                max_execution_time=600,
                                                                allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
                                                                max_ast_elements=4000000,
                                                                max_expanded_ast_elements=4000000,
                                                                max_bytes_before_external_group_by=0,

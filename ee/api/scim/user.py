@@ -1,12 +1,13 @@
 from typing import Optional, Union
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from django_scim import constants
 from django_scim.adapters import SCIMUser
 from scim2_filter_parser.attr_paths import AttrPath
 
-from posthog.models import OrganizationMembership, User
+from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.rbac.role import RoleMembership
@@ -15,6 +16,19 @@ from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 class SCIMUserConflict(Exception):
     """User is already SCIM-provisioned for this organization domain."""
+
+
+def _validate_email_domain_is_verified(email: str, organization: Organization) -> None:
+    """Ensure email domain matches any verified domain for the organization. Prevents cross-tenant user adoption."""
+    email_domain = email.split("@")[1].lower()
+    verified_domains = set(
+        OrganizationDomain.objects.filter(
+            organization=organization,
+            verified_at__isnull=False,
+        ).values_list("domain", flat=True)
+    )
+    if email_domain not in {d.lower() for d in verified_domains}:
+        raise ValueError(f"Email domain '{email_domain}' does not match any verified domain for this organization")
 
 
 class PostHogSCIMUser(SCIMUser):
@@ -166,12 +180,19 @@ class PostHogSCIMUser(SCIMUser):
                 raise SCIMUserConflict()
 
             if user:
+                is_member = OrganizationMembership.objects.filter(
+                    user=user, organization=organization_domain.organization
+                ).exists()
+                if not is_member:
+                    _validate_email_domain_is_verified(email, organization_domain.organization)
+
                 if first_name:
                     user.first_name = first_name
                 if last_name:
                     user.last_name = last_name
                 user.save()
             else:
+                _validate_email_domain_is_verified(email, organization_domain.organization)
                 # Create new user with no password (they'll use SAML)
                 user = User.objects.create_user(
                     email=email, password=None, first_name=first_name, last_name=last_name, is_email_verified=True
@@ -221,6 +242,10 @@ class PostHogSCIMUser(SCIMUser):
             existing_user_with_email = User.objects.filter(email__iexact=email).exclude(id=self.obj.id).first()
             if existing_user_with_email:
                 raise ValueError("Email belongs to another user")
+
+            _validate_email_domain_is_verified(email, self._organization_domain.organization)
+            # Org must also own the current email domain to prevent cross-tenant account takeover
+            _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
 
             self.obj.first_name = name_data.get("givenName", "")
             self.obj.last_name = name_data.get("familyName", "")
@@ -325,6 +350,9 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
+                    _validate_email_domain_is_verified(email, self._organization_domain.organization)
+                    # Org must also own the current email domain to prevent cross-tenant account takeover
+                    _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
                     self.obj.email = email
 
             elif attr_name == "userName" and isinstance(value, str):
@@ -386,6 +414,9 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
+                    _validate_email_domain_is_verified(email, self._organization_domain.organization)
+                    # Org must also own the current email domain to prevent cross-tenant account takeover
+                    _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
                     self.obj.email = email
                     self.obj.save()
 
@@ -427,9 +458,7 @@ class PostHogSCIMUser(SCIMUser):
                 raise ValueError("Email is required and cannot be removed")
 
     @classmethod
-    def get_for_organization(cls, organization_domain: OrganizationDomain) -> list["PostHogSCIMUser"]:
-        """
-        Get all users for a specific organization domain.
-        """
-        users = User.objects.filter(organization_membership__organization=organization_domain.organization)
-        return [cls(user, organization_domain) for user in users]
+    def get_queryset_for_organization(cls, organization_domain: OrganizationDomain) -> QuerySet[User]:
+        return User.objects.filter(organization_membership__organization=organization_domain.organization).order_by(
+            "id"
+        )

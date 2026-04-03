@@ -24,7 +24,11 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
+from posthog.taxonomy.taxonomy import (
+    CORE_FILTER_DEFINITIONS_BY_GROUP,
+    PROPERTY_NAME_ALIASES,
+    PROPERTY_NAME_ALIASES_BY_TYPE,
+)
 
 tracer = trace.get_tracer(__name__)
 
@@ -99,6 +103,13 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=False,
     )
 
+    verified = serializers.BooleanField(
+        help_text="Filter by verified status. True returns only verified, false returns only unverified.",
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
     def validate(self, attrs):
         type_ = attrs.get("type", "event")
 
@@ -139,6 +150,8 @@ class QueryContext:
     event_name_filter: str = ""
     is_feature_flag_filter: str = ""
     excluded_properties_filter: str = ""
+
+    order_by_search_relevance: bool = False
 
     event_property_join_type: str = ""
     event_property_field: str = "NULL"
@@ -254,10 +267,11 @@ class QueryContext:
             params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
-    def with_search(self, search_query: str, search_kwargs: dict) -> Self:
+    def with_search(self, search_query: str, search_kwargs: dict, order_by_search_relevance: bool = False) -> Self:
         return dataclasses.replace(
             self,
             search_query=search_query,
+            order_by_search_relevance=order_by_search_relevance,
             params={**self.params, "project_id": self.project_id, **search_kwargs},
         )
 
@@ -305,6 +319,22 @@ class QueryContext:
             )
         return self
 
+    def with_verified_filter(self, verified: Optional[bool], use_enterprise_taxonomy: bool) -> Self:
+        if verified is not None and use_enterprise_taxonomy:
+            if verified:
+                verified_filter = " AND verified = true"
+            else:
+                verified_filter = " AND (verified IS NULL OR verified = false)"
+            return dataclasses.replace(
+                self,
+                excluded_properties_filter=(
+                    self.excluded_properties_filter + verified_filter
+                    if self.excluded_properties_filter
+                    else verified_filter
+                ),
+            )
+        return self
+
     def with_hidden_filter(self, exclude_hidden: bool, use_enterprise_taxonomy: bool) -> Self:
         if exclude_hidden and use_enterprise_taxonomy:
             hidden_filter = " AND (hidden IS NULL OR hidden = false)"
@@ -320,6 +350,9 @@ class QueryContext:
 
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
+        length_ordering = (
+            f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
+        )
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
@@ -330,7 +363,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT %(limit)s OFFSET %(offset)s
             """
 
@@ -365,18 +398,16 @@ class QueryContext:
         )
 
 
-def add_name_alias_to_search_query(search_term: str):
+def add_name_alias_to_search_query(search_term: str, prop_type: str = "event"):
     if not search_term:
         return ""
 
     normalised_search_term = search_term.lower()
     search_words = normalised_search_term.split()
 
-    entries = [
-        f"'{key}'"
-        for (key, value) in PROPERTY_NAME_ALIASES.items()
-        if all(word in value.lower() for word in search_words)
-    ]
+    aliases = PROPERTY_NAME_ALIASES_BY_TYPE.get(prop_type, PROPERTY_NAME_ALIASES)
+
+    entries = [f"'{key}'" for (key, value) in aliases.items() if all(word in value.lower() for word in search_words)]
 
     if not entries:
         return ""
@@ -536,12 +567,33 @@ class PropertyDefinitionViewSet(
         {
             "id": "$builtin_" + key,
             "name": key,
+            "description": val.get("description", ""),
             "is_numerical": val["type"] == "Numeric",
             "property_type": val["type"],
             "tags": val.get("tags", []),
+            "is_seen_on_filtered_events": None,
+            "verified": False,
+            "hidden": False,
             "virtual": True,
         }
         for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"].items()
+        if val.get("virtual", False)
+    ]
+
+    _BUILTIN_VIRTUAL_EVENT_PROPERTIES = [
+        {
+            "id": "$builtin_" + key,
+            "name": key,
+            "description": val.get("description", ""),
+            "is_numerical": val["type"] == "Numeric",
+            "property_type": val["type"],
+            "tags": val.get("tags", []),
+            "is_seen_on_filtered_events": None,
+            "verified": False,
+            "hidden": False,
+            "virtual": True,
+        }
+        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
         if val.get("virtual", False)
     ]
 
@@ -549,9 +601,13 @@ class PropertyDefinitionViewSet(
         {
             "id": "$builtin_" + key,
             "name": key,
+            "description": val.get("description", ""),
             "is_numerical": val["type"] == "Numeric",
             "property_type": val["type"],
             "tags": val.get("tags", []),
+            "is_seen_on_filtered_events": None,
+            "verified": False,
+            "hidden": False,
             "virtual": True,
         }
         for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["groups"].items()
@@ -614,7 +670,7 @@ class PropertyDefinitionViewSet(
             span.set_attribute("limit", limit or 0)
             span.set_attribute("offset", offset or 0)
 
-            search_extra = add_name_alias_to_search_query(search)
+            search_extra = add_name_alias_to_search_query(search, prop_type)
 
             if prop_type == "person":
                 search_extra += add_latest_means_not_initial(search)
@@ -645,7 +701,11 @@ class PropertyDefinitionViewSet(
                     event_names=event_names,
                     filter_by_event_names=filter_by_event_names,
                 )
-                .with_search(search_query, search_kwargs)
+                .with_search(
+                    search_query,
+                    search_kwargs,
+                    order_by_search_relevance=bool(search and search.strip()),
+                )
                 .with_excluded_properties(query.validated_data.get("excluded_properties"))
                 .with_excluded_core_properties(
                     query.validated_data.get("exclude_core_properties", False),
@@ -654,6 +714,7 @@ class PropertyDefinitionViewSet(
                 .with_hidden_filter(
                     query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=EE_AVAILABLE
                 )
+                .with_verified_filter(query.validated_data.get("verified"), use_enterprise_taxonomy=EE_AVAILABLE)
             )
 
             span.set_attribute("joins_event_property", query_context.should_join_event_property)
@@ -714,19 +775,20 @@ class PropertyDefinitionViewSet(
 
         event_type = request.query_params.get("type", "event")
 
-        # Inject virtual person/group properties to the end of the results
-        if event_type in ["person", "group"]:
+        # Inject virtual event/person/group properties to the end of the results
+        if event_type in ["event", "person", "group"]:
             paginator = self.paginator
             assert isinstance(paginator, NotCountingLimitOffsetPaginator)
 
             query = PropertyDefinitionQuerySerializer(data=request.query_params)
             query.is_valid(raise_exception=True)
 
-            virtual_properties = (
-                self._BUILTIN_VIRTUAL_PERSON_PROPERTIES
-                if event_type == "person"
-                else self._BUILTIN_VIRTUAL_GROUP_PROPERTIES
-            )
+            if event_type == "event":
+                virtual_properties = self._BUILTIN_VIRTUAL_EVENT_PROPERTIES
+            elif event_type == "person":
+                virtual_properties = self._BUILTIN_VIRTUAL_PERSON_PROPERTIES
+            else:
+                virtual_properties = self._BUILTIN_VIRTUAL_GROUP_PROPERTIES
 
             matching_virtual_props = [p for p in virtual_properties if self._filter_virtual_property(p, query)]
 
@@ -747,8 +809,13 @@ class PropertyDefinitionViewSet(
         # Reimplement filtering logic in python for virtual properties
         v = q.validated_data
 
-        # Virtual properties only exist for person and groups
-        if v.get("type") not in ["person", "group"]:
+        # Virtual properties exist for events, persons, and groups
+        if v.get("type") not in ["event", "person", "group"]:
+            return False
+
+        # Virtual properties don't have real event associations, so exclude them
+        # when filtering by event names
+        if v.get("filter_by_event_names"):
             return False
 
         # explicit name filter  (?properties=a,b,c)
@@ -776,7 +843,8 @@ class PropertyDefinitionViewSet(
             words = search.split()
             if not all(w in prop["name"].lower() for w in words):
                 # fall back to alias match
-                alias = PROPERTY_NAME_ALIASES.get(prop["name"])
+                aliases = PROPERTY_NAME_ALIASES_BY_TYPE.get(v.get("type", "event"), PROPERTY_NAME_ALIASES)
+                alias = aliases.get(prop["name"])
                 if not (alias and all(w in alias.lower() for w in words)):
                     return False
 
@@ -821,11 +889,12 @@ class PropertyDefinitionViewSet(
         instance: PropertyDefinition = self.get_object()
         instance_id = str(instance.id)
         self.perform_destroy(instance)
-        # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "property definition deleted",
             {"name": instance.name, "type": instance.get_type_display()},
+            team=self.team,
+            request=request,
         )
 
         log_activity(

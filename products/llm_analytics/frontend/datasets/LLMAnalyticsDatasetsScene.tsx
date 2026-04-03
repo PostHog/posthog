@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -28,6 +29,8 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
     const { setFilters, deleteDataset } = useActions(llmAnalyticsDatasetsLogic)
     const { datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
         useValues(llmAnalyticsDatasetsLogic)
+    const { searchParams } = useValues(router)
+    const datasetUrl = (id: string): string => combineUrl(urls.llmAnalyticsDataset(id), searchParams).url
 
     const columns: LemonTableColumns<Dataset> = [
         {
@@ -37,7 +40,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             width: '20%',
             render: function renderName(_, dataset) {
                 return (
-                    <Link to={urls.llmAnalyticsDataset(dataset.id)} data-testid="dataset-link">
+                    <Link to={datasetUrl(dataset.id)} data-testid="dataset-link">
                         {dataset.name}
                     </Link>
                 )
@@ -74,7 +77,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    to={urls.llmAnalyticsDataset(dataset.id)}
+                                    to={datasetUrl(dataset.id)}
                                     data-attr={`dataset-item-${dataset.id}-dropdown-view`}
                                     fullWidth
                                 >
@@ -115,7 +118,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                     >
                         <LemonButton
                             type="primary"
-                            to={urls.llmAnalyticsDataset('new')}
+                            to={datasetUrl('new')}
                             data-testid="create-dataset-button"
                             data-attr="create-dataset-button"
                             size="small"

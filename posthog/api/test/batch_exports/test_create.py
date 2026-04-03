@@ -7,6 +7,7 @@ import pytest
 from unittest import mock
 
 from django.conf import settings
+from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from asgiref.sync import async_to_sync
@@ -297,11 +298,11 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     next_run_local = next_run.astimezone(tz)
     jitter = batch_export.jitter
 
-    # Assert time between runs is roughly the interval time delta
-    min_expected_time_diff = batch_export.interval_time_delta.total_seconds() - jitter.total_seconds()
-    max_expected_time_diff = batch_export.interval_time_delta.total_seconds() + jitter.total_seconds()
-    assert abs((next_run_2 - next_run).total_seconds()) >= min_expected_time_diff
-    assert abs((next_run_2 - next_run).total_seconds()) <= max_expected_time_diff
+    # Assert time between runs is roughly the interval time delta.
+    # For daily/weekly intervals, DST transitions can shift the UTC difference by up to 1 hour.
+    next_run_2_local = next_run_2.astimezone(tz)
+    dst_shift = abs((next_run_2_local.utcoffset() or dt.timedelta(0)) - (next_run_local.utcoffset() or dt.timedelta(0)))
+    assert abs((next_run_2 - next_run) - batch_export.interval_time_delta) <= jitter + dst_shift
 
     if interval == "day":
         # For daily exports, check that it runs at the expected hour (based on offset_hour)
@@ -515,11 +516,11 @@ def test_create_batch_export_with_custom_schema(client: HttpClient, temporal, or
             "JOINs are not supported",
         ),
         ("SELECT event FROM events UNION ALL SELECT event FROM events", "UNIONs are not supported"),
-        ("WITH cte AS (SELECT event FROM events) SELECT event FROM cte", "Subqueries or CTEs are not supported"),
-        ("SELECT event FROM (SELECT event FROM events)", "Subqueries or CTEs are not supported"),
+        ("WITH cte AS (SELECT event FROM events) SELECT event FROM cte", "CTEs are not supported"),
+        ("SELECT event FROM (SELECT event FROM events)", "Subqueries are not supported"),
         (
             "SELECT event FROM (SELECT event FROM events UNION ALL SELECT event FROM events)",
-            "Subqueries or CTEs are not supported",
+            "Subqueries are not supported",
         ),
         (
             "SELECT uuid, (SELECT event FROM events LIMIT 1) AS leaked FROM events",
@@ -753,7 +754,7 @@ def test_create_redshift_batch_export_validates_copy_inputs(
             "user": "user",
             "password": "my-password",
             "database": "my-db",
-            "host": "test",
+            "host": "localhost",
             "schema": "public",
             "table_name": "my_events",
             "mode": mode,
@@ -870,7 +871,7 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
         assert response.json()["detail"] == expected_error_message
 
 
-def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
+def test_create_s3_batch_export_validates_empty_inputs(client: HttpClient, temporal, organization, team, user):
     """Test creating a BatchExport with S3 destination validates that expected inputs are not empty."""
 
     destination_data = {
@@ -902,6 +903,53 @@ def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, tem
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "The following inputs are empty: ['aws_access_key_id', 'aws_secret_access_key']"
+
+
+def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
+    """Test creating a BatchExport with S3 destination validates that expected inputs are not missing."""
+
+    config = {
+        "bucket_name": "my-s3-bucket",
+        "region": "us-east-1",
+        "prefix": "events/",
+        "aws_access_key_id": "something",
+        "aws_secret_access_key": "something",
+        "file_format": "JSONLines",
+        "compression": "gzip",
+    }
+
+    client.force_login(user)
+
+    for key in ("aws_access_key_id", "aws_secret_access_key"):
+        # Check that we validate each key missing invidually first
+        destination_data = {"type": "S3", "config": {k: v for k, v in config.items() if k != key}}
+
+        data = {
+            "name": "my-s3-bucket",
+            "destination": destination_data,
+            "interval": "hour",
+        }
+
+        response = create_batch_export(
+            client,
+            team.pk,
+            data,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, key
+        assert response.json()["detail"] == f"Configuration missing required field: '{key}'"
+
+    response_missing_both = create_batch_export(
+        client,
+        team.pk,
+        {
+            "name": "my-s3-bucket",
+            "destination": {k: v for k, v in destination_data.items() if k != "aws_secret_access_key"},
+            "interval": "hour",
+        },
+    )
+
+    assert response_missing_both.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.parametrize(
@@ -939,7 +987,7 @@ def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, tem
             {
                 "user": "test",
                 "password": "password",
-                "host": "host",
+                "host": "localhost",
                 "database": "db",
                 "schema": None,  # Not optional
                 "table_name": "test",
@@ -1001,28 +1049,8 @@ def databricks_integration(team, user):
     )
 
 
-@pytest.fixture
-def enable_databricks(team):
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
-    ) as feature_enabled:
-        yield
-        feature_enabled.assert_any_call(
-            "databricks-batch-exports",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
-
-
 def test_creating_databricks_batch_export_using_integration(
-    client: HttpClient, temporal, organization, team, user, databricks_integration, enable_databricks
+    client: HttpClient, temporal, organization, team, user, databricks_integration
 ):
     """Test that we can create a Databricks batch export using an integration.
 
@@ -1067,42 +1095,8 @@ def test_creating_databricks_batch_export_using_integration(
     assert schedule.schedule.action.workflow == "databricks-export"
 
 
-def test_creating_databricks_batch_export_fails_if_feature_flag_is_not_enabled(
-    client: HttpClient, temporal, organization, team, user, databricks_integration
-):
-    """Test that creating a Databricks batch export fails if the feature flag is not enabled."""
-
-    destination_data = {
-        "type": "Databricks",
-        "config": {
-            "http_path": "my-http-path",
-            "catalog": "my-catalog",
-            "schema": "my-schema",
-            "table_name": "my-table-name",
-        },
-        "integration": databricks_integration.id,
-    }
-
-    batch_export_data = {
-        "name": "my-databricks-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-    assert "The Databricks destination is not enabled for this team." in response.json()["detail"]
-
-
 def test_creating_databricks_batch_export_fails_if_integration_is_missing(
-    client: HttpClient, temporal, organization, team, user, enable_databricks
+    client: HttpClient, temporal, organization, team, user
 ):
     """Test that creating a Databricks batch export fails if the integration is missing.
 
@@ -1142,7 +1136,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_missing(
 
 
 def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
-    client: HttpClient, temporal, organization, team, user, enable_databricks
+    client: HttpClient, temporal, organization, team, user
 ):
     """Test that creating a Databricks batch export fails if the integration is invalid.
 
@@ -1234,7 +1228,7 @@ def test_creating_databricks_batch_export_fails_if_integration_does_not_exist(
 
 
 def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correct_type(
-    client: HttpClient, temporal, organization, team, user, enable_databricks
+    client: HttpClient, temporal, organization, team, user
 ):
     """Test that creating a Databricks batch export fails if the integration is not the correct type.
 
@@ -1279,41 +1273,6 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     assert response.json()["detail"] == "Integration is not a Databricks integration."
 
 
-def test_creating_azure_blob_batch_export_fails_if_feature_flag_is_not_enabled(
-    client: HttpClient,
-    team,
-    user,
-):
-    """Test that creating an Azure Blob batch export fails if the feature flag is not enabled."""
-    destination_data = {
-        "type": "AzureBlob",
-        "config": {
-            "container_name": "test-container",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-azure-blob-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=False,
-    ):
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-    assert "Azure Blob Storage batch exports are not enabled for this team." in response.json()["detail"]
-
-
 @pytest.fixture
 def azure_blob_integration(team, user):
     """Create an Azure Blob integration."""
@@ -1350,15 +1309,11 @@ def test_creating_azure_blob_batch_export_using_integration(
 
     client.force_login(user)
 
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=True,
-    ):
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
 
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -1547,7 +1502,7 @@ def test_creating_workflows_batch_export(
     destination_data = {
         "type": "Workflows",
         "config": {
-            "topic": "my-topic",
+            "hog_function_id": "aaaa-bbbb-cccc",
         },
         "integration": None,
     }
@@ -1582,7 +1537,7 @@ def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
     destination_data = {
         "type": "Workflows",
         "config": {
-            "topic": "my-topic",
+            "hog_function_id": "aaaa-bbbb-cccc",
         },
         "integration": None,
     }
@@ -1603,3 +1558,104 @@ def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
 
     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
     assert "Backfilling Workflows is not enabled for this team." in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "endpoint_url",
+    [
+        "https://192.168.1.1",
+        "http://127.0.0.1",
+        "http://[::1]/",
+        "http://10.0.0.1:9000/",
+        "http://169.254.0.0:8080/data",
+        "http://localhost",
+    ],
+)
+def test_creating_S3_batch_export_fails_if_using_invalid_endpoint_url(
+    client: HttpClient, temporal, organization, team, user, endpoint_url
+):
+    """Test that creating an S3 batch export fails if passing an internal IP as endpoint URL.
+
+    Last time I checked, we are not S3.
+    """
+
+    interval = "hour"
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+            "use_virtual_style_addressing": True,
+            "endpoint_url": endpoint_url,
+        },
+        "integration": None,
+    }
+
+    batch_export_data: dict[str, t.Any] = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": interval,
+    }
+    client.force_login(user)
+
+    with override_settings(TEST=0, DEBUG=0):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert f"Invalid endpoint_url: '{endpoint_url}'" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "192.168.1.1",
+        "127.0.0.1",
+        "[::1]",
+        "10.0.0.1",
+        "169.254.0.0",
+        "localhost",
+    ],
+)
+def test_create_redshift_or_postgres_batch_export_fails_with_invalid_host(
+    client: HttpClient, temporal, organization, team, user, host
+):
+    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'."""
+
+    for type in ("Redshift", "Postgres"):
+        destination_data = {
+            "type": type,
+            "config": {
+                "user": "user",
+                "password": "my-password",
+                "database": "my-db",
+                "host": host,
+                "schema": "public",
+                "table_name": "my_events",
+            },
+        }
+
+        batch_export_data = {
+            "name": "my-production-destination",
+            "destination": destination_data,
+            "interval": "hour",
+        }
+
+        client.force_login(user)
+
+        with override_settings(TEST=0, DEBUG=0):
+            response = create_batch_export(
+                client,
+                team.pk,
+                batch_export_data,
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert f"Invalid host: '{host}'" in response.json()["detail"]

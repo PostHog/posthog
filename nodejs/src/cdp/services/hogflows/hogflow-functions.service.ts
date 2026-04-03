@@ -81,6 +81,7 @@ export class HogFlowFunctionsService {
                 globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globalsWithSource),
                 timings: [],
                 attempts: 0,
+                actionId: invocation.state.currentAction?.id,
             },
         }
 

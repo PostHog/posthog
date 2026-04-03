@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
-from kafka.errors import KafkaError
 
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
@@ -177,9 +176,8 @@ async def test_should_produce_table_with_leading_underscore_source_prefix(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
-async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, mock_kafka_producer_class, team):
+async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -199,7 +197,9 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, mock_kafka_p
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer_class.return_value = mock_kafka_producer
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     test_data = pa.table({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})
     parquet_buffer = BytesIO()
@@ -215,24 +215,26 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, mock_kafka_p
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
-    with patch.object(producer, "_get_fs", return_value=mock_fs):
+    with (
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+    ):
         await producer.produce_to_kafka_from_s3()
 
     assert mock_kafka_producer.produce.call_count == 6
-    mock_kafka_producer.flush.assert_called()
+    assert mock_kafka_producer.flush.call_count == 2
     assert mock_fs.delete_file.call_count == 2
 
-    first_call_data = mock_kafka_producer.produce.call_args_list[0][1]["data"]
-    assert first_call_data["team_id"] == team.id
-    assert "properties" in first_call_data
-    assert "id" in first_call_data["properties"]
+    first_call_kwargs = mock_kafka_producer.produce.call_args_list[0][1]
+    assert first_call_kwargs["data"]["team_id"] == team.id
+    assert "properties" in first_call_kwargs["data"]
+    assert "id" in first_call_kwargs["data"]["properties"]
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
-async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, mock_kafka_producer_class, team):
+async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -249,12 +251,17 @@ async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, mock_k
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer_class.return_value = mock_kafka_producer
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     mock_fs = MagicMock()
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
-    with patch.object(producer, "_get_fs", return_value=mock_fs):
+    with (
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+    ):
         await producer.produce_to_kafka_from_s3()
 
     mock_kafka_producer.produce.assert_not_called()
@@ -262,12 +269,9 @@ async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, mock_k
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
-async def test_produce_to_kafka_from_s3_kafka_failure(
-    mock_capture_exception, mock_get_s3_client, mock_kafka_producer_class, team
-):
+async def test_produce_to_kafka_from_s3_kafka_failure(mock_capture_exception, mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -284,8 +288,9 @@ async def test_produce_to_kafka_from_s3_kafka_failure(
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer.produce.side_effect = KafkaError("Kafka connection failed")
-    mock_kafka_producer_class.return_value = mock_kafka_producer
+    mock_kafka_producer.produce = mock.AsyncMock(side_effect=Exception("Kafka connection failed"))
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     test_data = pa.table({"id": [1], "name": ["Alice"]})
     parquet_buffer = BytesIO()
@@ -301,7 +306,10 @@ async def test_produce_to_kafka_from_s3_kafka_failure(
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
-    with patch.object(producer, "_get_fs", return_value=mock_fs):
+    with (
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+    ):
         await producer.produce_to_kafka_from_s3()
 
     mock_capture_exception.assert_called_once()
@@ -310,12 +318,9 @@ async def test_produce_to_kafka_from_s3_kafka_failure(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
-async def test_produce_to_kafka_from_s3_s3_read_failure(
-    mock_capture_exception, mock_get_s3_client, mock_kafka_producer_class, team
-):
+async def test_produce_to_kafka_from_s3_s3_read_failure(mock_capture_exception, mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -332,7 +337,9 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer_class.return_value = mock_kafka_producer
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     mock_fs = MagicMock()
     mock_fs.open_input_file.side_effect = Exception("S3 read failed")
@@ -340,7 +347,10 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
-    with patch.object(producer, "_get_fs", return_value=mock_fs):
+    with (
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+    ):
         await producer.produce_to_kafka_from_s3()
 
     mock_capture_exception.assert_called_once()
@@ -350,9 +360,8 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
-async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, mock_kafka_producer_class, team):
+async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -369,7 +378,9 @@ async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, moc
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer_class.return_value = mock_kafka_producer
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     test_data = pa.table({"id": list(range(15000)), "value": [f"val_{i}" for i in range(15000)]})
     parquet_buffer = BytesIO()
@@ -385,11 +396,14 @@ async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, moc
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
-    with patch.object(producer, "_get_fs", return_value=mock_fs):
+    with (
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+    ):
         await producer.produce_to_kafka_from_s3()
 
     assert mock_kafka_producer.produce.call_count == 15000
-    mock_kafka_producer.flush.assert_called()
+    mock_kafka_producer.flush.assert_called_once()
     mock_fs.delete_file.assert_called_once()
 
 

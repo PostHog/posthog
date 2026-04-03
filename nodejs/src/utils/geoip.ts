@@ -5,7 +5,6 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { PluginsServerConfig } from '../types'
 import { isTestEnv } from './env-utils'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
@@ -36,7 +35,7 @@ export class GeoIPService {
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
 
-    constructor(private config: PluginsServerConfig) {
+    constructor(private mmdbFileLocation: string) {
         logger.info('🌎', 'GeoIPService created')
         // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
         // We should rely on that instead
@@ -51,7 +50,10 @@ export class GeoIPService {
             this._initialMmdbPromise = this.loadMmdb('initial')
                 .then((mmdb) => {
                     this._mmdb = mmdb
-                    return this.loadMmdbMetadata()
+                    if (mmdb) {
+                        return this.loadMmdbMetadata()
+                    }
+                    return undefined
                 })
                 .then((metadata) => {
                     this._mmdbMetadata = metadata
@@ -61,9 +63,9 @@ export class GeoIPService {
         return this._initialMmdbPromise
     }
 
-    private async loadMmdb(reason: string): Promise<ReaderModel> {
+    private async loadMmdb(reason: string): Promise<ReaderModel | undefined> {
         logger.info('🌎', 'Loading MMDB from disk...', {
-            location: this.config.MMDB_FILE_LOCATION,
+            location: this.mmdbFileLocation,
         })
 
         try {
@@ -73,24 +75,24 @@ export class GeoIPService {
                     key: 'geoip_load_mmdb',
                     logExecutionTime: true,
                 },
-                async () => await Reader.open(this.config.MMDB_FILE_LOCATION)
+                async () => await Reader.open(this.mmdbFileLocation)
             )
         } catch (e) {
-            logger.warn('🌎', 'Loading MMDB from disk failed!', {
+            logger.warn('🌎', 'Loading MMDB from disk failed, GeoIP lookups will be disabled', {
                 error: e.message,
-                location: this.config.MMDB_FILE_LOCATION,
+                location: this.mmdbFileLocation,
             })
-            throw e
+            return undefined
         }
     }
 
     private async loadMmdbMetadata(): Promise<MmdbMetadata | undefined> {
         try {
-            return parseJSON(await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8'))
+            return parseJSON(await fs.readFile(this.mmdbFileLocation.replace('.mmdb', '.json'), 'utf8'))
         } catch (e) {
             logger.warn('🌎', 'Error loading MMDB metadata', {
                 error: e.message,
-                location: this.config.MMDB_FILE_LOCATION,
+                location: this.mmdbFileLocation,
             })
             // NOTE: For self hosted instances this may fail as it is just using the bundled file so we just ignore the refreshing
             return undefined
@@ -124,8 +126,12 @@ export class GeoIPService {
 
         geoipBackgroundRefreshCounter.inc({ result: 'refreshing' })
         const mmdb = await this.loadMmdb('background refresh')
-        this._mmdb = mmdb
-        this._mmdbMetadata = metadata
+        if (mmdb) {
+            this._mmdb = mmdb
+            this._mmdbMetadata = metadata ?? this._mmdbMetadata
+        } else {
+            logger.warn('🌎', 'Background MMDB refresh failed, keeping existing MMDB')
+        }
     }
 
     async get(): Promise<GeoIp> {

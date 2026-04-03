@@ -8,6 +8,7 @@ import {
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
     getTrendDatasetKey,
+    NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -329,6 +330,22 @@ describe('formatBreakdownLabel()', () => {
         )
     })
 
+    it.each([
+        ['exactly 200 chars is not truncated', 'a'.repeat(200), 'a'.repeat(200)],
+        ['201 chars is truncated with ellipsis', 'b'.repeat(201), 'b'.repeat(200) + '…'],
+        [
+            'very long HTML error page is truncated',
+            '<html>' + 'x'.repeat(22000) + '</html>',
+            '<html>' + 'x'.repeat(194) + '…',
+        ],
+    ])('truncates long breakdown labels: %s', (_desc, input, expected) => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'error_message',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(input, breakdownFilter, [], identity)).toEqual(expected)
+    })
+
     it('handles multi-breakdowns', () => {
         const breakdownFilter: BreakdownFilter = {
             breakdown: ['demographic', '$browser'],
@@ -473,6 +490,34 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel(['661', '662'], breakdownFilter3, undefined, formatter, 0)).toEqual('661::662')
         expect(formatter).toHaveBeenNthCalledWith(1, 'name', 661, 'group', 0)
         expect(formatter).toHaveBeenNthCalledWith(2, 'test', 662, 'group', 1)
+    })
+
+    it('handles not-in-cohort complement with cohort name', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: [cohort.id],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(NOT_IN_COHORT_ID, breakdownFilter, [cohort as any], identity)).toEqual(
+            'Not in some cohort'
+        )
+    })
+
+    it('handles not-in-cohort complement without matching cohort', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: [999],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(NOT_IN_COHORT_ID, breakdownFilter, [], identity)).toEqual('Not in cohort')
+    })
+
+    it('handles not-in-cohort complement as stringified number', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: [cohort.id],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(String(NOT_IN_COHORT_ID), breakdownFilter, [cohort as any], identity)).toEqual(
+            'Not in some cohort'
+        )
     })
 
     it('handles breakdown cohort that has no breakdown_type', () => {

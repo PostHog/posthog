@@ -14,8 +14,16 @@
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.5;
+    color: var(--color-text-primary);
 
     // @include root-variables;
+}
+
+// Re-evaluate text color within themed containers so dark mode
+// descendants inherit the correct (light) text color instead of
+// the light-mode value computed on :host.
+[theme] {
+    color: var(--color-text-primary);
 }
 
 .LemonModal__overlay--force-modal-above-popovers {

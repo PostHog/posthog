@@ -1,0 +1,5 @@
+# Trends (total event count, specific week)
+
+```sql
+{{ render_hogql_example({"kind": "TrendsQuery", "filterTestAccounts": false, "series": [{"event": "$pageview", "kind": "EventsNode"}], "dateRange": {"date_from": "-7d"}, "interval": "day", "breakdownFilter": {"breakdowns": [{"property": "$browser"}, {"property": "$browser_version", "histogram_bin_count": 10}]}}) }}
+```

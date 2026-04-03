@@ -7,16 +7,22 @@ const schema = OrganizationSetActiveSchema
 
 type Params = z.infer<typeof schema>
 
-export const setActiveHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { content: Array<{ type: string; text: string }> }
+
+export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const { orgId } = params
     await context.cache.set('orgId', orgId)
+    await context.stateManager.invalidateAiConsent()
 
     return {
         content: [{ type: 'text', text: `Switched to organization ${orgId}` }],
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'switch-organization',
     schema,
     handler: setActiveHandler,

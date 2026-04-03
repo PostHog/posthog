@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT DISTINCT p.person_id, p.distinct_id,\n                       existing.feature_flag_key as \"feature_flag_key?\",\n                       existing.hash_key as \"hash_key?\"\n                FROM posthog_persondistinctid p\n                LEFT JOIN posthog_featureflaghashkeyoverride existing\n                    ON existing.person_id = p.person_id AND existing.team_id = p.team_id\n                WHERE p.team_id = $1 AND p.distinct_id = ANY($2)\n                    AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "distinct_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "feature_flag_key?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "hash_key?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "dc24262affa2307370c1fa1d18de028195e38f08a9eea4304a9191974909f1c2"
+}

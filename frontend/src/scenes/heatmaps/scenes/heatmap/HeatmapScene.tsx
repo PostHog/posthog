@@ -182,6 +182,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                         <img
                                             id="heatmap-screenshot"
                                             src={screenshotUrl}
+                                            alt="Website screenshot for heatmap analysis"
                                             style={{
                                                 width: '100%',
                                                 height: 'auto',
@@ -211,6 +212,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 />
                                 <iframe
                                     id="heatmap-iframe"
+                                    title="Heatmap browser"
                                     className="bg-white rounded-b-lg"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width: '100%', height: heightOverride }}

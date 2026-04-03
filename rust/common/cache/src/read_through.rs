@@ -23,9 +23,9 @@ use std::sync::Arc;
 /// - Cache corruption handling
 ///
 /// The cache follows the "cache-aside" pattern:
-/// 1. Check negative cache first (if enabled)
-/// 2. Try to get data from Redis cache
-/// 3. On cache miss, call the loader function
+/// 1. Try to get data from Redis cache
+/// 2. On cache miss, check negative cache (if enabled)
+/// 3. On negative cache miss, call the loader function
 /// 4. If loader succeeds, update positive cache and invalidate negative cache
 /// 5. If loader returns None, add to negative cache
 ///
@@ -84,9 +84,9 @@ impl ReadThroughCache {
     /// Get a value from cache or load it using the loader function
     ///
     /// This is the main API for the cache. It:
-    /// 1. Checks negative cache first (if enabled)
-    /// 2. Tries Redis cache
-    /// 3. On miss, calls loader function with the key
+    /// 1. Tries Redis cache
+    /// 2. On miss, checks negative cache (if enabled)
+    /// 3. On negative cache miss, calls loader function with the key
     /// 4. Updates caches based on the result
     ///
     /// The loader function should return `Option<V>` where:
@@ -120,14 +120,6 @@ impl ReadThroughCache {
         E: Send + Sync,
     {
         let cache_key = self.build_cache_key(key);
-
-        // Check negative cache first
-        if let Some(neg_cache) = &self.negative_cache {
-            if neg_cache.contains(&cache_key) {
-                tracing::debug!("Negative cache hit for key: {}", key);
-                return Ok(CacheResult::not_found(CacheSource::NegativeCache));
-            }
-        }
 
         // Try to get from Redis cache
         match self.get_from_redis(&cache_key).await {
@@ -179,40 +171,82 @@ impl ReadThroughCache {
         Fut: Future<Output = Result<Option<V>, E>>,
         E: Send + Sync,
     {
-        match cache_error {
-            CustomRedisError::NotFound => {
-                // True cache miss - key doesn't exist in cache
-                self.handle_true_cache_miss(key, cache_key, loader).await
-            }
-            CustomRedisError::ParseError(ref err) => {
-                // Corrupted cache data - try loader and refresh cache if successful
+        // Log Redis problems before checking negative cache — these
+        // indicate real issues even if we short-circuit via negative cache
+        match &cache_error {
+            CustomRedisError::ParseError(err) => {
                 tracing::warn!(
                     "Cache corruption detected for key {}: {}. Will refresh from source.",
                     key,
                     err
                 );
-                self.handle_corrupted_cache(key, cache_key, loader).await
             }
             CustomRedisError::Timeout
             | CustomRedisError::Redis(_)
             | CustomRedisError::InvalidConfiguration(_) => {
-                // Redis infrastructure issues - use loader without caching
                 tracing::warn!(
                     "Redis infrastructure issue for key {}: {:?}. Operating without cache.",
                     key,
                     cache_error
                 );
+            }
+            CustomRedisError::NotFound => {}
+        }
+
+        // Check negative cache before calling loader, but always refresh on
+        // corruption so corrupted Redis entries get repaired
+        if !matches!(&cache_error, CustomRedisError::ParseError(_)) {
+            if let Some(neg_cache) = &self.negative_cache {
+                if neg_cache.contains(cache_key) {
+                    tracing::debug!("Negative cache hit for key: {}", key);
+                    return Ok(CacheResult::not_found(CacheSource::NegativeCache));
+                }
+            }
+        }
+
+        match cache_error {
+            CustomRedisError::NotFound => {
+                self.load_and_cache(
+                    key,
+                    cache_key,
+                    loader,
+                    CacheSource::LoaderCacheMiss,
+                    CacheSource::LoaderNotFoundCacheMiss,
+                )
+                .await
+            }
+            CustomRedisError::ParseError(_) => {
+                // Best-effort delete the corrupted key so subsequent calls
+                // see a clean NotFound instead of re-hitting ParseError
+                if let Err(e) = self.redis_writer.del(cache_key.to_string()).await {
+                    tracing::warn!("Failed to delete corrupted cache key {}: {:?}", key, e);
+                }
+                self.load_and_cache(
+                    key,
+                    cache_key,
+                    loader,
+                    CacheSource::LoaderCacheCorrupted,
+                    CacheSource::LoaderNotFoundCacheCorrupted,
+                )
+                .await
+            }
+            CustomRedisError::Timeout
+            | CustomRedisError::Redis(_)
+            | CustomRedisError::InvalidConfiguration(_) => {
                 self.handle_redis_unavailable(key, loader).await
             }
         }
     }
 
-    /// Handle a true cache miss (key not in Redis)
-    async fn handle_true_cache_miss<K, V, E, F, Fut>(
+    /// Load from source and update caches accordingly.
+    /// Used for both cache misses and corrupted cache entries.
+    async fn load_and_cache<K, V, E, F, Fut>(
         &self,
         key: &K,
         cache_key: &str,
         loader: F,
+        found_source: CacheSource,
+        not_found_source: CacheSource,
     ) -> Result<CacheResult<V>, E>
     where
         K: Display + Send + Sync,
@@ -223,70 +257,27 @@ impl ReadThroughCache {
     {
         match loader(key).await? {
             Some(value) => {
-                // Value found - update positive cache and invalidate negative cache
                 if let Some(neg_cache) = &self.negative_cache {
                     neg_cache.invalidate(cache_key);
                 }
 
-                // Update positive cache
-                if let Err(redis_err) = self.set_in_redis(cache_key, &value).await {
-                    tracing::warn!("Failed to update cache for key {}: {:?}", key, redis_err);
-                }
-
-                Ok(CacheResult::found(value, CacheSource::LoaderCacheMiss))
-            }
-            None => {
-                // Value not found - add to negative cache
-                if let Some(neg_cache) = &self.negative_cache {
-                    neg_cache.insert(cache_key.to_string());
-                }
-
-                Ok(CacheResult::not_found(CacheSource::LoaderNotFoundCacheMiss))
-            }
-        }
-    }
-
-    /// Handle corrupted cache data
-    async fn handle_corrupted_cache<K, V, E, F, Fut>(
-        &self,
-        key: &K,
-        cache_key: &str,
-        loader: F,
-    ) -> Result<CacheResult<V>, E>
-    where
-        K: Display + Send + Sync,
-        V: Serialize + Send + Sync,
-        F: FnOnce(&K) -> Fut,
-        Fut: Future<Output = Result<Option<V>, E>>,
-        E: Send + Sync,
-    {
-        match loader(key).await? {
-            Some(value) => {
-                // Loader success - refresh cache with valid data
-                if let Some(neg_cache) = &self.negative_cache {
-                    neg_cache.invalidate(cache_key);
-                }
-
-                // Update cache with fresh data
                 if let Err(redis_err) = self.set_in_redis(cache_key, &value).await {
                     tracing::warn!(
-                        "Failed to refresh corrupted cache for key {}: {:?}",
+                        "Failed to update cache for key {} ({:?}): {:?}",
                         key,
+                        found_source,
                         redis_err
                     );
                 }
 
-                Ok(CacheResult::found(value, CacheSource::LoaderCacheCorrupted))
+                Ok(CacheResult::found(value, found_source))
             }
             None => {
-                // Value not found - add to negative cache
                 if let Some(neg_cache) = &self.negative_cache {
                     neg_cache.insert(cache_key.to_string());
                 }
 
-                Ok(CacheResult::not_found(
-                    CacheSource::LoaderNotFoundCacheCorrupted,
-                ))
+                Ok(CacheResult::not_found(not_found_source))
             }
         }
     }
@@ -294,7 +285,7 @@ impl ReadThroughCache {
     /// Handle Redis being unavailable
     async fn handle_redis_unavailable<K, V, E, F, Fut>(
         &self,
-        _key: &K,
+        key: &K,
         loader: F,
     ) -> Result<CacheResult<V>, E>
     where
@@ -305,7 +296,7 @@ impl ReadThroughCache {
         E: Send + Sync,
     {
         // Don't update any caches when Redis is having issues
-        match loader(_key).await? {
+        match loader(key).await? {
             Some(value) => Ok(CacheResult::found(
                 value,
                 CacheSource::LoaderRedisUnavailable,
@@ -473,6 +464,7 @@ mod tests {
         reader.get_ret("test:key1", Ok("invalid json{".to_string()));
 
         let mut writer = MockRedisClient::new();
+        writer.del_ret("test:key1", Ok(()));
         writer.set_ret("test:key1", Ok(()));
 
         let cache = setup_cache(reader, writer.clone(), None);
@@ -496,10 +488,12 @@ mod tests {
         assert!(result.invoked_loader());
         assert!(result.had_cache_problem());
 
-        // Verify cache was refreshed
+        // Verify corrupted key was deleted and cache was refreshed
         let calls = writer.get_calls();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].op, "setex");
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].op, "del");
+        assert_eq!(calls[0].key, "test:key1");
+        assert_eq!(calls[1].op, "setex");
     }
 
     #[tokio::test]
@@ -507,7 +501,10 @@ mod tests {
         let mut reader = MockRedisClient::new();
         reader.get_ret("test:key1", Ok("invalid json{".to_string()));
 
-        let cache = setup_cache(reader, MockRedisClient::new(), None);
+        let mut writer = MockRedisClient::new();
+        writer.del_ret("test:key1", Ok(()));
+
+        let cache = setup_cache(reader, writer.clone(), None);
 
         let result = cache
             .get_or_load(&"key1", |_key| async {
@@ -519,6 +516,13 @@ mod tests {
         assert_eq!(result.value, None);
         assert_eq!(result.source, CacheSource::LoaderNotFoundCacheCorrupted);
         assert!(result.had_cache_problem());
+
+        // Verify corrupted key was deleted so subsequent calls don't
+        // keep hitting ParseError in a loop
+        let calls = writer.get_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].op, "del");
+        assert_eq!(calls[0].key, "test:key1");
     }
 
     async fn test_redis_infrastructure_error_skips_cache_write_impl(redis_error: CustomRedisError) {
@@ -694,6 +698,37 @@ mod tests {
 
         // Verify negative cache was NOT re-added (since we found a value)
         assert!(!negative_cache.contains("test:key1"));
+    }
+
+    #[tokio::test]
+    async fn test_redis_hit_takes_priority_over_negative_cache() {
+        let data = TestData {
+            id: 1,
+            name: "from_redis".to_string(),
+        };
+        let serialized = serde_json::to_string(&data).unwrap();
+
+        let mut reader = MockRedisClient::new();
+        reader.get_ret("test:key1", Ok(serialized));
+
+        let negative_cache = Arc::new(NegativeCache::new(100, 300));
+        negative_cache.insert("test:key1".to_string());
+
+        let cache = setup_cache(reader, MockRedisClient::new(), Some(negative_cache.clone()));
+
+        let result = cache
+            .get_or_load(&"key1", |_key| async {
+                panic!("Loader should not be called when Redis has the value");
+                #[allow(unreachable_code)]
+                Ok::<Option<TestData>, String>(None)
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.value, Some(data));
+        assert_eq!(result.source, CacheSource::PositiveCache);
+        assert!(result.was_cached());
+        assert!(!result.invoked_loader());
     }
 
     #[tokio::test]

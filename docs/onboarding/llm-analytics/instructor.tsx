@@ -76,7 +76,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
+                        Initialize PostHog with your project token and host from [your project
                         settings](https://app.posthog.com/settings/project), then create a PostHog OpenAI wrapper and
                         pass it to Instructor.
                     </Markdown>
@@ -93,7 +93,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     from posthog import Posthog
 
                                     posthog = Posthog(
-                                        "<ph_project_api_key>",
+                                        "<ph_project_token>",
                                         host="<ph_client_api_host>"
                                     )
 
@@ -115,7 +115,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     import { z } from 'zod'
 
                                     const phClient = new PostHog(
-                                      '<ph_project_api_key>',
+                                      '<ph_project_token>',
                                       { host: '<ph_client_api_host>' }
                                     );
 
@@ -161,7 +161,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                         age: int
 
                                     user = client.chat.completions.create(
-                                        model="gpt-4o-mini",
+                                        model="gpt-5-mini",
                                         response_model=UserInfo,
                                         messages=[
                                             {"role": "user", "content": "John Doe is 30 years old."}
@@ -184,7 +184,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     })
 
                                     const user = await client.chat.completions.create({
-                                      model: 'gpt-4o-mini',
+                                      model: 'gpt-5-mini',
                                       response_model: { schema: UserInfo, name: 'UserInfo' },
                                       messages: [
                                         { role: 'user', content: 'John Doe is 30 years old.' }

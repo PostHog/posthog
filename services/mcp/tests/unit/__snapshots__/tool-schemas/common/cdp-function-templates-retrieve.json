@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "template_id": {
+            "type": "string"
+        }
+    },
+    "required": ["template_id"],
+    "type": "object"
+}

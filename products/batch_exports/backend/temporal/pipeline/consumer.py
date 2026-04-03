@@ -34,9 +34,10 @@ class Consumer:
     turn reading data from the internal S3 staging area.
     """
 
-    def __init__(self):
+    def __init__(self, model: str = "events"):
         self.logger = LOGGER.bind()
         self.external_logger = EXTERNAL_LOGGER.bind()
+        self.model = model
 
         # Progress tracking
         self.total_record_batches_count = 0
@@ -47,12 +48,12 @@ class Consumer:
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
         """Access the rows exported metric counter."""
-        return get_rows_exported_metric()
+        return get_rows_exported_metric(model=self.model)
 
     @property
     def bytes_exported_counter(self) -> temporalio.common.MetricCounter:
         """Access the bytes exported metric counter."""
-        return get_bytes_exported_metric()
+        return get_bytes_exported_metric(model=self.model)
 
     def reset_tracking(self) -> None:
         self.total_record_batches_count = 0

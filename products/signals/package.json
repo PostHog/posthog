@@ -1,0 +1,6 @@
+{
+    "name": "@posthog/products-signals",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test -v --tb=short"
+    }
+}

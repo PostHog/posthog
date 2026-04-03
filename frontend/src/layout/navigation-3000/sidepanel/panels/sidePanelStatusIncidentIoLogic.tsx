@@ -1,67 +1,28 @@
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+// eslint-disable-next-line import/no-cycle
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 
+import {
+    INCIDENT_IO_STATUS_PAGE_BASE,
+    IncidentIoAffectedComponent,
+    IncidentIoIncident,
+    IncidentIoMaintenance,
+    type IncidentIoSummary,
+    type NormalizedStatus,
+    REFRESH_INTERVAL,
+    setIncidentStatus,
+} from '~/layout/navigation-3000/incident/incidentStatus'
+
 import type { sidePanelStatusIncidentIoLogicType } from './sidePanelStatusIncidentIoLogicType'
-
-// Status types
-export type IncidentIoComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
-export type IncidentIoImpact = 'partial_outage' | 'degraded_performance' | 'full_outage'
-export type IncidentIoIncidentStatus = 'investigating' | 'identified' | 'monitoring'
-export type IncidentIoMaintenanceStatus = 'maintenance_in_progress' | 'maintenance_scheduled'
-
-export interface IncidentIoAffectedComponent {
-    id: string
-    name: string
-    group_name?: string
-    current_status: IncidentIoComponentStatus
-}
-
-export interface IncidentIoIncident {
-    id: string
-    name: string
-    status: IncidentIoIncidentStatus
-    url: string
-    last_update_at: string
-    last_update_message: string
-    current_worst_impact: IncidentIoImpact
-    affected_components: IncidentIoAffectedComponent[]
-}
-
-export interface IncidentIoMaintenance {
-    id: string
-    name: string
-    status: IncidentIoMaintenanceStatus
-    last_update_at: string
-    last_update_message: string
-    url: string
-    affected_components: IncidentIoAffectedComponent[]
-    started_at?: string
-    scheduled_end_at?: string
-    starts_at?: string
-    ends_at?: string
-}
-
-export interface IncidentIoSummary {
-    page_title: string
-    page_url: string
-    ongoing_incidents: IncidentIoIncident[]
-    in_progress_maintenances: IncidentIoMaintenance[]
-    scheduled_maintenances: IncidentIoMaintenance[]
-}
-
-// Normalized status for display
-export type NormalizedStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
-
-export const INCIDENT_IO_STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
-export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 // Map hostname to the group_name used in incident.io
 const RELEVANT_GROUP_NAME_MAP: Record<string, string> = {
     'us.posthog.com': 'US Cloud 🇺🇸',
     'eu.posthog.com': 'EU Cloud 🇪🇺',
     localhost: 'US Cloud 🇺🇸', // Default to US for local dev
+    '127.0.0.1': 'US Cloud 🇺🇸', // Storybook CI runs at 127.0.0.1:6006
 }
 
 function getRelevantGroupName(): string | null {
@@ -71,8 +32,8 @@ function getRelevantGroupName(): string | null {
 function hasRelevantComponents(affectedComponents: IncidentIoAffectedComponent[]): boolean {
     const relevantGroupName = getRelevantGroupName()
     if (!relevantGroupName) {
-        // If no mapping, show all incidents
-        return true
+        // Unknown hostname (self-hosted) — cloud incidents aren't relevant
+        return false
     }
     // If no affected components, show the incident (it's global)
     if (affectedComponents.length === 0) {
@@ -194,8 +155,10 @@ export const sidePanelStatusIncidentIoLogic = kea<sidePanelStatusIncidentIoLogic
         ],
     }),
 
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, cache, values }) => ({
         loadSummarySuccess: () => {
+            setIncidentStatus(values.status)
+
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => actions.loadSummary(), REFRESH_INTERVAL)
                 return () => clearTimeout(timerId)

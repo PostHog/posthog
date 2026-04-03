@@ -22,8 +22,8 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
-import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerMetaLogic } from './playerMetaLogic'
+import { PlayerPersonMeta } from './PlayerPersonMeta'
 
 export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean } {
     let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined

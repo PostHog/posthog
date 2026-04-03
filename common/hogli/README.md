@@ -44,7 +44,7 @@ To launch the full development stack (backend, nodejs services, workers, fronten
 hogli start
 ```
 
-`hogli start` delegates to [`bin/start`](../bin/start), which orchestrates all services through `mprocs`. When you need a one-shot way to verify your code before pushing:
+`hogli start` delegates to [`bin/start`](../bin/start), which orchestrates all services through `phrocs`. When you need a one-shot way to verify your code before pushing:
 
 ```bash
 hogli lint
@@ -64,6 +64,12 @@ To see all available commands run:
 
 ```bash
 hogli --help
+```
+
+A `man` page is generated from `--help` output automatically during `flox activate`:
+
+```bash
+man hogli
 ```
 
 Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test:python --help`.

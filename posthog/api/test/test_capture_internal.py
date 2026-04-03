@@ -46,7 +46,7 @@ class TestCaptureInternal(BaseTest):
     def setUp(self):
         super().setUp()
 
-    @patch("posthog.api.capture.Session")
+    @patch("posthog.api.capture.internal_requests_session")
     def test_capture_internal(self, mock_session_class):
         token = "abc123"
         distinct_id = "xyz987"
@@ -89,7 +89,7 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["properties"].get("$process_person_profile", None) is not None
         assert spied_calls[0]["event_payload"]["properties"]["$process_person_profile"] is False
 
-    @patch("posthog.api.capture.Session")
+    @patch("posthog.api.capture.internal_requests_session")
     def test_capture_internal_with_sent_at(self, mock_session_class):
         token = "abc123"
         distinct_id = "xyz987"
@@ -133,7 +133,7 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["properties"].get("$process_person_profile", None) is not None
         assert spied_calls[0]["event_payload"]["properties"]["$process_person_profile"] is False
 
-    @patch("posthog.api.capture.Session")
+    @patch("posthog.api.capture.internal_requests_session")
     def test_capture_internal_with_persons_processing(self, mock_session_class):
         token = "abc123"
         distinct_id = "xyz987"
@@ -181,7 +181,7 @@ class TestCaptureInternal(BaseTest):
         # when new capture_internal is called with process_person_profile == True, we don't alter the event payload
         assert spied_calls[0]["event_payload"]["properties"].get("$process_person_profile", None) is None
 
-    @patch("posthog.api.capture.Session")
+    @patch("posthog.api.capture.internal_requests_session")
     def test_capture_internal_with_capture_post_server_error(self, mock_session_class):
         token = "abc123"
         distinct_id = "xyz987"
@@ -210,7 +210,7 @@ class TestCaptureInternal(BaseTest):
         assert response.status_code == 503
         # note: retry mechanism is disabled since we mocked requests.Session
 
-    @patch("posthog.api.capture.Session")
+    @patch("posthog.api.capture.internal_requests_session")
     def test_capture_internal_replay(self, mock_session_class):
         token = "abc123"
         distinct_id = "xyz987"
@@ -407,7 +407,7 @@ class TestCaptureInternal(BaseTest):
             )
         assert str(e.exception) == "capture_internal (test_capture_internal_invalid_event_name): event name is required"
 
-    @patch("posthog.api.capture.Session")
+    @patch("posthog.api.capture.internal_requests_session")
     def test_capture_batch_internal(self, mock_session_class):
         token = "abc123"
         base_event_name = "test_event"
@@ -503,7 +503,7 @@ class TestCaptureInternal(BaseTest):
                 assert "test_capture_batch_internal_invalid_payload" in err_msg
                 assert "distinct ID is required" in err_msg
 
-    @patch("posthog.api.capture.Session")
+    @patch("posthog.api.capture.internal_requests_session")
     def test_capture_batch_internal_bad_req(self, mock_session_class):
         token = "abc123"
         base_event_name = "test_event"

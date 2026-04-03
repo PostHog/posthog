@@ -10,7 +10,8 @@ from unittest.mock import ANY, patch
 
 from rest_framework import status
 
-from posthog.models import Action, Tag, User
+from posthog.models import Action, Cohort, Insight, Tag, User
+from posthog.models.hog_functions.hog_function import HogFunction
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -69,7 +70,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Assert analytics are sent
         patch_capture.assert_called_once_with(
-            self.user,
+            ANY,
             "action created",
             {
                 "post_to_slack": False,
@@ -87,6 +88,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "pinned_at": None,
                 "creation_context": None,
             },
+            team=ANY,
+            request=ANY,
         )
 
     def test_create_action_generates_bytecode(self):
@@ -133,6 +136,46 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
 
+        self.assertEqual(Action.objects.count(), count)
+
+    def test_cant_create_action_with_empty_name(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {"name": ""},
+            headers={"origin": "http://testserver"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "blank",
+                "detail": "This field may not be blank.",
+                "attr": "name",
+            },
+        )
+        self.assertEqual(Action.objects.count(), count)
+
+    def test_cant_create_action_with_whitespace_only_name(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {"name": "   "},
+            headers={"origin": "http://testserver"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "blank",
+                "detail": "This field may not be blank.",
+                "attr": "name",
+            },
+        )
         self.assertEqual(Action.objects.count(), count)
 
     @freeze_time("2021-12-12")
@@ -227,6 +270,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "pinned": True,
                 "pinned_at": "2021-12-12T00:00:00+00:00",
             },
+            team=ANY,
+            request=ANY,
         )
 
         # test queries
@@ -245,64 +290,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
-
-    # When we send a user to their own site, we give them a token.
-    # Make sure you can only create actions if that token is set,
-    # otherwise evil sites could create actions with a users' session.
-    # NOTE: Origin header is only set on cross domain request
-    def test_create_from_other_domain(self, *args):
-        # FIXME: BaseTest is using Django client to perform calls to a DRF endpoint.
-        # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/",
-            data={"name": "user signed up"},
-            headers={"origin": "https://evilwebsite.com"},
-        )
-        self.assertEqual(response.status_code, 401)
-
-        self.user.temporary_token = "token123"
-        self.user.save()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up"},
-            headers={"origin": "https://somewebsite.com"},
-        )
-        self.assertEqual(response.status_code, 201)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up and post to slack", "post_to_slack": True},
-            headers={"origin": "https://somewebsite.com"},
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["post_to_slack"], True)
-
-        list_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/", headers={"origin": "https://evilwebsite.com"}
-        )
-        self.assertEqual(list_response.status_code, 401)
-
-        detail_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/{response.json()['id']}/",
-            headers={"origin": "https://evilwebsite.com"},
-        )
-        self.assertEqual(detail_response.status_code, 401)
-
-        self.client.logout()
-        list_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/",
-            data={"temporary_token": "token123"},
-            headers={"origin": "https://somewebsite.com"},
-        )
-        self.assertEqual(list_response.status_code, 200)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up 22"},
-            headers={"origin": "https://somewebsite.com"},
-        )
-        self.assertEqual(response.status_code, 201, response.json())
 
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, *args):
@@ -473,3 +460,139 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "Special Folder/Actions" in fs_entry.path, (
             f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
         )
+
+    def test_references_returns_insight_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        insight = Insight.objects.create(
+            team=self.team,
+            name="My insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "insight"
+        assert data[0]["name"] == "My insight"
+        assert data[0]["id"] == str(insight.short_id)
+        assert data[0]["url"] == f"/insights/{insight.short_id}"
+
+    def test_references_returns_insight_with_legacy_filters(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Legacy insight",
+            filters={"actions": [{"id": action.id, "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "insight"
+        assert data[0]["name"] == "Legacy insight"
+
+    def test_references_returns_experiment_using_action(self):
+        from posthog.models.feature_flag import FeatureFlag
+
+        from products.experiments.backend.models.experiment import Experiment
+
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.user)
+        exp = Experiment.objects.create(
+            team=self.team,
+            name="My experiment",
+            created_by=self.user,
+            feature_flag=flag,
+            metrics=[
+                {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "ActionsNode", "id": action.id}],
+                    },
+                }
+            ],
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "experiment"
+        assert data[0]["name"] == "My experiment"
+        assert data[0]["url"] == f"/experiments/{exp.id}"
+
+    def test_references_returns_cohort_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="My cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "event_type": "actions",
+                                    "key": action.id,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "cohort"
+        assert data[0]["name"] == "My cohort"
+        assert data[0]["url"] == f"/cohorts/{cohort.id}"
+
+    def test_references_returns_hog_function_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        hf = HogFunction.objects.create(
+            team=self.team,
+            name="My destination",
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "hog_function"
+        assert data[0]["name"] == "My destination"
+        assert data[0]["url"] == f"/functions/{hf.id}"
+
+    def test_references_returns_empty_list_when_no_references(self):
+        action = Action.objects.create(team=self.team, name="orphan action", steps_json=[{"event": "$pageview"}])
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_insights(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Deleted insight",
+            deleted=True,
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []

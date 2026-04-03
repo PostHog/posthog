@@ -8,8 +8,8 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd
+from posthog.hogql.database.utils import qualify_join_key_expr
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.parser import parse_expr
 
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 
@@ -213,16 +213,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     @classmethod
     def parse_table_key_expression(cls, table_key: str, table_name: str) -> ast.Expr:
-        expr = parse_expr(table_key)
-        if isinstance(expr, ast.Field):
-            expr.chain = [table_name, *expr.chain]
-        elif isinstance(expr, ast.Call) and isinstance(expr.args[0], ast.Field):
-            expr.args[0].chain = [table_name, *expr.args[0].chain]
-        elif (
-            isinstance(expr, ast.Alias) and isinstance(expr.expr, ast.Call) and isinstance(expr.expr.args[0], ast.Field)
-        ):
-            expr.expr.args[0].chain = [table_name, *expr.expr.args[0].chain]
-        else:
+        expr = qualify_join_key_expr(table_key, table_name)
+        if expr is None:
             raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
         return expr

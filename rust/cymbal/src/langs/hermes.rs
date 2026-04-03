@@ -12,7 +12,6 @@ use crate::{
         utils::{add_raw_to_junk, get_token_context},
         CommonFrameMetadata,
     },
-    metric_consts::FRAME_NOT_RESOLVED,
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, hermesmap::ParsedHermesMap, SymbolCatalog},
 };
@@ -134,7 +133,7 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             resolved_name: None,
             lang: "javascript".to_string(),
             resolved: false,
-            resolve_failure: Some(err.to_string()),
+            resolve_failure: Some(FrameError::from(err)),
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
             code_variables: None,
@@ -169,6 +168,7 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
             code_variables: None,
@@ -188,8 +188,6 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
 // probably a native function or something else weird
 impl From<&RawHermesFrame> for Frame {
     fn from(raw_frame: &RawHermesFrame) -> Self {
-        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "hermes").increment(1);
-
         // If this is a source_url: <anonymous> frame, we always assume it's not in_app
         let is_anon = raw_frame.source.eq("<anonymous>");
 
@@ -206,6 +204,7 @@ impl From<&RawHermesFrame> for Frame {
             lang: "javascript".to_string(),
             resolved: true, // Without location information, we're assuming this is not minified
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             context: None,
@@ -237,8 +236,9 @@ mod test {
         frames::RawFrame,
         langs::{hermes::RawHermesFrame, CommonFrameMetadata},
         symbol_store::{
-            chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
-            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, MockS3Client,
+            apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
+            proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
+            Catalog, MockS3Client,
         },
     };
 
@@ -301,10 +301,22 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let c = Catalog::new(smp, hmp, pgp);
+        let apple = ChunkIdFetcher::new(
+            AppleProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let c = Catalog::new(smp, hmp, pgp, apple);
 
         for (raw_frame, expected_name) in get_frames(chunk_id) {
-            let res = raw_frame.resolve(team_id, &c).await.unwrap().pop().unwrap();
+            let res = raw_frame
+                .resolve(team_id, &c, &[])
+                .await
+                .unwrap()
+                .pop()
+                .unwrap();
             assert!(res.resolved);
             assert_eq!(res.resolved_name, expected_name)
         }

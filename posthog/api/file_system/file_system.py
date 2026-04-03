@@ -559,6 +559,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._retroactively_fix_folders_and_depth(cast(User, request.user))
 
         if self.user_access_control:
+            # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from prior team-scoped query)
             qs = FileSystem.objects.filter(id__in=[f.id for f in files])
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
             file_count = qs.count()

@@ -6,17 +6,36 @@ import { createExampleInvocation, createHogFunction } from '../../_tests/fixture
 import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { BASE_REDIS_KEY, HogWatcherService, HogWatcherState } from './hog-watcher.service'
+import { BASE_REDIS_KEY, HogWatcherConfig, HogWatcherService, HogWatcherState } from './hog-watcher.service'
 
 jest.mock('~/utils/posthog', () => ({ captureTeamEvent: jest.fn() }))
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
 
+const DEFAULT_WATCHER_CONFIG: HogWatcherConfig = {
+    hogCostTimingLowerMs: 50,
+    hogCostTimingUpperMs: 550,
+    hogCostTiming: 100,
+    asyncCostTimingLowerMs: 100,
+    asyncCostTimingUpperMs: 5000,
+    asyncCostTiming: 20,
+    sendEvents: true,
+    bucketSize: 10000,
+    refillRate: 10,
+    ttl: 86400,
+    automaticallyDisableFunctions: true,
+    thresholdDegraded: 0.8,
+    stateLockTtl: 60,
+    observeResultsBufferTimeMs: 500,
+    observeResultsBufferMaxResults: 500,
+}
+
 describe('HogWatcher', () => {
     let now: number
     let hub: Hub
     let watcher: HogWatcherService
+    let watcherConfig: HogWatcherConfig
     let onStateChangeSpy: jest.SpyInstance
     let redis: RedisV2
     const hogFunctionId: string = 'hog-function-id'
@@ -49,9 +68,9 @@ describe('HogWatcher', () => {
         now = 1720000000000
         mockNow.mockReturnValue(now)
         await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
-        hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS = true
+        watcherConfig = { ...DEFAULT_WATCHER_CONFIG }
 
-        watcher = new HogWatcherService(hub, redis)
+        watcher = new HogWatcherService(hub.teamManager, watcherConfig, redis)
         onStateChangeSpy = jest.spyOn(watcher as any, 'onStateChange') as jest.SpyInstance
         hogFunction = createHogFunction({ id: hogFunctionId, team_id: 2 })
     })
@@ -94,14 +113,15 @@ describe('HogWatcher', () => {
         it('should validate the bounds configuration', () => {
             expect(() => {
                 const _badWatcher = new HogWatcherService(
+                    hub.teamManager,
                     {
-                        ...hub,
-                        CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 100,
-                        CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: 100,
-                        CDP_WATCHER_HOG_COST_TIMING: 1,
-                        CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS: 100,
-                        CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS: 100,
-                        CDP_WATCHER_ASYNC_COST_TIMING: 1,
+                        ...DEFAULT_WATCHER_CONFIG,
+                        hogCostTimingLowerMs: 100,
+                        hogCostTimingUpperMs: 100,
+                        hogCostTiming: 1,
+                        asyncCostTimingLowerMs: 100,
+                        asyncCostTimingUpperMs: 100,
+                        asyncCostTiming: 1,
                     },
                     redis
                 )
@@ -291,7 +311,9 @@ describe('HogWatcher', () => {
             })
 
             it('should not transition to disabled if not enabled', async () => {
-                hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS = false
+                watcherConfig.automaticallyDisableFunctions = false
+                watcher = new HogWatcherService(hub.teamManager, watcherConfig, redis)
+                onStateChangeSpy = jest.spyOn(watcher as any, 'onStateChange') as jest.SpyInstance
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
@@ -430,7 +452,7 @@ describe('HogWatcher', () => {
         let observeResultsSpy: jest.SpyInstance
         beforeEach(() => {
             observeResultsSpy = jest.spyOn(watcher, 'observeResults')
-            hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS = 3
+            watcherConfig.observeResultsBufferMaxResults = 3
         })
 
         it('should buffer results and observe them', async () => {

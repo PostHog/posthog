@@ -1,295 +1,273 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { NodeKind, TracesQuery } from '~/queries/schema/schema-general'
+import { EventsQuery, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { PromptMode, llmPromptLogic } from './llmPromptLogic'
+import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
+
+const mockPrompt = {
+    id: 'prompt-version-2',
+    name: 'my-test-prompt',
+    prompt: 'You are a helpful assistant.',
+    version: 2,
+    latest_version: 2,
+    version_count: 2,
+    first_version_created_at: '2024-01-01T00:00:00Z',
+    is_latest: true,
+    deleted: false,
+    created_at: '2024-01-02T00:00:00Z',
+    updated_at: '2024-01-02T00:00:00Z',
+    created_by: { id: 1, email: 'test@example.com' },
+    versions: [
+        {
+            id: 'prompt-version-2',
+            version: 2,
+            created_by: { id: 1, email: 'test@example.com' },
+            created_at: '2024-01-02T00:00:00Z',
+            is_latest: true,
+        },
+        {
+            id: 'prompt-version-1',
+            version: 1,
+            created_by: { id: 1, email: 'test@example.com' },
+            created_at: '2024-01-01T00:00:00Z',
+            is_latest: false,
+        },
+    ],
+    has_more: false,
+}
 
 describe('llmPromptLogic', () => {
     beforeEach(() => {
         initKeaTests()
     })
 
-    describe('PromptMode enum', () => {
-        it('has correct enum values', () => {
-            expect(PromptMode.View).toBe('view')
-            expect(PromptMode.Edit).toBe('edit')
+    it('defaults to view mode for existing prompts', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            mode: PromptMode.View,
+            analyticsScope: PromptAnalyticsScope.Selected,
         })
+
+        logic.unmount()
     })
 
-    describe('mode handling', () => {
-        it('defaults to View mode for existing prompts', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
-            logic.mount()
+    it('builds related traces query for the selected version by default', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
 
-            await expectLogic(logic).toMatchValues({
-                mode: PromptMode.View,
-            })
+        const query = logic.values.relatedTracesQuery
+        expect(query).not.toBeNull()
+        expect(query?.kind).toBe(NodeKind.DataTableNode)
 
-            logic.unmount()
-        })
-
-        it('respects mode from props', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123', mode: PromptMode.Edit })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                mode: PromptMode.Edit,
-            })
-
-            logic.unmount()
-        })
-
-        it('switches mode via setMode action', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                mode: PromptMode.View,
-            })
-
-            logic.actions.setMode(PromptMode.Edit)
-
-            await expectLogic(logic).toMatchValues({
-                mode: PromptMode.Edit,
-            })
-
-            logic.actions.setMode(PromptMode.View)
-
-            await expectLogic(logic).toMatchValues({
-                mode: PromptMode.View,
-            })
-
-            logic.unmount()
-        })
-    })
-
-    describe('isViewMode selector', () => {
-        it('returns true for existing prompts in View mode', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                isViewMode: true,
-            })
-
-            logic.unmount()
-        })
-
-        it('returns false for existing prompts in Edit mode', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123', mode: PromptMode.Edit })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                isViewMode: false,
-            })
-
-            logic.unmount()
-        })
-
-        it('returns false for new prompts regardless of mode', async () => {
-            const logic = llmPromptLogic({ promptName: 'new' })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                isViewMode: false,
-            })
-
-            logic.unmount()
-        })
-    })
-
-    describe('isEditMode selector', () => {
-        it('returns true for new prompts', async () => {
-            const logic = llmPromptLogic({ promptName: 'new' })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                isEditMode: true,
-            })
-
-            logic.unmount()
-        })
-
-        it('returns true for existing prompts in Edit mode', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123', mode: PromptMode.Edit })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                isEditMode: true,
-            })
-
-            logic.unmount()
-        })
-
-        it('returns false for existing prompts in View mode', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                isEditMode: false,
-            })
-
-            logic.unmount()
-        })
-    })
-
-    describe('relatedTracesQuery selector', () => {
-        it('returns null when no prompt is loaded', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                relatedTracesQuery: null,
-            })
-
-            logic.unmount()
-        })
-
-        it('returns null for form values without id', async () => {
-            const logic = llmPromptLogic({ promptName: 'new' })
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                relatedTracesQuery: null,
-            })
-
-            logic.unmount()
-        })
-
-        it('builds correct query when prompt is loaded', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
-            logic.mount()
-
-            const mockPrompt = {
-                id: 'existing-prompt-123',
-                name: 'my-test-prompt',
-                prompt: 'You are a helpful assistant.',
-                team_id: 1,
-                created_at: '2024-01-01T00:00:00Z',
-                created_by: { id: 1, email: 'test@example.com' },
-            }
-
-            logic.actions.setPrompt(mockPrompt)
-            await expectLogic(logic).toFinishAllListeners()
-
-            const query = logic.values.relatedTracesQuery
-            expect(query).not.toBeNull()
-            expect(query!.kind).toBe(NodeKind.DataTableNode)
-
-            const source = query!.source as TracesQuery
-            expect(source.kind).toBe(NodeKind.TracesQuery)
-            expect(source.dateRange).toEqual({
-                date_from: '-7d',
-                date_to: undefined,
-            })
-            expect(source.filterTestAccounts).toBe(false)
-            expect(source.filterSupportTraces).toBe(true)
-            expect(source.properties).toHaveLength(1)
-            expect(source.properties![0]).toEqual({
+        const source = query?.source as TracesQuery
+        expect(source.properties).toEqual([
+            {
                 type: PropertyFilterType.Event,
                 key: '$ai_prompt_name',
                 value: 'my-test-prompt',
                 operator: PropertyOperator.Exact,
-            })
+            },
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_version',
+                value: 2,
+                operator: PropertyOperator.Exact,
+            },
+        ])
+        expect(source.dateRange?.date_from).toBe('-1d')
 
-            expect(query!.columns).toEqual([
-                'id',
-                'traceName',
-                'person',
-                'errors',
-                'totalLatency',
-                'usage',
-                'totalCost',
-                'timestamp',
-            ])
-            expect(query!.showDateRange).toBe(true)
-            expect(query!.showReload).toBe(true)
-            expect(query!.showSearch).toBe(false)
-            expect(query!.showTestAccountFilters).toBe(true)
-            expect(query!.showExport).toBe(false)
-
-            logic.unmount()
-        })
+        logic.unmount()
     })
 
-    describe('viewAllTracesUrl selector', () => {
-        it('returns base traces URL when no prompt is loaded', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
-            logic.mount()
+    it('switches traces and usage filters to all versions scope', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
+        logic.actions.setAnalyticsScope(PromptAnalyticsScope.AllVersions)
 
-            expect(logic.values.viewAllTracesUrl).toBe('/llm-analytics/traces')
-
-            logic.unmount()
+        await expectLogic(logic).toMatchValues({
+            analyticsScope: PromptAnalyticsScope.AllVersions,
+            promptUsagePropertyFilter: [
+                {
+                    key: 'prompt_name',
+                    type: PropertyFilterType.Event,
+                    value: 'my-test-prompt',
+                    operator: PropertyOperator.Exact,
+                },
+            ],
         })
 
-        it('returns base traces URL for form values without id', async () => {
-            const logic = llmPromptLogic({ promptName: 'new' })
-            logic.mount()
-
-            expect(logic.values.viewAllTracesUrl).toBe('/llm-analytics/traces')
-
-            logic.unmount()
-        })
-
-        it('builds URL with encoded filter when prompt is loaded', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
-            logic.mount()
-
-            const mockPrompt = {
-                id: 'existing-prompt-123',
-                name: 'my-test-prompt',
-                prompt: 'You are a helpful assistant.',
-                team_id: 1,
-                created_at: '2024-01-01T00:00:00Z',
-                created_by: { id: 1, email: 'test@example.com' },
-            }
-
-            logic.actions.setPrompt(mockPrompt)
-            await expectLogic(logic).toFinishAllListeners()
-
-            const url = logic.values.viewAllTracesUrl
-            expect(url).toContain('/llm-analytics/traces?filters=')
-
-            const filterParam = url.split('filters=')[1]
-            const decodedFilter = JSON.parse(decodeURIComponent(filterParam))
-
-            expect(decodedFilter).toHaveLength(1)
-            expect(decodedFilter[0]).toEqual({
+        const query = logic.values.relatedTracesQuery
+        const source = query?.source as TracesQuery
+        expect(source.properties).toEqual([
+            {
                 type: PropertyFilterType.Event,
                 key: '$ai_prompt_name',
                 value: 'my-test-prompt',
                 operator: PropertyOperator.Exact,
-            })
+            },
+        ])
+        expect(source.dateRange?.date_from).toBe('-1d')
 
-            logic.unmount()
+        logic.unmount()
+    })
+
+    it('applies traces query overrides and preserves scope-specific property filters', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
+
+        const initialQuery = logic.values.relatedTracesQuery
+        expect(initialQuery).not.toBeNull()
+
+        logic.actions.setRelatedTracesQuery({
+            ...initialQuery!,
+            source: {
+                ...(initialQuery!.source as TracesQuery),
+                dateRange: {
+                    date_from: '-7d',
+                    date_to: undefined,
+                },
+            },
         })
 
-        it('encodes special characters in prompt name', async () => {
-            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
-            logic.mount()
+        let source = logic.values.relatedTracesQuery?.source as TracesQuery
+        expect(source.dateRange?.date_from).toBe('-7d')
+        expect(source.properties).toEqual([
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_name',
+                value: 'my-test-prompt',
+                operator: PropertyOperator.Exact,
+            },
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_version',
+                value: 2,
+                operator: PropertyOperator.Exact,
+            },
+        ])
 
-            const mockPrompt = {
-                id: 'existing-prompt-123',
-                name: 'prompt-with-special-chars_123',
-                prompt: 'Test prompt',
-                team_id: 1,
-                created_at: '2024-01-01T00:00:00Z',
-                created_by: { id: 1, email: 'test@example.com' },
-            }
+        logic.actions.setAnalyticsScope(PromptAnalyticsScope.AllVersions)
+        source = logic.values.relatedTracesQuery?.source as TracesQuery
+        expect(source.dateRange?.date_from).toBe('-7d')
+        expect(source.properties).toEqual([
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_name',
+                value: 'my-test-prompt',
+                operator: PropertyOperator.Exact,
+            },
+        ])
 
-            logic.actions.setPrompt(mockPrompt)
-            await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+    })
 
-            const url = logic.values.viewAllTracesUrl
+    it('builds a view-all-traces URL using the selected version filter', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
 
-            const filterParam = url.split('filters=')[1]
-            const decodedFilter = JSON.parse(decodeURIComponent(filterParam))
+        const url = logic.values.viewAllTracesUrl
+        expect(url).toContain('/llm-analytics/traces?')
 
-            expect(decodedFilter[0].value).toBe('prompt-with-special-chars_123')
+        const parsedUrl = new URL(url, 'https://posthog.test')
+        const decodedFilter = JSON.parse(parsedUrl.searchParams.get('filters') || '[]')
+        expect(decodedFilter).toEqual([
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_name',
+                value: 'my-test-prompt',
+                operator: PropertyOperator.Exact,
+            },
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_version',
+                value: 2,
+                operator: PropertyOperator.Exact,
+            },
+        ])
+        expect(parsedUrl.searchParams.get('date_from')).toBe('-1d')
 
-            logic.unmount()
+        logic.unmount()
+    })
+
+    it('uses the currently selected related-traces date range in view-all-traces URL', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
+
+        const initialQuery = logic.values.relatedTracesQuery
+        expect(initialQuery).not.toBeNull()
+
+        logic.actions.setRelatedTracesQuery({
+            ...initialQuery!,
+            source: {
+                ...(initialQuery!.source as TracesQuery),
+                dateRange: {
+                    date_from: '-30d',
+                    date_to: '-1d',
+                },
+            },
         })
+
+        const url = logic.values.viewAllTracesUrl
+        const parsedUrl = new URL(url, 'https://posthog.test')
+
+        expect(parsedUrl.searchParams.get('date_from')).toBe('-30d')
+        expect(parsedUrl.searchParams.get('date_to')).toBe('-1d')
+
+        logic.unmount()
+    })
+
+    it('defaults usage trend and log date ranges to last 1 day', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
+
+        expect(logic.values.promptUsageTrendQuery.source.dateRange?.date_from).toBe('-1d')
+        expect((logic.values.promptUsageLogQuery.source as EventsQuery).after).toBe('-1d')
+
+        logic.actions.setAnalyticsScope(PromptAnalyticsScope.AllVersions)
+
+        expect(logic.values.promptUsageTrendQuery.source.dateRange?.date_from).toBe('-1d')
+        expect((logic.values.promptUsageLogQuery.source as EventsQuery).after).toBe('-1d')
+
+        logic.unmount()
+    })
+
+    it('includes the selected version in breadcrumbs', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
+
+        expect(logic.values.breadcrumbs[1].name).toBe('my-test-prompt v2')
+
+        logic.unmount()
+    })
+
+    it('resets new prompt form values after unmount and remount', async () => {
+        const firstMount = llmPromptLogic({ promptName: 'new' })
+        firstMount.mount()
+
+        firstMount.actions.setPromptFormValues({
+            name: 'stale-name',
+            prompt: 'stale prompt',
+        })
+        expect(firstMount.values.promptForm.name).toBe('stale-name')
+        expect(firstMount.values.promptForm.prompt).toBe('stale prompt')
+        firstMount.unmount()
+
+        const secondMount = llmPromptLogic({ promptName: 'new' })
+        secondMount.mount()
+
+        expect(secondMount.values.promptForm.name).toBe('')
+        expect(secondMount.values.promptForm.prompt).toBe('')
+        secondMount.unmount()
     })
 })

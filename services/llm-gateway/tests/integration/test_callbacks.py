@@ -165,8 +165,11 @@ class TestCallbacksReceiveCorrectData:
 class TestEndUserIdExtraction:
     pytestmark = pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set")
 
-    def test_openai_user_param_extracted_as_end_user(self, openai_client: OpenAI) -> None:
-        """Verify that the 'user' parameter in OpenAI requests is extracted as end_user_id."""
+    def test_openai_user_param_is_not_used_as_end_user(self, openai_client: OpenAI) -> None:
+        """Verify that the 'user' parameter in OpenAI requests is NOT used as end_user_id.
+
+        The end_user_id is always the authenticated user's ID to prevent rate limit poisoning.
+        """
         received_data: dict[str, object] = {}
 
         async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
@@ -183,11 +186,13 @@ class TestEndUserIdExtraction:
                 user="test-end-user-123",
             )
 
-        assert received_data.get("end_user_id") == "test-end-user-123"
+        # end_user_id is always the authenticated user's ID (123 from conftest fixture),
+        # never the client-provided 'user' param
+        assert received_data.get("end_user_id") == "123"
         assert received_data.get("user_in_kwargs") == "test-end-user-123"
 
     def test_openai_request_without_user_param(self, openai_client: OpenAI) -> None:
-        """Verify that requests without 'user' parameter have no end_user_id."""
+        """Verify that requests without 'user' parameter still have end_user_id from auth."""
         received_data: dict[str, str | None] = {}
 
         async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
@@ -202,4 +207,5 @@ class TestEndUserIdExtraction:
                 max_tokens=5,
             )
 
-        assert received_data.get("end_user_id") is None
+        # end_user_id is always the authenticated user's ID (123 from conftest fixture)
+        assert received_data.get("end_user_id") == "123"

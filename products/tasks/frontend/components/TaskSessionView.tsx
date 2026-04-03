@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -7,9 +8,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { LogEntry, parseLogs } from '../lib/parse-logs'
 import { TaskRun } from '../types'
-import { TaskRunStatusBadge } from './TaskRunStatusBadge'
+import { CollapsibleContent } from './CollapsibleContent'
 import { ConsoleLogEntry } from './session/ConsoleLogEntry'
 import { ToolCallEntry } from './session/ToolCallEntry'
+import { TaskRunStatusBadge } from './TaskRunStatusBadge'
 
 const HEDGEHOG_STATUSES = [
     'Spiking...',
@@ -42,14 +44,18 @@ function HedgehogStatus(): JSX.Element {
     return (
         <div className="flex items-center gap-2 py-2 text-muted">
             <Spinner className="text-xs" />
-            <span className="text-xs">{HEDGEHOG_STATUSES[statusIndex]}</span>
+            <TextMorph as="span" className="text-xs">
+                {HEDGEHOG_STATUSES[statusIndex]}
+            </TextMorph>
         </div>
     )
 }
 
 interface TaskSessionViewProps {
     logs: string
+    streamEntries: LogEntry[]
     isPolling: boolean
+    isStreaming: boolean
     run: TaskRun | null
 }
 
@@ -83,7 +89,9 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                         )}
                     </div>
                     <div className="border-r-2 border-muted pr-3 max-w-[90%] text-right">
-                        <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        <CollapsibleContent gradientColor="--bg-3000">
+                            <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        </CollapsibleContent>
                     </div>
                 </div>
             )
@@ -98,6 +106,22 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                     </div>
                     <div className="border-l-2 border-primary pl-3 max-w-[90%]">
                         <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                    </div>
+                </div>
+            )
+        case 'thinking':
+            return (
+                <div className="py-2">
+                    <div className="flex items-center gap-2 mb-1">
+                        {entry.timestamp && (
+                            <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                        )}
+                        <span className="text-xs font-medium text-muted">Thinking</span>
+                    </div>
+                    <div className="border-l-2 border-muted pl-3 max-w-[90%]">
+                        <CollapsibleContent gradientColor="--bg-3000">
+                            <div className="text-sm whitespace-pre-wrap text-muted">{entry.message}</div>
+                        </CollapsibleContent>
                     </div>
                 </div>
             )
@@ -117,8 +141,16 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
     }
 }
 
-export function TaskSessionView({ logs, isPolling, run }: TaskSessionViewProps): JSX.Element {
-    const entries = useMemo(() => parseLogs(logs), [logs])
+export function TaskSessionView({
+    logs,
+    streamEntries,
+    isPolling,
+    isStreaming,
+    run,
+}: TaskSessionViewProps): JSX.Element {
+    const parsedLogs = useMemo(() => parseLogs(logs), [logs])
+    // Use stream entries when available (real-time), otherwise fall back to parsed S3 logs
+    const entries = streamEntries.length > 0 ? streamEntries : parsedLogs
 
     const handleCopyLogs = (): void => {
         navigator.clipboard.writeText(logs).then(
@@ -150,7 +182,7 @@ export function TaskSessionView({ logs, isPolling, run }: TaskSessionViewProps):
                 {entries.map((entry) => (
                     <LogEntryRenderer key={entry.id} entry={entry} />
                 ))}
-                {isPolling && <HedgehogStatus />}
+                {(isPolling || isStreaming) && <HedgehogStatus />}
             </div>
         </div>
     )

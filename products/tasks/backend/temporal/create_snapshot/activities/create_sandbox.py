@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from django.conf import settings
-
 from temporalio import activity
 
 from posthog.models import Integration
@@ -10,7 +8,7 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_user
 from products.tasks.backend.temporal.observability import log_activity_execution
-from products.tasks.backend.temporal.process_task.utils import get_github_token
+from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_api_url
 
 from ..utils import get_sandbox_name_for_snapshot
 from .get_snapshot_context import SnapshotContext
@@ -43,7 +41,7 @@ def create_sandbox(input: CreateSandboxInput) -> CreateSandboxOutput:
         environment_variables = {
             "GITHUB_TOKEN": github_token,
             "POSTHOG_PERSONAL_API_KEY": access_token,
-            "POSTHOG_API_URL": settings.SITE_URL,
+            "POSTHOG_API_URL": get_sandbox_api_url(),
             "POSTHOG_PROJECT_ID": str(ctx.team_id),
         }
 

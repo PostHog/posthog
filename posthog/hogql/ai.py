@@ -6,6 +6,7 @@ from django.conf import settings
 import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
+from rest_framework.request import Request
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -135,10 +136,13 @@ class PromptUnclear(Exception):
     pass
 
 
-def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
-    database = Database.create_for(team=team)
+def write_sql_from_prompt(
+    prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User", request: Optional["Request"] = None
+) -> str:
+    database = Database.create_for(team=team, user=user)
     context = HogQLContext(
         team_id=team.pk,
+        user=user,
         enable_select_queries=True,
         database=database,
         modifiers=create_default_modifiers_for_team(team),
@@ -220,6 +224,8 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
             "prompt_tokens_total": prompt_tokens_total,
             "completion_tokens_total": completion_tokens_total,
         },
+        team=team,
+        request=request,
     )
 
     if candidate_sql:
@@ -293,6 +299,7 @@ replaceAll(arg: string, needle: string, replacement: string): string
 generateUUIDv4(): string
 position(haystack: string, needle: string): integer
 positionCaseInsensitive(haystack: string, needle: string): integer
+substring(arg: string, offset: integer, length?: integer): string
 Objects and arrays
 length(arg: any[] | object): integer
 empty(arg: any[] | object): boolean
@@ -397,6 +404,11 @@ let str := 'string'
 print(str || ' world') // prints 'string world', SQL concat
 print(f'hello {str}') // prints 'hello string'
 print(f'hello {f'{str} world'}') // prints 'hello string world'
+String truncation
+// Truncate a string to a maximum length
+if (length(s) > 2000) {
+    s := substring(s, 1, 2000)
+}
 Functions and lambdas
 Functions are first class variables, just like in JavaScript. You can define them with fun, or inline as lambdas:
 
@@ -456,6 +468,7 @@ Here are a few key differences compared to other programming languages:
 - All arrays in Hog start from index 1. Yes, for real. Trust us, we know. However that's how SQL has always worked, so we adopted it.
 - The easiest way to debug your code is to print() the variables in question, and then check the logs.
 - Strings must always be written with 'single quotes'. You may use f-string templates like f'Hello {name}'.
+- Never use arr[a:b]; Hog does not support slice syntax. Use substring(str, offset, length) for strings.
 - delete does not work in Hog.
 
 """
@@ -791,7 +804,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
-subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT ALL | EXCEPT | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL | INTERSECT DISTINCT | INTERSECT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 selectStmt:
     with=withClause?

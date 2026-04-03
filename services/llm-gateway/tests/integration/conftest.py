@@ -15,7 +15,13 @@ from openai import OpenAI
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+FIREWORKS_API_KEY = os.environ.get("FIREWORKS_API_KEY")
+BEDROCK_REGION = (
+    os.environ.get("LLM_GATEWAY_BEDROCK_REGION_NAME")
+    or os.environ.get("AWS_REGION")
+    or os.environ.get("AWS_DEFAULT_REGION")
+)
 TEST_POSTHOG_API_KEY = "phx_fake_personal_api_key"
 
 MOCK_MODEL_COSTS = {
@@ -51,6 +57,38 @@ MOCK_MODEL_COSTS = {
         "input_cost_per_token": 0.000000075,
         "output_cost_per_token": 0.0000003,
     },
+    "openrouter/anthropic/claude-3.5-sonnet": {
+        "litellm_provider": "openrouter",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.000003,
+        "output_cost_per_token": 0.000015,
+    },
+    "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct": {
+        "litellm_provider": "fireworks_ai",
+        "max_input_tokens": 131072,
+        "supports_vision": False,
+        "mode": "chat",
+        "input_cost_per_token": 0.0000009,
+        "output_cost_per_token": 0.0000009,
+    },
+    "openrouter/meta-llama/llama-3.1-8b-instruct": {
+        "litellm_provider": "openrouter",
+        "max_input_tokens": 131072,
+        "supports_vision": False,
+        "mode": "chat",
+        "input_cost_per_token": 0.00000006,
+        "output_cost_per_token": 0.00000006,
+    },
+    "fireworks_ai/accounts/fireworks/models/llama-v3p1-8b-instruct": {
+        "litellm_provider": "fireworks_ai",
+        "max_input_tokens": 131072,
+        "supports_vision": False,
+        "mode": "chat",
+        "input_cost_per_token": 0.0000002,
+        "output_cost_per_token": 0.0000002,
+    },
 }
 
 
@@ -80,7 +118,7 @@ def create_mock_db_pool():
 
 
 @contextmanager
-def run_gateway_server(configure_all_providers: bool = False):
+def run_gateway_server(configure_all_providers: bool = False, bedrock_region_name: str | None = None):
     from llm_gateway.config import get_settings
     from llm_gateway.rate_limiting.model_cost_service import ModelCostService
     from llm_gateway.services.model_registry import ModelRegistryService
@@ -89,14 +127,20 @@ def run_gateway_server(configure_all_providers: bool = False):
     port = get_free_port()
 
     env_patches = {}
+    if bedrock_region_name:
+        env_patches["LLM_GATEWAY_BEDROCK_REGION_NAME"] = bedrock_region_name
     if configure_all_providers:
         # Set both prefixed (for settings) and unprefixed (for direct env check) keys
         env_patches["LLM_GATEWAY_OPENAI_API_KEY"] = "sk-test-fake-key"
         env_patches["LLM_GATEWAY_ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
         env_patches["LLM_GATEWAY_GEMINI_API_KEY"] = "gemini-test-fake-key"
+        env_patches["LLM_GATEWAY_OPENROUTER_API_KEY"] = "or-test-fake-key"
+        env_patches["LLM_GATEWAY_FIREWORKS_API_KEY"] = "fw-test-fake-key"
         env_patches["OPENAI_API_KEY"] = "sk-test-fake-key"
         env_patches["ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
         env_patches["GEMINI_API_KEY"] = "gemini-test-fake-key"
+        env_patches["OPENROUTER_API_KEY"] = "or-test-fake-key"
+        env_patches["FIREWORKS_API_KEY"] = "fw-test-fake-key"
 
     with patch.dict(os.environ, env_patches):
         get_settings.cache_clear()
@@ -168,4 +212,19 @@ def anthropic_client(gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
         base_url=gateway_url,
+    )
+
+
+@pytest.fixture
+def bedrock_gateway_url():
+    with run_gateway_server(bedrock_region_name=BEDROCK_REGION) as url:
+        yield url
+
+
+@pytest.fixture
+def bedrock_anthropic_client(bedrock_gateway_url):
+    return Anthropic(
+        api_key=TEST_POSTHOG_API_KEY,
+        base_url=bedrock_gateway_url,
+        default_headers={"X-PostHog-Provider": "bedrock"},
     )

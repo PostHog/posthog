@@ -1,3 +1,5 @@
+from typing import TypedDict
+
 from products.llm_analytics.backend.llm.client import Client
 from products.llm_analytics.backend.llm.errors import LLMError, ProviderMismatchError, UnsupportedProviderError
 from products.llm_analytics.backend.llm.providers.anthropic import AnthropicConfig
@@ -10,17 +12,34 @@ SUPPORTED_MODELS_WITH_THINKING = (
 )
 
 
-def get_default_models() -> list[dict[str, str]]:
+class ModelInfo(TypedDict):
+    id: str
+    name: str
+    provider: str
+    description: str
+    is_recommended: bool
+
+
+def get_default_models() -> list[ModelInfo]:
     """Returns the default static list of models for all providers."""
-    models: list[dict[str, str]] = []
+    models: list[ModelInfo] = []
     models.extend(
-        [{"id": m, "name": m, "provider": "OpenAI", "description": ""} for m in OpenAIConfig.SUPPORTED_MODELS]
+        [
+            {"id": m, "name": m, "provider": "OpenAI", "description": "", "is_recommended": True}
+            for m in OpenAIConfig.SUPPORTED_MODELS
+        ]
     )
     models.extend(
-        [{"id": m, "name": m, "provider": "Anthropic", "description": ""} for m in AnthropicConfig.SUPPORTED_MODELS]
+        [
+            {"id": m, "name": m, "provider": "Anthropic", "description": "", "is_recommended": True}
+            for m in AnthropicConfig.SUPPORTED_MODELS
+        ]
     )
     models.extend(
-        [{"id": m, "name": m, "provider": "Gemini", "description": ""} for m in GeminiConfig.SUPPORTED_MODELS]
+        [
+            {"id": m, "name": m, "provider": "Gemini", "description": "", "is_recommended": True}
+            for m in GeminiConfig.SUPPORTED_MODELS
+        ]
     )
     return models
 
@@ -32,6 +51,7 @@ __all__ = [
     "StreamChunk",
     "Usage",
     "LLMError",
+    "ModelInfo",
     "ProviderMismatchError",
     "UnsupportedProviderError",
     "SUPPORTED_MODELS_WITH_THINKING",

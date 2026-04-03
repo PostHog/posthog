@@ -40,7 +40,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 query: {
                     kind: NodeKind.UsageMetricsQuery,
                     tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                    group_key: groupKey,
+                    group_key: String(groupKey),
                     group_type_index: groupTypeIndex,
                 },
                 key: `${groupKey}-${tabId}`,

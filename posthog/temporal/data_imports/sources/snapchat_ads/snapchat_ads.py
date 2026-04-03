@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.snapchat_ads.utils import (
     SnapchatAdsPaginator,
     SnapchatErrorHandler,
     SnapchatStatsResource,
+    fetch_account_currency,
 )
 
 
@@ -128,13 +129,16 @@ def snapchat_ads_source(
         is_exception_retryable=SnapchatErrorHandler.is_retryable,
     )()
 
+    # Fetch account currency for stats endpoints so spend values can be converted
+    account_currency = None
     if endpoint_type == EndpointType.STATS:
+        account_currency = fetch_account_currency(ad_account_id, access_token)
         items = SnapchatStatsResource.process_resources(dlt_resources)
     else:
         assert len(dlt_resources) == 1, f"Expected 1 resource for {endpoint_type} endpoint, got {len(dlt_resources)}"
         items = dlt_resources[0]
 
-    items = SnapchatStatsResource.apply_stream_transformations(endpoint_type, items)
+    items = SnapchatStatsResource.apply_stream_transformations(endpoint_type, items, currency=account_currency)
 
     return SourceResponse(
         name=endpoint,

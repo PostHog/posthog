@@ -3,15 +3,15 @@ import { useActions, useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 import { InvitesTable } from 'scenes/settings/organization/Invites'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from './OnboardingStep'
 import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
     const { preflight } = useValues(preflightLogic)

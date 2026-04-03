@@ -5,10 +5,10 @@ import { IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrai
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'

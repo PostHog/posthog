@@ -17,8 +17,7 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
-use health::HealthRegistry;
-use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
+use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -69,7 +68,8 @@ async fn setup_recordings_router_with_restriction(
     restriction_type: RestrictionType,
     token: &str,
 ) -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("recordings_restriction_tests");
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -93,16 +93,19 @@ async fn setup_recordings_router_with_restriction(
         vec![Restriction {
             restriction_type,
             scope: RestrictionScope::AllEvents,
+            args: None,
         }],
     );
     service.update(manager).await;
 
     let router = router(
         timesource,
+        readiness,
         liveness,
-        sink,
+        Arc::new(sink),
         redis,
-        None, // global_rate_limiter
+        None, // global_rate_limiter_token_distinctid
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),
@@ -151,6 +154,7 @@ struct ExpectedEvent<'a> {
     force_overflow: bool,
     skip_person_processing: bool,
     redirect_to_dlq: bool,
+    redirect_to_topic: Option<String>,
     // Properties to verify in the event data
     expected_properties: Option<Value>,
 }
@@ -200,6 +204,10 @@ fn assert_event(event: &ProcessedEvent, expected: &ExpectedEvent) {
     assert_eq!(
         event.metadata.redirect_to_dlq, expected.redirect_to_dlq,
         "redirect_to_dlq mismatch"
+    );
+    assert_eq!(
+        event.metadata.redirect_to_topic, expected.redirect_to_topic,
+        "redirect_to_topic mismatch"
     );
 
     // Assert properties in event data
@@ -279,6 +287,7 @@ async fn test_recordings_redirect_to_dlq_restriction() {
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: true,
+            redirect_to_topic: None,
             expected_properties: Some(json!({
                 "$session_id": session_id
             })),
@@ -320,6 +329,7 @@ async fn test_recordings_force_overflow_restriction() {
             force_overflow: true,
             skip_person_processing: false,
             redirect_to_dlq: false,
+            redirect_to_topic: None,
             expected_properties: Some(json!({
                 "$session_id": session_id
             })),
@@ -363,6 +373,7 @@ async fn test_recordings_skip_person_processing_restriction() {
             force_overflow: false,
             skip_person_processing: true,
             redirect_to_dlq: false,
+            redirect_to_topic: None,
             expected_properties: Some(json!({
                 "$session_id": session_id
             })),
@@ -408,6 +419,113 @@ async fn test_recordings_restriction_does_not_apply_to_other_tokens() {
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,
+            redirect_to_topic: None,
+            expected_properties: Some(json!({
+                "$session_id": session_id
+            })),
+        },
+    );
+}
+
+async fn setup_recordings_router_with_redirect_to_topic(
+    token: &str,
+    topic: &str,
+) -> (Router, CapturingSink) {
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Recordings;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+
+    let service = EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+
+    let mut manager = RestrictionManager::new();
+    manager.restrictions.insert(
+        token.to_string(),
+        vec![Restriction {
+            restriction_type: RestrictionType::RedirectToTopic,
+            scope: RestrictionScope::AllEvents,
+            args: Some(json!({"topic": topic})),
+        }],
+    );
+    service.update(manager).await;
+
+    let router = router(
+        timesource,
+        readiness,
+        liveness,
+        Arc::new(sink),
+        redis,
+        None, // global_rate_limiter_token_distinctid
+        None, // global_rate_limiter_token
+        quota_limiter,
+        TokenDropper::default(),
+        Some(service),
+        false,
+        CaptureMode::Recordings,
+        String::from("capture-recordings"),
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        false,
+        0.0_f32,
+        26_214_400,
+        None, // no blob storage for recordings
+        Some(10),
+        None,
+        256, // body_read_chunk_size_kb
+    );
+
+    (router, sink_clone)
+}
+
+#[tokio::test]
+async fn test_recordings_redirect_to_topic_restriction() {
+    let restricted_token = "phc_restricted_redirect_topic_token";
+    let target_topic = "custom_recordings_topic";
+    let (router, sink) =
+        setup_recordings_router_with_redirect_to_topic(restricted_token, target_topic).await;
+    let test_client = TestClient::new(router);
+
+    let session_id = Uuid::now_v7().to_string();
+    let payload = create_recording_payload(restricted_token, &session_id, "test_user");
+
+    let response = test_client
+        .post("/s")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(payload.to_string())
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert_event(
+        &events[0],
+        &ExpectedEvent {
+            token: restricted_token,
+            distinct_id: "test_user",
+            event_name: "$snapshot_items",
+            session_id: &session_id,
+            data_type: DataType::SnapshotMain,
+            force_overflow: false,
+            skip_person_processing: false,
+            redirect_to_dlq: false,
+            redirect_to_topic: Some(target_topic.to_string()),
             expected_properties: Some(json!({
                 "$session_id": session_id
             })),

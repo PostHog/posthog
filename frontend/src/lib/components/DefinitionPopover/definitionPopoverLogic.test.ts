@@ -1,8 +1,11 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -23,29 +26,49 @@ import { ActionType, CohortType, PersonProperty, PropertyDefinition } from '~/ty
 
 describe('definitionPopoverLogic', () => {
     let logic: ReturnType<typeof definitionPopoverLogic.build>
+    const mockDataWarehouseTable: DataWarehouseTableForInsight = {
+        id: 'warehouse-table-id',
+        name: 'warehouse_table',
+        type: 'data_warehouse',
+        format: 'Parquet',
+        url_pattern: '',
+        fields: {
+            id: { name: 'id', hogql_value: 'id', type: 'integer', schema_valid: true },
+            distinct_id: { name: 'distinct_id', hogql_value: 'distinct_id', type: 'string', schema_valid: true },
+            created_at: { name: 'created_at', hogql_value: 'created_at', type: 'datetime', schema_valid: true },
+            user_uuid: { name: 'user_uuid', hogql_value: 'user_uuid', type: 'string', schema_valid: true },
+            event_timestamp: {
+                name: 'event_timestamp',
+                hogql_value: 'event_timestamp',
+                type: 'datetime',
+                schema_valid: true,
+            },
+            row_uuid: { name: 'row_uuid', hogql_value: 'row_uuid', type: 'string', schema_valid: true },
+        },
+    }
 
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/@current/event_definitions/': {
+                [`/api/projects/${MOCK_TEAM_ID}/event_definitions/`]: {
                     results: mockEventDefinitions,
                     count: mockEventDefinitions.length,
                 },
-                '/api/projects/@current/property_definitions/': {
+                [`/api/projects/${MOCK_TEAM_ID}/property_definitions/`]: {
                     results: [mockEventPropertyDefinition],
                     count: 1,
                 },
-                '/api/projects/@current/actions/': {
+                [`/api/projects/${MOCK_TEAM_ID}/actions/`]: {
                     results: [mockActionDefinition],
                     count: 1,
                 },
-                '/api/projects/@current/cohorts/': {
+                [`/api/projects/${MOCK_TEAM_ID}/cohorts/`]: {
                     results: [mockCohort],
                     count: 1,
                 },
             },
             patch: {
-                '/api/projects/@current/:object/:id/': {},
+                [`/api/projects/${MOCK_TEAM_ID}/:object/:id/`]: {},
             },
         })
 
@@ -123,19 +146,19 @@ describe('definitionPopoverLogic', () => {
                 {
                     type: TaxonomicFilterGroupType.Actions,
                     definition: mockActionDefinition as ActionType,
-                    url: `api/projects/@current/actions/${mockActionDefinition.id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/actions/${mockActionDefinition.id}`,
                     dispatchActions: [actionsModel, ['updateAction']],
                 },
                 {
                     type: TaxonomicFilterGroupType.CustomEvents,
                     definition: mockEventDefinitions[0],
-                    url: `api/projects/@current/event_definitions/${mockEventDefinitions[0].id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/event_definitions/${mockEventDefinitions[0].id}`,
                     dispatchActions: [],
                 },
                 {
                     type: TaxonomicFilterGroupType.Events,
                     definition: mockEventDefinitions[1],
-                    url: `api/projects/@current/event_definitions/${mockEventDefinitions[1].id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/event_definitions/${mockEventDefinitions[1].id}`,
                     dispatchActions: [],
                 },
                 {
@@ -146,7 +169,7 @@ describe('definitionPopoverLogic', () => {
                 {
                     type: TaxonomicFilterGroupType.EventProperties,
                     definition: mockEventPropertyDefinition as PropertyDefinition,
-                    url: `api/projects/@current/property_definitions/${mockEventPropertyDefinition.id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/property_definitions/${mockEventPropertyDefinition.id}`,
                     dispatchActions: [propertyDefinitionsModel, ['updatePropertyDefinitions']],
                 },
                 {
@@ -162,7 +185,7 @@ describe('definitionPopoverLogic', () => {
                 {
                     type: TaxonomicFilterGroupType.Cohorts,
                     definition: mockCohort,
-                    url: `api/projects/@current/cohorts/${mockCohort.id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/cohorts/${mockCohort.id}`,
                     dispatchActions: [cohortsModel, ['updateCohort']],
                 },
                 {
@@ -216,6 +239,32 @@ describe('definitionPopoverLogic', () => {
     })
 
     describe('view mode', () => {
+        it('hydrates data warehouse fields from the selected filter before applying defaults', async () => {
+            logic = definitionPopoverLogic({
+                type: TaxonomicFilterGroupType.DataWarehouse,
+                selectedItemMeta: {
+                    id: 'warehouse_table',
+                    table_name: 'warehouse_table',
+                    distinct_id_field: 'user_uuid',
+                    timestamp_field: 'event_timestamp',
+                    id_field: 'row_uuid',
+                },
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDefinition(mockDataWarehouseTable)
+            })
+                .toDispatchActions(['setDefinitionSuccess'])
+                .toMatchValues({
+                    localDefinition: expect.objectContaining({
+                        distinct_id_field: 'user_uuid',
+                        timestamp_field: 'event_timestamp',
+                        id_field: 'row_uuid',
+                    }),
+                })
+        })
+
         it('change context', async () => {
             logic = definitionPopoverLogic({
                 type: TaxonomicFilterGroupType.Events,

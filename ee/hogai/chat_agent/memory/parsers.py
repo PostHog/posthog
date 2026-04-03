@@ -10,15 +10,7 @@ def compressed_memory_parser(memory: str) -> str:
     return memory.replace("\n\n", "\n")
 
 
-class MemoryCollectionCompleted(Exception):
-    """
-    Raised when the agent finishes collecting memory.
-    """
-
-    pass
-
-
-def raise_memory_updated(response: Any):
+def check_memory_collection_completed(response: Any) -> AIMessage | None:
     if isinstance(response, AIMessage) and ("[Done]" in response.content or not response.tool_calls):
-        raise MemoryCollectionCompleted
+        return None
     return response

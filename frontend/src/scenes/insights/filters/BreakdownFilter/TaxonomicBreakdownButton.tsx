@@ -6,8 +6,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 interface TaxonomicBreakdownButtonProps {
     disabledReason?: string

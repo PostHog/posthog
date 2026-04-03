@@ -34,14 +34,10 @@ def capture_exception(
         return
 
     try:
-        posthoganalytics.capture(
+        posthoganalytics.capture_exception(
+            error,
             distinct_id="llm-gateway-service",
-            event="$exception",
-            properties={
-                "$exception_type": type(error).__name__ if error else "Unknown",
-                "$exception_message": str(error) if error else "No message",
-                **properties,
-            },
+            properties=properties if properties else None,
         )
     except Exception as capture_error:
         logger.warning("failed_to_capture_exception", posthog_error=str(capture_error))

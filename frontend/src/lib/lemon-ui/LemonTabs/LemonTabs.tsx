@@ -4,9 +4,9 @@ import { IconCheckCircle, IconInfo } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { useSliderPositioning } from '../hooks'
 import { Link } from '../Link'
 import { Tooltip } from '../Tooltip'
-import { useSliderPositioning } from '../hooks'
 
 /** A tab that represents one of the options, but doesn't have any content. Render tab-dependent UI yourself. */
 export interface AbstractLemonTab<T extends string | number> {

@@ -5,13 +5,8 @@ FEATURE_FLAG_CONTEXT_TEMPLATE = """
 **Name/Description:** {flag_name}
 **Active:** {flag_active}
 **Created:** {flag_created_at}
-{rollout_percentage_section}
 {variants_section}
 {release_conditions_section}
-""".strip()
-
-FEATURE_FLAG_ROLLOUT_PERCENTAGE_TEMPLATE = """
-**Rollout Percentage:** {rollout_percentage}%
 """.strip()
 
 FEATURE_FLAG_VARIANTS_TEMPLATE = """

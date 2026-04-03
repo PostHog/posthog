@@ -5,6 +5,7 @@ use inquire::{
 };
 use posthog_rs::Event;
 use reqwest::blocking::Client;
+use serde_json::json;
 use std::{
     io::{self, IsTerminal},
     sync::{Mutex, OnceLock},
@@ -110,19 +111,31 @@ impl InvocationContext {
     }
 
     pub fn capture_command_invoked(&self, command: &str) {
-        let env_id = self.client.get_env_id();
-        let event_name = "posthog cli command run".to_string();
-        let mut event = Event::new_anon(event_name);
+        self.capture_event(
+            "posthog cli command run",
+            vec![("command_name", json!(command))],
+        );
+    }
 
-        event
-            .insert_prop("command_name", command)
-            .expect("Inserting command prop succeeds");
-
-        event
-            .insert_prop("env_id", env_id)
-            .expect("Inserting env_id prop succeeds");
+    pub fn capture_event(&self, event_name: &str, props: Vec<(&str, serde_json::Value)>) {
+        let env_id = self.client.get_env_id().clone();
+        let event_name = event_name.to_string();
+        let props: Vec<(String, serde_json::Value)> =
+            props.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
 
         let handle = std::thread::spawn(move || {
+            let mut event = Event::new_anon(event_name);
+
+            for (key, value) in &props {
+                event
+                    .insert_prop(key, value)
+                    .expect("Inserting prop succeeds");
+            }
+
+            event
+                .insert_prop("env_id", env_id)
+                .expect("Inserting env_id prop succeeds");
+
             debug!("Capturing event");
             let res = posthog_rs::capture(event); // Purposefully ignore errors here
             if let Err(err) = res {

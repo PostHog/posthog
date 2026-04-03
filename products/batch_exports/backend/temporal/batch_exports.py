@@ -7,6 +7,7 @@ import datetime as dt
 import operator
 import dataclasses
 import collections.abc
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
@@ -16,20 +17,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
-from posthog.batch_exports.service import (
-    BackfillDetails,
-    BatchExportField,
-    BatchExportInsertInputs,
-    acount_failed_batch_export_runs,
-    apause_batch_export,
-    cancel_running_batch_export_backfill,
-    create_batch_export_backfill,
-    create_batch_export_run,
-    running_backfills_for_batch_export,
-    update_batch_export_backfill_status,
-    update_batch_export_run,
-)
+from posthog.batch_exports.models import BatchExportRun
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
@@ -38,6 +26,17 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.service import (
+    BackfillDetails,
+    BatchExportField,
+    BatchExportInsertInputs,
+    acount_failed_batch_export_runs,
+    apause_batch_export,
+    cancel_running_batch_export_backfill,
+    create_batch_export_run,
+    running_backfills_for_batch_export,
+    update_batch_export_run,
+)
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import use_distributed_events_recent_table
@@ -285,13 +284,18 @@ def iter_records(
     yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters)
 
 
-def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
+def get_data_interval(
+    interval: str, data_interval_end: str | None, timezone: str | None = None
+) -> tuple[dt.datetime, dt.datetime]:
     """Return the start and end of an export's data interval.
 
     Args:
         interval: The interval of the BatchExport associated with this Workflow.
         data_interval_end: The optional end of the BatchExport period. If not included, we will
             attempt to extract it from Temporal SearchAttributes.
+        timezone: The IANA timezone of the batch export (e.g. "US/Eastern"). When provided,
+            daily/weekly intervals use timezone-aware arithmetic so that DST transitions
+            produce correct interval lengths (23h or 25h) instead of a fixed 24h.
 
     Raises:
         TypeError: If when trying to obtain the data interval end we run into non-str types.
@@ -319,10 +323,8 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         if isinstance(data_interval_end_search_attr[0], str):
             data_interval_end_str = data_interval_end_search_attr[0]
             data_interval_end_dt = dt.datetime.fromisoformat(data_interval_end_str)
-
         elif isinstance(data_interval_end_search_attr[0], dt.datetime):
             data_interval_end_dt = data_interval_end_search_attr[0]
-
         else:
             msg = (
                 f"Expected search attribute to be of type 'str' or 'datetime' but found '{data_interval_end_search_attr[0]}' "
@@ -332,12 +334,16 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
     else:
         data_interval_end_dt = dt.datetime.fromisoformat(data_interval_end_str)
 
+    tz = ZoneInfo(timezone) if timezone else dt.UTC
+
     if interval == "hour":
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
     elif interval == "day":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
+        local_end = data_interval_end_dt.astimezone(tz)
+        data_interval_start_dt = (local_end - dt.timedelta(days=1)).astimezone(dt.UTC)
     elif interval == "week":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(weeks=1)
+        local_end = data_interval_end_dt.astimezone(tz)
+        data_interval_start_dt = (local_end - dt.timedelta(weeks=1)).astimezone(dt.UTC)
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -797,85 +803,6 @@ async def cancel_running_backfills(batch_export_id: str) -> int:
     return total_cancelled
 
 
-@dataclasses.dataclass
-class CreateBatchExportBackfillInputs:
-    team_id: int
-    batch_export_id: str
-    start_at: str | None
-    end_at: str | None
-    status: str
-
-
-@activity.defn
-async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillInputs) -> str:
-    """Activity that creates an BatchExportBackfill.
-
-    Intended to be used in all batch export backfill workflows, usually at the start, to create a
-    model instance to represent them in our database.
-    """
-    bind_contextvars(
-        team_id=inputs.team_id,
-        batch_export_id=inputs.batch_export_id,
-        status=inputs.status,
-        start_at=inputs.start_at,
-        end_at=inputs.end_at,
-    )
-    logger = LOGGER.bind()
-
-    logger.info(
-        "Creating historical export for batches in range %s - %s",
-        inputs.start_at,
-        inputs.end_at,
-    )
-    backfill = await database_sync_to_async(create_batch_export_backfill)(
-        batch_export_id=uuid.UUID(inputs.batch_export_id),
-        start_at=inputs.start_at,
-        end_at=inputs.end_at,
-        status=inputs.status,
-        team_id=inputs.team_id,
-    )
-
-    return str(backfill.id)
-
-
-@dataclasses.dataclass
-class UpdateBatchExportBackfillStatusInputs:
-    """Inputs to the update_batch_export_backfill_status activity."""
-
-    id: str
-    status: str
-
-
-@activity.defn
-async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
-    """Activity that updates the status of an BatchExportBackfill."""
-    bind_contextvars(
-        id=inputs.id,
-        status=inputs.status,
-    )
-    logger = LOGGER.bind()
-
-    backfill = await database_sync_to_async(update_batch_export_backfill_status)(
-        backfill_id=uuid.UUID(inputs.id),
-        status=inputs.status,
-        # we currently only call this once the backfill is finished, so we can set the finished_at here
-        finished_at=dt.datetime.now(dt.UTC),
-    )
-
-    if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
-        logger.error("Historical export failed")
-
-    elif backfill.status == BatchExportBackfill.Status.CANCELLED:
-        logger.warning("Historical export was cancelled.")
-
-    else:
-        logger.info(
-            "Successfully finished exporting historical batches in %s - %s",
-            backfill.start_at,
-            backfill.end_at,
-        )
-
-
 BatchExportActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResult]]
 
 
@@ -905,7 +832,8 @@ async def execute_batch_export_insert_activity(
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
-    get_export_started_metric().add(1)
+    model_name = inputs.batch_export_model.name if inputs.batch_export_model else "events"
+    get_export_started_metric(model=model_name).add(1)
 
     if TEST:
         maximum_attempts = 1
@@ -962,7 +890,7 @@ async def execute_batch_export_insert_activity(
         raise
 
     finally:
-        get_export_finished_metric(status=finish_inputs.status.lower()).add(1)
+        get_export_finished_metric(status=finish_inputs.status.lower(), model=model_name).add(1)
 
         await workflow.execute_activity(
             finish_batch_export_run,

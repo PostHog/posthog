@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-managed-migrations",
+    "scripts": {
+        "backend:test": "echo 'No backend tests'"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",

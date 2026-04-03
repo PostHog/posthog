@@ -6,7 +6,8 @@ from django.conf import settings
 from django.db import migrations, models
 
 import posthog.models.utils
-import posthog.models.property_definition
+
+import products.event_definitions.backend.models.property_definition as posthog_models_property_definition
 
 
 class Migration(migrations.Migration):
@@ -99,7 +100,7 @@ class Migration(migrations.Migration):
                 (
                     "property_type",
                     models.CharField(
-                        choices=posthog.models.property_definition.PropertyType.choices,
+                        choices=posthog_models_property_definition.PropertyType.choices,
                         max_length=50,
                     ),
                 ),
@@ -134,7 +135,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="schemapropertygroupproperty",
             constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", posthog.models.property_definition.PropertyType.values)),
+                check=models.Q(("property_type__in", posthog_models_property_definition.PropertyType.values)),
                 name="property_type_is_valid_schema",
             ),
         ),

@@ -20,7 +20,7 @@ import { HogFunctionFilterGlobals } from '../types'
 import { ProducedPersonPropertiesEvent } from '../types-person-properties'
 import { execHog } from '../utils/hog-exec'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
-import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 export type PersonPropertyFilterGlobals = {
     person: {
@@ -42,7 +42,6 @@ export type PreCalculatedEvent = {
 }
 
 export type ProducedEvent = {
-    key: string
     payload: PreCalculatedEvent
 }
 
@@ -53,23 +52,18 @@ export const histogramBatchProcessingSteps = new Histogram({
     buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
 })
 
-/**
- * Hub type for CdpPrecalculatedFiltersConsumer.
- */
-export type CdpPrecalculatedFiltersConsumerHub = CdpConsumerBaseHub
-
-export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase<CdpPrecalculatedFiltersConsumerHub> {
+export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
     protected name = 'CdpPrecalculatedFiltersConsumer'
     private eventKafkaConsumer: KafkaConsumer
     private realtimeSupportedFilterManager: RealtimeSupportedFilterManagerCDP
 
-    constructor(hub: CdpPrecalculatedFiltersConsumerHub) {
-        super(hub)
+    constructor(config: CdpConsumerBaseConfig, deps: CdpConsumerBaseDeps) {
+        super(config, deps)
         this.eventKafkaConsumer = new KafkaConsumer({
             groupId: 'cdp-precalculated-filters-consumer',
             topic: KAFKA_EVENTS_JSON,
         })
-        this.realtimeSupportedFilterManager = new RealtimeSupportedFilterManagerCDP(hub.postgres)
+        this.realtimeSupportedFilterManager = new RealtimeSupportedFilterManagerCDP(deps.postgres)
     }
 
     @instrumented('cdpPrecalculatedFiltersConsumer.publishBehavioralEvents')
@@ -81,7 +75,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase<CdpPrecalcu
         try {
             const messages = events.map((event) => ({
                 value: JSON.stringify(event.payload),
-                key: event.key,
             }))
 
             await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS, messages })
@@ -103,7 +96,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase<CdpPrecalcu
         try {
             const messages = events.map((event) => ({
                 value: JSON.stringify(event.payload),
-                key: event.key,
             }))
 
             await this.kafkaProducer.queueMessages({
@@ -249,7 +241,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase<CdpPrecalcu
                             // Only publish if event matches the filter (don't publish non-matches)
                             if (matches) {
                                 const preCalculatedEvent: ProducedEvent = {
-                                    key: filterGlobals.distinct_id,
                                     payload: {
                                         uuid: filterGlobals.uuid,
                                         team_id: clickHouseEvent.team_id,
@@ -284,7 +275,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase<CdpPrecalcu
                                 // CRITICAL: Always emit - both matches AND non-matches
                                 // Person properties are mutable state, need to track changes
                                 const personPropertyEvent: ProducedPersonPropertiesEvent = {
-                                    key: clickHouseEvent.distinct_id,
                                     payload: {
                                         distinct_id: clickHouseEvent.distinct_id,
                                         person_id: clickHouseEvent.person_id!,

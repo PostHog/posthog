@@ -89,6 +89,15 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
         return PolicyEngine().get_policy(self.action_key, self.team, self.organization)
 
+    def can_be_canceled_by(self, user_id: int) -> bool:
+        """Whether this change request can be canceled by the given user."""
+        if self.state != ChangeRequestState.PENDING:
+            return False
+        if self.created_by_id != user_id:
+            return False
+        has_approvals = self.approvals.filter(decision=ApprovalDecision.APPROVED).exists()
+        return not has_approvals or self.validation_status == ValidationStatus.STALE
+
     def get_action_class(self) -> Optional[type["BaseAction"]]:
         """Get the action class for this change request from the registry."""
         from posthog.approvals.actions.registry import get_action
@@ -197,6 +206,7 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         except ImportError:
             pass
         else:
+            # nosemgrep: idor-lookup-without-org (org validation after lookup)
             roles = Role.objects.filter(id__in=role_ids)
             invalid_roles = [r for r in roles if r.organization_id != self.organization_id]
             if invalid_roles:

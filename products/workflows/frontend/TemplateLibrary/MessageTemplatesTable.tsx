@@ -5,9 +5,9 @@ import { router } from 'kea-router'
 
 import { IconTrash } from '@posthog/icons'
 
+import { ReadingHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ReadingHog } from 'lib/components/hedgehogs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -27,7 +27,7 @@ export function MessageTemplatesTable(): JSX.Element {
     const showProductIntroduction = !templatesLoading && templates.length === 0
 
     return (
-        <div className="templates-section">
+        <div className="templates-section" data-attr="message-templates-table">
             {showProductIntroduction && (
                 <ProductIntroduction
                     productName="Message template"
@@ -51,7 +51,13 @@ export function MessageTemplatesTable(): JSX.Element {
                 <div className="relative" />
             </MaxTool>
             <div className="flex items-center gap-2 mb-4">
-                <LemonInput type="search" placeholder="Search templates" value={search} onChange={setSearch} />
+                <LemonInput
+                    type="search"
+                    placeholder="Search templates"
+                    value={search}
+                    onChange={setSearch}
+                    data-attr="templates-search"
+                />
                 <div className="flex items-center gap-2">
                     <span className="text-secondary whitespace-nowrap">Created by:</span>
                     <MemberSelect value={createdByFilter} onChange={(user) => setCreatedByFilter(user?.id ?? null)} />

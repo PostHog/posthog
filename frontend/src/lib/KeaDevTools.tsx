@@ -26,6 +26,28 @@ function useDebounce<T>(value: T, delay: number): T {
     return debouncedValue
 }
 
+function usePageVisible(): boolean {
+    const getVisible = (): boolean => {
+        if (typeof document === 'undefined') {
+            return true
+        }
+        return document.visibilityState !== 'hidden'
+    }
+
+    const [visible, setVisible] = useState(getVisible)
+
+    useEffect(() => {
+        if (typeof document === 'undefined') {
+            return
+        }
+        const onVisibilityChange = (): void => setVisible(getVisible())
+        document.addEventListener('visibilitychange', onVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+    }, [])
+
+    return visible
+}
+
 type KeaDevtoolsProps = {
     defaultOpen?: boolean
     buttonSize?: number
@@ -1885,6 +1907,7 @@ export function KeaDevtools({
     maxActions = 1000,
 }: KeaDevtoolsProps): JSX.Element {
     const [open, setOpen] = useState(defaultOpen)
+    const pageVisible = usePageVisible()
     const [activeTab, setActiveTab] = useState<Tab>('logics')
     const [selectedKey, setSelectedKey] = useState<string | null>(null)
     const [sortMode, setSortMode] = useState<SortMode>('alpha')
@@ -1898,6 +1921,8 @@ export function KeaDevtools({
         pausedRef.current = paused
     }, [paused])
     const dispatchPatched = useRef(false)
+    const shouldRenderPanel = open && pageVisible
+    const shouldCollectActions = shouldRenderPanel && activeTab === 'actions'
     const maxActionsRef = useRef(maxActions)
     useEffect(() => {
         maxActionsRef.current = maxActions
@@ -1926,13 +1951,10 @@ export function KeaDevtools({
     const mounted = ((mount as any)?.mounted ?? {}) as MountedMap
 
     useEffect(() => {
-        if (typeof window === 'undefined') {
+        if (!shouldRenderPanel || !windowed || typeof window === 'undefined') {
             return
         }
         const handleMove = (event: MouseEvent): void => {
-            if (!windowed) {
-                return
-            }
             if (dragState.current) {
                 const { offsetX, offsetY } = dragState.current
                 setWindowRect((rect) => {
@@ -1967,10 +1989,10 @@ export function KeaDevtools({
             window.removeEventListener('mousemove', handleMove)
             window.removeEventListener('mouseup', handleUp)
         }
-    }, [windowed, offset])
+    }, [shouldRenderPanel, windowed, offset])
 
     useEffect(() => {
-        if (!windowed || typeof window === 'undefined') {
+        if (!shouldRenderPanel || !windowed || typeof window === 'undefined') {
             return
         }
         const clampToViewport = (): void => {
@@ -1995,7 +2017,7 @@ export function KeaDevtools({
         return () => {
             window.removeEventListener('resize', handleResize)
         }
-    }, [windowed, offset])
+    }, [shouldRenderPanel, windowed, offset])
 
     useEffect(() => {
         if (!windowed) {
@@ -2033,13 +2055,16 @@ export function KeaDevtools({
 
     // collect actions
     useEffect(() => {
+        if (!shouldCollectActions) {
+            return
+        }
         if (dispatchPatched.current) {
             return
         }
         const s: any = store as any
         const originalDispatch = s.dispatch
         s.__keaDevtoolsOriginalDispatch = originalDispatch
-        s.dispatch = (action: any) => {
+        const patchedDispatch = (action: any): any => {
             if (pausedRef.current) {
                 return originalDispatch(action)
             }
@@ -2077,14 +2102,18 @@ export function KeaDevtools({
             })
             return result
         }
+        s.__keaDevtoolsPatchedDispatch = patchedDispatch
+        s.dispatch = patchedDispatch
         dispatchPatched.current = true
         return () => {
-            if (s.__keaDevtoolsOriginalDispatch) {
-                s.dispatch = s.__keaDevtoolsOriginalDispatch
+            if (s.dispatch === patchedDispatch) {
+                s.dispatch = originalDispatch
             }
+            delete s.__keaDevtoolsOriginalDispatch
+            delete s.__keaDevtoolsPatchedDispatch
             dispatchPatched.current = false
         }
-    }, [store])
+    }, [store, shouldCollectActions])
 
     // keys + default selection
     const allKeys = useMemo(
@@ -2369,7 +2398,7 @@ export function KeaDevtools({
                 🦜
             </button>
 
-            {open ? (
+            {shouldRenderPanel ? (
                 windowed ? (
                     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex }}>
                         <div

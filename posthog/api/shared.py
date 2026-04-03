@@ -34,11 +34,21 @@ class UserBasicSerializer(serializers.ModelSerializer):
 
     def get_hedgehog_config(self, user: User) -> Optional[dict]:
         if user.hedgehog_config:
-            return {
-                "use_as_profile": user.hedgehog_config.get("use_as_profile"),
-                "color": user.hedgehog_config.get("color"),
-                "accessories": user.hedgehog_config.get("accessories"),
-            }
+            if user.hedgehog_config.get("version") == 2:
+                actor_options = user.hedgehog_config.get("actor_options", {})
+                return {
+                    "use_as_profile": user.hedgehog_config.get("use_as_profile"),
+                    "color": actor_options.get("color"),
+                    "accessories": actor_options.get("accessories"),
+                    "skin": actor_options.get("skin"),
+                }
+            else:
+                return {
+                    "use_as_profile": user.hedgehog_config.get("use_as_profile"),
+                    "color": user.hedgehog_config.get("color"),
+                    "accessories": user.hedgehog_config.get("accessories"),
+                    "skin": user.hedgehog_config.get("skin"),
+                }
         return None
 
 

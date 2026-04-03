@@ -4,9 +4,9 @@ from typing import Any, Optional, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
@@ -18,7 +18,6 @@ from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
-from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
 from .utils import UUIDTClassicModel, generate_random_token, sane_repr
 
@@ -26,6 +25,10 @@ from .utils import UUIDTClassicModel, generate_random_token, sane_repr
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
     error_tracking_issue_assigned: bool
+    error_tracking_weekly_digest: bool
+    error_tracking_weekly_digest_project_enabled: dict[
+        str, Any
+    ]  # Maps team_id (str) to enabled status (True = included). None/missing = not configured (auto-select on first digest).
     discussions_mentioned: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
@@ -34,17 +37,22 @@ class Notifications(TypedDict, total=False):
     )
     project_api_key_exposed: bool
     materialized_view_sync_failed: bool
+    organization_member_join_email_disabled: dict[
+        str, bool
+    ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
     "plugin_disabled": True,  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
+    "error_tracking_weekly_digest": True,  # Error tracking weekly digest enabled by default
     "discussions_mentioned": True,  # Mentions in comments enabled by default
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
-    "project_api_key_exposed": True,  # Project API key exposure alerts enabled by default
+    "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
+    "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
@@ -132,20 +140,6 @@ class UserManager(BaseUserManager):
             user.join(organization=organization, level=level)
             return user
 
-    def get_from_personal_api_key(self, key_value: str) -> Optional["User"]:
-        try:
-            personal_api_key: PersonalAPIKey = (
-                PersonalAPIKey.objects.select_related("user")
-                .filter(user__is_active=True)
-                .get(secure_value=hash_key_value(key_value))
-            )
-        except PersonalAPIKey.DoesNotExist:
-            return None
-        else:
-            personal_api_key.last_used_at = timezone.now()
-            personal_api_key.save()
-            return personal_api_key.user
-
 
 def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
@@ -180,7 +174,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
-    temporary_token = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
@@ -217,37 +210,24 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     events_column_config = models.JSONField(default=events_column_config_default)
     # DEPRECATED - Most emails are done via 3rd parties and we use their opt/in out tooling
     email_opt_in = models.BooleanField(default=False, null=True, blank=True)
+    # DEPRECATED - Replaced by toolbar OAuth flow. Kept for schema compatibility only;
+    # we never drop columns to avoid failures during rolling deploys.
+    temporary_token = deprecate_field(models.CharField(max_length=200, null=True, blank=True, unique=True))
 
     # Remove unused attributes from `AbstractUser`
     username = None
 
     objects: UserManager = UserManager()
 
+    # Snapshot of is_active at load time, used by signal handlers to detect changes.
+    # Set in from_db(); not a model field.
+    _original_is_active: bool
+
     @classmethod
     def from_db(cls, db, field_names, values):
-        """
-        Track the original is_active value when loading from the database.
-
-        This allows signal handlers to detect when is_active actually changes,
-        avoiding unnecessary cache warming on unrelated user saves. The
-        _original_is_active attribute is compared against the current is_active
-        value in the user_saved signal handler.
-        """
         instance = super().from_db(db, field_names, values)
         instance._original_is_active = instance.is_active
         return instance
-
-    def refresh_from_db(self, using=None, fields=None, from_queryset=None):
-        """
-        Update _original_is_active when refreshing from the database.
-
-        This ensures the tracking stays accurate after explicit refresh calls.
-        The from_queryset parameter is accepted for django-stubs compatibility
-        but not passed to super() since Django 4.2 doesn't support it yet.
-        """
-        super().refresh_from_db(using=using, fields=fields)
-        if fields is None or "is_active" in fields:
-            self._original_is_active = self.is_active
 
     @property
     def is_superuser(self) -> bool:

@@ -273,7 +273,7 @@ def reduce_dimensions_pca(
 
 def perform_hdbscan_clustering(
     embeddings: np.ndarray,
-    min_cluster_size_fraction: float = 0.05,
+    min_cluster_size_fraction: float = 0.02,
     min_samples: int = 5,
 ) -> HDBSCANResult:
     """

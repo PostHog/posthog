@@ -71,6 +71,7 @@
         &[data-active='true'],
         &[data-current='true'],
         &[data-state='open'],
+        [data-state='open'] > &, // Specifically for <Link> where this attribute is applied to the parent div instead of the button
         &[data-state='checked'],
         &[aria-expanded='true'],
         &.button-primitive--active {
@@ -148,7 +149,7 @@
 }
 
 .button-primitive--variant-outline {
-    border: 1px solid var(--color-border-primary);
+    border: 1px solid color-mix(in oklab, var(--color-border-secondary), transparent 40%);
 
     &:not([aria-disabled='true']) {
         &[data-active='true'],
@@ -265,7 +266,7 @@
     padding-right: var(--button-padding-x-xxs);
     padding-left: var(--button-padding-x-xxs);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-xxs);
         height: var(--button-icon-size-xxs);
     }
@@ -275,7 +276,7 @@
     padding-right: var(--button-padding-x-xs);
     padding-left: var(--button-padding-x-xs);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-xs);
         height: var(--button-icon-size-xs);
     }
@@ -284,7 +285,7 @@
 .button-primitive--size-sm {
     padding: var(--button-padding-y-sm) var(--button-padding-x-sm);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-sm);
         height: var(--button-icon-size-sm);
     }
@@ -293,7 +294,7 @@
 .button-primitive--size-base {
     padding: var(--button-padding-y-base) var(--button-padding-x-base);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-base);
         height: var(--button-icon-size-base);
     }
@@ -302,7 +303,7 @@
 .button-primitive--size-lg {
     padding: var(--button-padding-y-lg) var(--button-padding-x-lg);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-lg);
         height: var(--button-icon-size-lg);
     }

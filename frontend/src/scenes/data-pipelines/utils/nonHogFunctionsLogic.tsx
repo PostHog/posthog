@@ -5,6 +5,8 @@ import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseGithubRepoURL } from 'lib/utils'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionType, PluginConfigTypeNew, PluginType } from '~/types'
@@ -16,10 +18,21 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
     path((key) => ['scenes', 'data-pipelines', 'utils', 'nonHogFunctionsLogic', key]),
 
     connect(() => ({
-        values: [sourceWizardLogic, ['connectors'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
+        values: [
+            sourceWizardLogic,
+            ['connectors'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+            teamLogic,
+            ['currentProjectId'],
+            organizationLogic,
+            ['currentOrganizationId'],
+        ],
     })),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         hogFunctionPluginsDestinations: [
             null as HogFunctionType[] | null,
             {
@@ -27,9 +40,11 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                 loadHogFunctionPluginsDestinations: async () => {
                     const [pluginConfigs, plugins] = await Promise.all([
                         api.loadPaginatedResults<PluginConfigTypeNew>(
-                            `api/projects/@current/pipeline_destination_configs`
+                            `api/projects/${values.currentProjectId}/pipeline_destination_configs`
                         ),
-                        api.loadPaginatedResults<PluginType>(`api/organizations/@current/pipeline_destinations`),
+                        api.loadPaginatedResults<PluginType>(
+                            `api/organizations/${values.currentOrganizationId}/pipeline_destinations`
+                        ),
                     ])
 
                     const pluginsById = Object.fromEntries(plugins.map((plugin) => [plugin.id, plugin]))
@@ -75,9 +90,11 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                 loadHogFunctionPluginsSiteApps: async () => {
                     const [pluginConfigs, plugins] = await Promise.all([
                         api.loadPaginatedResults<PluginConfigTypeNew>(
-                            `api/projects/@current/pipeline_frontend_apps_configs`
+                            `api/projects/${values.currentProjectId}/pipeline_frontend_apps_configs`
                         ),
-                        api.loadPaginatedResults<PluginType>(`api/organizations/@current/pipeline_frontend_apps`),
+                        api.loadPaginatedResults<PluginType>(
+                            `api/organizations/${values.currentOrganizationId}/pipeline_frontend_apps`
+                        ),
                     ])
 
                     const pluginsById = Object.fromEntries(plugins.map((plugin) => [plugin.id, plugin]))

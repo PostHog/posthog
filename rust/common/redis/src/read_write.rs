@@ -376,6 +376,16 @@ impl Client for ReadWriteClient {
         self.writer.setex(k, v, seconds).await
     }
 
+    async fn setex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.setex_with_format(k, v, seconds, format).await
+    }
+
     async fn set_nx_ex(
         &self,
         k: String,
@@ -468,10 +478,9 @@ impl Client for ReadWriteClient {
 
     async fn batch_set_nx_ex(
         &self,
-        items: Vec<(String, String)>,
-        ttl_seconds: usize,
+        items: Vec<(String, String, usize)>,
     ) -> Result<Vec<bool>, CustomRedisError> {
-        self.writer.batch_set_nx_ex(items, ttl_seconds).await
+        self.writer.batch_set_nx_ex(items).await
     }
 
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {

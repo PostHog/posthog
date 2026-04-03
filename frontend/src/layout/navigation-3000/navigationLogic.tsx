@@ -69,7 +69,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             groupsModel,
             ['groupTypes', 'groupsAccessStatus'],
             sceneLogic,
-            ['sceneConfig'],
+            ['sceneConfig', 'activeSceneId'],
             navigationLogic,
             ['mobileLayout'],
             sessionRecordingSavedFiltersLogic,
@@ -355,19 +355,36 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         mode: [
-            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, s.zenMode],
-            (sceneConfig, isCurrentOrganizationUnavailable, zenMode): Navigation3000Mode => {
+            (s) => [
+                s.sceneConfig,
+                s.isCurrentOrganizationUnavailable,
+                s.zenMode,
+                s.activeSceneId,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (
+                sceneConfig,
+                isCurrentOrganizationUnavailable,
+                zenMode,
+                activeSceneId,
+                featureFlags
+            ): Navigation3000Mode => {
                 if (zenMode) {
                     return 'zen'
                 }
                 if (isCurrentOrganizationUnavailable) {
                     return 'minimal'
                 }
-                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
-                    ? 'minimal'
-                    : sceneConfig?.layout !== 'plain'
-                      ? 'full'
-                      : 'none'
+                if (sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated) {
+                    if (
+                        activeSceneId === Scene.Onboarding &&
+                        featureFlags[FEATURE_FLAGS.ONBOARDING_NAVBAR] === 'hide'
+                    ) {
+                        return 'none'
+                    }
+                    return 'minimal'
+                }
+                return sceneConfig?.layout !== 'plain' ? 'full' : 'none'
             },
         ],
         isNavShown: [
@@ -483,14 +500,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-                        {
-                            identifier: Scene.RevenueAnalytics,
-                            label: 'Revenue analytics',
-                            icon: <IconPiggyBank />,
-                            to: urls.revenueAnalytics(),
-                            tag: 'beta' as const,
-                            tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
-                        },
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -615,10 +634,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.Apps,
-                            label: 'Apps',
+                            identifier: Scene.WebScripts,
+                            label: 'Web scripts',
                             icon: <IconPlug />,
-                            to: urls.apps(),
+                            to: urls.webScripts(),
                             tooltipDocLink: 'https://posthog.com/docs/cdp/apps',
                         },
                         {

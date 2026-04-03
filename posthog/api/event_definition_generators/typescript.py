@@ -10,7 +10,7 @@ from .base import EventDefinitionGenerator
 
 class TypeScriptGenerator(EventDefinitionGenerator):
     def generator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def language_name(self) -> str:
         return "TypeScript"
@@ -49,7 +49,7 @@ import type {{ CaptureOptions, CaptureResult, PostHog as OriginalPostHog, Proper
                 event_schemas_lines.append(f"    {event_name_json}: {{")
                 for prop in properties:
                     ts_type = self._map_property_type(prop.property_type)
-                    optional_marker = "" if prop.is_required else "?"
+                    optional_marker = "" if (prop.is_required and not prop.is_optional_in_types) else "?"
                     # Use orjson.dumps() for proper escaping of property names
                     prop_name_json = orjson.dumps(prop.name).decode("utf-8")
                     event_schemas_lines.append(f"        {prop_name_json}{optional_marker}: {ts_type}")

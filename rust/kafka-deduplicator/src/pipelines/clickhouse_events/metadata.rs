@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use common_types::{ClickHouseEvent, PersonMode};
 use serde::{Deserialize, Serialize};
 
@@ -48,10 +48,7 @@ impl TryFrom<&SerializableClickHouseEvent> for ClickHouseEvent {
     type Error = anyhow::Error;
 
     fn try_from(serializable: &SerializableClickHouseEvent) -> Result<Self> {
-        let uuid = serializable
-            .uuid
-            .parse()
-            .map_err(|e| anyhow!("Invalid UUID: {e}"))?;
+        let uuid = serializable.uuid.parse().with_context(|| "Invalid UUID")?;
 
         Ok(ClickHouseEvent {
             uuid,
@@ -127,14 +124,14 @@ impl ClickHouseEventMetadata {
     /// Serialize metadata to bytes for RocksDB storage.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         bincode::serde::encode_to_vec(self, bincode::config::standard())
-            .map_err(|e| anyhow::anyhow!("Failed to serialize ClickHouseEventMetadata: {}", e))
+            .with_context(|| "Failed to serialize ClickHouseEventMetadata")
     }
 
     /// Deserialize metadata from bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         bincode::serde::decode_from_slice(bytes, bincode::config::standard())
             .map(|(m, _)| m)
-            .map_err(|e| anyhow::anyhow!("Failed to deserialize ClickHouseEventMetadata: {}", e))
+            .with_context(|| "Failed to deserialize ClickHouseEventMetadata")
     }
 
     /// Check if this is a confirmed duplicate (same UUID seen before).

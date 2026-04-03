@@ -86,21 +86,21 @@ export function ClusteringAdminModal(): JSX.Element {
                     </div>
                 </div>
 
-                {/* Trace Filters */}
+                {/* Event Filters */}
                 <div>
-                    <h4 className="font-semibold mb-3">Trace filters</h4>
+                    <h4 className="font-semibold mb-3">Event filters</h4>
                     <div className="text-sm text-muted mb-3">
                         Only cluster traces matching these criteria. Leave empty to include all traces with embeddings.
                     </div>
                     <PropertyFilters
-                        propertyFilters={params.trace_filters}
-                        onChange={(properties) => setParams({ trace_filters: properties })}
-                        pageKey="clustering-trace-filters"
+                        propertyFilters={params.event_filters}
+                        onChange={(properties) => setParams({ event_filters: properties })}
+                        pageKey="clustering-event-filters"
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.EventMetadata,
                         ]}
-                        addText="Add trace filter"
+                        addText="Add event filter"
                         hasRowOperator={false}
                         sendAllKeyUpdates
                         allowRelativeDateOptions={false}

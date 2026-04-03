@@ -3,9 +3,10 @@ from django.db import models
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel
+
+from products.event_definitions.backend.models import PropertyDefinition, PropertyType
 
 
 class MaterializedColumnSlotState(models.TextChoices):

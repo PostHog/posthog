@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
+import { IconCopy, IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -29,22 +29,23 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
@@ -60,10 +61,60 @@ import {
     ReplayTabs,
 } from '~/types'
 
-import { InstructionsModal } from './InstructionsModal'
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import { InstructionsModal } from './InstructionsModal'
 
 const RESOURCE_TYPE = 'early-access-feature'
+
+const ACTIVE_STAGES = new Set([
+    EarlyAccessFeatureStage.Alpha,
+    EarlyAccessFeatureStage.Beta,
+    EarlyAccessFeatureStage.GeneralAvailability,
+])
+
+function StageTransitionWarning({
+    from,
+    to,
+}: {
+    from: EarlyAccessFeatureStage | null
+    to: EarlyAccessFeatureStage
+}): JSX.Element | null {
+    if (!from || from === to) {
+        return null
+    }
+
+    const wasActive = ACTIVE_STAGES.has(from)
+    const willBeActive = ACTIVE_STAGES.has(to)
+
+    if (to === EarlyAccessFeatureStage.GeneralAvailability) {
+        return (
+            <LemonBanner type="warning" className="mt-2">
+                Promoting to general availability is permanent. The feature becomes read-only and the feature flag stays
+                enabled for all opted-in users.
+            </LemonBanner>
+        )
+    }
+
+    if (!wasActive && willBeActive) {
+        return (
+            <LemonBanner type="warning" className="mt-2">
+                This will enable the feature flag for all opted-in users. They will gain access to the feature when you
+                save.
+            </LemonBanner>
+        )
+    }
+
+    if (wasActive && !willBeActive) {
+        return (
+            <LemonBanner type="warning" className="mt-2">
+                This will disable the feature flag for opted-in users. They will lose access to the feature when you
+                save.
+            </LemonBanner>
+        )
+    }
+
+    return null
+}
 
 export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
     component: EarlyAccessFeature,
@@ -96,6 +147,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         setEarlyAccessFeatureValue,
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
@@ -112,7 +164,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         type: 'early_access_feature',
         ref: earlyAccessFeatureId,
         enabled: Boolean(currentTeamId && earlyAccessFeatureId && !earlyAccessFeatureLoading),
-        deps: [currentTeamId, earlyAccessFeatureId, earlyAccessFeatureLoading],
     })
 
     if (earlyAccessFeatureMissing) {
@@ -192,8 +243,11 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                     EarlyAccessFeatureStage.GeneralAvailability
 
                                                 if (isPromotingToGA) {
-                                                    showGAPromotionConfirmation(() =>
-                                                        submitEarlyAccessFeatureRequest(earlyAccessFeature)
+                                                    showGAPromotionConfirmation((rolloutToAll: boolean) =>
+                                                        submitEarlyAccessFeatureRequest({
+                                                            ...earlyAccessFeature,
+                                                            ...(rolloutToAll ? { rollout_to_all: true } : {}),
+                                                        })
                                                     )
                                                 } else {
                                                     submitEarlyAccessFeatureRequest(earlyAccessFeature)
@@ -216,21 +270,29 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                         items: [
                                                             {
                                                                 label: 'Concept',
+                                                                tooltip:
+                                                                    'Users can opt in to register interest, but the feature flag will not be enabled for them.',
                                                                 onClick: () =>
                                                                     updateStage(EarlyAccessFeatureStage.Concept),
                                                             },
                                                             {
                                                                 label: 'Alpha',
+                                                                tooltip:
+                                                                    'Early testing. Opted-in users will have the feature flag enabled.',
                                                                 onClick: () =>
                                                                     updateStage(EarlyAccessFeatureStage.Alpha),
                                                             },
                                                             {
                                                                 label: 'Beta (default)',
+                                                                tooltip:
+                                                                    'Wider testing. Opted-in users will have the feature flag enabled.',
                                                                 onClick: () =>
                                                                     updateStage(EarlyAccessFeatureStage.Beta),
                                                             },
                                                             {
-                                                                label: 'General availability / Archived',
+                                                                label: 'General availability',
+                                                                tooltip:
+                                                                    'Feature becomes read-only. All opted-in users retain access.',
                                                                 onClick: () =>
                                                                     updateStage(
                                                                         EarlyAccessFeatureStage.GeneralAvailability
@@ -275,10 +337,11 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 const isPromotingToGA = value === EarlyAccessFeatureStage.GeneralAvailability
 
                                 if (isPromotingToGA) {
-                                    showGAPromotionConfirmation(() =>
+                                    showGAPromotionConfirmation((rolloutToAll: boolean) =>
                                         saveEarlyAccessFeature({
                                             ...earlyAccessFeature,
                                             stage: value as EarlyAccessFeatureStage,
+                                            ...(rolloutToAll ? { rollout_to_all: true } : {}),
                                         })
                                     )
                                 } else {
@@ -310,12 +373,19 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                     value: 'beta',
                                 },
                                 {
-                                    label: 'General availability / Archived',
+                                    label: 'General availability',
                                     value: 'general-availability',
                                 },
                             ]}
                         />
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                        <Link
+                            to="https://posthog.com/docs/feature-flags/early-access-feature-management"
+                            target="_blank"
+                            className="text-xs"
+                        >
+                            Learn more about early access features
+                        </Link>
                     </ScenePanelInfoSection>
 
                     <ScenePanelDivider />
@@ -323,6 +393,21 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     <ScenePanelActionsSection>
                         <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />
                         <ScenePanelDivider />
+                        {!isNewEarlyAccessFeature && canCopyToProject && earlyAccessFeatureId && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        urls.resourceTransfer('EarlyAccessFeature', earlyAccessFeatureId)
+                                    )
+                                }
+                                data-attr="early-access-feature-copy-to-project"
+                                tooltip="Copy this early access feature to another project"
+                            >
+                                <IconCopy />
+                                Copy to another project
+                            </ButtonPrimitive>
+                        )}
                         <ButtonPrimitive
                             onClick={() => {
                                 LemonDialog.open({
@@ -354,15 +439,33 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     </ScenePanelActionsSection>
                 </ScenePanel>
 
-                {earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && !isEditingFeature && (
+                {!isEditingFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                     <LemonBanner type="info">
                         The{' '}
                         <LemonTag type="default" className="uppercase">
                             Concept
                         </LemonTag>{' '}
-                        stage assigns the feature flag to the user. Gate your code behind a different feature flag if
-                        you'd like to keep it hidden, and then switch your code to this feature flag when you're ready
-                        to release to your early access users.
+                        stage is for gathering interest. Users can opt in, but the feature flag will not be enabled
+                        until you promote this feature to Alpha or later. This lets you gauge demand before releasing
+                        any functionality.
+                    </LemonBanner>
+                )}
+                {!isEditingFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Alpha && (
+                    <LemonBanner type="info">
+                        Opted-in users have the feature flag enabled for early testing. When you change the stage,
+                        enrolled users will receive a notification event (<code>$feature_enrollment_update</code>).
+                    </LemonBanner>
+                )}
+                {!isEditingFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta && (
+                    <LemonBanner type="info">
+                        Opted-in users have the feature flag enabled for wider testing. When you change the stage,
+                        enrolled users will receive a notification event (<code>$feature_enrollment_update</code>).
+                    </LemonBanner>
+                )}
+                {!isEditingFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability && (
+                    <LemonBanner type="success">
+                        This feature has been promoted to general availability and can no longer be edited. Opted-in
+                        users retain access via the feature flag.
                     </LemonBanner>
                 )}
                 <div className="flex-1 min-w-[20rem] max-w-prose">
@@ -410,28 +513,34 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         <b>Stage</b>
                         <div>
                             {isEditingFeature ? (
-                                <LemonField name="stage">
-                                    <LemonSelect
-                                        options={[
-                                            {
-                                                value: 'concept',
-                                                label: 'Concept',
-                                            },
-                                            {
-                                                value: 'alpha',
-                                                label: 'Alpha',
-                                            },
-                                            {
-                                                value: 'beta',
-                                                label: 'Beta',
-                                            },
-                                            {
-                                                value: 'general-availability',
-                                                label: 'General availability / Archived',
-                                            },
-                                        ]}
+                                <>
+                                    <LemonField name="stage">
+                                        <LemonSelect
+                                            options={[
+                                                {
+                                                    value: 'concept',
+                                                    label: 'Concept',
+                                                },
+                                                {
+                                                    value: 'alpha',
+                                                    label: 'Alpha',
+                                                },
+                                                {
+                                                    value: 'beta',
+                                                    label: 'Beta',
+                                                },
+                                                {
+                                                    value: 'general-availability',
+                                                    label: 'General availability',
+                                                },
+                                            ]}
+                                        />
+                                    </LemonField>
+                                    <StageTransitionWarning
+                                        from={originalEarlyAccessFeatureStage}
+                                        to={earlyAccessFeature.stage}
                                     />
-                                </LemonField>
+                                </>
                             ) : (
                                 <LemonTag
                                     type={
@@ -479,9 +588,17 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             showOptional
                             help={
                                 <>
-                                    Specify a valid JSON payload as a dictionary. This will be exposed by{' '}
-                                    <code>posthog-js</code> and can be used to customize your UI or behavior after the
-                                    user opts in to the feature.
+                                    This payload is delivered via the Early Access Features API and{' '}
+                                    <code>posthog-js</code> when users browse available features. It is{' '}
+                                    <strong>separate from the feature flag payload</strong>, which is returned during
+                                    flag evaluation. Use this for metadata like release notes or UI configuration that
+                                    your opt-in interface can display.{' '}
+                                    <Link
+                                        to="https://posthog.com/docs/feature-flags/early-access-feature-management"
+                                        target="_blank"
+                                    >
+                                        Learn more
+                                    </Link>
                                 </>
                             }
                         >
@@ -495,7 +612,10 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             {earlyAccessFeature.payload && Object.keys(earlyAccessFeature.payload).length > 0 ? (
                                 <JSONEditorInput readOnly value={earlyAccessFeature.payload} />
                             ) : (
-                                <span className="text-secondary">No payload configured</span>
+                                <span className="text-secondary">
+                                    No payload configured. Payloads let you attach metadata (like release notes) that is
+                                    delivered to users via the Early Access Features API.
+                                </span>
                             )}
                         </div>
                     </div>
@@ -702,8 +822,11 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
 
     return (
         <div className="relative">
-            {/* NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query */}
-            <div className="absolute top-0 right-0 z-10">
+            {/*
+            NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query
+            UPDATE: Absolute postion was overlapping with filters, so we put a bit on top. Still need to find a better solution.
+             */}
+            <div className="flex justify-end mb-2">
                 <LemonButton
                     key="view-opt-in-session-recordings"
                     to={urls.replay(ReplayTabs.Home, recordingsFilters)}

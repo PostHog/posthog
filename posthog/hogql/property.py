@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CohortPropertyFilter,
@@ -32,27 +33,31 @@ from posthog.schema import (
     RetentionEntity,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
+    SpanPropertyFilter,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.database.models import BooleanDatabaseField
+from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.utils import map_virtual_properties
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
+from posthog.models.action.action import ActionStepJSON
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
-from posthog.models.property_definition import PropertyType
 from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -125,11 +130,14 @@ def semver_range_compare(
 
 
 def _tilde_bounds(value: str) -> tuple[str, str]:
-    """~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)"""
+    """
+    ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
+    ~1 means >=1.0.0 <2.0.0 (bare major: allows minor+patch changes)
+    """
+    major, minor, patch = parse_semver(value)
     parts = value.split("-")[0].split(".")
     if len(parts) < 2:
-        raise ValueError("Tilde operator requires at least major.minor version")
-    major, minor, patch = parse_semver(value)
+        return f"{major}.0.0", f"{int(major) + 1}.0.0"
     next_minor = str(int(minor) + 1)
     return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
 
@@ -225,6 +233,18 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
     if value != "true" and value != "false":
         return value
+
+    # Virtual event properties (e.g. $virt_is_bot) don't have PropertyDefinition
+    # records, so we check the taxonomy directly for boolean type
+    if property.key and property.key.startswith("$virt_"):
+        from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+        for group_defs in CORE_FILTER_DEFINITIONS_BY_GROUP.values():
+            prop_def = group_defs.get(property.key)
+            if prop_def and prop_def.get("type") == "Boolean":
+                return value == "true"
+        return value
+
     if property.type == "person":
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
@@ -274,6 +294,15 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
             if value == "false":
                 value = False
 
+        return value
+
+    elif property.type == "session":
+        field_definition = LAZY_SESSIONS_FIELDS.get(property.key)
+        if isinstance(field_definition, BooleanDatabaseField):
+            if value == "true":
+                return True
+            if value == "false":
+                return False
         return value
 
     else:
@@ -365,6 +394,20 @@ def _expr_to_compare_op(
                 left=ast.Call(name="toString", args=[expr]),
                 right=ast.Constant(value=f"%{single_value}%"),
             )
+    elif operator == PropertyOperator.ICONTAINS_MULTI:
+        # Always expect multiple values for multi-contains operator
+        if isinstance(value, list):
+            values_list = value
+        else:
+            values_list = cast(list, [value])
+        return _multi_search_found(_create_multi_search_call(expr, values_list))
+    elif operator == PropertyOperator.NOT_ICONTAINS_MULTI:
+        # Always expect multiple values for multi-not-contains operator
+        if isinstance(value, list):
+            values_list = value
+        else:
+            values_list = cast(list, [value])
+        return _multi_search_not_found(_create_multi_search_call(expr, values_list))
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
             name="ifNull",
@@ -525,6 +568,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
     ),
     team: Team,
     scope: Literal[
@@ -648,6 +692,9 @@ def property_to_expr(
         or property.type == "log"
         or property.type == "log_attribute"
         or property.type == "log_resource_attribute"
+        or property.type == "span"
+        or property.type == "span_attribute"
+        or property.type == "span_resource_attribute"
         or property.type == "revenue_analytics"
         or property.type == "workflow_variable"
     ):
@@ -722,6 +769,10 @@ def property_to_expr(
         elif property.type == "log_attribute":
             chain = ["attributes"]
         elif property.type == "log_resource_attribute":
+            chain = ["resource_attributes"]
+        elif property.type == "span_attribute":
+            chain = ["attributes"]
+        elif property.type == "span_resource_attribute":
             chain = ["resource_attributes"]
         elif property.type == "revenue_analytics":
             *chain, property.key = property.key.split(".")
@@ -983,9 +1034,7 @@ def property_to_expr(
     )
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
-    steps = action.steps
-
+def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
     if len(steps) == 0:
         return ast.Constant(value=True)
 
@@ -1089,7 +1138,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
             exprs.append(expr)
 
         if step.properties:
-            exprs.append(property_to_expr(step.properties, action.team))
+            exprs.append(property_to_expr(step.properties, team))
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])
@@ -1104,25 +1153,31 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
         return ast.Or(exprs=or_queries)
 
 
+def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
+    return steps_to_expr(action.steps, action.team, events_alias)
+
+
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-        action = Action.objects.get(pk=entity.id, team=team)
-        return action_to_expr(action)
-    if entity.id is None:
-        return ast.Constant(value=True)
-
-    filters: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value=entity.id),
-        )
-    ]
+        # action
+        try:
+            action = Action.objects.get(pk=entity.id, team=team)
+        except Action.DoesNotExist:
+            raise ValidationError(f"Action ID {entity.id} does not exist!")
+        event_expr = action_to_expr(action)
+    elif entity.id is None:
+        # all events
+        event_expr = ast.Constant(value=True)
+    else:
+        # event
+        event_expr = parse_expr("events.event = {event}", {"event": ast.Constant(value=entity.id)})
 
     if entity.properties is not None and entity.properties != []:
-        filters.append(property_to_expr(entity.properties, team))
-
-    return ast.And(exprs=filters)
+        # add property filters
+        filter_expr = property_to_expr(entity.properties, team)
+        return ast.And(exprs=[event_expr, filter_expr])
+    else:
+        return event_expr
 
 
 def tag_name_to_expr(tag_name: str):
@@ -1180,10 +1235,87 @@ def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
 
 
+def get_lowercase_index_hint(property, team: Team) -> ast.Call:
+    """
+    Returns an index hint for a case insensitive index on `lower(key)`
+    e.g. for the property `body ILIKE '%STR%'` return `indexHint(lower(body) ILIKE '%str%')`
+         this means we can use ngram indexes on `lower(body)` efficiently
+    """
+    expr = property_to_expr(property, team=team)
+    return ast.Call(name="indexHint", args=[_LowercaseIndexRewriter().visit(expr)])
+
+
+class _LowercaseIndexRewriter(CloningVisitor):
+    """Rewrites an expression tree so it can leverage a case-insensitive index on ``lower(key)``.
+
+    Transformations applied:
+    - All ``toString(x)`` calls are unwrapped to just ``x`` (stripped, not replaced).
+    - ``ILike`` → ``lower(left) Like lower_const`` / ``NotILike`` → ``lower(left) NotLike lower_const``
+    - ``multiSearchAnyCaseInsensitive(haystack, needles)`` → ``multiSearchAny(lower(haystack), lowered_needles)``
+    """
+
+    def visit_call(self, node: ast.Call):
+        if node.name == "toString" and len(node.args) == 1:
+            # Strip toString
+            return self.visit(node.args[0])
+
+        if node.name == "ifNull" and len(node.args) >= 1:
+            # Strip ifNull
+            return self.visit(node.args[0])
+
+        if node.name == "multiSearchAnyCaseInsensitive" and len(node.args) == 2:
+            # multiSearchAnyCaseInsensitive(haystack, needles)
+            # → multiSearchAny(lower(haystack), lowered_needles)
+            haystack = self.visit(node.args[0])
+            haystack = ast.Call(name="lower", args=[haystack])
+            needles = node.args[1]
+            # Lowercase all needle constants
+            if isinstance(needles, ast.Array):
+                needles = ast.Array(
+                    exprs=[
+                        ast.Constant(value=str(e.value).lower())
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        else self.visit(e)
+                        for e in needles.exprs
+                    ]
+                )
+            else:
+                needles = self.visit(needles)
+            return ast.Call(name="multiSearchAny", args=[haystack, needles])
+
+        return super().visit_call(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        op = node.op
+        wrap_left_lower = False
+
+        if op == ast.CompareOperationOp.ILike:
+            op = ast.CompareOperationOp.Like
+            wrap_left_lower = True
+        elif op == ast.CompareOperationOp.NotILike:
+            op = ast.CompareOperationOp.NotLike
+            wrap_left_lower = True
+
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+
+        if wrap_left_lower:
+            left = ast.Call(name="lower", args=[left])
+            if isinstance(right, ast.Constant) and isinstance(right.value, str):
+                right = ast.Constant(value=right.value.lower())
+
+        return ast.CompareOperation(
+            left=left,
+            right=right,
+            op=op,
+        )
+
+
 def operator_is_negative(operator: PropertyOperator) -> bool:
     return operator in [
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,

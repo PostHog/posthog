@@ -24,6 +24,7 @@ jobs:
                 github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build-ai-evals-image')
             )
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -55,7 +56,7 @@ jobs:
 
             - name: Build and push container image
               id: build
-              uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   project: c1f2m5s6zd
                   file: ./Dockerfile.ai-evals

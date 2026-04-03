@@ -17,7 +17,19 @@ class InstanceSetting(models.Model):
 
     @property
     def value(self):
-        return json.loads(self.raw_value)
+        try:
+            parsed = json.loads(self.raw_value)
+        except (json.JSONDecodeError, ValueError):
+            # raw_value may be a bare string (e.g. saved via Django admin without json.dumps wrapping)
+            return self.raw_value
+
+        # Guard against lossy float parsing: if json.loads parsed a bare numeric string
+        # into a float that doesn't round-trip back to the original text, treat it as a
+        # bare string rather than silently losing precision.
+        if isinstance(parsed, float) and str(parsed) != self.raw_value:
+            return self.raw_value
+
+        return parsed
 
 
 @lru_cache

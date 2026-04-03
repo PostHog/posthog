@@ -54,9 +54,11 @@ The secret key starts with `sk_live_`.
             ),
         )
 
-    def get_schemas(self, config: ClerkSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: ClerkSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         # Clerk only supports full refresh - the API doesn't support filtering by updated_at
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
@@ -65,6 +67,12 @@ The secret key starts with `sk_live_`.
             )
             for endpoint in list(ENDPOINTS)
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def validate_credentials(
         self, config: ClerkSourceConfig, team_id: int, schema_name: Optional[str] = None

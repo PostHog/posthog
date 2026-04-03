@@ -89,7 +89,6 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        base_currency = self.context.base_currency
 
         # Get cost - use ifNull(toFloat(...), 0) to handle both numeric types and NULLs
         spend_field = ast.Field(chain=[stats_table_name, "spend"])
@@ -98,26 +97,10 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
             args=[ast.Call(name="toFloat", args=[spend_field]), ast.Constant(value=0)],
         )
 
-        # Check if currency column exists in campaign_stats table
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "currency" in columns:
-                # Convert each row's spend, then sum
-                # Use coalesce to handle NULL currency values - fallback to base_currency
-                currency_field = ast.Field(chain=[stats_table_name, "currency"])
-                currency_with_fallback = ast.Call(
-                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
-                )
-                convert_currency = ast.Call(
-                    name="convertCurrency",
-                    args=[currency_with_fallback, ast.Constant(value=base_currency), spend_float],
-                )
-                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
-                return ast.Call(name="SUM", args=[convert_to_float])
-        except (TypeError, AttributeError, KeyError):
-            pass
+        converted = self._apply_currency_conversion(self.config.stats_table, stats_table_name, "currency", spend_float)
+        if converted:
+            return ast.Call(name="SUM", args=[converted])
 
-        # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[spend_float])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
@@ -149,11 +132,17 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
                         ast.Constant(value=0),
                     ],
                 )
+
+                converted = self._apply_currency_conversion(
+                    self.config.stats_table, stats_table_name, "currency", field_as_float
+                )
+                if converted:
+                    return ast.Call(name="SUM", args=[converted])
+
                 sum = ast.Call(name="SUM", args=[field_as_float])
                 return ast.Call(name="toFloat", args=[sum])
         except (TypeError, AttributeError, KeyError):
             pass
-        # Column doesn't exist or can't be checked, return 0
         return ast.Constant(value=0)
 
     def _get_from(self) -> ast.JoinExpr:

@@ -16,12 +16,13 @@ from rest_framework import status
 from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, ExportedAsset
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 def mock_exporter_template(test_func):
@@ -119,7 +120,7 @@ class TestSharing(APIBaseTest):
         )
 
     @freeze_time("2022-01-01")
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_gets_sharing_config(self, patched_exporter_task: Mock):
         assert SharingConfiguration.objects.count() == 0
 
@@ -138,7 +139,7 @@ class TestSharing(APIBaseTest):
         }
 
     @freeze_time("2022-01-01")
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_does_not_change_token_when_toggling_enabled_state(self, patched_exporter_task: Mock):
         assert SharingConfiguration.objects.count() == 0
         response = self.client.patch(
@@ -170,7 +171,7 @@ class TestSharing(APIBaseTest):
             "share_passwords": [],
         }
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state(self, patched_exporter_task: Mock):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
@@ -185,7 +186,7 @@ class TestSharing(APIBaseTest):
         assert response.json()["is_shared"]
         assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
         assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
 
@@ -212,7 +213,7 @@ class TestSharing(APIBaseTest):
             "sharing disabled",
         ]
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_exports_image_when_sharing(self, patched_exporter_task: Mock):
         assert ExportedAsset.objects.count() == 0
 
@@ -226,7 +227,7 @@ class TestSharing(APIBaseTest):
         assert asset is not None
         assert asset.export_format == "image/png"
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_should_update_to_match_existing_dashboard_sharing_token(self, patched_exporter_task: Mock):
         dashboard = Dashboard.objects.create(team=self.team, name="example dashboard", created_by=self.user)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
@@ -252,7 +253,7 @@ class TestSharing(APIBaseTest):
         assert data["access_token"] == "my_test_token"
         assert data["enabled"]
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_should_not_be_affected_by_collaboration_rules(self, _patched_exporter_task: Mock):
         other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
         dashboard = Dashboard.objects.create(
@@ -269,7 +270,7 @@ class TestSharing(APIBaseTest):
 
         assert response.status_code == 200
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_should_not_get_deleted_item(self, _patched_exporter_task: Mock):
         dashboard = Dashboard.objects.create(
             team=self.team,
@@ -295,14 +296,14 @@ class TestSharing(APIBaseTest):
             "/shared_dashboard/something.png?token=my_test_token",
         ]
     )
-    @patch("posthog.api.exports.exporter.export_asset.delay")
-    @patch("posthog.models.exported_asset.object_storage.read_bytes")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.sharing.asset_for_token")
     def test_can_get_shared_dashboard_asset_with_no_content_but_content_location(
         self,
         url: str,
         patched_asset_for_token,
-        patched_object_storage,
+        patched_get_presigned_url,
         _patched_exporter_task: Mock,
     ) -> None:
         asset = ExportedAsset.objects.create(
@@ -313,21 +314,25 @@ class TestSharing(APIBaseTest):
         )
         patched_asset_for_token.return_value = asset
 
-        patched_object_storage.return_value = b"the image bytes"
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
 
         response = self.client.get(url)
 
-        assert response.status_code == 200
-        assert response.headers.get("Content-Type") == "image/png"
-        assert response.content == b"the image bytes"
+        assert response.status_code == 302
+        assert response["Location"] == "https://s3.example.com/presigned-url"
+        patched_get_presigned_url.assert_called_once_with(
+            "some object url",
+            content_type="image/png",
+            content_disposition=None,
+        )
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.models.exported_asset.object_storage.read_bytes")
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_thing_can_generate_open_graph_image(
-        self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
+        self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
     ) -> None:
-        patched_object_storage.return_value = b"the image bytes"
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
 
         target = self.insight if type == "insights" else self.dashboard
 
@@ -344,17 +349,16 @@ class TestSharing(APIBaseTest):
         item_opengraph_image = self.client.get("/shared/" + access_token + ".png")
 
         assert ExportedAsset.objects.count() == 1
-        assert item_opengraph_image.status_code == 200
-        assert item_opengraph_image.headers["Content-Type"] == "image/png"
-        assert item_opengraph_image.content == b"the image bytes"
+        assert item_opengraph_image.status_code == 302
+        assert item_opengraph_image["Location"] == "https://s3.example.com/presigned-url"
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.models.exported_asset.object_storage.read_bytes")
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_thing_can_reuse_existing_generated_open_graph_image(
-        self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
+        self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
     ) -> None:
-        patched_object_storage.return_value = b"the image bytes"
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
 
         self._setup_patched_exporter(patched_exporter_task)
 
@@ -375,9 +379,8 @@ class TestSharing(APIBaseTest):
         patched_exporter_task.assert_not_called()
 
         assert ExportedAsset.objects.count() == 1
-        assert item_opengraph_image.status_code == 200
-        assert item_opengraph_image.headers["Content-Type"] == "image/png"
-        assert item_opengraph_image.content == b"the image bytes"
+        assert item_opengraph_image.status_code == 302
+        assert item_opengraph_image["Location"] == "https://s3.example.com/presigned-url"
 
     def _setup_patched_exporter(self, patched_exporter_task):
         def add_content_location_on_task_run(*args, **kwargs):
@@ -390,12 +393,12 @@ class TestSharing(APIBaseTest):
         patched_exporter_task.side_effect = add_content_location_on_task_run
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.models.exported_asset.object_storage.read_bytes")
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_insight_can_regenerate_stale_existing_generated_open_graph_image(
-        self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
+        self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
     ) -> None:
-        patched_object_storage.return_value = b"the image bytes"
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
         self._setup_patched_exporter(patched_exporter_task)
 
         target = self.insight if type == "insights" else self.dashboard
@@ -417,9 +420,8 @@ class TestSharing(APIBaseTest):
         assert ExportedAsset.objects.count() == 0
 
         item_opengraph_image = self.client.get("/shared/" + access_token + ".png")
-        assert item_opengraph_image.status_code == 200
-        assert item_opengraph_image.headers["Content-Type"] == "image/png"
-        assert item_opengraph_image.content == b"the image bytes"
+        assert item_opengraph_image.status_code == 302
+        assert item_opengraph_image["Location"] == "https://s3.example.com/presigned-url"
 
         assert ExportedAsset.objects.count() == 1
         final_asset = ExportedAsset.objects.first()
@@ -427,7 +429,7 @@ class TestSharing(APIBaseTest):
         assert original_asset is not None
         assert final_asset.id != original_asset.id
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_refresh_sharing_access_token_for_dashboard(self, patched_exporter_task: Mock):
         # Enable sharing
         response = self.client.patch(
@@ -451,7 +453,7 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         assert response.json()["access_token"] == refreshed_data["access_token"]
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_refresh_sharing_access_token_for_insight(self, patched_exporter_task: Mock):
         # First enable sharing
         response = self.client.patch(
@@ -479,7 +481,7 @@ class TestSharing(APIBaseTest):
         assert first.item_id == str(self.insight.id)
 
     @freeze_time("2025-01-01 00:00:00")
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_refresh_token_grace_period(self, patched_exporter_task: Mock):
         # Enable sharing
         response = self.client.patch(
@@ -572,7 +574,7 @@ class TestSharing(APIBaseTest):
         assert original_config.expires_at is not None
         assert original_config.expires_at > timezone.now()  # Should be in the future
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_sharing_configuration_settings_field_defaults(self, patched_exporter_task: Mock):
         """Test that settings field defaults to empty dict"""
         response = self.client.patch(
@@ -584,7 +586,7 @@ class TestSharing(APIBaseTest):
         assert "settings" in data
         assert data["settings"] is None
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_update_settings_field(self, patched_exporter_task: Mock):
         """Test that settings field can be updated"""
         # First enable sharing
@@ -612,7 +614,7 @@ class TestSharing(APIBaseTest):
             "whitelabel": True,
         }
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_settings_preserved_on_token_rotation(self, patched_exporter_task: Mock):
         """Test that settings are preserved when rotating access tokens"""
         # Enable sharing with comprehensive settings
@@ -642,7 +644,7 @@ class TestSharing(APIBaseTest):
         assert response.json()["settings"] == settings_data
 
     # @freeze_time("2023-12-15")  # Before ship date
-    # @patch("posthog.api.exports.exporter.export_asset.delay")
+
     # def test_all_query_params_work_for_old_configs(self, patched_exporter_task: Mock):
     #     """Test that all query params work for configurations created before ship date"""
     #     # Ensure organization has white labelling feature
@@ -672,7 +674,7 @@ class TestSharing(APIBaseTest):
     #     assert '\\"showInspector\\": true' in content
 
     # @freeze_time("2025-10-15")  # After ship date
-    # @patch("posthog.api.exports.exporter.export_asset.delay")
+
     # def test_all_query_params_ignored_for_new_configs(self, patched_exporter_task: Mock):
     #     """Test that all query params are ignored for configurations created after ship date"""
     #     # Ensure organization has white labelling feature
@@ -702,7 +704,7 @@ class TestSharing(APIBaseTest):
     #     assert '\\"detailed\\": true' not in content
 
     # @freeze_time("2025-10-15")  # After ship date
-    # @patch("posthog.api.exports.exporter.export_asset.delay")
+
     # def test_all_options_from_settings_work_for_new_configs(self, patched_exporter_task: Mock):
     #     """Test that all options from settings work for new configurations"""
     #     # Create sharing configuration with all options in settings
@@ -731,7 +733,7 @@ class TestSharing(APIBaseTest):
     #     assert '\\"showInspector\\": true' in content
 
     # @freeze_time("2025-10-15")  # After ship date
-    # @patch("posthog.api.exports.exporter.export_asset.delay")
+
     # def test_settings_override_query_params_for_new_configs(self, patched_exporter_task: Mock):
     #     """Test that settings take precedence over query params for configurations created after ship date"""
     #     # Ensure organization has white labelling feature
@@ -767,7 +769,7 @@ class TestSharing(APIBaseTest):
     #     assert '\\"detailed\\": true' not in content
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_settings_field_works_for_both_insights_and_dashboards(self, type: str, patched_exporter_task: Mock):
         """Test that settings field works for both insights and dashboards"""
         target = self.insight if type == "insights" else self.dashboard
@@ -847,7 +849,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         super().setUpTestData()
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="test dashboard", created_by=cls.user)
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_valid_settings_are_accepted(self, patched_exporter_task: Mock):
         """Test that valid settings are accepted and validated"""
         valid_settings = {
@@ -856,6 +858,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
             "showInspector": True,
             "legend": False,
             "detailed": True,
+            "theme": "dark",
         }
 
         response = self.client.patch(
@@ -867,10 +870,10 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         data = response.json()
         assert data["settings"] == valid_settings
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_partial_settings_are_filled_with_defaults(self, patched_exporter_task: Mock):
         """Test that partial settings are filled with defaults during validation"""
-        partial_settings = {"whitelabel": True, "legend": True}
+        partial_settings = {"whitelabel": True, "legend": True, "theme": "light"}
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
@@ -884,10 +887,11 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         expected_settings = {
             "whitelabel": True,
             "legend": True,
+            "theme": "light",
         }
         assert data["settings"] == expected_settings
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_unknown_settings_are_filtered_out(self, patched_exporter_task: Mock):
         """Test that unknown settings fields are filtered out during validation"""
         settings_with_unknown = {
@@ -912,7 +916,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         }
         assert data["settings"] == expected_settings
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_null_settings_are_accepted(self, patched_exporter_task: Mock):
         """Test that null settings are accepted"""
         response = self.client.patch(
@@ -924,7 +928,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         data = response.json()
         assert data["settings"] is None
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_empty_settings_get_defaults(self, patched_exporter_task: Mock):
         """Test that empty settings dictionary gets filled with defaults"""
         response = self.client.patch(
@@ -960,7 +964,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
         valid_settings = {"whitelabel": True, "detailed": True}
 
-        with patch("posthog.api.exports.exporter.export_asset.delay"):
+        with patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow"):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight.id}/sharing",
                 {"enabled": True, "settings": valid_settings},
@@ -975,7 +979,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         }
         assert data["settings"] == expected_settings
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_resource_blocked_when_organization_disallows_public_sharing(self, _patched_exporter_task: Mock):
         """Test that shared resources return 404 when organization.allow_publicly_shared_resources is False and feature is enabled"""
         self.organization.available_product_features = [
@@ -1155,7 +1159,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
 
         assert response.status_code == 200
-        mock_fetch_cached.assert_called_once_with("expected_cache_key_abc123")
+        mock_fetch_cached.assert_called_once_with("expected_cache_key_abc123", team_id=self.insight.team_id)
         mock_calculate.assert_not_called()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
@@ -1180,7 +1184,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
 
         assert response.status_code == 200
-        mock_fetch_cached.assert_called_once_with("missing_cache_key")
+        mock_fetch_cached.assert_called_once_with("missing_cache_key", team_id=self.insight.team_id)
         mock_calculate.assert_called_once()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")

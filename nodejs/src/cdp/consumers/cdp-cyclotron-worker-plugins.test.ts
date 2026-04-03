@@ -3,8 +3,8 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
-import { RetryError } from '@posthog/plugin-scaffold'
-
+import { RetryError } from '~/plugin-scaffold'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -54,8 +54,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        team = await getFirstTeam(hub)
-        processor = new CdpCyclotronWorker(hub)
+        team = await getFirstTeam(hub.postgres)
+        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub))
 
         await processor.start()
 

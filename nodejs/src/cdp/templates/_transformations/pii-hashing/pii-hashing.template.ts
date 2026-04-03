@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'beta',
+    status: 'hidden',
     type: 'transformation',
     id: 'template-pii-hashing',
     name: 'PII Data Hashing',

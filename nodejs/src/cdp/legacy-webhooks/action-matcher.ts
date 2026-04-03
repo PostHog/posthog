@@ -2,7 +2,7 @@ import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { Summary } from 'prom-client'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import {
     Action,

@@ -14,13 +14,13 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 // import { Button } from './Button'
-import { ButtonGroupPrimitive, ButtonPrimitive } from './ButtonPrimitives'
+import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from './ButtonPrimitives'
 
 const meta = {
     title: 'UI/ButtonPrimitive',
     component: ButtonPrimitive as any,
     tags: ['autodocs'],
-} satisfies Meta<typeof ButtonPrimitive>
+} satisfies Meta<ButtonPrimitiveProps>
 
 export default meta
 
@@ -76,6 +76,10 @@ export function Default(): JSX.Element {
                     <IconSearch />
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
+
+            <ButtonPrimitive disabledReasons={{ 'Disabled reason': true, 'reason 2': true }}>
+                Disabled button with Tooltip
+            </ButtonPrimitive>
 
             <ButtonGroupPrimitive size="base" groupVariant="outline">
                 <Link

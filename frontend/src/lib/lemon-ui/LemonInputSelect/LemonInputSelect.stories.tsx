@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { ProfilePicture } from '../ProfilePicture'
-import { LemonInputSelect } from './LemonInputSelect'
+import { LemonInputSelect, LemonInputSelectProps } from './LemonInputSelect'
 
 const names = [
     'ben',
@@ -25,10 +25,10 @@ const names = [
     'charles',
 ]
 
-type Story = StoryObj<typeof LemonInputSelect>
-const meta: Meta<typeof LemonInputSelect> = {
+type Story = StoryObj<LemonInputSelectProps<string>>
+const meta: Meta<LemonInputSelectProps<string>> = {
     title: 'Lemon UI/Lemon Input Select',
-    component: LemonInputSelect,
+    component: LemonInputSelect as any,
     args: {
         options: names.map((x, i) => ({
             key: `user-${i}`,
@@ -250,6 +250,25 @@ export const SnacksModeWithSortable: Story = {
         displayMode: 'snacks',
         value: names.slice(0, 5).map((_, i) => `user-${i}`),
         sortable: true,
+    },
+}
+
+export const PrefilledSingleValue: Story = {
+    args: {
+        mode: 'single',
+        allowCustomValues: true,
+        placeholder: 'Pick one email',
+        value: ['user-0'],
+    },
+}
+
+export const PrefilledSingleValueAsSnack: Story = {
+    args: {
+        mode: 'single',
+        singleValueAsSnack: true,
+        allowCustomValues: true,
+        placeholder: 'Pick one email',
+        value: ['user-0'],
     },
 }
 
