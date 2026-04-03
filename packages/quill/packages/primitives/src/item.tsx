@@ -3,7 +3,9 @@ import { useRender } from '@base-ui/react/use-render'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
+import { CheckboxIndicator } from './checkbox'
 import { cn } from './lib/utils'
+import { RadioIndicator } from './radio-group'
 import { Separator } from './separator'
 
 function ItemGroup({
@@ -117,11 +119,13 @@ const ItemCheckbox = React.forwardRef<HTMLButtonElement, useRender.ComponentProp
         variant = 'default',
         size = 'default',
         render,
+        children,
         ...props
     },
     ref
 ) {
-    return useRender({
+    const checked = props['aria-checked'] === true || props['aria-checked'] === 'true'
+    const element = useRender({
         defaultTagName: 'button',
         props: mergeProps<'button'>(
             {
@@ -138,6 +142,7 @@ const ItemCheckbox = React.forwardRef<HTMLButtonElement, useRender.ComponentProp
             size,
         },
     })
+    return React.cloneElement(element, {}, <ItemMedia variant="checkbox" className="-mr-2"><CheckboxIndicator checked={checked} /></ItemMedia>, children)
 })
 
 const ItemRadio = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemRadio(
@@ -146,11 +151,13 @@ const ItemRadio = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'
         variant = 'default',
         size = 'default',
         render,
+        children,
         ...props
     },
     ref
 ) {
-    return useRender({
+    const checked = props['aria-checked'] === true || props['aria-checked'] === 'true'
+    const element = useRender({
         defaultTagName: 'button',
         props: mergeProps<'button'>(
             {
@@ -167,6 +174,7 @@ const ItemRadio = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'
             size,
         },
     })
+    return React.cloneElement(element, {}, <ItemMedia variant="checkbox" className="-mr-2"><RadioIndicator checked={checked} /></ItemMedia>, children)
 })
 
 const itemMediaVariants = cva(

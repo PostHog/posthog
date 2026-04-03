@@ -1,9 +1,11 @@
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
-import { IconChevronRight, IconCheck } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import * as React from 'react'
 
 import { Button } from './button'
+import { CheckboxIndicator } from './checkbox'
 import { cn } from './lib/utils'
+import { RadioIndicator } from './radio-group'
 
 function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props): React.ReactElement {
     return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
@@ -157,16 +159,17 @@ function ContextMenuCheckboxItem({
             data-slot="context-menu-checkbox-item"
             data-inset={inset}
             className={cn(
-                "relative flex cursor-default items-center pe-8 ps-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "relative flex cursor-default items-center ps-8 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             render={<Button className="w-full font-normal" left />}
             checked={checked}
             {...props}
         >
-            <span className="pointer-events-none absolute end-2 flex items-center justify-center">
-                <ContextMenuPrimitive.CheckboxItemIndicator>
-                    <IconCheck />
+            <span className="pointer-events-none absolute start-2 flex items-center justify-center">
+                <CheckboxIndicator />
+                <ContextMenuPrimitive.CheckboxItemIndicator className="absolute">
+                    <CheckboxIndicator checked />
                 </ContextMenuPrimitive.CheckboxItemIndicator>
             </span>
             {children}
@@ -191,15 +194,16 @@ function ContextMenuRadioItem({
             data-slot="context-menu-radio-item"
             data-inset={inset}
             className={cn(
-                "relative flex cursor-default items-center pe-8 ps-2 outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "relative flex cursor-default items-center ps-8 pe-2 outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             render={<Button className="w-full font-normal" left />}
             {...props}
         >
-            <span className="pointer-events-none absolute end-2 flex items-center justify-center">
-                <ContextMenuPrimitive.RadioItemIndicator>
-                    <IconCheck />
+            <span className="pointer-events-none absolute start-2 flex items-center justify-center">
+                <RadioIndicator />
+                <ContextMenuPrimitive.RadioItemIndicator className="absolute">
+                    <RadioIndicator checked />
                 </ContextMenuPrimitive.RadioItemIndicator>
             </span>
             {children}

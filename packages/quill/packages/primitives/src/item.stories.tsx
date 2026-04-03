@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { IconCheckCircle, IconCheck, IconChevronRight } from '@posthog/icons'
+import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -228,13 +228,6 @@ export const ItemCheckboxInDropdown: Story = {
                                                         {person.email}
                                                     </ItemDescription>
                                                 </ItemContent>
-                                                <ItemMedia variant="checkbox">
-                                                    {props['aria-checked'] ? (
-                                                        <IconCheck />
-                                                    ) : (
-                                                        <div />
-                                                    )}
-                                                </ItemMedia>
                                             </ItemCheckbox>
                                         )}
                                     />
@@ -278,13 +271,6 @@ export const ItemRadiosInDropdown: Story = {
                                                         {person.email}
                                                     </ItemDescription>
                                                 </ItemContent>
-                                                <ItemMedia variant="checkbox">
-                                                    {props['aria-checked'] ? (
-                                                        <IconCheck />
-                                                    ) : (
-                                                        <div />
-                                                    )}
-                                                </ItemMedia>
                                             </ItemRadio>
                                         )}
                                     />
