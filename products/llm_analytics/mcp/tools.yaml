@@ -34,7 +34,20 @@ tools:
         enabled: false
     llm-analytics-clustering-jobs-list:
         operation: llm_analytics_clustering_jobs_list
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List clustering jobs
+        description: >
+            List all clustering job configurations for the current team (max 5 per team).
+            Each job defines an analysis level (trace or generation) and event filters that
+            scope which traces are included in clustering runs. Cluster results are stored
+            as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or
+            execute-sql to query them.
     llm-analytics-clustering-jobs-create:
         operation: llm_analytics_clustering_jobs_create
         enabled: false
@@ -174,7 +187,17 @@ tools:
         enabled: false
     llm-analytics-clustering-jobs-retrieve:
         operation: llm_analytics_clustering_jobs_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get clustering job
+        description: >
+            Retrieve a specific clustering job configuration by ID. Returns the job name,
+            analysis level (trace or generation), event filters, enabled status, and timestamps.
     llm-analytics-clustering-jobs-update:
         operation: llm_analytics_clustering_jobs_update
         enabled: false

@@ -62,6 +62,7 @@ from posthog.schema import (
     UsageMetricsQuery,
     VectorSearchQuery,
     WebGoalsQuery,
+    WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTrendsQuery,
@@ -192,6 +193,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebGoalsQuery,
+    WebNotableChangesQuery,
     WebTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
@@ -442,6 +444,17 @@ def get_query_runner(
         from .web_analytics.web_goals import WebGoalsQueryRunner
 
         return WebGoalsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "WebNotableChangesQuery":
+        from .web_analytics.notable_changes import WebNotableChangesQueryRunner
+
+        return WebNotableChangesQueryRunner(
             query=query,
             team=team,
             timings=timings,

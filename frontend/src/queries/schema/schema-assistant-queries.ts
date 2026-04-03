@@ -12,6 +12,10 @@ import {
 import {
     ActionsNode,
     CompareFilter,
+    DateRange,
+    ErrorTrackingIssueAssignee,
+    ErrorTrackingOrderBy,
+    ErrorTrackingQueryStatus,
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
@@ -1134,7 +1138,7 @@ export interface AssistantTracesQuery {
 
     /**
      * Exclude internal and test users by applying the respective filters.
-     * @default false
+     * @default true
      */
     filterTestAccounts?: boolean
 
@@ -1174,8 +1178,63 @@ export interface AssistantTracesQuery {
     randomOrder?: boolean
 }
 
+/**
+ * Fetch a single LLM trace by ID. Returns the full trace with all child events
+ * and their complete properties — use for deep inspection of a specific trace
+ * found via `query-llm-traces-list`.
+ */
+export interface AssistantTraceQuery {
+    kind: NodeKind.TraceQuery
+
+    /**
+     * The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).
+     */
+    traceId: string
+
+    /**
+     * Date range for the query.
+     */
+    dateRange?: AssistantDateRangeFilter
+
+    /**
+     * Property filters to narrow events within the trace.
+     * @default []
+     */
+    properties?: AssistantPropertyFilter[]
+}
+
 export interface AssistantHogQLQuery {
     kind: NodeKind.HogQLQuery
     /** SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions. */
     query: string
+}
+
+export interface AssistantErrorTrackingQuery {
+    kind: NodeKind.ErrorTrackingQuery
+    /** Filter to a specific error tracking issue by ID. */
+    issueId?: string
+    /** Field to sort results by. */
+    orderBy?: ErrorTrackingOrderBy
+    /** Sort direction. */
+    orderDirection?: 'ASC' | 'DESC'
+    /** Date range to filter results. */
+    dateRange?: DateRange
+    /** Filter by issue status. */
+    status?: ErrorTrackingQueryStatus
+    /** Filter by assignee. */
+    assignee?: ErrorTrackingIssueAssignee | null
+    /** Whether to filter out test accounts. */
+    filterTestAccounts?: boolean
+    /** Free-text search across exception type, message, and stack frames. */
+    searchQuery?: string
+    /**
+     * Property filters for the query
+     *
+     * @default []
+     */
+    filterGroup?: AssistantPropertyFilter[]
+    /** Controls volume chart granularity. Use 1 for sparklines, 0 for counts only. */
+    volumeResolution?: integer
+    limit?: integer
+    offset?: integer
 }

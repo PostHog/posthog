@@ -1,17 +1,52 @@
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
 use futures::stream::unfold;
 use http::{Request, Response};
 use metrics::{counter, gauge, histogram};
-use pin_project::pin_project;
+use pin_project::{pin_project, pinned_drop};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::task::futures::TaskLocalFuture;
 use tonic::transport::server::Connected;
 use tower::{Layer, Service};
+
+// ============================================================
+// Client name extraction
+// ============================================================
+
+/// Header name for client identification in gRPC metadata.
+const CLIENT_NAME_HEADER: &str = "x-client-name";
+
+tokio::task_local! {
+    /// Per-request client name, set by `GrpcMetricsLayer` and readable
+    /// anywhere in the request's async call chain via `current_client_name()`.
+    pub static CLIENT_NAME: Arc<str>;
+}
+
+/// Get the current client name from the task-local, or `"unknown"` if not set.
+/// Returns `Arc<str>` so cloning is a cheap refcount bump rather than a
+/// heap allocation + memcpy on every call.
+pub fn current_client_name() -> Arc<str> {
+    CLIENT_NAME
+        .try_with(|c| c.clone())
+        .unwrap_or_else(|_| Arc::from("unknown"))
+}
+
+/// Extract the client name from HTTP headers, defaulting to `"unknown"`.
+fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
+    request
+        .headers()
+        .get(CLIENT_NAME_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("unknown")
+        .into()
+}
 
 // ============================================================
 // Connection tracking
@@ -118,18 +153,21 @@ pub fn tracked_tcp_incoming(
 /// ensuring cancellation-safety for outbound request tracking.
 pub struct ClientInFlightGuard {
     pub backend: &'static str,
+    client: Arc<str>,
 }
 
 impl ClientInFlightGuard {
     pub fn new(backend: &'static str) -> Self {
-        gauge!("personhog_router_client_requests_in_flight", "backend" => backend).increment(1.0);
-        Self { backend }
+        let client = current_client_name();
+        gauge!("personhog_router_client_requests_in_flight", "backend" => backend, "client" => client.clone())
+            .increment(1.0);
+        Self { backend, client }
     }
 }
 
 impl Drop for ClientInFlightGuard {
     fn drop(&mut self) {
-        gauge!("personhog_router_client_requests_in_flight", "backend" => self.backend)
+        gauge!("personhog_router_client_requests_in_flight", "backend" => self.backend, "client" => self.client.clone())
             .decrement(1.0);
     }
 }
@@ -152,9 +190,12 @@ fn is_fatal_accept_error(e: &io::Error) -> bool {
 /// Tower layer that instruments gRPC requests with timing and concurrency metrics.
 ///
 /// Records:
-/// - `grpc_server_requests_total` - counter with method label
-/// - `grpc_server_request_duration_ms` - histogram with method label
-/// - `grpc_server_requests_in_flight` - gauge with method label
+/// - `grpc_server_requests_total` - counter with method and client labels
+/// - `grpc_server_request_duration_ms` - histogram with method and client labels
+/// - `grpc_server_requests_in_flight` - gauge with method and client labels
+///
+/// Also sets the `CLIENT_NAME` task-local so downstream code can read
+/// the client name via `current_client_name()`.
 #[derive(Clone, Default)]
 pub struct GrpcMetricsLayer;
 
@@ -175,7 +216,9 @@ impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for GrpcMetricsService<S>
 where
     S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
     S::Future: Send,
+    S::Error: Send,
     ReqBody: Send + 'static,
+    ResBody: Send + 'static,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -187,36 +230,36 @@ where
 
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
         let method = extract_grpc_method(request.uri().path());
-        gauge!("grpc_server_requests_in_flight", "method" => method.clone()).increment(1.0);
+        let client = extract_client_name(&request);
+        gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.clone())
+            .increment(1.0);
+
+        let start = Instant::now();
+        // Call inner inside the scope so any synchronous work in call() sees CLIENT_NAME.
+        let inner = CLIENT_NAME.sync_scope(client.clone(), || self.inner.call(request));
 
         GrpcMetricsFuture {
-            inner: self.inner.call(request),
-            start: Instant::now(),
-            method: method.clone(),
-            _in_flight_guard: InFlightGuard { method },
+            inner: CLIENT_NAME.scope(client.clone(), inner),
+            method,
+            client,
+            start,
         }
     }
 }
 
-/// Drop guard that decrements the in-flight gauge when a request completes
-/// or is cancelled.
-struct InFlightGuard {
-    method: String,
-}
-
-impl Drop for InFlightGuard {
-    fn drop(&mut self) {
-        gauge!("grpc_server_requests_in_flight", "method" => self.method.clone()).decrement(1.0);
-    }
-}
-
-#[pin_project]
+/// Future returned by [`GrpcMetricsService`].
+///
+/// Wraps the inner service future with task-local client name propagation
+/// and records request metrics (counter, histogram, in-flight gauge) on
+/// completion or cancellation. Lives inline in the caller's async state
+/// machine — no heap allocation or dynamic dispatch.
+#[pin_project(PinnedDrop)]
 pub struct GrpcMetricsFuture<F> {
     #[pin]
-    inner: F,
-    start: Instant,
+    inner: TaskLocalFuture<Arc<str>, F>,
     method: String,
-    _in_flight_guard: InFlightGuard,
+    client: Arc<str>,
+    start: Instant,
 }
 
 impl<F, ResBody, E> Future for GrpcMetricsFuture<F>
@@ -227,17 +270,35 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
-        let result = this.inner.poll(cx);
-
-        if result.is_ready() {
-            let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
-
-            counter!("grpc_server_requests_total", "method" => this.method.clone()).increment(1);
-            histogram!("grpc_server_request_duration_ms", "method" => this.method.clone())
+        match this.inner.poll(cx) {
+            Poll::Ready(result) => {
+                let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
+                counter!("grpc_server_requests_total",
+                    "method" => this.method.clone(),
+                    "client" => this.client.clone())
+                .increment(1);
+                histogram!("grpc_server_request_duration_ms",
+                    "method" => this.method.clone(),
+                    "client" => this.client.clone())
                 .record(duration_ms);
+                Poll::Ready(result)
+            }
+            Poll::Pending => Poll::Pending,
         }
+    }
+}
 
-        result
+/// Decrement the in-flight gauge when the future is dropped (on both
+/// normal completion and cancellation), matching the original
+/// `InFlightGuard` behavior.
+#[pinned_drop]
+impl<F> PinnedDrop for GrpcMetricsFuture<F> {
+    fn drop(self: Pin<&mut Self>) {
+        let this = self.project();
+        gauge!("grpc_server_requests_in_flight",
+            "method" => this.method.clone(),
+            "client" => this.client.clone())
+        .decrement(1.0);
     }
 }
 

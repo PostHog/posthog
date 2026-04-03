@@ -206,6 +206,40 @@ class TestTask(TestCase):
         task.refresh_from_db()
         self.assertIsNotNone(task.id)
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_internal_defaults_to_false(self, mock_execute_workflow):
+        user = User.objects.create(email="internal_default@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Non-internal Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+        )
+
+        self.assertFalse(task.internal)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_with_internal_true(self, mock_execute_workflow):
+        user = User.objects.create(email="internal_true@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Internal Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+            internal=True,
+        )
+
+        task.refresh_from_db()
+        self.assertTrue(task.internal)
+
 
 class TestTaskSlug(TestCase):
     organization: ClassVar[Organization]
