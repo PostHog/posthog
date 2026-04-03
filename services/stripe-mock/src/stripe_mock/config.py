@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_FILE = SERVICE_ROOT / "stripe-mock.config.yaml"
+LOCAL_CONFIG_FILE = SERVICE_ROOT / "stripe-mock.config.local.yaml"
 
 
 class Settings(BaseSettings):
@@ -127,21 +128,28 @@ class MockConfig(BaseModel):
     errors: dict[str, ErrorConfig] = {}
 
 
-def load_mock_config(path: Path | None = None) -> MockConfig:
-    config_path = path or CONFIG_FILE
-    if not config_path.exists():
-        return MockConfig()
+def load_mock_config(path: Path | None = None) -> tuple[MockConfig, str]:
+    if path:
+        config_path = path
+    elif LOCAL_CONFIG_FILE.exists():
+        config_path = LOCAL_CONFIG_FILE
+    elif CONFIG_FILE.exists():
+        config_path = CONFIG_FILE
+    else:
+        return MockConfig(), "(defaults)"
 
     with open(config_path) as f:
         raw: dict[str, Any] = yaml.safe_load(f) or {}
 
-    return MockConfig(**raw)
+    return MockConfig(**raw), str(config_path)
 
 
 settings = Settings()
-mock_config: MockConfig = load_mock_config()
+mock_config: MockConfig
+config_source: str
+mock_config, config_source = load_mock_config()
 
 
 def reload_mock_config() -> None:
-    global mock_config
-    mock_config = load_mock_config()
+    global mock_config, config_source
+    mock_config, config_source = load_mock_config()

@@ -52,7 +52,8 @@ export type PersonHogConfig = Pick<
     CommonConfig,
     | 'PERSONHOG_ENABLED'
     | 'PERSONHOG_ADDR'
-    | 'PERSONHOG_ROLLOUT_PERCENTAGE'
+    | 'PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE'
+    | 'PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE'
     | 'PERSONHOG_TLS'
     | 'PERSONHOG_TIMEOUT_MS'
     | 'PERSONHOG_READ_MAX_BYTES'
@@ -60,6 +61,7 @@ export type PersonHogConfig = Pick<
     | 'PERSONHOG_PING_INTERVAL_MS'
     | 'PERSONHOG_PING_TIMEOUT_MS'
     | 'PERSONHOG_PING_IDLE_CONNECTION'
+    | 'PLUGIN_SERVER_MODE'
 >
 
 /** Kafka consumer loop tuning config */
@@ -146,6 +148,7 @@ export type IngestionConsumerConfig = {
     INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
     /** '*' for all teams, or comma-separated team IDs */
     INGESTION_AI_EVENT_SPLITTING_TEAMS: string
+    INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY: boolean
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
@@ -245,6 +248,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
         INGESTION_AI_EVENT_SPLITTING_TEAMS: '*',
+        INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY: false,
 
         // Clickhouse topics
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,

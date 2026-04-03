@@ -9,6 +9,8 @@ use tokio_util::sync::CancellationToken;
 use assignment_coordination::leader_election::{self, LeaderElectionConfig};
 use assignment_coordination::strategy::AssignmentStrategy;
 use assignment_coordination::util;
+use k8s_awareness::types::ControllerKind;
+use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
 use crate::store::{self, KafkaAssignerStore};
@@ -60,6 +62,7 @@ pub struct Assigner {
     store: Arc<KafkaAssignerStore>,
     config: AssignerConfig,
     strategy: Arc<dyn AssignmentStrategy>,
+    k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
 impl Assigner {
@@ -67,11 +70,13 @@ impl Assigner {
         store: Arc<KafkaAssignerStore>,
         config: AssignerConfig,
         strategy: Arc<dyn AssignmentStrategy>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
         Self {
             store,
             config,
             strategy,
+            k8s_awareness,
         }
     }
 
@@ -120,6 +125,7 @@ impl Assigner {
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let k8s = self.k8s_awareness.clone();
             let guard = Arc::clone(&rebalance_guard);
             let debounce_interval = self.config.rebalance_debounce_interval;
             let handoff_timeout = self.config.handoff_timeout;
@@ -131,6 +137,7 @@ impl Assigner {
                     guard,
                     debounce_interval,
                     handoff_timeout,
+                    k8s,
                     token,
                 )
                 .await
@@ -140,11 +147,12 @@ impl Assigner {
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let k8s = self.k8s_awareness.clone();
             let guard = Arc::clone(&rebalance_guard);
             let handoff_timeout = self.config.handoff_timeout;
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_handoffs_loop(store, strategy, guard, handoff_timeout, token).await
+                Self::watch_handoffs_loop(store, strategy, guard, handoff_timeout, k8s, token).await
             });
         }
 
@@ -154,11 +162,13 @@ impl Assigner {
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let k8s = self.k8s_awareness.clone();
             let guard = Arc::clone(&rebalance_guard);
             let handoff_timeout = self.config.handoff_timeout;
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::periodic_cleanup_loop(store, strategy, guard, handoff_timeout, token).await
+                Self::periodic_cleanup_loop(store, strategy, guard, handoff_timeout, k8s, token)
+                    .await
             });
         }
 
@@ -182,6 +192,7 @@ impl Assigner {
         rebalance_guard: Arc<Mutex<()>>,
         debounce_interval: Duration,
         handoff_timeout: Duration,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_consumers().await?;
@@ -210,7 +221,13 @@ impl Assigner {
             }
 
             let _lock = rebalance_guard.lock().await;
-            Self::handle_consumer_change_static(&store, strategy.as_ref(), handoff_timeout).await?;
+            Self::handle_consumer_change_static(
+                &store,
+                strategy.as_ref(),
+                handoff_timeout,
+                k8s_awareness.as_deref(),
+            )
+            .await?;
         }
     }
 
@@ -228,6 +245,7 @@ impl Assigner {
         strategy: Arc<dyn AssignmentStrategy>,
         rebalance_guard: Arc<Mutex<()>>,
         handoff_timeout: Duration,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_handoffs().await?;
@@ -252,18 +270,18 @@ impl Assigner {
 
                     let _lock = rebalance_guard.lock().await;
 
-                    // Clean up handoffs that can no longer make progress
-                    // (e.g. old_owner died at Complete phase — nobody will
-                    // call PartitionReleased to delete the handoff).
                     let consumers = store.list_consumers().await?;
                     let active = active_consumer_names(&consumers);
                     Self::cleanup_stale_handoffs(&store, &active, handoff_timeout).await?;
 
-                    // After processing all events, check if all handoffs have
-                    // completed. If so, re-trigger rebalancing to pick up any
-                    // consumer changes that were deferred.
                     if store.list_handoffs().await?.is_empty() {
-                        Self::handle_consumer_change_static(&store, strategy.as_ref(), handoff_timeout).await?;
+                        Self::handle_consumer_change_static(
+                            &store,
+                            strategy.as_ref(),
+                            handoff_timeout,
+                            k8s_awareness.as_deref(),
+                        )
+                        .await?;
                     }
                 }
             }
@@ -281,6 +299,7 @@ impl Assigner {
         strategy: Arc<dyn AssignmentStrategy>,
         rebalance_guard: Arc<Mutex<()>>,
         handoff_timeout: Duration,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
         cancel: CancellationToken,
     ) -> Result<()> {
         // Check at half the timeout interval so we catch stale handoffs
@@ -298,7 +317,13 @@ impl Assigner {
                     Self::cleanup_stale_handoffs(&store, &active, handoff_timeout).await?;
 
                     if store.list_handoffs().await?.is_empty() {
-                        Self::handle_consumer_change_static(&store, strategy.as_ref(), handoff_timeout).await?;
+                        Self::handle_consumer_change_static(
+                            &store,
+                            strategy.as_ref(),
+                            handoff_timeout,
+                            k8s_awareness.as_deref(),
+                        )
+                        .await?;
                     }
                 }
             }
@@ -353,18 +378,29 @@ impl Assigner {
     // ── Rebalancing ──────────────────────────────────────────────
 
     async fn handle_consumer_change(&self, handoff_timeout: Duration) -> Result<()> {
-        Self::handle_consumer_change_static(&self.store, self.strategy.as_ref(), handoff_timeout)
-            .await
+        Self::handle_consumer_change_static(
+            &self.store,
+            self.strategy.as_ref(),
+            handoff_timeout,
+            self.k8s_awareness.as_deref(),
+        )
+        .await
     }
 
     async fn handle_consumer_change_static(
         store: &KafkaAssignerStore,
         strategy: &dyn AssignmentStrategy,
         handoff_timeout: Duration,
+        k8s_awareness: Option<&K8sAwareness>,
     ) -> Result<()> {
         let consumers = store.list_consumers().await?;
-        let ready_consumers = active_consumer_names(&consumers);
+        let mut ready_consumers = active_consumer_names(&consumers);
         let registered = registered_consumer_names(&consumers);
+
+        // K8s-aware consumer filtering for smarter rebalancing
+        if let Some(k8s) = k8s_awareness {
+            ready_consumers = filter_consumers_for_k8s(k8s, &consumers, ready_consumers).await;
+        }
 
         // Clean up handoffs targeting consumers that are no longer active.
         Self::cleanup_stale_handoffs(store, &ready_consumers, handoff_timeout).await?;
@@ -564,6 +600,66 @@ fn registered_consumer_names(consumers: &[RegisteredConsumer]) -> Vec<String> {
     names
 }
 
+/// Adjust the active consumer list based on K8s controller intent.
+///
+/// Two adjustments during rollouts:
+///
+/// 1. **Deployment rollout** — old-gen Ready consumers are excluded from the
+///    active list so the strategy never assigns partitions to them. Existing
+///    assignments move to new-gen consumers via handoff.
+///
+/// 2. **StatefulSet rollout** — Draining consumers are *added back* to the
+///    active list so their assignments are held. In a StatefulSet rollout the
+///    same pod name comes back with a new revision, so there's no point
+///    handing off to a different consumer.
+async fn filter_consumers_for_k8s(
+    k8s: &K8sAwareness,
+    consumers: &[RegisteredConsumer],
+    mut active: Vec<String>,
+) -> Vec<String> {
+    for consumer in consumers {
+        let (Some(controller), generation) = (&consumer.controller, &consumer.generation) else {
+            continue;
+        };
+
+        if generation.is_empty() {
+            continue;
+        }
+
+        let reason = k8s.classify_departure(controller, generation).await;
+
+        match (&controller.kind, consumer.status, reason) {
+            // Deployment rollout: old-gen Ready consumer → exclude
+            (ControllerKind::Deployment, ConsumerStatus::Ready, DepartureReason::Rollout) => {
+                tracing::info!(
+                    consumer = %consumer.consumer_name,
+                    controller = %controller,
+                    generation = %generation,
+                    "excluding old-gen deployment consumer from active list"
+                );
+                active.retain(|name| name != &consumer.consumer_name);
+            }
+            // StatefulSet rollout: Draining consumer → add back (hold assignment)
+            (ControllerKind::StatefulSet, ConsumerStatus::Draining, DepartureReason::Rollout) => {
+                tracing::info!(
+                    consumer = %consumer.consumer_name,
+                    controller = %controller,
+                    generation = %generation,
+                    "holding assignment for statefulset consumer during rollout"
+                );
+                if !active.contains(&consumer.consumer_name) {
+                    active.push(consumer.consumer_name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    active.sort();
+    active.dedup();
+    active
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -573,6 +669,8 @@ mod tests {
             consumer_name: name.to_string(),
             status: ConsumerStatus::Ready,
             registered_at: 0,
+            generation: String::new(),
+            controller: None,
         }
     }
 

@@ -1,13 +1,29 @@
 import json
 import uuid
-import logging
 from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    Func,
+    IntegerField,
+    JSONField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Cast, Coalesce
 
+import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import mixins, serializers, status, viewsets
@@ -47,7 +63,12 @@ from products.signals.backend.serializers import (
     SignalReportSerializer,
     SignalSourceConfigSerializer,
 )
+from products.signals.backend.temporal.backfill_error_tracking import (
+    BackfillErrorTrackingInput,
+    BackfillErrorTrackingWorkflow,
+)
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
+from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
@@ -55,7 +76,7 @@ from products.signals.backend.temporal.types import (
 )
 from products.signals.backend.utils import EMBEDDING_MODEL
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -153,6 +174,30 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
             self._trigger_initial_clustering(instance)
+
+        if (
+            instance.source_product == SignalSourceConfig.SourceProduct.ERROR_TRACKING
+            and instance.source_type == SignalSourceConfig.SourceType.ISSUE_CREATED
+            and instance.enabled
+        ):
+            self._trigger_error_tracking_backfill()
+
+    def _trigger_error_tracking_backfill(self) -> None:
+        """Fire-and-forget backfill of recent error tracking issues as signals."""
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "backfill-error-tracking",  # type: ignore
+                BackfillErrorTrackingInput(team_id=self.team_id),  # type: ignore
+                id=BackfillErrorTrackingWorkflow.workflow_id_for(self.team_id),
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            logger.info(f"Started error tracking backfill workflow for team {self.team_id}")
+        except Exception:
+            logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
 
     def _trigger_initial_clustering(self, config: SignalSourceConfig) -> None:
         """Fire-and-forget the clustering workflow."""
@@ -254,11 +299,13 @@ class SignalReportViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReport.objects.all()
-    _DEFAULT_SIGNAL_REPORT_ORDERING = "status,-updated_at"
+    _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
+        "is_suggested_reviewer": "is_suggested_reviewer",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
+        "priority": "priority_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
@@ -276,6 +323,34 @@ class SignalReportViewSet(
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+        source_product_filter = self.request.query_params.get("source_product")
+        if source_product_filter:
+            source_products = [s.strip() for s in source_product_filter.split(",") if s.strip()]
+            if source_products:
+                # Find report IDs that have at least one signal from the requested source products.
+                # We start from signals (narrowed by source_product) and get their report IDs,
+                # then intersect with the PG queryset that already has status/search filters.
+                ch_query = """
+                    SELECT DISTINCT
+                        JSONExtractString(metadata, 'report_id') as report_id
+                    FROM document_embeddings
+                    WHERE model_name = {model_name}
+                      AND product = 'signals'
+                      AND JSONExtractString(metadata, 'source_product') IN ({source_products})
+                      AND NOT JSONExtractBool(metadata, 'deleted')
+                """
+                tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
+                result = execute_hogql_query(
+                    query_type="SignalsFilterBySourceProduct",
+                    query=ch_query,
+                    team=self.team,
+                    placeholders={
+                        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+                        "source_products": ast.Tuple(exprs=[ast.Constant(value=sp) for sp in source_products]),
+                    },
+                )
+                report_ids_with_source = {row[0] for row in (result.results or []) if row[0]}
+                qs = qs.filter(id__in=report_ids_with_source)
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
         qs = qs.annotate(
             pipeline_status_rank=Case(
@@ -291,6 +366,30 @@ class SignalReportViewSet(
                 output_field=IntegerField(),
             )
         )
+        # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
+        # artefact. These sort lexicographically, so we extract via jsonb and coalesce NULL to "~"
+        # (sorts after "P4") for reports without a priority. The startswith guard skips non-object content.
+        latest_priority = Subquery(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                content__startswith="{",
+            )
+            .order_by("-created_at")
+            .annotate(
+                _priority_val=Func(
+                    Cast(F("content"), output_field=JSONField()),
+                    Value("priority"),
+                    function="jsonb_extract_path_text",
+                    output_field=CharField(),
+                ),
+            )
+            .values("_priority_val")[:1],
+            output_field=CharField(),
+        )
+        qs = qs.annotate(
+            priority_rank=Coalesce(latest_priority, Value("~"), output_field=CharField()),
+        )
         qs = qs.prefetch_related(
             Prefetch(
                 "artefacts",
@@ -300,6 +399,28 @@ class SignalReportViewSet(
                 to_attr="prefetched_priority_artefacts",
             )
         )
+
+        # Annotate is_suggested_reviewer by resolving the current user's GitHub login
+        # and checking jsonb containment on the artefact content list. This stays fresh
+        # even when a user connects their GitHub account after the report was generated.
+        github_login = self._get_github_login(self.request.user)
+        if github_login:
+            # github_login comes from our own UserSocialAuth DB, not user input.
+            qs = qs.annotate(
+                is_suggested_reviewer=Exists(
+                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+                    SignalReportArtefact.objects.filter(
+                        report_id=OuterRef("id"),
+                        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                    ).extra(
+                        where=["content::jsonb @> %s::jsonb"],
+                        params=[json.dumps([{"github_login": github_login}])],
+                    )
+                )
+            )
+        else:
+            qs = qs.annotate(is_suggested_reviewer=Value(False))
+
         return qs
 
     def filter_queryset(self, queryset):
@@ -336,6 +457,18 @@ class SignalReportViewSet(
         if not has_id:
             clauses = [*clauses, "id"]
         return queryset.order_by(*clauses)
+
+    @staticmethod
+    def _get_github_login(user) -> str | None:
+        """Resolve the GitHub login for a PostHog user via social auth."""
+        from social_django.models import UserSocialAuth
+
+        sa = UserSocialAuth.objects.filter(provider="github", user=user).only("extra_data").first()
+        if sa and isinstance(sa.extra_data, dict):
+            login = sa.extra_data.get("login")
+            if login:
+                return login.lower()
+        return None
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
@@ -375,9 +508,7 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
-        artefacts = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT).order_by(
-            "-created_at"
-        )
+        artefacts = report.artefacts.all().order_by("-created_at")
         serializer = SignalReportArtefactSerializer(artefacts, many=True)
         return Response(
             {
@@ -522,3 +653,50 @@ class SignalReportViewSet(
             )
 
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
+
+
+class PauseUntilRequestSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(help_text="Pause the grouping pipeline until this timestamp (ISO 8601).")
+
+
+class PauseResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Always 'paused'.")
+    paused_until = serializers.DateTimeField(help_text="The timestamp the pipeline is paused until.")
+
+
+class UnpauseResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Always 'unpaused'.")
+    was_paused = serializers.BooleanField(help_text="Whether the workflow was actually paused at the time of the call.")
+
+
+class PauseStateResponseSerializer(serializers.Serializer):
+    paused_until = serializers.DateTimeField(
+        allow_null=True, help_text="The timestamp the pipeline is paused until, or null if not paused/not running."
+    )
+
+
+class SignalProcessingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """View and control signal processing pipeline state for a team."""
+
+    scope_object = "INTERNAL"
+
+    @extend_schema(request=None, responses={200: PauseStateResponseSerializer})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        """Return current processing state including pause status."""
+        state = async_to_sync(TeamSignalGroupingV2Workflow.paused_state)(self.team.id)
+        return Response({"paused_until": state.isoformat() if state else None})
+
+    @extend_schema(request=PauseUntilRequestSerializer, responses={200: PauseResponseSerializer})
+    @action(methods=["PUT"], detail=False, url_path="pause")
+    def pause(self, request: Request, *args, **kwargs) -> Response:
+        serializer = PauseUntilRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        timestamp = serializer.validated_data["timestamp"]
+        async_to_sync(TeamSignalGroupingV2Workflow.pause_until)(self.team.id, timestamp)
+        return Response({"status": "paused", "paused_until": timestamp.isoformat()})
+
+    @extend_schema(request=None, responses={200: UnpauseResponseSerializer})
+    @action(methods=["POST"], detail=False, url_path="unpause")
+    def unpause(self, request: Request, *args, **kwargs) -> Response:
+        was_paused = async_to_sync(TeamSignalGroupingV2Workflow.unpause)(self.team.id)
+        return Response({"status": "unpaused", "was_paused": was_paused})

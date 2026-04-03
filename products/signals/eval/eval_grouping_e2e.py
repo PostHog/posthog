@@ -6,8 +6,7 @@ Feeds synthetic signals through the real pipeline (LLM query generation,
 embedding search, LLM matching, specificity verification) with mocked
 infrastructure (in-memory embedding store replaces ClickHouse + Kafka).
 
-After grouping, each report is summarized and judged for safety (prompt
-injection detection) and actionability (can a coding agent act on it).
+After grouping, each report is judged for safety (prompt injection detection).
 
 Captures four levels of metrics:
 - Per-signal matching: correct_match (binary), correct_match_pre_specificity
@@ -17,8 +16,7 @@ Captures four levels of metrics:
   embeddings), candidate_diversity (numeric, avg 1 − Jaccard across
   query pairs' candidate sets)
 - Per-report grouping: purity, is_pure, group_recall
-- Per-report judges: correct_classification (binary) for both
-  report-safety-check and report-actionability-check
+- Per-report judges: correct_classification (binary) for report-safety-check
 - Aggregate: ARI, homogeneity, completeness, mean_purity,
   group_recall, malicious_leaked_rate
 
@@ -45,7 +43,6 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     _summarize_long_descriptions,
 )
 
-from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, judge_report_actionability
 from products.signals.backend.temporal.grouping import (
     generate_search_queries,
     match_signal_to_report,
@@ -53,7 +50,6 @@ from products.signals.backend.temporal.grouping import (
 )
 from products.signals.backend.temporal.report_safety_judge import judge_report_safety
 from products.signals.backend.temporal.safety_filter import safety_filter
-from products.signals.backend.temporal.summarize_signals import summarize_signals
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
     MatchResult,
@@ -451,16 +447,9 @@ class EvalGroupingPipeline:
             return
 
         try:
-            dominant_group = GROUP_DATA[report.true_group_index]
-            expected_safe = dominant_group.safe
-            expected_actionable = dominant_group.actionable
+            expected_safe = all(GROUP_DATA[g].safe for g in report.true_signal_groups)
 
-            title, summary = await summarize_signals(signals)
-
-            safety_result, actionability_result = await asyncio.gather(
-                judge_report_safety(title=title, summary=summary, signals=signals),
-                judge_report_actionability(title=title, summary=summary, signals=signals),
-            )
+            safety_result = await judge_report_safety(signals=signals)
 
             report.safety_choice = safety_result.choice
             passed = safety_result.choice == expected_safe
@@ -468,7 +457,7 @@ class EvalGroupingPipeline:
             self._capture(
                 eval_name="report-safety-check",
                 item_name=f"report-{report_id[:12]}",
-                input=f"{title}\n\n{summary}",
+                input=f"report-{report_id[:12]} ({len(signals)} signals)",
                 output="SAFE" if safety_result.choice else "UNSAFE",
                 expected="SAFE" if expected_safe else "UNSAFE",
                 metrics=[
@@ -480,24 +469,6 @@ class EvalGroupingPipeline:
                     ),
                 ],
                 passed=passed,
-            )
-
-            is_actionable = actionability_result.choice == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
-            self._capture(
-                eval_name="report-actionability-check",
-                item_name=f"report-{report_id[:12]}",
-                input=f"{title}\n\n{summary}",
-                output=actionability_result.choice.value.upper(),
-                expected="IMMEDIATELY_ACTIONABLE" if expected_actionable else "NOT_IMMEDIATELY_ACTIONABLE",
-                metrics=[
-                    EvalMetric(
-                        name="correct_classification",
-                        result_type="binary",
-                        score=1.0 if is_actionable == expected_actionable else 0.0,
-                        reasoning=actionability_result.explanation,
-                    ),
-                ],
-                passed=is_actionable == expected_actionable,
             )
             self.progress.report_judged()
         except BaseException:

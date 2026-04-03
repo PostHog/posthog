@@ -25,6 +25,12 @@ import {
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
 
+// Skip retry sleeps so tests run instantly
+jest.mock('~/utils/utils', () => ({
+    ...jest.requireActual('~/utils/utils'),
+    sleep: jest.fn().mockResolvedValue(undefined),
+}))
+
 // Suppress logger output during tests
 jest.mock('~/utils/logger', () => ({
     logger: {
@@ -275,11 +281,13 @@ describe('ErrorTrackingPipeline', () => {
 
         pipelineConfig = {
             outputs: new IngestionOutputs({
-                events: { topic: 'clickhouse_events_json_test', producer: mockKafkaProducer },
-                ingestion_warnings: { topic: 'clickhouse_ingestion_warnings_test', producer: mockKafkaProducer },
-                dlq: { topic: 'error_tracking_dlq', producer: mockKafkaProducer },
-                overflow: { topic: 'error_tracking_overflow', producer: mockKafkaProducer },
-                tophog: { topic: 'clickhouse_tophog_test', producer: mockKafkaProducer },
+                events: [{ topic: 'clickhouse_events_json_test', producer: mockKafkaProducer, producerName: 'test' }],
+                ingestion_warnings: [
+                    { topic: 'clickhouse_ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
+                ],
+                dlq: [{ topic: 'error_tracking_dlq', producer: mockKafkaProducer, producerName: 'test' }],
+                overflow: [{ topic: 'error_tracking_overflow', producer: mockKafkaProducer, producerName: 'test' }],
+                tophog: [{ topic: 'clickhouse_tophog_test', producer: mockKafkaProducer, producerName: 'test' }],
             }),
             groupId: 'error-tracking-test',
             promiseScheduler,
@@ -627,12 +635,12 @@ describe('ErrorTrackingPipeline', () => {
 
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
 
-            // Cymbal errors are retried 3 times (pipeline default), then propagate
+            // Cymbal errors are retried 10 times (pipeline default), then propagate
             // so Kafka doesn't commit and retries the batch
             await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
 
-            // Cymbal was called 3 times (initial + 2 retries) before giving up
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
+            // Cymbal was called 10 times (initial + 9 retries) before giving up
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(10)
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
         })
 

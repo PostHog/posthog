@@ -55,7 +55,7 @@ def _get_sslmode(require_ssl: bool) -> str:
             tries SSL but falls back to unencrypted if not available.
     """
 
-    if settings.TEST or settings.DEBUG:
+    if settings.TEST or settings.DEBUG or settings.E2E_TESTING:
         return "prefer"
 
     return "require" if require_ssl else "prefer"
@@ -914,6 +914,7 @@ def postgres_source(
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
                 table = _get_table(cursor, schema, table_name, logger)
+                logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
                 inner_query_with_limit = _build_query(
                     schema,

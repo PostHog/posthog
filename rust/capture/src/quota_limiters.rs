@@ -211,6 +211,24 @@ impl CaptureQuotaLimiter {
         Ok(filtered_events)
     }
 
+    /// Check if a token is limited for a specific quota resource bucket.
+    /// Checks the global limiter directly if the resource matches the capture
+    /// mode's global resource, otherwise finds the matching scoped limiter.
+    /// Each call targets exactly one DashMap — the caller controls ordering.
+    pub async fn is_quota_limited_v1(&self, token: &str, resource: &QuotaResource) -> bool {
+        // Global resource — direct check, no loop
+        if *resource == Self::get_resource_for_mode(self.capture_mode) {
+            return self.global_limiter.is_limited(token).await;
+        }
+        // Scoped resource — find the matching limiter
+        for limiter in &self.scoped_limiters {
+            if *limiter.resource() == *resource {
+                return limiter.is_limited(token).await;
+            }
+        }
+        false
+    }
+
     pub fn get_resource_for_mode(mode: CaptureMode) -> QuotaResource {
         match mode {
             CaptureMode::Events | CaptureMode::Ai => QuotaResource::Events,

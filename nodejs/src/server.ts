@@ -22,10 +22,8 @@ import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
-import { buildGroupRepository } from './ingestion/personhog'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
 import { KafkaProducerWrapper } from './kafka/producer'
-import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
-import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -38,6 +36,7 @@ import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
+import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
 
 /**
@@ -89,9 +88,6 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow
         )
-        const needsLogs = !!capabilities.logsIngestion
-        const needsTraces = !!capabilities.tracesIngestion
-
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
 
@@ -101,10 +97,10 @@ export class PluginServer implements NodeServer {
             cdpServices = await this.createCdpSharedServices()
         }
 
-        // 3. CDP + Logs + Traces services (posthog redis, quota limiting)
-        let cdpLogsServices: ReturnType<typeof this.createCdpLogsServices> | undefined
-        if (needsCdp || needsLogs || needsTraces) {
-            cdpLogsServices = this.createCdpLogsServices(teamManager)
+        // 3. CDP services (posthog redis, quota limiting)
+        let cdpQuotaServices: ReturnType<typeof this.createCdpQuotaServices> | undefined
+        if (needsCdp) {
+            cdpQuotaServices = this.createCdpQuotaServices(teamManager)
         }
 
         // Build typed deps objects for consumers
@@ -120,7 +116,7 @@ export class PluginServer implements NodeServer {
                   personRepository: cdpServices!.personRepository,
                   geoipService: cdpServices!.geoipService,
                   groupRepository: cdpServices!.groupRepository,
-                  quotaLimiting: cdpLogsServices!.quotaLimiting,
+                  quotaLimiting: cdpQuotaServices!.quotaLimiting,
               }
             : undefined
 
@@ -227,10 +223,10 @@ export class PluginServer implements NodeServer {
         }
 
         if (capabilities.cdpHogflowScheduler) {
-            serviceLoaders.push(async () => {
+            serviceLoaders.push(() => {
                 const scheduler = new HogFlowScheduleService(this.config)
-                await scheduler.start()
-                return scheduler.service
+                scheduler.start()
+                return Promise.resolve(scheduler.service)
             })
         }
 
@@ -257,31 +253,9 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        if (capabilities.logsIngestion) {
-            serviceLoaders.push(async () => {
-                const consumer = new LogsIngestionConsumer(this.config, {
-                    teamManager,
-                    quotaLimiting: cdpLogsServices!.quotaLimiting,
-                })
-                await consumer.start()
-                return consumer.service
-            })
-        }
-
         if (capabilities.cdpBatchHogFlow) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
-                await consumer.start()
-                return consumer.service
-            })
-        }
-
-        if (capabilities.tracesIngestion) {
-            serviceLoaders.push(async () => {
-                const consumer = new TracesIngestionConsumer(this.config, {
-                    teamManager,
-                    quotaLimiting: cdpLogsServices!.quotaLimiting,
-                })
                 await consumer.start()
                 return consumer.service
             })
@@ -332,7 +306,7 @@ export class PluginServer implements NodeServer {
 
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
-        personRepository: PostgresPersonRepository
+        personRepository: PersonRepository
         groupRepository: GroupRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
@@ -341,14 +315,24 @@ export class PluginServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres!, {
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres!, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
+        const personRepository = buildPersonRepository(
+            personhogClient,
+            postgresPersonRepository,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            clientLabel
+        )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
         const groupRepository = buildGroupRepository(
-            this.config,
+            personhogClient,
             postgresGroupRepository,
-            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            clientLabel
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
@@ -365,7 +349,7 @@ export class PluginServer implements NodeServer {
         }
     }
 
-    private createCdpLogsServices(teamManager: TeamManager): { quotaLimiting: QuotaLimiting } {
+    private createCdpQuotaServices(teamManager: TeamManager): { quotaLimiting: QuotaLimiting } {
         logger.info('🤔', 'Connecting to PostHog Redis...')
         this.posthogRedisPool = createRedisPoolFromConfig({
             connection: createPosthogRedisConnectionConfig(this.config),

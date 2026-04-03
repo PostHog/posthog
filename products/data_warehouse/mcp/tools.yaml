@@ -412,3 +412,18 @@ tools:
     data-warehouse-check-database-name-retrieve:
         operation: data_warehouse_check_database_name_retrieve
         enabled: false
+    warehouse-saved-query-folders-list:
+        operation: warehouse_saved_query_folders_list
+        enabled: false
+    warehouse-saved-query-folders-create:
+        operation: warehouse_saved_query_folders_create
+        enabled: false
+    warehouse-saved-query-folders-retrieve:
+        operation: warehouse_saved_query_folders_retrieve
+        enabled: false
+    warehouse-saved-query-folders-partial-update:
+        operation: warehouse_saved_query_folders_partial_update
+        enabled: false
+    warehouse-saved-query-folders-destroy:
+        operation: warehouse_saved_query_folders_destroy
+        enabled: false

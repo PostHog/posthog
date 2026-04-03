@@ -19,6 +19,8 @@ use std::time::Duration;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
 
+use personhog_common::grpc::current_client_name;
+
 use super::retry::with_retry;
 use super::PersonHogBackend;
 use crate::config::RetryConfig;
@@ -61,16 +63,20 @@ impl ReplicaBackend {
 }
 
 /// Wraps a gRPC call with retry logic. Clones the request for each attempt.
+/// Forwards the `x-client-name` header so the downstream service can
+/// attribute metrics to the originating client.
 macro_rules! retry_call {
     ($self:expr, $method:ident, $request:expr) => {
         with_retry(&$self.retry_config, stringify!($method), || {
             let mut client = $self.client.clone();
             let req = $request.clone();
+            let client_name = current_client_name();
             async move {
-                client
-                    .$method(Request::new(req))
-                    .await
-                    .map(|r| r.into_inner())
+                let mut request = Request::new(req);
+                if let Ok(val) = client_name.parse() {
+                    request.metadata_mut().insert("x-client-name", val);
+                }
+                client.$method(request).await.map(|r| r.into_inner())
             }
         })
         .await

@@ -1,3 +1,4 @@
+use common_hypercache::writer::{compute_etag, HyperCacheWriter};
 use common_hypercache::{CacheSource, HyperCacheConfig, HyperCacheReader, KeyType};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{TeamId, TeamIdentifier};
@@ -412,5 +413,173 @@ async fn test_hypercache_keytype_variants() -> anyhow::Result<()> {
     )
     .await?;
 
+    Ok(())
+}
+
+// --- HyperCacheWriter integration tests ---
+
+async fn setup_writer_and_reader(
+) -> anyhow::Result<(HyperCacheWriter, HyperCacheReader, HyperCacheConfig)> {
+    env::set_var("AWS_ACCESS_KEY_ID", "object_storage_root_user");
+    env::set_var("AWS_SECRET_ACCESS_KEY", "object_storage_root_password");
+
+    let mut config = HyperCacheConfig::new(
+        "writer_test".to_string(),
+        "flags".to_string(),
+        "us-east-1".to_string(),
+        "posthog".to_string(),
+    );
+    config.s3_endpoint = Some("http://localhost:19000".to_string());
+
+    // Writer uses default Redis client (pickle format, compression disabled)
+    let writer_redis = common_redis::RedisClient::new("redis://localhost:6379".to_string()).await?;
+
+    // Build S3 client
+    let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .endpoint_url("http://localhost:19000")
+        .region(aws_config::Region::new("us-east-1"))
+        .load()
+        .await;
+    let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&aws_config);
+    s3_config_builder = s3_config_builder.force_path_style(true);
+    let aws_s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
+    let s3_impl = common_s3::S3Impl::new(aws_s3_client);
+    let s3_arc: std::sync::Arc<dyn common_s3::S3Client + Send + Sync> =
+        std::sync::Arc::new(s3_impl);
+
+    let writer = HyperCacheWriter::new(
+        std::sync::Arc::new(writer_redis),
+        s3_arc.clone(),
+        config.clone(),
+    );
+
+    // Reader uses disabled compression, matching existing test pattern
+    let reader_redis = common_redis::RedisClient::with_config(
+        "redis://localhost:6379".to_string(),
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::default(),
+        Some(Duration::from_millis(1000)),
+        Some(Duration::from_millis(5000)),
+    )
+    .await?;
+    let reader = HyperCacheReader::new_with_s3_client(
+        std::sync::Arc::new(reader_redis),
+        s3_arc,
+        config.clone(),
+    );
+
+    Ok((writer, reader, config))
+}
+
+#[tokio::test]
+async fn test_writer_set_then_reader_get_roundtrip() -> anyhow::Result<()> {
+    wait_for_services().await?;
+
+    let (writer, reader, _config) = setup_writer_and_reader().await?;
+    let key = KeyType::string("writer-roundtrip-test");
+    let json_data = r#"{"flags":[{"id":1,"key":"test-flag","active":true}]}"#;
+
+    writer.set(&key, json_data, 300).await?;
+
+    let (result, source) = reader.get_with_source(&key).await?;
+    assert_eq!(source, CacheSource::Redis);
+
+    let expected: Value = serde_json::from_str(json_data)?;
+    assert_eq!(result, expected);
+
+    // Cleanup
+    writer.delete(&key).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_writer_set_large_payload_roundtrip() -> anyhow::Result<()> {
+    wait_for_services().await?;
+
+    let (writer, reader, _config) = setup_writer_and_reader().await?;
+    let key = KeyType::string("writer-large-payload-test");
+
+    let flags: Vec<serde_json::Value> = (0..50)
+        .map(|i| {
+            serde_json::json!({
+                "id": i,
+                "key": format!("flag-{i}"),
+                "active": true,
+                "filters": {"groups": [{"properties": []}]}
+            })
+        })
+        .collect();
+    let json_data = serde_json::to_string(&serde_json::json!({"flags": flags}))?;
+
+    writer.set(&key, &json_data, 300).await?;
+
+    let (result, source) = reader.get_with_source(&key).await?;
+    assert_eq!(source, CacheSource::Redis);
+
+    let expected: Value = serde_json::from_str(&json_data)?;
+    assert_eq!(result, expected);
+
+    // Cleanup
+    writer.delete(&key).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_writer_set_empty_then_reader_gets_sentinel() -> anyhow::Result<()> {
+    wait_for_services().await?;
+
+    let (writer, reader, _config) = setup_writer_and_reader().await?;
+    let key = KeyType::string("writer-empty-test");
+
+    writer.set_empty(&key, 300).await?;
+
+    let (result, source) = reader.get_with_source(&key).await?;
+    assert_eq!(source, CacheSource::Redis);
+    // The reader converts "__missing__" sentinel to Null
+    assert_eq!(result, Value::Null);
+
+    // Cleanup
+    writer.delete(&key).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_writer_delete_then_reader_cache_miss() -> anyhow::Result<()> {
+    wait_for_services().await?;
+
+    let (writer, reader, _config) = setup_writer_and_reader().await?;
+    let key = KeyType::string("writer-delete-test");
+
+    // Write then delete
+    writer.set(&key, r#"{"flags":[]}"#, 300).await?;
+    writer.delete(&key).await?;
+
+    let result = reader.get_with_source(&key).await;
+    assert!(result.is_err(), "Should be a cache miss after delete");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_writer_set_with_etag_roundtrip() -> anyhow::Result<()> {
+    wait_for_services().await?;
+
+    let (writer, reader, _config) = setup_writer_and_reader().await?;
+    let key = KeyType::string("writer-etag-test");
+    let json_data = r#"{"flags":[{"id":42}]}"#;
+
+    let etag = writer.set_with_etag(&key, json_data, 300).await?;
+
+    // Verify ETag matches compute_etag
+    assert_eq!(etag, compute_etag(json_data));
+    assert_eq!(etag.len(), 16);
+
+    // Verify data is readable
+    let (result, _) = reader.get_with_source(&key).await?;
+    let expected: Value = serde_json::from_str(json_data)?;
+    assert_eq!(result, expected);
+
+    // Cleanup
+    writer.delete(&key).await?;
     Ok(())
 }

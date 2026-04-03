@@ -391,6 +391,7 @@ export interface NotificationSettings {
 
 export interface InAppNotification {
     id: string
+    team_id: number | null
     notification_type: string
     priority: string
     title: string
@@ -399,6 +400,8 @@ export interface InAppNotification {
     read_at: string | null
     resource_type: string | null
     source_url: string
+    source_type: string | null
+    source_id: string | null
     created_at: string
 }
 
@@ -899,6 +902,7 @@ export enum PropertyOperator {
 export enum SavedInsightsTabs {
     Home = 'home',
     All = 'all',
+    Yours = 'yours',
     History = 'history',
     Alerts = 'alerts',
 }
@@ -971,6 +975,9 @@ export enum PropertyFilterType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    Span = 'span',
+    SpanAttribute = 'span_attribute',
+    SpanResourceAttribute = 'span_resource_attribute',
     WorkflowVariable = 'workflow_variable',
     Empty = 'empty',
 }
@@ -1061,6 +1068,16 @@ export interface LogPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type SpanPropertyFilterType =
+    | PropertyFilterType.Span
+    | PropertyFilterType.SpanAttribute
+    | PropertyFilterType.SpanResourceAttribute
+
+export interface SpanPropertyFilter extends BasePropertyFilter {
+    type: SpanPropertyFilterType
+    operator: PropertyOperator
+}
+
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
@@ -1106,6 +1123,7 @@ export type AnyPropertyFilter =
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
+    | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
@@ -3012,6 +3030,8 @@ export type InsightEditorFilterGroup = {
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
     show?: boolean
+    /** Summary shown next to the title when the section is collapsed (e.g. "3 filters", "$browser, $os") */
+    collapsedSummary?: string | null
 }
 
 export interface SystemStatusSubrows {
@@ -4297,6 +4317,9 @@ export enum PropertyDefinitionType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    Span = 'span',
+    SpanAttribute = 'span_attribute',
+    SpanResourceAttribute = 'span_resource_attribute',
     FlagValue = 'flag_value',
     WorkflowVariable = 'workflow_variable',
 }
@@ -4570,6 +4593,7 @@ export interface AppContext {
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
+    oauth_application?: OAuthApplicationPublicMetadata
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -5014,6 +5038,7 @@ export enum ExporterFormat {
     MP4 = 'video/mp4',
     GIF = 'image/gif',
     HCL = 'text/hcl',
+    MARKDOWN = 'text/markdown',
 }
 
 /** Exporting directly from the browser to a file */
@@ -5456,6 +5481,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
+    folder_id?: string | null
+    folder_name?: string | null
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
@@ -5466,6 +5493,14 @@ export interface DataWarehouseSavedQuery {
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean
     expires_at?: string
+}
+
+export interface DataWarehouseSavedQueryFolder {
+    /** UUID */
+    id: string
+    name: string
+    created_at?: string
+    view_count?: number
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -6305,6 +6340,7 @@ export interface HogFunctionMappingType {
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: CyclotronJobFiltersType | null
+    use_all_events_by_default?: boolean
 }
 export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
     name: string
@@ -6714,6 +6750,7 @@ export type OAuthApplicationPublicMetadata = {
     name: string
     client_id: string
     is_verified: boolean
+    logo_uri: string | null
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
