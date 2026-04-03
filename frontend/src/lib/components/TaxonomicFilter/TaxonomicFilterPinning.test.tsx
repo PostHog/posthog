@@ -100,14 +100,16 @@ describe('TaxonomicFilter pinning', () => {
         logic.unmount()
     })
 
-    it('does not show a Pinned tab when no items are pinned', async () => {
+    it('shows Pinned tab with zero count when no items are pinned', async () => {
         renderFilter()
 
         await waitFor(() => {
             expect(screen.getByTestId('taxonomic-tab-event_properties')).toBeInTheDocument()
         })
 
-        expect(screen.queryByTestId('taxonomic-tab-pinned_filters')).not.toBeInTheDocument()
+        const pinnedTab = screen.getByTestId('taxonomic-tab-pinned_filters')
+        expect(pinnedTab).toBeInTheDocument()
+        expect(pinnedTab.textContent).toContain('0')
     })
 
     it('shows pin button in definition popover on hover', async () => {

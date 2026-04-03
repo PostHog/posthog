@@ -73,19 +73,21 @@ function Header({
 
     return (
         <div className="definition-popover-header">
-            {state === DefinitionPopoverState.View && (
-                <div className="definition-popover-header-actions">
-                    {pinValue !== null && (
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            icon={pinned ? <IconPinFilled /> : <IconPin />}
-                            onClick={() => togglePin(groupType, groupName, pinValue, definition)}
-                            tooltip={pinned ? 'Unpin' : 'Pin'}
-                            data-attr="definition-popover-pin"
-                        />
-                    )}
-                    <div className="definition-popover-header-row-buttons click-outside-block">
+            <div className="definition-popover-header-actions flex items-center justify-between mb-1">
+                {pinValue !== null && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                        onClick={() => togglePin(groupType, groupName, pinValue, definition)}
+                        tooltip="Pin items to keep them available for quick access"
+                        data-attr="definition-popover-pin"
+                    >
+                        {pinned ? 'Unpin' : 'Pin'}
+                    </LemonButton>
+                )}
+                {state === DefinitionPopoverState.View && (
+                    <div className="definition-popover-header-row-buttons flex gap-4 text-[0.8125rem] click-outside-block">
                         {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
                         {!hideView && isViewable && (
                             <Link
@@ -97,8 +99,8 @@ function Header({
                             </Link>
                         )}
                     </div>
-                </div>
-            )}
+                )}
+            </div>
             <div className="definition-popover-header-row">
                 <div className="definition-popover-header-row-title">
                     {state === DefinitionPopoverState.Edit ? editHeaderTitle : headerTitle}

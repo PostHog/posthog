@@ -46,6 +46,30 @@ export interface InfiniteListProps {
     definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
+function hasLocalListContext(item: unknown): boolean {
+    return hasRecentContext(item) || hasPinnedContext(item)
+}
+
+function getSourceGroupType(item: TaxonomicDefinitionTypes): TaxonomicFilterGroupType | undefined {
+    if (hasRecentContext(item)) {
+        return item._recentContext.sourceGroupType
+    }
+    if (hasPinnedContext(item)) {
+        return item._pinnedContext.sourceGroupType
+    }
+    return undefined
+}
+
+function getLocalListLabel(item: TaxonomicDefinitionTypes): string | undefined {
+    if (hasRecentContext(item)) {
+        return 'recent'
+    }
+    if (hasPinnedContext(item)) {
+        return 'pinned'
+    }
+    return undefined
+}
+
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     return (
         <Tooltip
@@ -103,11 +127,20 @@ const renderItemContents = ({
     eventNames: string[]
     isActive: boolean
 }): JSX.Element | string => {
-    if (hasRecentContext(item)) {
-        if (item._recentContext.propertyFilter) {
+    if (hasLocalListContext(item)) {
+        const icon = isActive ? (
+            <div className="taxonomic-list-row-contents-icon">
+                <IconCheck />
+            </div>
+        ) : itemGroup.getIcon ? (
+            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
+        ) : null
+
+        if (hasRecentContext(item) && item._recentContext.propertyFilter) {
             const label = formatPropertyLabel(item._recentContext.propertyFilter, {})
             return (
                 <div className="taxonomic-list-row-contents min-w-0">
+                    {icon}
                     <span className="truncate" title={label}>
                         {label}
                     </span>
@@ -118,6 +151,7 @@ const renderItemContents = ({
         const label = coreDef?.label || item.name || ''
         return (
             <div className="taxonomic-list-row-contents min-w-0">
+                {icon}
                 <span className="truncate" title={label}>
                     {label}
                 </span>
@@ -187,42 +221,20 @@ const renderItemContents = ({
 
 const selectedItemHasPopover = (
     item?: TaxonomicDefinitionTypes,
-    listGroupType?: TaxonomicFilterGroupType,
-    group?: TaxonomicFilterGroup
+    group?: TaxonomicFilterGroup,
+    taxonomicGroups?: TaxonomicFilterGroup[]
 ): boolean => {
-    // NB: also update "renderItemContents" above
-    return (
-        !!item &&
-        !!group?.getValue?.(item) &&
-        !!listGroupType &&
-        ([
-            TaxonomicFilterGroupType.Actions,
-            TaxonomicFilterGroupType.Elements,
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.DataWarehouse,
-            TaxonomicFilterGroupType.DataWarehouseProperties,
-            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-            TaxonomicFilterGroupType.CustomEvents,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.EventFeatureFlags,
-            TaxonomicFilterGroupType.EventMetadata,
-            TaxonomicFilterGroupType.RevenueAnalyticsProperties,
-            TaxonomicFilterGroupType.NumericalEventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.Cohorts,
-            TaxonomicFilterGroupType.CohortsWithAllUsers,
-            TaxonomicFilterGroupType.Metadata,
-            TaxonomicFilterGroupType.SessionProperties,
-            TaxonomicFilterGroupType.ErrorTrackingProperties,
-            TaxonomicFilterGroupType.PageviewUrls,
-            TaxonomicFilterGroupType.PageviewEvents,
-            TaxonomicFilterGroupType.Screens,
-            TaxonomicFilterGroupType.ScreenEvents,
-            TaxonomicFilterGroupType.EmailAddresses,
-            TaxonomicFilterGroupType.AutocaptureEvents,
-        ].includes(listGroupType) ||
-            listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
-    )
+    if (!item || !group) {
+        return false
+    }
+
+    const sourceGroupType = getSourceGroupType(item)
+    if (sourceGroupType) {
+        const sourceGroup = taxonomicGroups?.find((g) => g.type === sourceGroupType)
+        return !!sourceGroup && !sourceGroup.isMetaGroup
+    }
+
+    return !!group.getValue?.(item) && !group.isMetaGroup
 }
 
 const canSelectItem = (
@@ -420,13 +432,9 @@ const InfiniteListRow = ({
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
         const isCrossGroupItem = !!group.isLocalOnly && itemGroup.type !== listGroupType
-        const itemHasRecentContext = hasRecentContext(item)
-        const itemHasPinnedContext = hasPinnedContext(item)
-        const recentGroup = itemHasRecentContext
-            ? taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
-            : undefined
-        const pinnedGroup = itemHasPinnedContext
-            ? taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.PinnedFilters)
+        const localListLabel = getLocalListLabel(item)
+        const localListGroup = hasLocalListContext(item)
+            ? taxonomicGroups.find((g) => g.type === listGroupType)
             : undefined
 
         const { listGroupType: resolvedListGroupType, itemGroup: resolvedItemGroup } = resolveItemRendering({
@@ -434,8 +442,7 @@ const InfiniteListRow = ({
             itemGroup,
             listGroupType,
             isCrossGroupItem,
-            recentGroup,
-            pinnedGroup,
+            localListGroup,
             fallbackGroup: group,
         })
 
@@ -470,11 +477,7 @@ const InfiniteListRow = ({
                 })}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
-                        {itemHasRecentContext
-                            ? `${itemGroup.name} - recent`
-                            : itemHasPinnedContext
-                              ? `${itemGroup.name} - pinned`
-                              : itemGroup.name}
+                        {localListLabel ? `${itemGroup.name} - ${localListLabel}` : itemGroup.name}
                     </LemonTag>
                 )}
             </div>
@@ -685,7 +688,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                 />
             )}
             {isActiveTab &&
-            selectedItemHasPopover(selectedItem, selectedItemGroup?.type ?? listGroupType, selectedItemGroup) &&
+            selectedItemHasPopover(selectedItem, selectedItemGroup, taxonomicGroups) &&
             showPopover &&
             selectedItem ? (
                 <BindLogic
@@ -779,16 +782,14 @@ function resolveItemRendering({
     itemGroup,
     listGroupType,
     isCrossGroupItem,
-    recentGroup,
-    pinnedGroup,
+    localListGroup,
     fallbackGroup,
 }: {
     item: TaxonomicDefinitionTypes
     itemGroup: TaxonomicFilterGroup
     listGroupType: TaxonomicFilterGroupType
     isCrossGroupItem: boolean
-    recentGroup: TaxonomicFilterGroup | undefined
-    pinnedGroup: TaxonomicFilterGroup | undefined
+    localListGroup: TaxonomicFilterGroup | undefined
     fallbackGroup: TaxonomicFilterGroup
 }): { listGroupType: TaxonomicFilterGroupType; itemGroup: TaxonomicFilterGroup } {
     const isRecentPropertyFilter = hasRecentContext(item) && item._recentContext.propertyFilter
@@ -796,14 +797,14 @@ function resolveItemRendering({
     if (isRecentPropertyFilter) {
         return {
             listGroupType,
-            itemGroup: recentGroup ?? fallbackGroup,
+            itemGroup: localListGroup ?? fallbackGroup,
         }
     }
 
-    if (hasPinnedContext(item) && !isCrossGroupItem) {
+    if (hasLocalListContext(item) && !isCrossGroupItem) {
         return {
             listGroupType,
-            itemGroup: pinnedGroup ?? fallbackGroup,
+            itemGroup: localListGroup ?? fallbackGroup,
         }
     }
 
@@ -824,13 +825,9 @@ export function getItemGroup(
 ): TaxonomicFilterGroup {
     let group = defaultGroup
 
-    if (item && hasRecentContext(item)) {
-        const itemGroup = groups.find((g) => g.type === item._recentContext.sourceGroupType)
-        if (itemGroup) {
-            group = itemGroup
-        }
-    } else if (item && hasPinnedContext(item)) {
-        const itemGroup = groups.find((g) => g.type === item._pinnedContext.sourceGroupType)
+    const sourceType = item ? getSourceGroupType(item) : undefined
+    if (sourceType) {
+        const itemGroup = groups.find((g) => g.type === sourceType)
         if (itemGroup) {
             group = itemGroup
         }

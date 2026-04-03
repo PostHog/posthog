@@ -91,6 +91,19 @@ import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE))
 
+function indexAfterLastMetaGroup(
+    filtered: TaxonomicFilterGroupType[],
+    metaGroupOrder: TaxonomicFilterGroupType[]
+): number {
+    for (let i = metaGroupOrder.length - 1; i >= 0; i--) {
+        const idx = filtered.indexOf(metaGroupOrder[i])
+        if (idx !== -1) {
+            return idx + 1
+        }
+    }
+    return 0
+}
+
 const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.PageviewUrls,
     TaxonomicFilterGroupType.PageviewEvents,
@@ -298,7 +311,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
                     return TaxonomicFilterGroupType.SuggestedFilters
                 }
-                return groupTypes[0]
+                const metaTypes = selectors.metaGroupTypes(state)
+                return groupTypes.find((t) => !metaTypes.has(t)) ?? groupTypes[0]
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
@@ -1279,30 +1293,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     return availableGroupTypes.has(groupType)
                 })
 
-                // Auto-inject RecentFilters right after SuggestedFilters when available
-                const suggestedIndex = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
-                if (
-                    suggestedIndex !== -1 &&
-                    availableGroupTypes.has(TaxonomicFilterGroupType.RecentFilters) &&
-                    !filtered.includes(TaxonomicFilterGroupType.RecentFilters)
-                ) {
-                    filtered.splice(suggestedIndex + 1, 0, TaxonomicFilterGroupType.RecentFilters)
+                // SuggestedFilters must be explicitly requested; RecentFilters and
+                // PinnedFilters are auto-injected after existing meta groups.
+                const metaGroupOrder = [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                ]
+                const autoInjectGroups = [
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                ]
+                for (const metaType of autoInjectGroups) {
+                    if (availableGroupTypes.has(metaType) && !filtered.includes(metaType)) {
+                        filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, metaType)
+                    }
                 }
 
-                // Auto-inject PinnedFilters after RecentFilters (or SuggestedFilters) when available
-                if (
-                    availableGroupTypes.has(TaxonomicFilterGroupType.PinnedFilters) &&
-                    !filtered.includes(TaxonomicFilterGroupType.PinnedFilters)
-                ) {
-                    const recentsIdx = filtered.indexOf(TaxonomicFilterGroupType.RecentFilters)
-                    const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
-                    const pinnedInsertAt =
-                        recentsIdx !== -1 ? recentsIdx + 1 : suggestedIdx !== -1 ? suggestedIdx + 1 : 0
-                    filtered.splice(pinnedInsertAt, 0, TaxonomicFilterGroupType.PinnedFilters)
-                }
-
-                // Promote PageviewUrls, Screens, EmailAddresses to top positions
-                // (after SuggestedFilters/RecentFilters/PinnedFilters if present)
+                // Promote shortcut groups to top positions (after meta groups)
                 const shortcutGroups: TaxonomicFilterGroupType[] = [
                     TaxonomicFilterGroupType.PageviewUrls,
                     TaxonomicFilterGroupType.Screens,
@@ -1320,18 +1328,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 }
 
                 if (toInsert.length > 0) {
-                    const pinnedIdx = filtered.indexOf(TaxonomicFilterGroupType.PinnedFilters)
-                    const recentsIdx = filtered.indexOf(TaxonomicFilterGroupType.RecentFilters)
-                    const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
-                    const insertAt =
-                        pinnedIdx !== -1
-                            ? pinnedIdx + 1
-                            : recentsIdx !== -1
-                              ? recentsIdx + 1
-                              : suggestedIdx !== -1
-                                ? suggestedIdx + 1
-                                : 0
-                    filtered.splice(insertAt, 0, ...toInsert)
+                    filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, ...toInsert)
                 }
 
                 return filtered

@@ -147,7 +147,7 @@ export interface TaxonomicFilterGroup {
     localItemsSearch?: (items: TaxonomicDefinitionTypes[], q: string) => TaxonomicDefinitionTypes[]
     /** Local-only groups don't participate in server-search mechanics (top matches, skeletons). */
     isLocalOnly?: boolean
-    /** Meta groups (Suggested, Recent, Pinned) are excluded from loading indicators, top matches, and auto-tab-away. */
+    /** Meta groups (Suggested, Recent, Pinned) are excluded from loading indicators, top matches, auto-tab-away, and definition popovers. */
     isMetaGroup?: boolean
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */

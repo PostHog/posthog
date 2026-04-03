@@ -11,6 +11,10 @@ import {
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { MAX_TOP_MATCHES_PER_GROUP, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
+    hasPinnedContext,
+    taxonomicFilterPinnedPropertiesLogic,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import {
     InfiniteListLogicProps,
     SkeletonItem,
     isSkeletonItem,
@@ -30,6 +34,19 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
 import type { infiniteListLogicType } from './infiniteListLogicType'
+
+function pinnedItemMatchesSearch(
+    item: TaxonomicDefinitionTypes,
+    query: string,
+    taxonomicGroups: TaxonomicFilterGroup[]
+): boolean {
+    const sourceGroup = hasPinnedContext(item)
+        ? taxonomicGroups.find((g) => g.type === item._pinnedContext.sourceGroupType)
+        : undefined
+    const name = sourceGroup?.getName?.(item) || ('name' in item ? item.name : '') || ''
+    const label = sourceGroup ? getCoreFilterDefinition(name, sourceGroup.type)?.label : undefined
+    return name.toLowerCase().includes(query) || (label?.toLowerCase().includes(query) ?? false)
+}
 
 /** Search terms mapped to properties that should be promoted when that exact term is searched. */
 const PROMOTED_PROPERTIES_BY_SEARCH_TERM: Record<string, string[]> = {
@@ -150,6 +167,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ['currentTeamId'],
             recentTaxonomicFiltersLogic,
             ['recentFilterItems'],
+            taxonomicFilterPinnedPropertiesLogic,
+            ['pinnedFilterItems'],
         ],
         actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     })),
@@ -353,6 +372,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 )
             },
         ],
+        contextFilteredPinnedItems: [
+            (s) => [s.pinnedFilterItems, s.taxonomicGroupTypes],
+            (
+                pinnedFilterItems: TaxonomicDefinitionTypes[],
+                taxonomicGroupTypes: TaxonomicFilterGroupType[]
+            ): TaxonomicDefinitionTypes[] => {
+                if (!pinnedFilterItems?.length) {
+                    return []
+                }
+                const availableTypes = new Set(taxonomicGroupTypes)
+                return pinnedFilterItems.filter(
+                    (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
+                )
+            },
+        ],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
@@ -470,9 +504,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         rawLocalItems: [
             (selectors) => [
                 (state, props: InfiniteListLogicProps) => {
-                    // For RecentFilters, use context-filtered items
                     if (props.listGroupType === TaxonomicFilterGroupType.RecentFilters) {
                         return selectors.contextFilteredRecentItems(state, props)
+                    }
+                    if (props.listGroupType === TaxonomicFilterGroupType.PinnedFilters) {
+                        return selectors.contextFilteredPinnedItems(state, props)
                     }
 
                     const taxonomicGroups = selectors.taxonomicGroups(state)
@@ -586,6 +622,23 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
             },
         ],
+        suggestedPinnedMatches: [
+            (s) => [s.contextFilteredPinnedItems, s.searchQuery, s.listGroupType, s.taxonomicGroups],
+            (
+                contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
+                searchQuery: string,
+                listGroupType: TaxonomicFilterGroupType,
+                taxonomicGroups: TaxonomicFilterGroup[]
+            ): TaxonomicDefinitionTypes[] => {
+                if (listGroupType !== TaxonomicFilterGroupType.SuggestedFilters || !searchQuery) {
+                    return []
+                }
+                const q = searchQuery.trim().toLowerCase()
+                return (contextFilteredPinnedItems || []).filter((item) =>
+                    pinnedItemMatchesSearch(item, q, taxonomicGroups)
+                )
+            },
+        ],
         items: [
             (s) => [
                 s.remoteItems,
@@ -594,6 +647,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.topMatchItemsWithSkeletons,
                 s.searchQuery,
                 s.contextFilteredRecentItems,
+                s.contextFilteredPinnedItems,
+                s.suggestedPinnedMatches,
             ],
             (
                 remoteItems,
@@ -601,16 +656,28 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 listGroupType,
                 topMatchItemsWithSkeletons,
                 searchQuery,
-                contextFilteredRecentItems
+                contextFilteredRecentItems,
+                contextFilteredPinnedItems,
+                suggestedPinnedMatches
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const combinedResults = [...recentPrefix, ...localItems.results, ...remoteItems.results, ...topMatches]
+                const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                const combinedResults = [
+                    ...recentPrefix,
+                    ...pinnedPrefix,
+                    ...suggestedPinnedMatches,
+                    ...localItems.results,
+                    ...remoteItems.results,
+                    ...topMatches,
+                ]
                 return {
                     results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,
                     count:
                         recentPrefix.length +
+                        pinnedPrefix.length +
+                        suggestedPinnedMatches.length +
                         localItems.count +
                         remoteItems.count +
                         topMatches.filter((item) => !isSkeletonItem(item)).length,
