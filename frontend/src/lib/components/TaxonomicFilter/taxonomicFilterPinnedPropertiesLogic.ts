@@ -38,7 +38,7 @@ export function stripPinnedContext<T extends Record<string, any>>(item: T): Omit
 }
 
 const MIGRATION_KEY = 'taxonomicFilterPinnedProperties__migrated'
-const OLD_PERSIST_KEY = 'kea.scenes.session-recordings.playerSettingsLogic.quickFilterProperties'
+const OLD_PERSIST_KEY = 'scenes.session-recordings.player.playerSettingsLogic.quickFilterProperties'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 

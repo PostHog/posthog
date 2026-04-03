@@ -8,7 +8,7 @@ import {
 import { TaxonomicFilterGroupType } from './types'
 
 const MIGRATION_KEY = 'taxonomicFilterPinnedProperties__migrated'
-const OLD_PERSIST_KEY = 'kea.scenes.session-recordings.playerSettingsLogic.quickFilterProperties'
+const OLD_PERSIST_KEY = 'scenes.session-recordings.player.playerSettingsLogic.quickFilterProperties'
 
 describe('taxonomicFilterPinnedPropertiesLogic', () => {
     let logic: ReturnType<typeof taxonomicFilterPinnedPropertiesLogic.build>

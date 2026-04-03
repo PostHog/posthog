@@ -8,6 +8,7 @@ import { LemonButton, LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -50,6 +51,7 @@ function Header({
     const { setPopoverState } = useActions(definitionPopoverLogic)
     const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
         useActions(eventUsageLogic)
+    const { taxonomicGroups } = useValues(taxonomicFilterLogic)
     const { isPinned } = useValues(taxonomicFilterPinnedPropertiesLogic)
     const { togglePin } = useActions(taxonomicFilterPinnedPropertiesLogic)
 
@@ -65,7 +67,9 @@ function Header({
     }
 
     const pinValue = definition?.name ?? null
-    const pinned = isPinned(type as TaxonomicFilterGroupType, pinValue)
+    const groupType = type as TaxonomicFilterGroupType
+    const groupName = taxonomicGroups.find((g) => g.type === groupType)?.name ?? type
+    const pinned = isPinned(groupType, pinValue)
 
     return (
         <div className="definition-popover-header">
@@ -75,8 +79,9 @@ function Header({
                         size="xsmall"
                         type="secondary"
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
-                        onClick={() => togglePin(type as TaxonomicFilterGroupType, type, pinValue, definition)}
+                        onClick={() => togglePin(groupType, groupName, pinValue, definition)}
                         tooltip={pinned ? 'Unpin' : 'Pin'}
+                        data-attr="definition-popover-pin"
                     />
                     <div className="definition-popover-header-row-buttons click-outside-block">
                         {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
