@@ -29,6 +29,38 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         getMarks: (type: string) => getMarks(editor, type),
         setMark: (id: string) => editor.commands.setMark('comment', { id }),
         isActive: (name: string, attributes?: {}) => editor.isActive(name, attributes),
+        isSelectionFullyWithinSingleMark: (markName: string) => {
+            const { from, to } = editor.state.selection
+            if (from >= to) {
+                return false
+            }
+            let seenId: string | undefined
+            let foundText = false
+            let fullyWithinSingle = true
+            editor.state.doc.nodesBetween(from, to, (node) => {
+                if (!node.isText) {
+                    return
+                }
+                foundText = true
+                const mark = node.marks.find((m) => m.type.name === markName)
+                if (!mark) {
+                    fullyWithinSingle = false
+                    return false
+                }
+                const id = mark.attrs.id != null ? String(mark.attrs.id) : ''
+                if (!id) {
+                    fullyWithinSingle = false
+                    return false
+                }
+                if (seenId === undefined) {
+                    seenId = id
+                } else if (seenId !== id) {
+                    fullyWithinSingle = false
+                    return false
+                }
+            })
+            return foundText && fullyWithinSingle && seenId !== undefined
+        },
         getMentions: () => getMentions(editor),
         deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
         insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
