@@ -447,9 +447,7 @@ class ModalSandbox:
                 cause=e,
             )
 
-    def clone_repository(
-        self, repository: str, github_token: str | None = "", shallow: bool = True
-    ) -> ExecutionResult:
+    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError(f"Sandbox not in running state.")
 
