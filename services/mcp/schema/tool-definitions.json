@@ -14,51 +14,6 @@
             "readOnlyHint": true
         }
     },
-    "error-details": {
-        "description": "Use this tool to get the details of an error in the project.",
-        "category": "Error tracking",
-        "feature": "error_tracking",
-        "summary": "Get the details of an error in the project.",
-        "title": "Get error details",
-        "required_scopes": ["error_tracking:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "list-errors": {
-        "description": "Use this tool to list errors in the project.",
-        "category": "Error tracking",
-        "feature": "error_tracking",
-        "summary": "List errors in the project.",
-        "title": "List errors",
-        "required_scopes": ["error_tracking:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "update-issue-status": {
-        "description": "Use this tool to update the status of an error tracking issue. Valid statuses are: active, resolved, archived, suppressed, or pending_release.",
-        "category": "Error tracking",
-        "feature": "error_tracking",
-        "summary": "Update the status of an error tracking issue.",
-        "title": "Update issue status",
-        "required_scopes": ["error_tracking:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "experiment-get-all": {
         "description": "Get all experiments in the project.",
         "category": "Experiments",

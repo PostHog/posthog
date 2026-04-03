@@ -38,9 +38,13 @@ describe('flush-batch-stores-step', () => {
             queueMessages: jest.fn().mockResolvedValue(undefined),
         } as any
         mockOutputs = new IngestionOutputs({
-            [PERSONS_OUTPUT]: { topic: 'person_updates', producer: mockProducer },
-            [PERSON_DISTINCT_IDS_OUTPUT]: { topic: 'person_distinct_ids', producer: mockProducer },
-            [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings', producer: mockProducer },
+            [PERSONS_OUTPUT]: [{ topic: 'person_updates', producer: mockProducer, producerName: 'test' }],
+            [PERSON_DISTINCT_IDS_OUTPUT]: [
+                { topic: 'person_distinct_ids', producer: mockProducer, producerName: 'test' },
+            ],
+            [INGESTION_WARNINGS_OUTPUT]: [
+                { topic: 'ingestion_warnings', producer: mockProducer, producerName: 'test' },
+            ],
         })
 
         storesConfig = {

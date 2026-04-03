@@ -551,9 +551,8 @@ services:
             - 'seaweedfs-data:/data'
 
     duckgres:
-        # DuckLake 0.4 + DuckDB 1.5.1 (posthog/duckgres@4b787d7)
-        image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
-        platform: arm64
+        # DuckLake 0.4 + DuckDB 1.5.1, multi-arch (posthog/duckgres@5cfca88)
+        image: ghcr.io/posthog/duckgres:5cfca88a52f366765fcdb122056e7ad3f038ec4f
         restart: on-failure
         profiles: ['duckgres']
         ports:

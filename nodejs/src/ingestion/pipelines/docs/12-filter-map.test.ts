@@ -57,12 +57,17 @@ describe('Filter Map', () => {
         }
         const pipelineConfig = {
             outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockKafkaProducer as any },
-                [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockKafkaProducer as any },
-                [INGESTION_WARNINGS_OUTPUT]: {
-                    topic: 'clickhouse_ingestion_warnings',
-                    producer: mockKafkaProducer as any,
-                },
+                [DLQ_OUTPUT]: [{ topic: 'test-dlq', producer: mockKafkaProducer as any, producerName: 'test' }],
+                [OVERFLOW_OUTPUT]: [
+                    { topic: 'overflow-topic', producer: mockKafkaProducer as any, producerName: 'test' },
+                ],
+                [INGESTION_WARNINGS_OUTPUT]: [
+                    {
+                        topic: 'clickhouse_ingestion_warnings',
+                        producer: mockKafkaProducer as any,
+                        producerName: 'test',
+                    },
+                ],
             }),
             promiseScheduler,
         }

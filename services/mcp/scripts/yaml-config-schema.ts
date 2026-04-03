@@ -227,28 +227,9 @@ export const TOOL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 /** Feature identifiers must be lowercase snake_case: letters, digits, underscores. */
 export const FEATURE_NAME_PATTERN = /^[a-z][a-z0-9_]*$/
 
-export const CategoryConfigSchema = z
-    .object({
-        category: z.string(),
-        feature: z.string().regex(FEATURE_NAME_PATTERN, 'Feature must be lowercase snake_case: [a-z0-9_]'),
-        url_prefix: z.string(),
-        tools: z.record(
-            z
-                .string()
-                .regex(
-                    TOOL_NAME_PATTERN,
-                    'Tool name must be lowercase kebab-case: [a-z0-9-], no leading/trailing hyphens'
-                ),
-            ToolConfigSchema
-        ),
-        ui_apps: z.record(z.string(), UiAppConfigSchema).optional(),
-    })
-    .strict()
-
-export type CategoryConfig = z.infer<typeof CategoryConfigSchema>
-
 // ------------------------------------------------------------------
 // Query wrapper config — tools generated from frontend/src/queries/schema.json
+// Defined before CategoryConfigSchema so it can be referenced there.
 // ------------------------------------------------------------------
 
 export const QueryWrapperToolConfigSchema = z
@@ -275,6 +256,16 @@ export const QueryWrapperToolConfigSchema = z
         exclude_properties: z.array(z.string()).optional(),
         /** Return JSON instead of TOON-encoded text. */
         response_format: z.enum(['json']).optional(),
+        /**
+         * Default values for properties that are required in the schema but should
+         * be optional for the agent. The Zod schema gets `.default(value).optional()`.
+         */
+        property_defaults: z.record(z.string(), z.unknown()).optional(),
+        /**
+         * Override the URL enrichment prefix. When set, `_posthogUrl` uses
+         * `{baseUrl}{url_prefix}` instead of the default `/insights/new?q=...`.
+         */
+        url_prefix: z.string().optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {
@@ -297,3 +288,30 @@ export const QueryWrappersConfigSchema = z
     .strict()
 
 export type QueryWrappersConfig = z.infer<typeof QueryWrappersConfigSchema>
+
+// ------------------------------------------------------------------
+// Category config — the top-level schema for product tools.yaml files.
+// Supports both REST tools (via OpenAPI) and query wrappers (via schema.json).
+// ------------------------------------------------------------------
+
+export const CategoryConfigSchema = z
+    .object({
+        category: z.string(),
+        feature: z.string().regex(FEATURE_NAME_PATTERN, 'Feature must be lowercase snake_case: [a-z0-9_]'),
+        url_prefix: z.string(),
+        tools: z.record(
+            z
+                .string()
+                .regex(
+                    TOOL_NAME_PATTERN,
+                    'Tool name must be lowercase kebab-case: [a-z0-9-], no leading/trailing hyphens'
+                ),
+            ToolConfigSchema
+        ),
+        ui_apps: z.record(z.string(), UiAppConfigSchema).optional(),
+        /** Query wrapper tools generated from schema.json, co-located with REST tools in the same file. */
+        wrappers: z.record(z.string(), QueryWrapperToolConfigSchema).optional(),
+    })
+    .strict()
+
+export type CategoryConfig = z.infer<typeof CategoryConfigSchema>
