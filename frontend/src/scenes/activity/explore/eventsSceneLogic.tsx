@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -14,8 +15,9 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { groupsModel } from '~/models/groupsModel'
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
-import { Node } from '~/queries/schema/schema-general'
+import { DataTableNode, Node } from '~/queries/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
@@ -23,17 +25,37 @@ import type { eventsSceneLogicType } from './eventsSceneLogicType'
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
     tabAwareScene(),
-    connect(() => ({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] })),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags'], groupsModel, ['groupsTaxonomicTypes']],
+    })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
     selectors({
         defaultQuery: [
-            (s) => [s.currentTeam],
-            (currentTeam) => {
+            (s) => [s.currentTeam, s.groupsTaxonomicTypes],
+            (currentTeam, groupsTaxonomicTypes): DataTableNode => {
                 const defaultSourceForTeam = currentTeam && getDefaultEventsQueryForTeam(currentTeam)
                 const defaultForScene = getDefaultEventsSceneQuery()
-                return defaultSourceForTeam ? { ...defaultForScene, source: defaultSourceForTeam } : defaultForScene
+                const base = defaultSourceForTeam
+                    ? { ...defaultForScene, source: defaultSourceForTeam }
+                    : defaultForScene
+                return {
+                    ...base,
+                    showPropertyFilter: [
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.EventFeatureFlags,
+                        TaxonomicFilterGroupType.EventMetadata,
+                        ...(groupsTaxonomicTypes ?? []),
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.Elements,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                        TaxonomicFilterGroupType.PageviewUrls,
+                        TaxonomicFilterGroupType.Screens,
+                        TaxonomicFilterGroupType.EmailAddresses,
+                    ],
+                }
             },
         ],
         query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery) => savedQuery || defaultQuery],
