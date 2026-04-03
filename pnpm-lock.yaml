@@ -590,8 +590,8 @@ importers:
         specifier: ^0.0.48
         version: 0.0.48(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/hogql-parser':
-        specifier: 1.3.36
-        version: 1.3.36
+        specifier: 1.3.37
+        version: 1.3.37
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
@@ -8178,8 +8178,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/hogql-parser@1.3.36':
-    resolution: {integrity: sha512-Sfl/vzIrtP17c2eEg4O+KAEmahswQF0s9DhLi/cy8IOUNmruYAYBb9wuOEGYkZ+k1UIv82DpREUfLwMTIFAvXg==}
+  '@posthog/hogql-parser@1.3.37':
+    resolution: {integrity: sha512-vrd+mtAVVVXz3VR96BGw2TqqKoFlKnXrfgDfQpWDSUHij/J+zqbE9tKaDlB93AAUQSePxY6NivP5ELU5bIaRLg==}
 
   '@posthog/icons@0.36.4':
     resolution: {integrity: sha512-xnusbGNz/5vSMUWdEViWuai7D/gxiMZSDDnP6s/acndMqzN+W4asPUgUNnTUps7OyAS1IKaO9zxhdikFrtooJA==}
@@ -29524,7 +29524,7 @@ snapshots:
     transitivePeerDependencies:
       - prop-types
 
-  '@posthog/hogql-parser@1.3.36': {}
+  '@posthog/hogql-parser@1.3.37': {}
 
   '@posthog/icons@0.36.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
