@@ -3,10 +3,12 @@ import './DefinitionPopover.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+import { IconPin, IconPinFilled } from '@posthog/icons'
+import { LemonButton, LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
+import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -43,11 +45,14 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, type, viewFullDetailUrl, hideView, hideEdit, isViewable, openDetailInNewTab } =
+    const { state, type, definition, viewFullDetailUrl, hideView, hideEdit, isViewable, openDetailInNewTab } =
         useValues(definitionPopoverLogic)
     const { setPopoverState } = useActions(definitionPopoverLogic)
     const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
         useActions(eventUsageLogic)
+    const { isPinned } = useValues(taxonomicFilterPinnedPropertiesLogic)
+    const { togglePin } = useActions(taxonomicFilterPinnedPropertiesLogic)
+
     const onEdit = (): void => {
         setPopoverState(DefinitionPopoverState.Edit)
         _onEdit?.()
@@ -59,13 +64,20 @@ function Header({
         reportDataManagementDefinitionClickView(type)
     }
 
+    const pinValue = definition?.name ?? null
+    const pinned = isPinned(type as TaxonomicFilterGroupType, pinValue)
+
     return (
         <div className="definition-popover-header">
-            <div className="definition-popover-header-row">
-                <div className="definition-popover-header-row-title">
-                    {state === DefinitionPopoverState.Edit ? editHeaderTitle : headerTitle}
-                </div>
-                {state === DefinitionPopoverState.View && (
+            {state === DefinitionPopoverState.View && (
+                <div className="definition-popover-header-actions">
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                        onClick={() => togglePin(type as TaxonomicFilterGroupType, type, pinValue, definition)}
+                        tooltip={pinned ? 'Unpin' : 'Pin'}
+                    />
                     <div className="definition-popover-header-row-buttons click-outside-block">
                         {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
                         {!hideView && isViewable && (
@@ -78,7 +90,12 @@ function Header({
                             </Link>
                         )}
                     </div>
-                )}
+                </div>
+            )}
+            <div className="definition-popover-header-row">
+                <div className="definition-popover-header-row-title">
+                    {state === DefinitionPopoverState.Edit ? editHeaderTitle : headerTitle}
+                </div>
             </div>
             <div className="definition-popover-title">
                 {icon}

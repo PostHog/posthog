@@ -16,6 +16,7 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
@@ -420,8 +421,12 @@ const InfiniteListRow = ({
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
         const isCrossGroupItem = !!group.isLocalOnly && itemGroup.type !== listGroupType
         const itemHasRecentContext = hasRecentContext(item)
+        const itemHasPinnedContext = hasPinnedContext(item)
         const recentGroup = itemHasRecentContext
             ? taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
+            : undefined
+        const pinnedGroup = itemHasPinnedContext
+            ? taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.PinnedFilters)
             : undefined
 
         const { listGroupType: resolvedListGroupType, itemGroup: resolvedItemGroup } = resolveItemRendering({
@@ -430,6 +435,7 @@ const InfiniteListRow = ({
             listGroupType,
             isCrossGroupItem,
             recentGroup,
+            pinnedGroup,
             fallbackGroup: group,
         })
 
@@ -464,7 +470,11 @@ const InfiniteListRow = ({
                 })}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
-                        {itemHasRecentContext ? `${itemGroup.name} - recent` : itemGroup.name}
+                        {itemHasRecentContext
+                            ? `${itemGroup.name} - recent`
+                            : itemHasPinnedContext
+                              ? `${itemGroup.name} - pinned`
+                              : itemGroup.name}
                     </LemonTag>
                 )}
             </div>
@@ -770,6 +780,7 @@ function resolveItemRendering({
     listGroupType,
     isCrossGroupItem,
     recentGroup,
+    pinnedGroup,
     fallbackGroup,
 }: {
     item: TaxonomicDefinitionTypes
@@ -777,6 +788,7 @@ function resolveItemRendering({
     listGroupType: TaxonomicFilterGroupType
     isCrossGroupItem: boolean
     recentGroup: TaxonomicFilterGroup | undefined
+    pinnedGroup: TaxonomicFilterGroup | undefined
     fallbackGroup: TaxonomicFilterGroup
 }): { listGroupType: TaxonomicFilterGroupType; itemGroup: TaxonomicFilterGroup } {
     const isRecentPropertyFilter = hasRecentContext(item) && item._recentContext.propertyFilter
@@ -785,6 +797,13 @@ function resolveItemRendering({
         return {
             listGroupType,
             itemGroup: recentGroup ?? fallbackGroup,
+        }
+    }
+
+    if (hasPinnedContext(item) && !isCrossGroupItem) {
+        return {
+            listGroupType,
+            itemGroup: pinnedGroup ?? fallbackGroup,
         }
     }
 
@@ -807,6 +826,11 @@ export function getItemGroup(
 
     if (item && hasRecentContext(item)) {
         const itemGroup = groups.find((g) => g.type === item._recentContext.sourceGroupType)
+        if (itemGroup) {
+            group = itemGroup
+        }
+    } else if (item && hasPinnedContext(item)) {
+        const itemGroup = groups.find((g) => g.type === item._pinnedContext.sourceGroupType)
         if (itemGroup) {
             group = itemGroup
         }

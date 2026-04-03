@@ -16,6 +16,7 @@ const EXCLUDED_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.SuggestedFilters,
     TaxonomicFilterGroupType.RecentFilters,
+    TaxonomicFilterGroupType.PinnedFilters,
     TaxonomicFilterGroupType.Empty,
     TaxonomicFilterGroupType.Wildcards,
     TaxonomicFilterGroupType.MaxAIContext,

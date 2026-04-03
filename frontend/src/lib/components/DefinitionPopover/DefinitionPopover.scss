@@ -7,6 +7,14 @@
         display: flex;
         flex-direction: column;
 
+        .definition-popover-header-actions {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.25rem;
+        }
+
         .definition-popover-header-row {
             display: flex;
             flex-direction: row;
