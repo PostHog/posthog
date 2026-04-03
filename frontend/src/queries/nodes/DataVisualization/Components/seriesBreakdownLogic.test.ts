@@ -74,6 +74,14 @@ describe('seriesBreakdownLogic', () => {
     let logic: ReturnType<typeof seriesBreakdownLogic.build>
     let builtDataVizLogic: ReturnType<typeof dataVisualizationLogic.build>
 
+    function remountWithQuery(query: DataVisualizationNode): void {
+        builtDataVizLogic.unmount()
+        globalQuery = query
+        dummyDataVisualizationLogicProps.query = globalQuery
+        builtDataVizLogic = dataVisualizationLogic(dummyDataVisualizationLogicProps)
+        builtDataVizLogic.mount()
+    }
+
     beforeEach(() => {
         initKeaTests()
 
@@ -172,17 +180,10 @@ describe('seriesBreakdownLogic', () => {
     })
 
     it('adds a series breakdown after mount if one already selected in query', async () => {
-        builtDataVizLogic.unmount()
-        globalQuery = {
+        remountWithQuery({
             ...initialQuery,
-            chartSettings: {
-                goalLines: undefined,
-                seriesBreakdownColumn: 'test_column',
-            },
-        }
-        dummyDataVisualizationLogicProps.query = globalQuery
-        builtDataVizLogic = dataVisualizationLogic(dummyDataVisualizationLogicProps)
-        builtDataVizLogic.mount()
+            chartSettings: { goalLines: undefined, seriesBreakdownColumn: 'test_column' },
+        })
 
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
@@ -259,18 +260,14 @@ describe('seriesBreakdownLogic', () => {
     })
 
     it('loads stored breakdown colors from existing query on mount', async () => {
-        builtDataVizLogic.unmount()
-        globalQuery = {
+        remountWithQuery({
             ...initialQuery,
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: 'browser',
                 seriesBreakdownColors: { Safari: '#ff0000', Chrome: '#00ff00' },
             },
-        }
-        dummyDataVisualizationLogicProps.query = globalQuery
-        builtDataVizLogic = dataVisualizationLogic(dummyDataVisualizationLogicProps)
-        builtDataVizLogic.mount()
+        })
 
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
