@@ -9,22 +9,8 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import {
-    ExperimentFunnelsQuery,
-    ExperimentMetric,
-    ExperimentTrendsQuery,
-    NodeKind,
-} from '~/queries/schema/schema-general'
-import {
-    FilterLogicalOperator,
-    FunnelExperimentVariant,
-    InsightType,
-    RecordingUniversalFilters,
-    TrendExperimentVariant,
-} from '~/types'
-
-import { experimentLogic } from '../../experimentLogic'
-import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../../utils'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, isExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,
@@ -32,8 +18,10 @@ import {
     legacyCredibleIntervalForVariant,
     legacyExposureCountDataForVariant,
     legacyGetHighestProbabilityVariant,
-} from '../calculations/legacyExperimentCalculations'
-import { LegacyVariantTag } from './LegacyVariantTag'
+} from '~/scenes/experiments/legacy/calculations/legacyExperimentCalculations'
+import { LegacyVariantTag } from '~/scenes/experiments/legacy/components/LegacyVariantTag'
+import { getViewRecordingFiltersLegacy } from '~/scenes/experiments/utils'
+import { FilterLogicalOperator, InsightType, RecordingUniversalFilters, TrendExperimentVariant } from '~/types'
 
 /**
  * @deprecated
@@ -45,7 +33,7 @@ export function LegacySummaryTable({
     displayOrder = 0,
     isSecondary = false,
 }: {
-    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
     displayOrder?: number
     isSecondary?: boolean
 }): JSX.Element {
@@ -205,37 +193,6 @@ export function LegacySummaryTable({
     }
 
     if (insightType === InsightType.FUNNELS) {
-        // NOTE: For funnel metrics on the new engine, we show exposures and converted counts in the table,
-        // as we don't yet have the detailed view as we do for the legacy funnel metrics.
-        if (metric.kind === NodeKind.ExperimentMetric) {
-            columns.push({
-                key: 'exposures',
-                title: 'Exposures',
-                render: function Key(_, item): JSX.Element {
-                    const variant = item as FunnelExperimentVariant
-                    const exposures = variant.success_count + variant.failure_count
-                    if (!exposures) {
-                        return <>—</>
-                    }
-
-                    return <div className="font-semibold">{humanFriendlyNumber(exposures)}</div>
-                },
-            })
-            columns.push({
-                key: 'converted',
-                title: 'Converted',
-                render: function Key(_, item): JSX.Element {
-                    const variant = item as FunnelExperimentVariant
-                    const converted = variant.success_count
-                    if (!converted) {
-                        return <>—</>
-                    }
-
-                    return <div className="font-semibold">{humanFriendlyNumber(converted)}</div>
-                },
-            })
-        }
-
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -352,9 +309,7 @@ export function LegacySummaryTable({
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
 
-            const filters = isLegacyExperimentQuery(metric)
-                ? getViewRecordingFiltersLegacy(metric, experiment.feature_flag_key, variantKey)
-                : getViewRecordingFilters(experiment, metric, variantKey)
+            const filters = getViewRecordingFiltersLegacy(metric, experiment.feature_flag_key, variantKey)
 
             const filterGroup: Partial<RecordingUniversalFilters> = {
                 filter_group: {
@@ -368,12 +323,9 @@ export function LegacySummaryTable({
                 },
                 date_from: experiment?.start_date,
                 date_to: experiment?.end_date,
-                filter_test_accounts:
-                    metric.kind === NodeKind.ExperimentMetric
-                        ? (experiment.exposure_criteria?.filterTestAccounts ?? false)
-                        : metric.kind === NodeKind.ExperimentTrendsQuery
-                          ? metric.count_query.filterTestAccounts
-                          : metric.funnels_query.filterTestAccounts,
+                filter_test_accounts: isExperimentTrendsQuery(metric)
+                    ? metric.count_query.filterTestAccounts
+                    : metric.funnels_query.filterTestAccounts,
             }
 
             return (
