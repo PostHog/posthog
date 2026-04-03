@@ -223,6 +223,11 @@ class AssistantElementPropertyFilter4(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
+class OrderDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
@@ -535,6 +540,7 @@ class AssistantTool(StrEnum):
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"
     SEARCH_LLM_TRACES = "search_llm_traces"
+    RUN_HOG_EVAL_TEST = "run_hog_eval_test"
 
 
 class AssistantToolCall(BaseModel):
@@ -1185,8 +1191,19 @@ class DateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: str | None = None
-    date_to: str | None = None
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            "Start of the date range. Accepts ISO 8601 timestamps (e.g.,"
+            " 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks"
+            " ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last"
+            " month), -1yStart (start of last year)."
+        ),
+    )
+    date_to: str | None = Field(
+        default=None,
+        description=('End of the date range. Same format as date_from. Omit or null for "now".'),
+    )
     explicitDate: bool | None = Field(
         default=False,
         description=(
@@ -1252,7 +1269,7 @@ class OrderBy(StrEnum):
     TIMESTAMP = "timestamp"
 
 
-class OrderDirection(StrEnum):
+class OrderDirection1(StrEnum):
     ASC = "asc"
     DESC = "desc"
 
@@ -1462,15 +1479,7 @@ class ErrorTrackingIssueCohort(BaseModel):
     name: str
 
 
-class OrderBy1(StrEnum):
-    LAST_SEEN = "last_seen"
-    FIRST_SEEN = "first_seen"
-    OCCURRENCES = "occurrences"
-    USERS = "users"
-    SESSIONS = "sessions"
-
-
-class OrderDirection1(StrEnum):
+class OrderDirection2(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
 
@@ -1488,6 +1497,14 @@ class ErrorTrackingIssueStatus(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
+
+
+class ErrorTrackingOrderBy(StrEnum):
+    LAST_SEEN = "last_seen"
+    FIRST_SEEN = "first_seen"
+    OCCURRENCES = "occurrences"
+    USERS = "users"
+    SESSIONS = "sessions"
 
 
 class ErrorTrackingSignalExtra(BaseModel):
@@ -2176,20 +2193,9 @@ class GradientScaleMode(StrEnum):
     RELATIVE = "relative"
 
 
-class HeatmapSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    gradient: list[HeatmapGradientStop] | None = None
-    gradientPreset: str | None = None
-    gradientScaleMode: GradientScaleMode | None = None
-    nullLabel: str | None = None
-    nullValue: str | None = None
-    valueColumn: str | None = None
-    xAxisColumn: str | None = None
-    xAxisLabel: str | None = None
-    yAxisColumn: str | None = None
-    yAxisLabel: str | None = None
+class HeatmapSortOrder(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
 
 
 class HedgehogActorAccessoryOption(StrEnum):
@@ -2561,7 +2567,7 @@ class LogValueResult(BaseModel):
     name: str
 
 
-class OrderBy3(StrEnum):
+class LogsOrderBy(StrEnum):
     LATEST = "latest"
     EARLIEST = "earliest"
 
@@ -5814,30 +5820,6 @@ class ChartAxis(BaseModel):
     settings: Settings | None = None
 
 
-class ChartSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    goalLines: list[GoalLine] | None = None
-    heatmap: HeatmapSettings | None = None
-    leftYAxisSettings: YAxisSettings | None = None
-    rightYAxisSettings: YAxisSettings | None = None
-    seriesBreakdownColumn: str | None = None
-    showLegend: bool | None = None
-    showNullsAsZero: bool | None = None
-    showTotalRow: bool | None = None
-    showXAxisBorder: bool | None = None
-    showXAxisTicks: bool | None = None
-    showYAxisBorder: bool | None = None
-    stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
-    xAxis: ChartAxis | None = None
-    yAxis: list[ChartAxis] | None = None
-    yAxisAtZero: bool | None = Field(
-        default=None,
-        description=("Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero"),
-    )
-
-
 class ClickhouseQueryProgress(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6368,6 +6350,24 @@ class GroupPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["group"] = "group"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class HeatmapSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    gradient: list[HeatmapGradientStop] | None = None
+    gradientPreset: str | None = None
+    gradientScaleMode: GradientScaleMode | None = None
+    nullLabel: str | None = None
+    nullValue: str | None = None
+    sortColumn: str | None = None
+    sortOrder: HeatmapSortOrder | None = None
+    valueColumn: str | None = None
+    xAxisColumn: str | None = None
+    xAxisLabel: str | None = None
+    yAxisColumn: str | None = None
+    yAxisLabel: str | None = None
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -8410,6 +8410,57 @@ class AnalyticsQueryResponseBase(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class AssistantErrorTrackingQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignee: ErrorTrackingIssueAssignee | None = Field(default=None, description="Filter by assignee.")
+    dateRange: DateRange | None = Field(default=None, description="Date range to filter results.")
+    filterGroup: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for the query")
+    filterTestAccounts: bool | None = Field(default=None, description="Whether to filter out test accounts.")
+    issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
+    kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
+    limit: int | None = None
+    offset: int | None = None
+    orderBy: ErrorTrackingOrderBy | None = Field(default=None, description="Field to sort results by.")
+    orderDirection: OrderDirection | None = Field(default=None, description="Sort direction.")
+    searchQuery: str | None = Field(
+        default=None,
+        description=("Free-text search across exception type, message, and stack frames."),
+    )
+    status: ErrorTrackingIssueStatus | str | None = Field(
+        default=None,
+        description="Filter by issue status.",
+        title="ErrorTrackingQueryStatus",
+    )
+    volumeResolution: int | None = Field(
+        default=None,
+        description=("Controls volume chart granularity. Use 1 for sparklines, 0 for counts only."),
     )
 
 
@@ -11402,6 +11453,30 @@ class CalendarHeatmapResponse(BaseModel):
     )
 
 
+class ChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: list[GoalLine] | None = None
+    heatmap: HeatmapSettings | None = None
+    leftYAxisSettings: YAxisSettings | None = None
+    rightYAxisSettings: YAxisSettings | None = None
+    seriesBreakdownColumn: str | None = None
+    showLegend: bool | None = None
+    showNullsAsZero: bool | None = None
+    showTotalRow: bool | None = None
+    showXAxisBorder: bool | None = None
+    showXAxisTicks: bool | None = None
+    showYAxisBorder: bool | None = None
+    stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
+    xAxis: ChartAxis | None = None
+    yAxis: list[ChartAxis] | None = None
+    yAxisAtZero: bool | None = Field(
+        default=None,
+        description=("Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero"),
+    )
+
+
 class ContextMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12755,11 +12830,18 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
         ]
         | None
     ) = None
-    orderBy: OrderBy1
-    orderDirection: OrderDirection1 | None = None
+    orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
     removedFilterIndexes: list[int] | None = None
-    searchQuery: str | None = None
-    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
+    searchQuery: str | None = Field(
+        default=None,
+        description=("Free-text search across exception type, message, and stack frames."),
+    )
+    status: ErrorTrackingIssueStatus | str | None = Field(
+        default=None,
+        description="Filter by issue status.",
+        title="ErrorTrackingQueryStatus",
+    )
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -17778,7 +17860,7 @@ class DocumentSimilarityQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     order_by: OrderBy
-    order_direction: OrderDirection
+    order_direction: OrderDirection1
     origin: EmbeddedDocument
     products: list[str]
     renderings: list[str]
@@ -18680,7 +18762,7 @@ class TraceSpansQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: OrderBy3 | None = None
+    orderBy: LogsOrderBy | None = None
     prefetchSpans: int | None = Field(
         default=None,
         description=("Prefetch up to this many spans per trace and include them in results"),
@@ -19028,22 +19110,29 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     assignee: ErrorTrackingIssueAssignee | None = None
-    dateRange: DateRange
+    dateRange: DateRange = Field(..., description="Date range to filter results.")
     filterGroup: PropertyGroupFilter | None = None
-    filterTestAccounts: bool | None = None
+    filterTestAccounts: bool | None = Field(default=None, description="Whether to filter out test accounts.")
     groupKey: str | None = None
     groupTypeIndex: int | None = None
-    issueId: str | None = None
+    issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: OrderBy1
-    orderDirection: OrderDirection1 | None = None
+    orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
-    searchQuery: str | None = None
-    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
+    searchQuery: str | None = Field(
+        default=None,
+        description=("Free-text search across exception type, message, and stack frames."),
+    )
+    status: ErrorTrackingIssueStatus | str | None = Field(
+        default=None,
+        description="Filter by issue status.",
+        title="ErrorTrackingQueryStatus",
+    )
     tags: QueryLogTags | None = None
     useQueryV2: bool | None = Field(
         default=None,
@@ -19661,7 +19750,7 @@ class LogsQuery(BaseModel):
     liveLogsCheckpoint: str | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: OrderBy3 | None = None
+    orderBy: LogsOrderBy | None = None
     resourceFingerprint: str | None = None
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None

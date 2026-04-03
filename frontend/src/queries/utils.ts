@@ -166,6 +166,44 @@ export function isDataVisualizationNode(node?: Record<string, any> | null): node
     return node?.kind === NodeKind.DataVisualizationNode
 }
 
+export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
+    if (!isDataTableNodeWithHogQLQuery(node)) {
+        return node
+    }
+
+    const {
+        kind: _kind,
+        source,
+        columns,
+        hiddenColumns: legacyHiddenColumns,
+        pinnedColumns: legacyPinnedColumns,
+        ...rest
+    } = node
+    const hiddenColumns = new Set(legacyHiddenColumns ?? [])
+    const visibleColumns = columns?.filter((column) => !hiddenColumns.has(column))
+    const tableSettingsColumns = visibleColumns?.length ? visibleColumns.map((column) => ({ column })) : undefined
+    const pinnedColumns = legacyPinnedColumns?.filter((column) => !hiddenColumns.has(column))
+    const mappedTableSettings =
+        tableSettingsColumns || pinnedColumns?.length
+            ? {
+                  ...(tableSettingsColumns ? { columns: tableSettingsColumns } : {}),
+                  ...(pinnedColumns?.length ? { pinnedColumns } : {}),
+              }
+            : undefined
+    const tableSettings = {
+        ...(rest as Partial<DataVisualizationNode>).tableSettings,
+        ...mappedTableSettings,
+    }
+
+    return {
+        ...rest,
+        kind: NodeKind.DataVisualizationNode,
+        source: source as HogQLQuery,
+        display: ChartDisplayType.ActionsTable,
+        ...(Object.keys(tableSettings).length ? { tableSettings } : {}),
+    } as DataVisualizationNode
+}
+
 export function isSavedInsightNode(node?: Record<string, any> | null): node is SavedInsightNode {
     return node?.kind === NodeKind.SavedInsightNode
 }

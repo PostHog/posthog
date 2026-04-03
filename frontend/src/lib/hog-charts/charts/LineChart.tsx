@@ -1,0 +1,155 @@
+import React, { useCallback, useMemo, useRef } from 'react'
+
+import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
+import type { DrawContext } from '../core/canvas-renderer'
+import { Chart } from '../core/Chart'
+import { computePercentStackData, createScales as createLineScales } from '../core/scales'
+import type { ScaleSet } from '../core/scales'
+import type {
+    ChartDimensions,
+    ChartDrawArgs,
+    ChartScales,
+    ChartTheme,
+    CreateScalesFn,
+    LineChartConfig,
+    PointClickData,
+    Series,
+    TooltipContext,
+} from '../core/types'
+
+export interface LineChartProps {
+    series: Series[]
+    labels: string[]
+    config?: LineChartConfig
+    theme: ChartTheme
+    tooltip?: React.ComponentType<TooltipContext>
+    onPointClick?: (data: PointClickData) => void
+    className?: string
+    children?: React.ReactNode
+}
+
+export function LineChart({
+    series,
+    labels,
+    config,
+    theme,
+    tooltip,
+    onPointClick,
+    className,
+    children,
+}: LineChartProps): React.ReactElement {
+    const { yScaleType = 'linear', percentStackView = false, showGrid = false, goalLines } = config ?? {}
+
+    const stackedData = useMemo(() => {
+        if (!percentStackView) {
+            return undefined
+        }
+        return computePercentStackData(series, labels)
+    }, [percentStackView, series, labels])
+
+    const chartConfig = useMemo(() => {
+        if (!percentStackView || config?.yTickFormatter) {
+            return config
+        }
+        return {
+            ...config,
+            yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
+        }
+    }, [config, percentStackView])
+
+    // Keep a ref to the raw d3 scales so the draw callback can use them
+    // without exposing d3 types through the ChartScales abstraction
+    const d3ScalesRef = useRef<ScaleSet | null>(null)
+
+    const createScales: CreateScalesFn = useCallback(
+        (coloredSeries: Series[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
+            const d3Scales = createLineScales(coloredSeries, scaleLabels, dimensions, {
+                scaleType: yScaleType,
+                percentStack: percentStackView,
+            })
+            d3ScalesRef.current = d3Scales
+            return {
+                x: (label: string) => d3Scales.x(label),
+                y: (value: number) => d3Scales.y(value),
+                yTicks: () => d3Scales.y.ticks?.() ?? [],
+            }
+        },
+        [yScaleType, percentStackView]
+    )
+
+    const draw = useCallback(
+        ({ ctx, dimensions, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs) => {
+            const d3Scales = d3ScalesRef.current
+            if (!d3Scales) {
+                return
+            }
+            const drawCtx: DrawContext = {
+                ctx,
+                dimensions,
+                xScale: d3Scales.x,
+                yScale: d3Scales.y,
+                labels: drawLabels,
+            }
+
+            if (showGrid) {
+                drawGrid(drawCtx, {
+                    gridColor: theme.gridColor,
+                    goalLineValues: goalLines?.map((g) => g.value),
+                })
+            }
+
+            for (const s of coloredSeries) {
+                if (s.hidden) {
+                    continue
+                }
+
+                const yValues = stackedData?.get(s.key)
+
+                if (s.fillArea) {
+                    drawArea(drawCtx, s, yValues)
+                }
+                drawLine(drawCtx, s, yValues)
+                drawPoints(drawCtx, s, yValues)
+            }
+
+            if (hoverIndex >= 0) {
+                for (const s of coloredSeries) {
+                    if (s.hidden) {
+                        continue
+                    }
+                    const data = stackedData?.get(s.key) ?? s.data
+                    const x = scales.x(drawLabels[hoverIndex])
+                    const y = scales.y(data[hoverIndex])
+                    if (x != null && isFinite(y)) {
+                        drawHighlightPoint(ctx, x, y, s.color, theme.backgroundColor ?? '#ffffff')
+                    }
+                }
+            }
+        },
+        [showGrid, goalLines, stackedData]
+    )
+
+    const resolveValue = useMemo(() => {
+        if (!stackedData) {
+            return undefined
+        }
+        return (s: Series, dataIndex: number): number => stackedData.get(s.key)?.[dataIndex] ?? s.data[dataIndex] ?? 0
+    }, [stackedData])
+
+    return (
+        <Chart
+            series={series}
+            labels={labels}
+            config={chartConfig}
+            theme={theme}
+            createScales={createScales}
+            draw={draw}
+            tooltip={tooltip}
+            onPointClick={onPointClick}
+            className={className}
+            resolveValue={resolveValue}
+        >
+            {children}
+        </Chart>
+    )
+}

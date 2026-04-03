@@ -110,7 +110,7 @@ describe('experimentLogic', () => {
 
             useMocks({
                 post: {
-                    '/api/environments/:team/query': (() => {
+                    '/api/environments/:team/query/:kind': (() => {
                         let callCount = 0
                         return () => {
                             callCount++
@@ -188,7 +188,7 @@ describe('experimentLogic', () => {
 
             useMocks({
                 post: {
-                    '/api/environments/:team/query': (() => {
+                    '/api/environments/:team/query/:kind': (() => {
                         let callCount = 0
                         return () => {
                             callCount++

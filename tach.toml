@@ -394,6 +394,7 @@ depends_on = [
     "products.error_tracking",
     "products.event_definitions",
     "products.llm_analytics",
+    "products.signals",
     "products.slack_app",
 ]
 layer = "non_isolated"

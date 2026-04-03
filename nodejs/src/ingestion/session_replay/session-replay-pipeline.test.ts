@@ -154,9 +154,11 @@ describe('session-replay-pipeline', () => {
         mockKafkaProducer = createMockKafkaProducer()
         mockIngestionWarningProducer = createMockKafkaProducer()
         outputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: mockIngestionWarningProducer },
-            [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockKafkaProducer },
-            [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockKafkaProducer },
+            [INGESTION_WARNINGS_OUTPUT]: [
+                { topic: KAFKA_INGESTION_WARNINGS, producer: mockIngestionWarningProducer, producerName: 'test' },
+            ],
+            [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
+            [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' }],
         })
 
         // The restriction manager is not actually used since we mock createApplyEventRestrictionsStep

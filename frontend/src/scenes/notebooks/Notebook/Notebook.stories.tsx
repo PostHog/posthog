@@ -267,7 +267,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                'api/environments/:team_id/query': {
+                'api/environments/:team_id/query/HogQLQuery': {
                     clickhouse:
                         "SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id, any(events.properties) AS properties FROM events WHERE and(equals(events.team_id, 1), in(events.event, [%(hogql_val_0)s, %(hogql_val_1)s]), ifNull(in(session_id, [%(hogql_val_2)s]), 0), ifNull(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_3)s), %(hogql_val_4)s), 0), ifNull(lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_5)s), %(hogql_val_6)s), 0)) GROUP BY session_id LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
                     columns: ['session_id', 'properties'],
