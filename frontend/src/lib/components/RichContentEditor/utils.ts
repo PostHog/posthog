@@ -1,3 +1,5 @@
+import { getMarkRange } from '@tiptap/core'
+
 import {
     EditorFocusPosition,
     EditorRange,
@@ -30,36 +32,34 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         setMark: (id: string) => editor.commands.setMark('comment', { id }),
         isActive: (name: string, attributes?: {}) => editor.isActive(name, attributes),
         isSelectionFullyWithinSingleMark: (markName: string) => {
+            const markType = editor.schema.marks[markName]
+            if (!markType) {
+                return false
+            }
             const { from, to } = editor.state.selection
             if (from >= to) {
                 return false
             }
-            let seenId: string | undefined
-            let foundText = false
-            let fullyWithinSingle = true
-            editor.state.doc.nodesBetween(from, to, (node) => {
+            // Use TipTap's mark range (same as extendMarkRange): walking text fragments with
+            // nodesBetween is unreliable for mark views / split inline content.
+            const $from = editor.state.doc.resolve(from)
+            // getMarkRange defaults attrs from marks[0]; pass the mark's attrs so link+bold+comment order doesn't break.
+            let markAttrs: Record<string, unknown> | undefined
+            editor.state.doc.nodesBetween(from, Math.min(from + 1, to), (node) => {
                 if (!node.isText) {
                     return
                 }
-                foundText = true
-                const mark = node.marks.find((m) => m.type.name === markName)
-                if (!mark) {
-                    fullyWithinSingle = false
-                    return false
-                }
-                const id = mark.attrs.id != null ? String(mark.attrs.id) : ''
-                if (!id) {
-                    fullyWithinSingle = false
-                    return false
-                }
-                if (seenId === undefined) {
-                    seenId = id
-                } else if (seenId !== id) {
-                    fullyWithinSingle = false
+                const instance = node.marks.find((m) => m.type === markType)
+                if (instance) {
+                    markAttrs = instance.attrs
                     return false
                 }
             })
-            return foundText && fullyWithinSingle && seenId !== undefined
+            const range = getMarkRange($from, markType, markAttrs)
+            if (!range) {
+                return false
+            }
+            return range.from <= from && range.to >= to
         },
         getMentions: () => getMentions(editor),
         deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
