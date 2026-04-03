@@ -63,6 +63,7 @@ impl Model for HandoffModel {
             acks: BTreeSet::new(),
             pod_owned,
             router_tables,
+            router_stashing: BTreeSet::new(),
             accepted_writes: BTreeSet::new(),
             attempted_writes: BTreeSet::new(),
             needs_rebalance: false,
@@ -107,7 +108,6 @@ impl Model for HandoffModel {
             match self.config.protocol {
                 ProtocolVariant::EarlyRelease => {
                     // Old owner releases partition before Ready is signaled.
-                    // Available when handoff is Warming and old owner hasn't released yet.
                     if handoff.phase == HandoffPhase::Warming
                         && !handoff.old_owner_released
                         && state.registered_pods.contains_key(&handoff.old_owner)
@@ -118,8 +118,7 @@ impl Model for HandoffModel {
                         ));
                     }
 
-                    // New owner warms and signals Ready.
-                    // In EarlyRelease: only after old owner has released.
+                    // New owner warms and signals Ready (only after old owner released).
                     if handoff.phase == HandoffPhase::Warming
                         && handoff.old_owner_released
                         && state.registered_pods.contains_key(&handoff.new_owner)
@@ -131,8 +130,7 @@ impl Model for HandoffModel {
                     }
                 }
                 ProtocolVariant::Current => {
-                    // In Current protocol, new owner warms and signals Ready immediately
-                    // (no early release step).
+                    // New owner warms and signals Ready immediately.
                     if handoff.phase == HandoffPhase::Warming
                         && state.registered_pods.contains_key(&handoff.new_owner)
                     {
@@ -142,10 +140,96 @@ impl Model for HandoffModel {
                         ));
                     }
                 }
+                ProtocolVariant::StashAndRelease => {
+                    // Warming: new pod warms and signals Ready (no ownership yet).
+                    if handoff.phase == HandoffPhase::Warming
+                        && state.registered_pods.contains_key(&handoff.new_owner)
+                    {
+                        actions.push(Action::NewPodWarmAndSignalReady(
+                            handoff.new_owner,
+                            partition,
+                        ));
+                    }
+
+                    // Ready: routers begin stashing (replaces RouterExecuteCutover).
+                    if handoff.phase == HandoffPhase::Ready {
+                        for router in self.config.router_ids() {
+                            if !state.acks.contains(&(partition, router)) {
+                                actions.push(Action::RouterBeginStash(router, partition));
+                            }
+                        }
+
+                        // All routers stashing → coordinator advances to Stashed.
+                        let all_acked = self
+                            .config
+                            .router_ids()
+                            .iter()
+                            .all(|r| state.acks.contains(&(partition, *r)));
+                        if all_acked {
+                            actions.push(Action::CoordinatorAdvanceToStashed(partition));
+                        }
+                    }
+
+                    // Stashed: old pod releases, new pod takes ownership, coordinator completes.
+                    if handoff.phase == HandoffPhase::Stashed {
+                        if !handoff.old_owner_released
+                            && state.registered_pods.contains_key(&handoff.old_owner)
+                        {
+                            actions.push(Action::OldPodReleasePartition(
+                                handoff.old_owner,
+                                partition,
+                            ));
+                        }
+
+                        // New pod takes ownership after old pod released.
+                        let new_pod_owns = state
+                            .pod_owned
+                            .get(&handoff.new_owner)
+                            .map_or(false, |owned| owned.contains(&partition));
+                        if handoff.old_owner_released
+                            && !new_pod_owns
+                            && state.registered_pods.contains_key(&handoff.new_owner)
+                        {
+                            actions.push(Action::NewPodTakeOwnership(
+                                handoff.new_owner,
+                                partition,
+                            ));
+                        }
+
+                        // Coordinator completes after ownership transferred.
+                        if handoff.old_owner_released && new_pod_owns {
+                            actions.push(Action::CoordinatorCompleteHandoff(partition));
+                        }
+                    }
+
+                    // Complete: routers flush stash and switch, then cleanup.
+                    if handoff.phase == HandoffPhase::Complete {
+                        for router in self.config.router_ids() {
+                            if state.router_stashing.contains(&(partition, router)) {
+                                actions.push(Action::RouterFlushAndSwitch(router, partition));
+                            }
+                        }
+
+                        // Cleanup after all routers have flushed.
+                        let any_stashing = self
+                            .config
+                            .router_ids()
+                            .iter()
+                            .any(|r| state.router_stashing.contains(&(partition, *r)));
+                        if !any_stashing {
+                            actions.push(Action::OldPodFinalCleanup(
+                                handoff.old_owner,
+                                partition,
+                            ));
+                        }
+                    }
+                }
             }
 
-            // Router cutover: available when handoff is Ready and router hasn't acked
-            if handoff.phase == HandoffPhase::Ready {
+            // Current/EarlyRelease: router cutover at Ready
+            if handoff.phase == HandoffPhase::Ready
+                && self.config.protocol != ProtocolVariant::StashAndRelease
+            {
                 for router in self.config.router_ids() {
                     if !state.acks.contains(&(partition, router)) {
                         actions.push(Action::RouterExecuteCutover(router, partition));
@@ -153,8 +237,10 @@ impl Model for HandoffModel {
                 }
             }
 
-            // Coordinator completes handoff when all routers have acked
-            if handoff.phase == HandoffPhase::Ready {
+            // Current/EarlyRelease: coordinator completes when all routers acked at Ready
+            if handoff.phase == HandoffPhase::Ready
+                && self.config.protocol != ProtocolVariant::StashAndRelease
+            {
                 let all_acked = self
                     .config
                     .router_ids()
@@ -165,17 +251,17 @@ impl Model for HandoffModel {
                 }
             }
 
-            // Old pod final cleanup on Complete (Current protocol releases here)
-            if handoff.phase == HandoffPhase::Complete {
+            // Current/EarlyRelease: old pod final cleanup on Complete
+            if handoff.phase == HandoffPhase::Complete
+                && self.config.protocol != ProtocolVariant::StashAndRelease
+            {
                 match self.config.protocol {
                     ProtocolVariant::Current => {
-                        // In Current protocol, old owner releases ownership on Complete
                         if !handoff.old_owner_released
                             && state.registered_pods.contains_key(&handoff.old_owner)
                         {
                             actions.push(Action::OldPodFinalCleanup(handoff.old_owner, partition));
                         }
-                        // Delete handoff after release
                         if handoff.old_owner_released
                             || !state.registered_pods.contains_key(&handoff.old_owner)
                         {
@@ -183,9 +269,9 @@ impl Model for HandoffModel {
                         }
                     }
                     ProtocolVariant::EarlyRelease => {
-                        // Already released, just cleanup the handoff entry
                         actions.push(Action::OldPodFinalCleanup(handoff.old_owner, partition));
                     }
+                    ProtocolVariant::StashAndRelease => unreachable!(),
                 }
             }
 
@@ -197,10 +283,13 @@ impl Model for HandoffModel {
 
         // --- Client writes: a client can write to any partition through any router ---
         // Only generate if the router has a routing entry for the partition
+        // and is not currently stashing requests for it.
         for router in self.config.router_ids() {
             if let Some(table) = state.router_tables.get(&router) {
                 for partition in 0..self.config.num_partitions {
-                    if table.contains_key(&partition) {
+                    if table.contains_key(&partition)
+                        && !state.router_stashing.contains(&(partition, router))
+                    {
                         actions.push(Action::ClientWrite(router, partition));
                     }
                 }
@@ -304,11 +393,45 @@ impl Model for HandoffModel {
             }
 
             Action::NewPodWarmAndSignalReady(pod, partition) => {
-                // New owner adds partition to its local ownership
-                s.pod_owned.entry(pod).or_default().insert(partition);
+                // For StashAndRelease: new pod warms but does NOT take ownership yet.
+                // Ownership is taken later via NewPodTakeOwnership after old pod releases.
+                if self.config.protocol != ProtocolVariant::StashAndRelease {
+                    s.pod_owned.entry(pod).or_default().insert(partition);
+                }
                 // Advance handoff to Ready
                 if let Some(handoff) = s.handoffs.get_mut(&partition) {
                     handoff.phase = HandoffPhase::Ready;
+                }
+            }
+
+            Action::RouterBeginStash(router, partition) => {
+                // Router begins stashing requests for this partition.
+                // It stops forwarding to any pod and writes an ack.
+                s.router_stashing.insert((partition, router));
+                s.acks.insert((partition, router));
+            }
+
+            Action::CoordinatorAdvanceToStashed(partition) => {
+                // All routers confirmed stashing, advance to Stashed phase.
+                if let Some(handoff) = s.handoffs.get_mut(&partition) {
+                    handoff.phase = HandoffPhase::Stashed;
+                }
+                // Clear acks (served their purpose for the stash round).
+                s.acks.retain(|&(p, _)| p != partition);
+            }
+
+            Action::NewPodTakeOwnership(pod, partition) => {
+                // New pod adds partition to its local ownership (StashAndRelease).
+                s.pod_owned.entry(pod).or_default().insert(partition);
+            }
+
+            Action::RouterFlushAndSwitch(router, partition) => {
+                // Router flushes stashed requests to new pod and updates routing table.
+                s.router_stashing.remove(&(partition, router));
+                if let Some(handoff) = s.handoffs.get(&partition) {
+                    if let Some(table) = s.router_tables.get_mut(&router) {
+                        table.insert(partition, handoff.new_owner);
+                    }
                 }
             }
 
@@ -344,7 +467,7 @@ impl Model for HandoffModel {
                             handoff.old_owner_released = true;
                         }
                     }
-                    ProtocolVariant::EarlyRelease => {
+                    ProtocolVariant::EarlyRelease | ProtocolVariant::StashAndRelease => {
                         // Already released earlier, nothing to do for ownership
                     }
                 }
@@ -357,6 +480,8 @@ impl Model for HandoffModel {
                 // Target pod crashed during handoff, remove the handoff
                 s.handoffs.remove(&partition);
                 s.acks.retain(|&(p, _)| p != partition);
+                // Clear stashing state so routers resume normal routing
+                s.router_stashing.retain(|&(p, _)| p != partition);
                 // Trigger re-rebalance to reassign the partition
                 s.needs_rebalance = true;
             }
@@ -484,6 +609,13 @@ fn check_valid_handoff_state(model: &HandoffModel, state: &SystemState) -> bool 
         {
             return false;
         }
+        // In StashAndRelease: old_owner_released must be true at Complete
+        if model.config.protocol == ProtocolVariant::StashAndRelease
+            && handoff.phase == HandoffPhase::Complete
+            && !handoff.old_owner_released
+        {
+            return false;
+        }
         // new_owner should not equal old_owner
         if handoff.new_owner == handoff.old_owner {
             return false;
@@ -571,7 +703,7 @@ fn check_handoff_consistent_with_assignment(_model: &HandoffModel, state: &Syste
     for (&partition, handoff) in &state.handoffs {
         if let Some(&assigned) = state.assignments.get(&partition) {
             match handoff.phase {
-                HandoffPhase::Warming | HandoffPhase::Ready => {
+                HandoffPhase::Warming | HandoffPhase::Ready | HandoffPhase::Stashed => {
                     if assigned != handoff.old_owner {
                         return false;
                     }

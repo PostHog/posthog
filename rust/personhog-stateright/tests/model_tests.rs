@@ -337,7 +337,137 @@ fn early_release_larger_cluster() {
 }
 
 // ============================================================
-// Summary: print results for both protocols side by side
+// Scenario 9: StashAndRelease - scale-up with 1 router
+// ============================================================
+
+#[test]
+fn stash_and_release_scale_up_1_router() {
+    let config = ModelConfig {
+        num_partitions: 2,
+        num_initial_pods: 1,
+        num_scaling_pods: 1,
+        num_routers: 1,
+        allow_crashes: false,
+        protocol: ProtocolVariant::StashAndRelease,
+    };
+    let results = check_model(config);
+
+    assert!(
+        property_holds(&results, "single_pod_ownership"),
+        "StashAndRelease should satisfy single_pod_ownership"
+    );
+
+    assert!(
+        property_holds(&results, "no_split_writes"),
+        "StashAndRelease should satisfy no_split_writes"
+    );
+
+    assert!(
+        property_holds(&results, "writes_only_to_owners"),
+        "StashAndRelease should satisfy writes_only_to_owners (no stale routing)"
+    );
+}
+
+// ============================================================
+// Scenario 10: StashAndRelease - scale-up with 2 routers
+// ============================================================
+
+#[test]
+fn stash_and_release_scale_up_2_routers() {
+    let config = ModelConfig {
+        num_partitions: 2,
+        num_initial_pods: 1,
+        num_scaling_pods: 1,
+        num_routers: 2,
+        allow_crashes: false,
+        protocol: ProtocolVariant::StashAndRelease,
+    };
+    let results = check_model(config);
+
+    assert!(
+        property_holds(&results, "single_pod_ownership"),
+        "StashAndRelease should satisfy single_pod_ownership with 2 routers"
+    );
+
+    assert!(
+        property_holds(&results, "no_split_writes"),
+        "StashAndRelease should satisfy no_split_writes with 2 routers"
+    );
+
+    assert!(
+        property_holds(&results, "writes_only_to_owners"),
+        "StashAndRelease should satisfy writes_only_to_owners with 2 routers"
+    );
+
+    assert!(
+        property_holds(&results, "router_agreement_when_stable"),
+        "Routers should agree with etcd when no handoffs in flight"
+    );
+}
+
+// ============================================================
+// Scenario 11: StashAndRelease - pod crash during handoff
+// ============================================================
+
+#[test]
+fn stash_and_release_crash_during_handoff() {
+    let config = ModelConfig {
+        num_partitions: 2,
+        num_initial_pods: 1,
+        num_scaling_pods: 1,
+        num_routers: 1,
+        allow_crashes: true,
+        protocol: ProtocolVariant::StashAndRelease,
+    };
+    let results = check_model(config);
+
+    assert!(
+        property_holds(&results, "single_pod_ownership"),
+        "StashAndRelease should satisfy single_pod_ownership even with crashes"
+    );
+
+    assert!(
+        property_holds(&results, "no_split_writes"),
+        "StashAndRelease should satisfy no_split_writes even with crashes"
+    );
+}
+
+// ============================================================
+// Scenario 12: StashAndRelease - larger cluster
+// ============================================================
+
+#[test]
+fn stash_and_release_larger_cluster() {
+    let config = ModelConfig {
+        num_partitions: 3,
+        num_initial_pods: 2,
+        num_scaling_pods: 1,
+        num_routers: 2,
+        allow_crashes: false,
+        protocol: ProtocolVariant::StashAndRelease,
+    };
+    let results = check_model(config);
+
+    assert!(
+        property_holds(&results, "no_split_writes"),
+        "StashAndRelease should satisfy no_split_writes with larger cluster"
+    );
+    assert!(
+        property_holds(&results, "single_pod_ownership"),
+        "StashAndRelease should satisfy single_pod_ownership with larger cluster"
+    );
+    assert!(
+        property_holds(&results, "writes_only_to_owners"),
+        "StashAndRelease should satisfy writes_only_to_owners with larger cluster"
+    );
+    assert!(
+        property_holds(&results, "handoff_consistent_with_assignment"),
+        "Handoff should be consistent with assignment in larger cluster"
+    );
+}
+
+// ============================================================
+// Summary: print results for all three protocols side by side
 // ============================================================
 
 #[test]
@@ -361,27 +491,31 @@ fn protocol_comparison_summary() {
     println!("Protocol Comparison");
     println!("============================================================");
 
-    // --- 2 partitions, 1+1 pods, 1 router ---
-    let base = ModelConfig {
-        num_partitions: 2,
-        num_initial_pods: 1,
-        num_scaling_pods: 1,
-        num_routers: 1,
-        allow_crashes: false,
-        protocol: ProtocolVariant::Current,
+    let check_all = |base: ModelConfig| {
+        let current = check_model(ModelConfig {
+            protocol: ProtocolVariant::Current,
+            ..base.clone()
+        });
+        let early = check_model(ModelConfig {
+            protocol: ProtocolVariant::EarlyRelease,
+            ..base.clone()
+        });
+        let stash = check_model(ModelConfig {
+            protocol: ProtocolVariant::StashAndRelease,
+            ..base
+        });
+        (current, early, stash)
     };
-    let current_1r = check_model(base.clone());
-    let early_1r = check_model(ModelConfig {
-        protocol: ProtocolVariant::EarlyRelease,
-        ..base
-    });
 
-    let print_table = |label: &str, current: &[(&str, bool)], early: &[(&str, bool)]| {
+    let print_table = |label: &str,
+                       current: &[(&str, bool)],
+                       early: &[(&str, bool)],
+                       stash: &[(&str, bool)]| {
         println!(
-            "\n{:<40} {:>10} {:>14}",
-            label, "Current", "EarlyRelease"
+            "\n{:<40} {:>10} {:>14} {:>17}",
+            label, "Current", "EarlyRelease", "StashAndRelease"
         );
-        println!("{:-<40} {:-<10} {:-<14}", "", "", "");
+        println!("{:-<40} {:-<10} {:-<14} {:-<17}", "", "", "", "");
         for name in &invariants {
             let c = if property_holds(current, name) {
                 "PASS"
@@ -393,15 +527,26 @@ fn protocol_comparison_summary() {
             } else {
                 "FAIL"
             };
-            println!("{:<40} {:>10} {:>14}", name, c, e);
+            let s = if property_holds(stash, name) {
+                "PASS"
+            } else {
+                "FAIL"
+            };
+            println!("{:<40} {:>10} {:>14} {:>17}", name, c, e, s);
         }
     };
 
-    print_table(
-        "2 partitions, 2 pods, 1 router",
-        &current_1r,
-        &early_1r,
-    );
+    // --- 2 partitions, 1+1 pods, 1 router ---
+    let base = ModelConfig {
+        num_partitions: 2,
+        num_initial_pods: 1,
+        num_scaling_pods: 1,
+        num_routers: 1,
+        allow_crashes: false,
+        protocol: ProtocolVariant::Current,
+    };
+    let (c1, e1, s1) = check_all(base);
+    print_table("2 partitions, 2 pods, 1 router", &c1, &e1, &s1);
 
     // --- 2 partitions, 1+1 pods, 2 routers ---
     let base2 = ModelConfig {
@@ -412,17 +557,8 @@ fn protocol_comparison_summary() {
         allow_crashes: false,
         protocol: ProtocolVariant::Current,
     };
-    let current_2r = check_model(base2.clone());
-    let early_2r = check_model(ModelConfig {
-        protocol: ProtocolVariant::EarlyRelease,
-        ..base2
-    });
-
-    print_table(
-        "2 partitions, 2 pods, 2 routers",
-        &current_2r,
-        &early_2r,
-    );
+    let (c2, e2, s2) = check_all(base2);
+    print_table("2 partitions, 2 pods, 2 routers", &c2, &e2, &s2);
 
     // --- With crashes ---
     let base_crash = ModelConfig {
@@ -433,17 +569,8 @@ fn protocol_comparison_summary() {
         allow_crashes: true,
         protocol: ProtocolVariant::Current,
     };
-    let current_crash = check_model(base_crash.clone());
-    let early_crash = check_model(ModelConfig {
-        protocol: ProtocolVariant::EarlyRelease,
-        ..base_crash
-    });
-
-    print_table(
-        "2 part, 2 pods, 1 rtr, crashes",
-        &current_crash,
-        &early_crash,
-    );
+    let (cc, ec, sc) = check_all(base_crash);
+    print_table("2 part, 2 pods, 1 rtr, crashes", &cc, &ec, &sc);
 
     println!();
 }

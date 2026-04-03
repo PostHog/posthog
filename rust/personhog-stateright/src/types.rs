@@ -22,6 +22,8 @@ pub enum PodStatus {
 pub enum HandoffPhase {
     Warming,
     Ready,
+    /// StashAndRelease only: all routers confirmed stashing, ownership transferring.
+    Stashed,
     Complete,
 }
 
@@ -30,7 +32,8 @@ impl HandoffPhase {
         match self {
             Self::Warming => 0,
             Self::Ready => 1,
-            Self::Complete => 2,
+            Self::Stashed => 2,
+            Self::Complete => 3,
         }
     }
 }
@@ -55,6 +58,10 @@ pub enum ProtocolVariant {
     Current,
     /// Proposed fix: old pod drops ownership before Ready is signaled.
     EarlyRelease,
+    /// Proposed fix with stashing: routers stash requests during handoff,
+    /// old pod releases after all routers confirm stashing, new pod takes
+    /// ownership, then routers flush stash to new pod.
+    StashAndRelease,
 }
 
 /// Configurable model parameters.
@@ -107,6 +114,11 @@ pub struct SystemState {
     /// Each router's local routing table.
     pub router_tables: BTreeMap<RouterId, BTreeMap<Partition, PodId>>,
 
+    // === Per-router stashing state (StashAndRelease only) ===
+    /// Routers currently stashing requests for a partition. While stashing,
+    /// the router buffers requests internally and does not forward them to any pod.
+    pub router_stashing: BTreeSet<(Partition, RouterId)>,
+
     // === Request tracking (for invariant checking) ===
     /// Accepted writes: only writes where the target pod owns the partition.
     /// These are the writes actually being served.
@@ -145,6 +157,18 @@ pub enum Action {
     // --- Router actions ---
     /// Router executes cutover for a partition and writes ack.
     RouterExecuteCutover(RouterId, Partition),
+    /// StashAndRelease: router begins stashing requests and writes ack.
+    RouterBeginStash(RouterId, Partition),
+    /// StashAndRelease: router flushes stash and switches routing to new pod.
+    RouterFlushAndSwitch(RouterId, Partition),
+
+    // --- Coordinator actions (StashAndRelease) ---
+    /// All routers confirmed stashing, advance handoff to Stashed phase.
+    CoordinatorAdvanceToStashed(Partition),
+
+    // --- Pod actions (StashAndRelease) ---
+    /// New pod takes ownership after old pod released (StashAndRelease).
+    NewPodTakeOwnership(PodId, Partition),
 
     // --- Client requests ---
     /// Client sends a write request through a router for a partition.
@@ -172,6 +196,12 @@ impl fmt::Display for Action {
                 write!(f, "Pod{pod}:Cleanup(P{part})")
             }
             Self::RouterExecuteCutover(r, part) => write!(f, "Router{r}:Cutover(P{part})"),
+            Self::RouterBeginStash(r, part) => write!(f, "Router{r}:Stash(P{part})"),
+            Self::RouterFlushAndSwitch(r, part) => write!(f, "Router{r}:Flush(P{part})"),
+            Self::CoordinatorAdvanceToStashed(p) => write!(f, "Coord:Stashed(P{p})"),
+            Self::NewPodTakeOwnership(pod, part) => {
+                write!(f, "Pod{pod}:TakeOwnership(P{part})")
+            }
             Self::ClientWrite(r, part) => write!(f, "Client:Write(R{r},P{part})"),
             Self::ClientWriteComplete(part, pod) => {
                 write!(f, "Client:WriteComplete(P{part},Pod{pod})")

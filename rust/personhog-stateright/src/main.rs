@@ -8,11 +8,13 @@ fn main() {
         .nth(1)
         .map(|s| match s.as_str() {
             "current" => ProtocolVariant::Current,
-            "early-release" | "fix" => ProtocolVariant::EarlyRelease,
+            "early-release" => ProtocolVariant::EarlyRelease,
+            "stash" | "stash-and-release" | "fix" => ProtocolVariant::StashAndRelease,
             _ => {
-                eprintln!("Usage: personhog-stateright [current|early-release]");
-                eprintln!("  current       - model current protocol (expected split-brain)");
-                eprintln!("  early-release  - model proposed fix");
+                eprintln!("Usage: personhog-stateright [current|early-release|stash]");
+                eprintln!("  current        - model current protocol (expected split-brain)");
+                eprintln!("  early-release  - model early release fix");
+                eprintln!("  stash          - model stash-and-release fix");
                 std::process::exit(1);
             }
         })
