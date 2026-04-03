@@ -51,6 +51,20 @@ export const CreateInsightInputSchema = z.object({
             .describe(
                 'For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused.'
             ), // NOTE: This is intentionally z.any() to avoid populating the context with the complicated query schema, but we prompt the LLM to use 'query-run' to check queries, before creating insights.
+        // DataVisualizationNode fields — intentionally z.any() like source to avoid bloating context
+        display: z
+            .any()
+            .optional()
+            .describe(
+                'Chart display type for DataVisualizationNode queries (e.g. "ActionsLineGraph", "ActionsTable", "ActionsPie")'
+            ),
+        chartSettings: z
+            .any()
+            .optional()
+            .describe(
+                'Chart visualization settings for DataVisualizationNode queries — controls axis configuration, formatting, colors, and display options'
+            ),
+        tableSettings: z.any().optional().describe('Table display settings for DataVisualizationNode queries'),
     }),
     description: z.string().optional(),
     favorited: z.boolean(),
@@ -69,6 +83,20 @@ export const UpdateInsightInputSchema = z.object({
                 .describe(
                     'For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused'
                 ), // NOTE: This is intentionally z.any() to avoid populating the context with the complicated query schema, and to allow the LLM to make a change to an existing insight whose schema we do not support in our simplified subset of the full insight schema.
+            // DataVisualizationNode fields — intentionally z.any() like source to avoid bloating context
+            display: z
+                .any()
+                .optional()
+                .describe(
+                    'Chart display type for DataVisualizationNode queries (e.g. "ActionsLineGraph", "ActionsTable", "ActionsPie")'
+                ),
+            chartSettings: z
+                .any()
+                .optional()
+                .describe(
+                    'Chart visualization settings for DataVisualizationNode queries — controls axis configuration, formatting, colors, and display options'
+                ),
+            tableSettings: z.any().optional().describe('Table display settings for DataVisualizationNode queries'),
         })
         .optional(),
     favorited: z.boolean().optional(),

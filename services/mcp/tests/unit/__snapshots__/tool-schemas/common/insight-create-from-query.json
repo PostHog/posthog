@@ -14,6 +14,12 @@
                 },
                 "query": {
                     "properties": {
+                        "chartSettings": {
+                            "description": "Chart visualization settings for DataVisualizationNode queries — controls axis configuration, formatting, colors, and display options"
+                        },
+                        "display": {
+                            "description": "Chart display type for DataVisualizationNode queries (e.g. \"ActionsLineGraph\", \"ActionsTable\", \"ActionsPie\")"
+                        },
                         "kind": {
                             "anyOf": [
                                 {
@@ -28,6 +34,9 @@
                         },
                         "source": {
                             "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused."
+                        },
+                        "tableSettings": {
+                            "description": "Table display settings for DataVisualizationNode queries"
                         }
                     },
                     "required": ["kind", "source"],
