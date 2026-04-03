@@ -89,37 +89,28 @@ def _hard_delete_saved_query(saved_query: "DataWarehouseSavedQuery") -> None:
     from products.data_modeling.backend.models.node import Node
     from products.data_warehouse.backend.models.join import DataWarehouseJoin
     from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
-    from products.endpoints.backend.models import Endpoint, EndpointVersion
 
     logger.info("Hard-deleting expired test saved query", saved_query_id=str(saved_query.id), name=saved_query.name)
 
-    # 1. Delete endpoint versions that reference this saved query, and clean up
-    #    endpoints that become empty as a result.
-    endpoint_versions = EndpointVersion.objects.filter(saved_query=saved_query).select_related("endpoint")
-    affected_endpoint_ids = set(endpoint_versions.values_list("endpoint_id", flat=True))
-    endpoint_versions.delete()
-    for endpoint in Endpoint.objects.filter(id__in=affected_endpoint_ids):
-        if not endpoint.versions.exists():
-            # All versions gone — hard-delete the endpoint itself
-            Endpoint.objects.filter(id=endpoint.id).delete()
-    # 2. Delete the DAG node (must happen before saved query deletion due to PROTECT)
+    # 1. Delete the DAG node (must happen before saved query deletion due to PROTECT).
+    #    EndpointVersion.saved_query has on_delete=SET_NULL, so Django handles that automatically.
     Node.objects.filter(team=saved_query.team, saved_query=saved_query).delete()
-    # 3. Delete joins that reference this saved query by name
+    # 2. Delete joins that reference this saved query by name
     DataWarehouseJoin.objects.filter(
         Q(team_id=saved_query.team_id)
         & (Q(source_table_name=saved_query.name) | Q(joining_table_name=saved_query.name))
     ).delete()
-    # 4. Delete model paths: this should be handled by revert materialization, but explicit delete causes no harm
+    # 3. Delete model paths
     DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=f"*{{1,}}.{saved_query.id.hex}").delete()
-    # 5. Revert materialization (drops schedule, soft-deletes the table)
+    # 4. Revert materialization (drops schedule, soft-deletes the table)
     table_to_delete = saved_query.table
     saved_query.revert_materialization()
-    # 6. Delete S3 data for the materialized view
+    # 5. Delete S3 data for the materialized view
     _delete_s3_data(saved_query)
-    # 7. Hard-delete the materialized table if it exists
+    # 6. Hard-delete the materialized table if it exists
     if table_to_delete is not None:
         table_to_delete.delete()
-    # 8. Hard-delete the saved query itself
+    # 7. Hard-delete the saved query itself
     saved_query.delete()
 
 
