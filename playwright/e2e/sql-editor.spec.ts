@@ -78,11 +78,8 @@ test.describe('SQL Editor', () => {
             await page.getByRole('button', { name: 'Submit' }).click()
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
 
-            const viewTreeItem = page.getByRole('treeitem', { name: new RegExp(uniqueViewName) })
-            await expect(viewTreeItem).toBeVisible()
-            await viewTreeItem.hover()
-            await page.getByRole('button', { name: `${uniqueViewName} actions` }).click()
-            await page.getByRole('menuitem', { name: 'Materialization' }).click()
+            await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
+            await page.locator('[data-attr=sql-editor-materialization-button]').click()
             await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
         })
 
