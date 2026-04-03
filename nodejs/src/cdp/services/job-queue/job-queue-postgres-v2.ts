@@ -193,6 +193,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                         distinctId: extractDistinctId(result.invocation),
                         personId: extractPersonId(result.invocation),
                         actionId: extractActionId(result.invocation),
+                        queueName: result.invocation.queue,
                     })
                 }
             })
