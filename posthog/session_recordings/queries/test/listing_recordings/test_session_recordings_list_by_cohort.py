@@ -7,6 +7,7 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
@@ -1065,7 +1066,8 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @snapshot_clickhouse_queries
-    def test_not_in_cohort_with_anonymous_users_in_poe_mode(self) -> None:
+    @patch("posthog.session_recordings.queries.sub_queries.cohort_subquery.posthoganalytics.feature_enabled")
+    def test_not_in_cohort_with_anonymous_users_in_poe_mode(self, mock_feature_enabled) -> None:
         """
         Test that NOT IN cohort filters correctly include anonymous users in PoE mode.
 
@@ -1077,7 +1079,12 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
         - Internal user (in cohort) -> should be filtered out
         - External user (not in cohort) -> should be included
         - Anonymous user (no person record) -> should be included (the fix)
+
+        NOTE: This test is currently failing - the fix needs more work.
         """
+        # Enable the feature flag for this test
+        mock_feature_enabled.return_value = True
+
         with self.settings(
             USE_PRECALCULATED_CH_COHORT_PEOPLE=True,
             PERSON_ON_EVENTS_V2_OVERRIDE=True,  # Enable PoE mode
