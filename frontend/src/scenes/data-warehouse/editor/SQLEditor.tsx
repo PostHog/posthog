@@ -209,12 +209,12 @@ export function SQLEditor({
 }
 
 function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
-    const { editingView, materializationModalOpen, viewLoading } = useValues(sqlEditorLogic)
+    const { materializationModalOpen, materializationModalView, viewLoading } = useValues(sqlEditorLogic)
     const { closeMaterializationModal } = useActions(sqlEditorLogic)
 
     return (
         <LemonModal
-            title={editingView ? `Materialize ${editingView.name}` : 'Materialize view'}
+            title={materializationModalView ? `Materialize ${materializationModalView.name}` : 'Materialize view'}
             isOpen={materializationModalOpen}
             onClose={closeMaterializationModal}
             width={960}
@@ -224,8 +224,8 @@ function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
                     <div className="flex min-h-64 items-center justify-center">
                         <Spinner className="text-2xl" />
                     </div>
-                ) : editingView ? (
-                    <QueryInfo tabId={tabId} />
+                ) : materializationModalView ? (
+                    <QueryInfo tabId={tabId} view={materializationModalView} />
                 ) : (
                     <div className="flex min-h-64 items-center justify-center">
                         <Spinner className="text-2xl" />

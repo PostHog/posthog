@@ -336,6 +336,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setInsightLoading: (loading: boolean) => ({ loading }),
         setViewLoading: (loading: boolean) => ({ loading }),
         setMaterializationModalOpen: (open: boolean) => ({ open }),
+        setMaterializationModalView: (view: DataWarehouseSavedQuery | null) => ({ view }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
@@ -440,6 +441,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             {
                 setMaterializationModalOpen: (_, { open }) => open,
                 closeMaterializationModal: () => false,
+            },
+        ],
+        materializationModalView: [
+            null as DataWarehouseSavedQuery | null,
+            {
+                setMaterializationModalView: (_, { view }) => view,
+                closeMaterializationModal: () => null,
             },
         ],
         editingInsight: [
@@ -1051,7 +1059,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
-            if (values.editingView?.id === view.id) {
+            if (values.materializationModalView?.id === view.id) {
                 actions.setMaterializationModalOpen(true)
                 return
             }
@@ -1065,7 +1073,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     nextView = await api.dataWarehouseSavedQueries.get(view.id)
                 }
 
-                actions.createTab(nextView.query?.query ?? '', nextView)
+                actions.setMaterializationModalView(nextView)
                 actions.setMaterializationModalOpen(true)
             } catch {
                 lemonToast.error('View not found')
