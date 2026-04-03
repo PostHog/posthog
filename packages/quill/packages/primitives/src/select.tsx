@@ -4,6 +4,7 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { cn } from './lib/utils'
+import { MenuLabel } from './menuLabel'
 
 const Select = SelectPrimitive.Root
 
@@ -94,10 +95,8 @@ function SelectGroupLabel({ className, ...props }: SelectPrimitive.GroupLabel.Pr
     return (
         <SelectPrimitive.GroupLabel
             data-slot="select-label"
-            className={cn(
-                'px-2 py-1.5 text-muted-foreground/50 uppercase font-semibold text-[0.6875rem] leading-5 tracking-[0.075em]',
-                className
-            )}
+            className={className}
+            render={<MenuLabel />}
             {...props}
         />
     )

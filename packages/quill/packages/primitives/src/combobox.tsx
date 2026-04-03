@@ -6,6 +6,7 @@ import { Chip, ChipClose } from './chip'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
 import { Button } from './button'
+import { MenuLabel } from './menuLabel'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -172,7 +173,8 @@ function ComboboxLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Pro
     return (
         <ComboboxPrimitive.GroupLabel
             data-slot="combobox-label"
-            className={cn('px-2 py-1.5 text-xs text-muted-foreground', className)}
+            className={className}
+            render={<MenuLabel />}
             {...props}
         />
     )

@@ -228,9 +228,9 @@ export const ItemCheckboxInDropdown: Story = {
                                                 </ItemContent>
                                                 <ItemMedia variant="checkbox">
                                                     {props['aria-checked'] ? (
-                                                        <IconCheck className="size-4" />
+                                                        <IconCheck />
                                                     ) : (
-                                                        <div className="size-4" />
+                                                        <div/>
                                                     )}
                                                 </ItemMedia>
                                             </ItemCheckbox>

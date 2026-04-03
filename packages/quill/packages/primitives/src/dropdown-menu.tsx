@@ -4,6 +4,7 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { cn } from './lib/utils'
+import { MenuLabel } from './menuLabel'
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
     return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
@@ -68,7 +69,8 @@ function DropdownMenuLabel({
         <MenuPrimitive.GroupLabel
             data-slot="dropdown-menu-label"
             data-inset={inset}
-            className={cn('px-2 py-1.5 text-xs text-muted-foreground data-inset:ps-7.5', className)}
+            className={cn('data-inset:ps-7.5', className)}
+            render={<MenuLabel />}
             {...props}
         />
     )

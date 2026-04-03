@@ -7,6 +7,7 @@ export { CardGroup } from './card-group'
 export { Checkbox } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
 export { Collapsible, CollapsibleTrigger, CollapsibleContent } from './collapsible'
+export { MenuLabel } from './menuLabel'
 export {
     Combobox,
     ComboboxInput,
