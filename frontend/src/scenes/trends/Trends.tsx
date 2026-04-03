@@ -12,7 +12,8 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
-import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
+import { ActionsHorizontalBar, ActionsPie } from './viz'
+import { TrendsLineChartD3 } from './viz/TrendsLineChartD3'
 
 // Lazy-loaded viz types that are rarely used on dashboards
 const WorldMap = lazy(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
@@ -48,14 +49,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             display === ChartDisplayType.ActionsBar ||
             display === ChartDisplayType.ActionsUnstackedBar
         ) {
-            return (
-                <ActionsLineGraph
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <TrendsLineChartD3 context={context} />
         }
         if (display === ChartDisplayType.BoldNumber) {
             return (

@@ -45,10 +45,10 @@ export function EditorFilterGroupTile({
                     data-attr={'editor-filter-group-collapse-' + slugify(title)}
                     className={clsx('rounded-b-none px-1 py-1', isRowExpanded && 'border-b')}
                 >
-                    <div className={clsx('flex items-baseline gap-2 font-semibold', headerExtra && 'flex-1')}>
-                        <span>{title}</span>
+                    <div className={clsx('flex items-baseline gap-2 font-semibold min-w-0', headerExtra && 'flex-1')}>
+                        <span className="shrink-0">{title}</span>
                         {!isRowExpanded && collapsedSummary && (
-                            <span className="text-xs font-normal text-secondary shrink">{collapsedSummary}</span>
+                            <span className="text-xs font-normal text-secondary truncate">{collapsedSummary}</span>
                         )}
                         {headerExtra && (
                             <div className="ml-auto self-center shrink-0" onClick={(e) => e.stopPropagation()}>
