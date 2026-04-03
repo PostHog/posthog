@@ -555,6 +555,9 @@
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebNotableChangesQuery"
+                },
+                {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
@@ -1193,6 +1196,75 @@
                     "type": "object"
                 }
             ]
+        },
+        "AssistantErrorTrackingQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by assignee."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range to filter results."
+                },
+                "filterGroup": {
+                    "default": [],
+                    "description": "Property filters for the query",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "filterTestAccounts": {
+                    "description": "Whether to filter out test accounts.",
+                    "type": "boolean"
+                },
+                "issueId": {
+                    "description": "Filter to a specific error tracking issue by ID.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ErrorTrackingQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
+                },
+                "orderDirection": {
+                    "description": "Sort direction.",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
+                },
+                "volumeResolution": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Controls volume chart granularity. Use 1 for sparklines, 0 for counts only."
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": [
@@ -2837,7 +2909,8 @@
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
-                "search_llm_traces"
+                "search_llm_traces",
+                "run_hog_eval_test"
             ],
             "type": "string"
         },
@@ -8547,6 +8620,87 @@
             ],
             "type": "object"
         },
+        "CachedWebNotableChangesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/WebNotableChangeItem"
+                    },
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedWebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -12721,9 +12875,11 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
                     "type": ["string", "null"]
                 },
                 "date_to": {
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
                     "type": ["string", "null"]
                 },
                 "explicitDate": {
@@ -14259,10 +14415,11 @@
                     "type": "array"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
                 },
                 "orderDirection": {
+                    "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
@@ -14273,10 +14430,12 @@
                     "type": "array"
                 },
                 "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
                 }
             },
             "required": ["orderBy"],
@@ -14300,6 +14459,11 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingOrderBy": {
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+            "title": "ErrorTrackingOrderBy",
+            "type": "string"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -14314,12 +14478,14 @@
                     ]
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange"
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range to filter results."
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
                 "filterTestAccounts": {
+                    "description": "Whether to filter out test accounts.",
                     "type": "boolean"
                 },
                 "groupKey": {
@@ -14329,6 +14495,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "issueId": {
+                    "description": "Filter to a specific error tracking issue by ID.",
                     "type": "string"
                 },
                 "kind": {
@@ -14346,10 +14513,11 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingOrderBy",
+                    "description": "Field to sort results by."
                 },
                 "orderDirection": {
+                    "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
@@ -14360,10 +14528,12 @@
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
                 "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -18775,6 +18945,12 @@
                 "nullValue": {
                     "type": "string"
                 },
+                "sortColumn": {
+                    "type": "string"
+                },
+                "sortOrder": {
+                    "$ref": "#/definitions/HeatmapSortOrder"
+                },
                 "valueColumn": {
                     "type": "string"
                 },
@@ -18792,6 +18968,10 @@
                 }
             },
             "type": "object"
+        },
+        "HeatmapSortOrder": {
+            "enum": ["asc", "desc"],
+            "type": "string"
         },
         "HedgehogActorAccessoryOption": {
             "enum": [
@@ -21358,6 +21538,11 @@
             "required": ["results"],
             "type": "object"
         },
+        "LogsOrderBy": {
+            "enum": ["latest", "earliest"],
+            "title": "LogsOrderBy",
+            "type": "string"
+        },
         "LogsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -21389,8 +21574,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
+                    "$ref": "#/definitions/LogsOrderBy"
                 },
                 "resourceFingerprint": {
                     "type": "string"
@@ -24250,6 +24434,7 @@
                 "WebPageURLSearchQuery",
                 "WebTrendsQuery",
                 "WebAnalyticsExternalSummaryQuery",
+                "WebNotableChangesQuery",
                 "RevenueAnalyticsGrossRevenueQuery",
                 "RevenueAnalyticsMetricsQuery",
                 "RevenueAnalyticsMRRQuery",
@@ -27260,6 +27445,52 @@
                         }
                     },
                     "required": ["data", "status"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/WebNotableChangeItem"
+                            },
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -30294,6 +30525,9 @@
                 },
                 {
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebNotableChangesQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
@@ -33757,23 +33991,7 @@
                 },
                 "options": {
                     "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                            "fields": {
-                                "items": {
-                                    "$ref": "#/definitions/SourceFieldConfig"
-                                },
-                                "type": "array"
-                            },
-                            "label": {
-                                "type": "string"
-                            },
-                            "value": {
-                                "type": "string"
-                            }
-                        },
-                        "required": ["label", "value"],
-                        "type": "object"
+                        "$ref": "#/definitions/SourceFieldSelectConfigOption"
                     },
                     "type": "array"
                 },
@@ -33791,6 +34009,25 @@
         "SourceFieldSelectConfigConverter": {
             "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
             "type": "string"
+        },
+        "SourceFieldSelectConfigOption": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "items": {
+                        "$ref": "#/definitions/SourceFieldConfig"
+                    },
+                    "type": "array"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["label", "value"],
+            "type": "object"
         },
         "SourceFieldSwitchGroupConfig": {
             "additionalProperties": false,
@@ -35258,8 +35495,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
+                    "$ref": "#/definitions/LogsOrderBy"
                 },
                 "prefetchSpans": {
                     "$ref": "#/definitions/integer",
@@ -36915,6 +37151,179 @@
                 "types": {
                     "items": {},
                     "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "WebNotableChangeItem": {
+            "additionalProperties": false,
+            "properties": {
+                "current_value": {
+                    "type": "number"
+                },
+                "dimension_type": {
+                    "type": "string"
+                },
+                "dimension_value": {
+                    "type": "string"
+                },
+                "impact_score": {
+                    "type": "number"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "percent_change": {
+                    "type": "number"
+                },
+                "previous_value": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "dimension_type",
+                "dimension_value",
+                "metric",
+                "current_value",
+                "previous_value",
+                "percent_change",
+                "impact_score"
+            ],
+            "type": "object"
+        },
+        "WebNotableChangesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
+                },
+                "kind": {
+                    "const": "WebNotableChangesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/WebAnalyticsOrderBy"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebNotableChangesQueryResponse"
+                },
+                "sampling": {
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "WebNotableChangesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/WebNotableChangeItem"
+                    },
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": ["results"],

@@ -14,6 +14,8 @@ use tokio::sync::RwLock;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
 
+use personhog_common::grpc::current_client_name;
+
 use super::retry::with_retry;
 use super::LeaderOps;
 use crate::config::RetryConfig;
@@ -189,12 +191,14 @@ impl LeaderOps for LeaderBackend {
         with_retry(&self.retry_config, "get_person", || {
             let client_fut = self.resolve_leader(partition);
             let req = leader_req;
+            let client_name = current_client_name();
             async move {
                 let mut client = client_fut.await?;
-                client
-                    .get_person(Request::new(req))
-                    .await
-                    .map(|r| r.into_inner())
+                let mut request = Request::new(req);
+                if let Ok(val) = client_name.parse() {
+                    request.metadata_mut().insert("x-client-name", val);
+                }
+                client.get_person(request).await.map(|r| r.into_inner())
             }
         })
         .await
@@ -210,10 +214,15 @@ impl LeaderOps for LeaderBackend {
         with_retry(&self.retry_config, "update_person_properties", || {
             let client_fut = self.resolve_leader(partition);
             let req = req_with_partition.clone();
+            let client_name = current_client_name();
             async move {
                 let mut client = client_fut.await?;
+                let mut request = Request::new(req);
+                if let Ok(val) = client_name.parse() {
+                    request.metadata_mut().insert("x-client-name", val);
+                }
                 client
-                    .update_person_properties(Request::new(req))
+                    .update_person_properties(request)
                     .await
                     .map(|r| r.into_inner())
             }

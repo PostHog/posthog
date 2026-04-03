@@ -31,6 +31,7 @@ import {
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
 
 import { DateRangeFilter } from '../DateRangeFilter'
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
@@ -45,12 +46,12 @@ const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.LogAttributes,
 ]
 
-export const LogsFilterBar = (): JSX.Element => {
+export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
     const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
     const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
     const { zoomDateRange, setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
-    const { filters, utcDateRange } = useValues(logsViewerFiltersLogic)
+    const { filters, utcDateRange, id } = useValues(logsViewerFiltersLogic)
     const { setDateRange } = useActions(logsViewerFiltersLogic)
     const { dateRange, severityLevels, serviceNames } = filters
 
@@ -65,6 +66,7 @@ export const LogsFilterBar = (): JSX.Element => {
                             <LogsFilterSearch />
                         </div>
                         <FilterHistoryDropdown />
+                        {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
                     <div className="flex shrink-0 gap-1.5">
                         <div className="LogsDateButtonGroup">

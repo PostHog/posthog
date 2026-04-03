@@ -391,6 +391,7 @@ export interface NotificationSettings {
 
 export interface InAppNotification {
     id: string
+    team_id: number | null
     notification_type: string
     priority: string
     title: string
@@ -399,6 +400,8 @@ export interface InAppNotification {
     read_at: string | null
     resource_type: string | null
     source_url: string
+    source_type: string | null
+    source_id: string | null
     created_at: string
 }
 

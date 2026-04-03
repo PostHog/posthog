@@ -19,14 +19,8 @@ import { TriggerGroupCard } from './TriggerGroupCard'
 import { triggerGroupFormLogic } from './triggerGroupFormLogic'
 
 export function TriggerGroupsEditor(): JSX.Element {
-    const {
-        triggerGroups,
-        isAddingGroup,
-        editingGroupId,
-        showLegacyModal,
-        previewLegacyGroups,
-        confirmCreateFromLegacyStateLoading,
-    } = useValues(replayTriggersV2Logic)
+    const { triggerGroups, isAddingGroup, editingGroupId, showLegacyModal, previewLegacyGroups, _savingStateLoading } =
+        useValues(replayTriggersV2Logic)
     const {
         addTriggerGroup,
         updateTriggerGroup,
@@ -117,7 +111,7 @@ export function TriggerGroupsEditor(): JSX.Element {
                 onClose={hideCreateFromLegacyModal}
                 onConfirm={confirmCreateFromLegacy}
                 previewGroups={previewLegacyGroups}
-                isCreating={confirmCreateFromLegacyStateLoading}
+                isCreating={_savingStateLoading}
             />
         </div>
     )
