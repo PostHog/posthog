@@ -178,8 +178,11 @@ describe('workflowLogic schedule reducers', () => {
             logic.actions.setScheduleTimezone('US/Eastern')
             expect(logic.values.hasUnsavedChanges).toBe(true)
 
-            logic.actions.resetWorkflow(logic.values.workflow)
-            expect(logic.values.hasUnsavedChanges).toBe(false)
+            await expectLogic(logic, () => {
+                logic.actions.resetWorkflow(logic.values.workflow)
+            }).toMatchValues({
+                hasUnsavedChanges: false,
+            })
         })
     })
 
