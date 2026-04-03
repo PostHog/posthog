@@ -27,7 +27,7 @@ jobs:
         timeout-minutes: 10
         steps:
             - name: Trigger Inkeep Agent
-              uses: inkeep/inkeep-agents-action@39c725a2bf4d24acb89ae70139e13bf50f637c20 # v0.6.0
+              uses: inkeep/inkeep-agents-action@267e6185c8b1b69dfba85d7ea1c31066891ee2a6 # Temp fix by inkeep team
               with:
                   trigger-url: ${{ secrets.INKEEP_TRIGGER_URL }}
                   pr-title-regex: '^(feat|fix|docs|chore)(\(.+\))?:'

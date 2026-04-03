@@ -9,6 +9,9 @@ import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-re
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { EventFilterManager } from '../common/event-filters'
+import { EventFiltersBatchAppMetrics } from '../common/event-filters/batch-app-metrics'
+import { createApplyEventFiltersStep } from '../common/steps/event-filters-steps'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
@@ -29,9 +32,11 @@ export interface PostTeamPreprocessingSubpipelineInput {
     headers: EventHeaders
     event: PluginEvent
     team: Team
+    eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
+    eventFilterManager: EventFilterManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean
@@ -50,6 +55,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {
+        eventFilterManager,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
@@ -76,6 +82,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
                 return schemaChecked
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
                     .pipe(createDropOldEventsStep())
+                    .pipe(createApplyEventFiltersStep(eventFilterManager))
             })
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events

@@ -14,9 +14,14 @@ import { useEditorGroupExpansion } from './useEditorGroupExpansion'
 export interface EditorFilterGroupTileProps {
     editorFilterGroup: InsightEditorFilterGroup
     insightProps: InsightLogicProps
+    queryKind?: string
 }
 
-export function EditorFilterGroupTile({ insightProps, editorFilterGroup }: EditorFilterGroupTileProps): JSX.Element {
+export function EditorFilterGroupTile({
+    insightProps,
+    editorFilterGroup,
+    queryKind,
+}: EditorFilterGroupTileProps): JSX.Element {
     const { title, defaultExpanded, editorFilters, collapsedSummary } = editorFilterGroup
     const hasContent = !!collapsedSummary
     const [isRowExpanded, setIsRowExpanded, isExpandable] = useEditorGroupExpansion(defaultExpanded, hasContent)
@@ -32,6 +37,7 @@ export function EditorFilterGroupTile({ insightProps, editorFilterGroup }: Edito
                         posthog.capture('editor panel section toggled', {
                             section: title,
                             action: newState ? 'opened' : 'closed',
+                            query_kind: queryKind,
                         })
                     }}
                     sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}

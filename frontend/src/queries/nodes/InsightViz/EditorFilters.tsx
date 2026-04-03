@@ -51,7 +51,7 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -435,6 +435,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         insightProps={insightProps}
                         query={query}
                         asTile
+                        queryKind={querySource?.kind}
                     />
                 ))}
             </div>

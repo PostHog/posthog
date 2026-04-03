@@ -1,6 +1,5 @@
 import json
 import uuid
-import logging
 from datetime import timedelta
 from typing import cast
 
@@ -8,6 +7,7 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Value, When
 
+import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import mixins, serializers, status, viewsets
@@ -47,7 +47,12 @@ from products.signals.backend.serializers import (
     SignalReportSerializer,
     SignalSourceConfigSerializer,
 )
+from products.signals.backend.temporal.backfill_error_tracking import (
+    BackfillErrorTrackingInput,
+    BackfillErrorTrackingWorkflow,
+)
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
+from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
@@ -55,7 +60,7 @@ from products.signals.backend.temporal.types import (
 )
 from products.signals.backend.utils import EMBEDDING_MODEL
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -153,6 +158,30 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
             self._trigger_initial_clustering(instance)
+
+        if (
+            instance.source_product == SignalSourceConfig.SourceProduct.ERROR_TRACKING
+            and instance.source_type == SignalSourceConfig.SourceType.ISSUE_CREATED
+            and instance.enabled
+        ):
+            self._trigger_error_tracking_backfill()
+
+    def _trigger_error_tracking_backfill(self) -> None:
+        """Fire-and-forget backfill of recent error tracking issues as signals."""
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "backfill-error-tracking",  # type: ignore
+                BackfillErrorTrackingInput(team_id=self.team_id),  # type: ignore
+                id=BackfillErrorTrackingWorkflow.workflow_id_for(self.team_id),
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            logger.info(f"Started error tracking backfill workflow for team {self.team_id}")
+        except Exception:
+            logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
 
     def _trigger_initial_clustering(self, config: SignalSourceConfig) -> None:
         """Fire-and-forget the clustering workflow."""
@@ -555,3 +584,50 @@ class SignalReportViewSet(
             )
 
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
+
+
+class PauseUntilRequestSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(help_text="Pause the grouping pipeline until this timestamp (ISO 8601).")
+
+
+class PauseResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Always 'paused'.")
+    paused_until = serializers.DateTimeField(help_text="The timestamp the pipeline is paused until.")
+
+
+class UnpauseResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Always 'unpaused'.")
+    was_paused = serializers.BooleanField(help_text="Whether the workflow was actually paused at the time of the call.")
+
+
+class PauseStateResponseSerializer(serializers.Serializer):
+    paused_until = serializers.DateTimeField(
+        allow_null=True, help_text="The timestamp the pipeline is paused until, or null if not paused/not running."
+    )
+
+
+class SignalProcessingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """View and control signal processing pipeline state for a team."""
+
+    scope_object = "INTERNAL"
+
+    @extend_schema(request=None, responses={200: PauseStateResponseSerializer})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        """Return current processing state including pause status."""
+        state = async_to_sync(TeamSignalGroupingV2Workflow.paused_state)(self.team.id)
+        return Response({"paused_until": state.isoformat() if state else None})
+
+    @extend_schema(request=PauseUntilRequestSerializer, responses={200: PauseResponseSerializer})
+    @action(methods=["PUT"], detail=False, url_path="pause")
+    def pause(self, request: Request, *args, **kwargs) -> Response:
+        serializer = PauseUntilRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        timestamp = serializer.validated_data["timestamp"]
+        async_to_sync(TeamSignalGroupingV2Workflow.pause_until)(self.team.id, timestamp)
+        return Response({"status": "paused", "paused_until": timestamp.isoformat()})
+
+    @extend_schema(request=None, responses={200: UnpauseResponseSerializer})
+    @action(methods=["POST"], detail=False, url_path="unpause")
+    def unpause(self, request: Request, *args, **kwargs) -> Response:
+        was_paused = async_to_sync(TeamSignalGroupingV2Workflow.unpause)(self.team.id)
+        return Response({"status": "unpaused", "was_paused": was_paused})

@@ -597,6 +597,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.WebNotableChangesQuery]: {
+        name: 'Notable changes',
+        description: 'View notable changes in web analytics metrics.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -1005,7 +1011,8 @@ export function SavedInsights(): JSX.Element {
                               },
                           ]
                         : []),
-                    { key: SavedInsightsTabs.All, label: 'Insights' },
+                    { key: SavedInsightsTabs.All, label: 'All insights' },
+                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     {
                         key: SavedInsightsTabs.Alerts,
                         label: <div className="flex items-center gap-2">Alerts</div>,
@@ -1023,7 +1030,15 @@ export function SavedInsights(): JSX.Element {
                 <Alerts alertId={alertModalId} />
             ) : (
                 <>
-                    <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
+                    <SavedInsightsFilters
+                        filters={filters}
+                        setFilters={setSavedInsightsFilters}
+                        quickFilters={
+                            tab === SavedInsightsTabs.Yours
+                                ? ['insightType', 'tags', 'favorites', 'featureFlags']
+                                : undefined
+                        }
+                    />
 
                     <ReloadInsight />
                     <LemonTable

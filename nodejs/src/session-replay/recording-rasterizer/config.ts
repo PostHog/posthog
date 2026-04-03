@@ -16,7 +16,7 @@ export const config = {
     captureBrowserLogs: process.env.CAPTURE_BROWSER_LOGS === '1',
     screenshotFormat: (process.env.SCREENSHOT_FORMAT || 'jpeg') as 'png' | 'jpeg',
     screenshotJpegQuality: parseInt(process.env.SCREENSHOT_JPEG_QUALITY || '80', 10),
-    metricsPort: parseInt(process.env.METRICS_PORT || '6740', 10),
+    metricsPort: parseInt(process.env.METRICS_PORT || '6738', 10),
 
     // Encryption
     secretKey: process.env.SECRET_KEY,

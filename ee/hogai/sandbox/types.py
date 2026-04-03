@@ -11,6 +11,25 @@ ACP_METHOD_SESSION_UPDATE = "session/update"
 # Sandbox-specific notification methods
 TURN_COMPLETE_METHOD = "_posthog/turn_complete"
 
+# Stop reasons
+STOP_REASON_END_TURN = "end_turn"
+
+
+def is_turn_complete(event: dict) -> bool:
+    """Check if an ACP event signals the agent finished a turn.
+
+    Matches both the raw ACP prompt response (``result.stopReason == "end_turn"``)
+    and the synthetic ``_posthog/turn_complete`` notification.
+    """
+    if event.get("type") != ACP_NOTIFICATION_TYPE:
+        return False
+    notification = event.get("notification", {})
+    if notification.get("method") == TURN_COMPLETE_METHOD:
+        return True
+    result = notification.get("result")
+    return isinstance(result, dict) and result.get("stopReason") == STOP_REASON_END_TURN
+
+
 # Session update types
 ACP_SESSION_UPDATE_AGENT_MESSAGE_CHUNK = "agent_message_chunk"
 
