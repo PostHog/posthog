@@ -1486,7 +1486,7 @@
         "summary": "Get all endpoints",
         "title": "Get all endpoints",
         "required_scopes": ["endpoint:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1501,7 +1501,7 @@
         "summary": "Get endpoint",
         "title": "Get endpoint",
         "required_scopes": ["endpoint:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1576,7 +1576,7 @@
         "summary": "Get endpoint versions",
         "title": "Get endpoint versions",
         "required_scopes": ["endpoint:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1591,7 +1591,7 @@
         "summary": "Get materialization status",
         "title": "Get materialization status",
         "required_scopes": ["endpoint:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
