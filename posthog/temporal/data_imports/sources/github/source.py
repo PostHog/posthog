@@ -2,12 +2,12 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.models.integration import GitHubIntegration
@@ -50,7 +50,7 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
                         required=True,
                         defaultValue="oauth",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="OAuth (GitHub App)",
                                 value="oauth",
                                 fields=cast(
@@ -65,7 +65,7 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="Personal access token",
                                 value="pat",
                                 fields=cast(

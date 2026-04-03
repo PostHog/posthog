@@ -12,6 +12,10 @@ import {
 import {
     ActionsNode,
     CompareFilter,
+    DateRange,
+    ErrorTrackingIssueAssignee,
+    ErrorTrackingOrderBy,
+    ErrorTrackingQueryStatus,
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
@@ -1203,4 +1207,34 @@ export interface AssistantHogQLQuery {
     kind: NodeKind.HogQLQuery
     /** SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions. */
     query: string
+}
+
+export interface AssistantErrorTrackingQuery {
+    kind: NodeKind.ErrorTrackingQuery
+    /** Filter to a specific error tracking issue by ID. */
+    issueId?: string
+    /** Field to sort results by. */
+    orderBy?: ErrorTrackingOrderBy
+    /** Sort direction. */
+    orderDirection?: 'ASC' | 'DESC'
+    /** Date range to filter results. */
+    dateRange?: DateRange
+    /** Filter by issue status. */
+    status?: ErrorTrackingQueryStatus
+    /** Filter by assignee. */
+    assignee?: ErrorTrackingIssueAssignee | null
+    /** Whether to filter out test accounts. */
+    filterTestAccounts?: boolean
+    /** Free-text search across exception type, message, and stack frames. */
+    searchQuery?: string
+    /**
+     * Property filters for the query
+     *
+     * @default []
+     */
+    filterGroup?: AssistantPropertyFilter[]
+    /** Controls volume chart granularity. Use 1 for sparklines, 0 for counts only. */
+    volumeResolution?: integer
+    limit?: integer
+    offset?: integer
 }

@@ -25,7 +25,7 @@ from posthog.temporal.llm_analytics.metrics import (
     increment_tokens,
 )
 
-from products.llm_analytics.backend.llm import Client, CompletionRequest
+from products.llm_analytics.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
 from products.llm_analytics.backend.llm.config import get_eval_config
 from products.llm_analytics.backend.llm.errors import (
     AuthenticationError,
@@ -332,7 +332,13 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
         if provider_key_id:
             provider_key = await database_sync_to_async(_get_provider_key_by_id)(provider_key_id)
         else:
-            # Using PostHog key - check trial quota
+            # Using PostHog key — enforce trial model allowlist and quota
+            if model not in TRIAL_MODEL_IDS:
+                raise ApplicationError(
+                    f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model.",
+                    {"error_type": "model_not_allowed", "model": model},
+                    non_retryable=True,
+                )
             await database_sync_to_async(_check_trial_quota)()
             provider_key = None
     else:
@@ -795,8 +801,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     error_type = details.get("error_type")
 
                     # Handle skippable errors - return success with skip info
-                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error"):
-                        if error_type == "trial_limit_reached":
+                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error", "model_not_allowed"):
+                        if error_type in ("trial_limit_reached", "model_not_allowed"):
                             await temporalio.workflow.execute_activity(
                                 disable_evaluation_activity,
                                 args=[evaluation["id"], evaluation["team_id"]],
