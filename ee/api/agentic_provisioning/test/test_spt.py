@@ -1,11 +1,18 @@
+from unittest.mock import MagicMock, patch
+
 from django.core.cache import cache
 
 from ee.api.agentic_provisioning.test.base import StripeProvisioningTestBase
-from ee.api.agentic_provisioning.views import get_shared_payment_token
 
 
 class TestSharedPaymentToken(StripeProvisioningTestBase):
-    def test_provisioning_stores_spt_when_provided(self):
+    @patch("ee.api.agentic_provisioning.views.requests.post")
+    @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
+    @patch("posthog.cloud_utils.get_cached_instance_license")
+    def test_provisioning_calls_billing_with_spt(self, mock_license, mock_build_token, mock_post):
+        mock_license.return_value = MagicMock()
+        mock_post.return_value = MagicMock(status_code=200)
+
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -21,8 +28,11 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
 
-        stored = get_shared_payment_token(str(self.organization.id))
-        assert stored == "spt_test_123"
+        mock_post.assert_called_once()
+        call_args, call_kwargs = mock_post.call_args
+        assert "/api/activate/authorize" in call_args[0]
+        assert call_kwargs["json"] == {"shared_payment_token": "spt_test_123"}
+        assert "Bearer test_billing_token" in call_kwargs["headers"]["Authorization"]
 
     def test_provisioning_works_without_spt(self):
         token = self._get_bearer_token()
@@ -34,10 +44,8 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
 
-        stored = get_shared_payment_token(str(self.organization.id))
-        assert stored is None
-
-    def test_provisioning_ignores_invalid_payment_credentials_type(self):
+    @patch("ee.api.agentic_provisioning.views.requests.post")
+    def test_provisioning_ignores_invalid_payment_credentials_type(self, mock_post):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -51,40 +59,29 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
             token=token,
         )
         assert res.status_code == 200
+        mock_post.assert_not_called()
 
-        stored = get_shared_payment_token(str(self.organization.id))
-        assert stored is None
+    @patch("ee.api.agentic_provisioning.views.requests.post")
+    @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
+    @patch("posthog.cloud_utils.get_cached_instance_license")
+    def test_provisioning_succeeds_even_if_billing_activation_fails(self, mock_license, mock_build_token, mock_post):
+        mock_license.return_value = MagicMock()
+        mock_post.return_value = MagicMock(status_code=500)
 
-    def test_spt_overwrites_previous_value(self):
         token = self._get_bearer_token()
-
-        self._post_signed_with_bearer(
+        res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
             data={
                 "service_id": "analytics",
                 "payment_credentials": {
                     "type": "stripe_payment_token",
-                    "stripe_payment_token": "spt_first",
+                    "stripe_payment_token": "spt_test_123",
                 },
             },
             token=token,
         )
-        assert get_shared_payment_token(str(self.organization.id)) == "spt_first"
-
-        # Provision again with a new SPT (e.g. plan upgrade)
-        token2 = self._get_bearer_token()
-        self._post_signed_with_bearer(
-            "/api/agentic/provisioning/resources",
-            data={
-                "service_id": "analytics",
-                "payment_credentials": {
-                    "type": "stripe_payment_token",
-                    "stripe_payment_token": "spt_second",
-                },
-            },
-            token=token2,
-        )
-        assert get_shared_payment_token(str(self.organization.id)) == "spt_second"
+        assert res.status_code == 200
+        assert res.json()["status"] == "complete"
 
     def test_token_exchange_returns_orchestrator(self):
         """Token exchange should return payment_credentials: orchestrator so Stripe collects payment."""
