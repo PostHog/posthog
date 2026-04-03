@@ -251,7 +251,7 @@ function PlayerWrapper({
 
                     {/* Centered hedgehog overlay */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <FilmCameraHog height={150} />
+                        <FilmCameraHog className="w-60 h-60" />
                         <div className="mt-4 flex items-center gap-2">
                             <Spinner textColored />
                             <span className="text-secondary">Loading recordings...</span>
