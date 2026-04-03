@@ -9,7 +9,9 @@ from django.db.models.functions import TruncDate, TruncHour
 
 import requests as http_requests
 import structlog
+import posthoganalytics
 from dateutil import parser
+from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -778,8 +780,35 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     # --- Managed warehouse provisioning (proxied to duckgres) ---
 
+    def _is_managed_warehouse_enabled(self) -> bool:
+        try:
+            return posthoganalytics.feature_enabled(
+                "data-managed-warehouse",
+                str(self.team.uuid),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.id),
+                },
+                group_properties={
+                    "organization": {
+                        "id": str(self.team.organization_id),
+                    },
+                    "project": {
+                        "id": str(self.team.id),
+                    },
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            logger.warning("Failed to evaluate managed warehouse feature flag", team_id=self.team_id)
+            return False
+
     def _provisioning_request(self, method: str, path: str, json_body: dict | None = None) -> Response:
         """Proxy a request to the duckgres provisioning API."""
+        if not self._is_managed_warehouse_enabled():
+            return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
+
         base_url = getattr(django_settings, "DUCKGRES_API_URL", None)
         token = getattr(django_settings, "DUCKGRES_INTERNAL_SECRET", None)
 
@@ -812,6 +841,21 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        request=inline_serializer(
+            "ProvisionWarehouseRequest",
+            fields={"database_name": serializers.CharField(help_text="Name for the new database")},
+        ),
+        responses={
+            200: inline_serializer(
+                "ProvisionWarehouseResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "team": serializers.CharField(),
+                },
+            )
+        },
+    )
     @action(methods=["POST"], detail=False)
     def provision(self, request: Request, **kwargs) -> Response:
         """Start provisioning a managed warehouse for this team."""
@@ -827,19 +871,66 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             },
         )
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                "DeprovisionWarehouseResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "team": serializers.CharField(),
+                },
+            )
+        },
+    )
     @action(methods=["POST"], detail=False)
     def deprovision(self, request: Request, **kwargs) -> Response:
         """Start deprovisioning the managed warehouse for this team."""
         return self._provisioning_request("POST", "/deprovision")
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                "WarehouseStatusResponse",
+                fields={
+                    "team_name": serializers.CharField(),
+                    "state": serializers.ChoiceField(
+                        choices=["pending", "provisioning", "ready", "failed", "deleting", "deleted"]
+                    ),
+                    "status_message": serializers.CharField(),
+                    "ready_at": serializers.DateTimeField(allow_null=True),
+                    "failed_at": serializers.DateTimeField(allow_null=True),
+                },
+            )
+        },
+    )
     @action(methods=["GET"], detail=False)
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse."""
         return self._provisioning_request("GET", "/warehouse/status")
 
+    @extend_schema(
+        parameters=[
+            inline_serializer(
+                "CheckDatabaseNameRequest",
+                fields={"name": serializers.CharField(help_text="Database name to check")},
+            )
+        ],
+        responses={
+            200: inline_serializer(
+                "CheckDatabaseNameResponse",
+                fields={
+                    "name": serializers.CharField(),
+                    "available": serializers.BooleanField(),
+                },
+            )
+        },
+    )
     @action(methods=["GET"], detail=False, url_path="check-database-name")
     def check_database_name(self, request: Request, **kwargs) -> Response:
         """Check if a database name is available."""
+        if not self._is_managed_warehouse_enabled():
+            return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
+
         name = request.query_params.get("name")
         if not name:
             return Response({"error": "name query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)

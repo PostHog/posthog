@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconCheck, IconEye, IconHide, IconX } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -12,7 +11,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { DataWarehouseProvisioningState } from '~/types'
+import { DataWarehouseProvisioningState, DataWarehouseProvisioningStatus } from '~/types'
 
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 
@@ -32,20 +31,20 @@ function stateToTagType(state: DataWarehouseProvisioningState): 'success' | 'war
     }
 }
 
-function ConnectionDetails(): JSX.Element {
-    // TODO: replace with real values from the provisioning API once
-    // the duckgres Helm chart exposes connection details in the config store.
-    const host = 'warehouse.posthog.com'
-    const port = '5432'
-    const dbName = 'your-database-name'
-    const username = 'posthog'
-    const password = 'sk_phw_abc123def456'
-    const [showPassword, setShowPassword] = useState(false)
+function ConnectionDetails({
+    warehouseDatabase,
+}: {
+    warehouseDatabase: DataWarehouseProvisioningStatus['warehouse_database']
+}): JSX.Element {
+    const host = warehouseDatabase.endpoint
+    const port = String(warehouseDatabase.port)
+    const dbName = warehouseDatabase.database_name
+    const username = warehouseDatabase.username
     const psqlCmd = `psql "host=${host} port=${port} dbname=${dbName} user=${username} sslmode=require"`
 
     return (
         <div className="border rounded p-4 space-y-3">
-            <h3 className="mb-2">Connection Details</h3>
+            <h3 className="mb-2">Connection details</h3>
             <div className="grid grid-cols-2 gap-3">
                 <div>
                     <LemonLabel>Host</LemonLabel>
@@ -71,24 +70,6 @@ function ConnectionDetails(): JSX.Element {
                         {username}
                     </CodeSnippet>
                 </div>
-            </div>
-            <div>
-                <LemonLabel>Password</LemonLabel>
-                <CodeSnippet
-                    compact
-                    thing="password"
-                    actions={
-                        <LemonButton
-                            size="small"
-                            noPadding
-                            icon={showPassword ? <IconHide /> : <IconEye />}
-                            onClick={() => setShowPassword(!showPassword)}
-                            tooltip={showPassword ? 'Hide password' : 'Show password'}
-                        />
-                    }
-                >
-                    {showPassword ? password : '••••••••••••••••••'}
-                </CodeSnippet>
             </div>
             <div>
                 <LemonLabel>Connect with psql</LemonLabel>
@@ -237,7 +218,9 @@ export function SettingsTab(): JSX.Element {
                         )}
                     </div>
 
-                    {isReady && <ConnectionDetails />}
+                    {isReady && warehouseStatus?.warehouse_database && (
+                        <ConnectionDetails warehouseDatabase={warehouseStatus.warehouse_database} />
+                    )}
 
                     <div className="flex gap-2">
                         {isFailed && (
