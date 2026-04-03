@@ -58,6 +58,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Amazonbot": BotDefinition("Amazon", "search_crawler", "Bot"),
     "Googlebot": BotDefinition("Googlebot", "search_crawler", "Bot"),
     "bingbot": BotDefinition("Bingbot", "search_crawler", "Bot"),
+    "Bingbot": BotDefinition("Bingbot", "search_crawler", "Bot"),
     "YandexBot": BotDefinition("Yandex", "search_crawler", "Bot"),
     "Baiduspider": BotDefinition("Baidu", "search_crawler", "Bot"),
     "DuckDuckBot": BotDefinition("DuckDuckGo", "search_crawler", "Bot"),

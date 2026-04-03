@@ -21,7 +21,21 @@ from posthog.models.event.util import create_event
 
 # Crawl patterns per bot category - bots visit different pages based on their purpose
 CRAWL_PATTERNS: dict[str, list[str]] = {
-    "ai_agent": [
+    "ai_crawler": [
+        URL_HOME,
+        URL_MARIUS_TECH_TIPS,
+        URL_PRICING,
+        f"{SITE_URL}/docs/",
+        f"{SITE_URL}/blog/",
+    ],
+    "ai_search": [
+        URL_HOME,
+        URL_MARIUS_TECH_TIPS,
+        URL_PRICING,
+        f"{SITE_URL}/docs/",
+        f"{SITE_URL}/blog/",
+    ],
+    "ai_assistant": [
         URL_HOME,
         URL_MARIUS_TECH_TIPS,
         URL_PRICING,

@@ -374,6 +374,7 @@ class TestBotDefinitionsDataStructure:
             # AI Search (real-time search)
             ("OAI-SearchBot", "OpenAI Search", "ai_search", "AI Agent"),
             ("PerplexityBot", "Perplexity", "ai_search", "AI Agent"),
+            ("Applebot-Extended", "Apple AI", "ai_search", "AI Agent"),
             # AI Assistants (live browsing)
             ("ChatGPT-User", "ChatGPT", "ai_assistant", "AI Agent"),
             ("Claude-User", "Claude User", "ai_assistant", "AI Agent"),

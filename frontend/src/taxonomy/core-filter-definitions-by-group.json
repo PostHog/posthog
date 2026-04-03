@@ -2296,6 +2296,7 @@
             "examples": [
                 "ai_crawler",
                 "ai_search",
+                "ai_assistant",
                 "search_crawler",
                 "regular"
             ],

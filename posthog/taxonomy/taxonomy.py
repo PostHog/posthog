@@ -2216,7 +2216,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$virt_traffic_category": {
             "label": "Traffic category",
             "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc.",
-            "examples": ["ai_crawler", "ai_search", "search_crawler", "regular"],
+            "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
             "type": "String",
             "virtual": True,
         },
