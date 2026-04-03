@@ -41,6 +41,7 @@ import type {
     ProvisionWarehouseResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
+    ResetPasswordResponseApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -488,6 +489,23 @@ export const dataWarehouseProvisionCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(provisionWarehouseRequestApi),
+    })
+}
+
+/**
+ * Reset the root password for the managed warehouse.
+ */
+export const getDataWarehouseResetPasswordCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/reset-password/`
+}
+
+export const dataWarehouseResetPasswordCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ResetPasswordResponseApi> => {
+    return apiMutator<ResetPasswordResponseApi>(getDataWarehouseResetPasswordCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

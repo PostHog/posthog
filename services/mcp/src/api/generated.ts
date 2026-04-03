@@ -29301,6 +29301,11 @@ export namespace Schemas {
       scan?: ScanEvidence;
     }
 
+    export interface ResetPasswordResponse {
+      username: string;
+      password: string;
+    }
+
     export interface ReviewQueueCreate {
       /**
        * Human-readable queue name.

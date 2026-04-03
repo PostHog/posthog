@@ -427,3 +427,6 @@ tools:
     warehouse-saved-query-folders-destroy:
         operation: warehouse_saved_query_folders_destroy
         enabled: false
+    data-warehouse-reset-password-create:
+        operation: data_warehouse_reset_password_create
+        enabled: false

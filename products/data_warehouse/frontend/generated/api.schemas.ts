@@ -119,6 +119,11 @@ export interface ProvisionWarehouseResponseApi {
     team: string
 }
 
+export interface ResetPasswordResponseApi {
+    username: string
+    password: string
+}
+
 /**
  * * `pending` - pending
  * `provisioning` - provisioning
