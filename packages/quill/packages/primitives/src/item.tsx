@@ -43,7 +43,7 @@ const itemVariants = cva(
                 outline: 'border-border',
                 pressable: 'transition-colors hover:border-secondary/20 hover:shadow hover:z-1 hover:group-data-[combined=true]/item-group:shadow-none hover:group-data-[combined=true]/item-group:border-border',
                 muted: 'border-transparent bg-muted/50',
-                menuItem: 'hover:bg-accent hover:text-foreground border-none'
+                menuItem: 'hover:bg-fill-hover hover:text-foreground border-none'
             },
             size: {
                 default: 'gap-2.5 px-3 py-2.5',

@@ -14,7 +14,7 @@ function CheckboxIndicator({ checked, className }: { checked?: boolean; classNam
                 className
             )}
         >
-            {checked && <IconCheck className="size-3" />}
+            {checked && <IconCheck className="size-4" />}
         </span>
     )
 }
