@@ -597,6 +597,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.WebNotableChangesQuery]: {
+        name: 'Notable changes',
+        description: 'View notable changes in web analytics metrics.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {

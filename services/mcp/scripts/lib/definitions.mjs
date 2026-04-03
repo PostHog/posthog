@@ -84,5 +84,5 @@ export function isQueryWrappersConfig(parsed) {
  * (has `tools` key instead of `wrappers`).
  */
 export function isToolsConfig(parsed) {
-    return typeof parsed === 'object' && parsed !== null && 'tools' in parsed && !('wrappers' in parsed)
+    return typeof parsed === 'object' && parsed !== null && 'tools' in parsed
 }
