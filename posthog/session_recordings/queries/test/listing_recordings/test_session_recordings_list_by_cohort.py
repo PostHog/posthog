@@ -1062,3 +1062,87 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     },
                     [session_internal, session_beta, session_regular],
                 )
+
+    @snapshot_clickhouse_queries
+    @snapshot_clickhouse_queries
+    def test_not_in_cohort_with_anonymous_users_in_poe_mode(self) -> None:
+        """
+        Test that NOT IN cohort filters correctly include anonymous users in PoE mode.
+
+        This is the specific bug fix for the "filter test accounts" toggle:
+        When filtering NOT IN internal_users cohort, anonymous users (distinct_ids
+        without person records) should be included since they can't be in the cohort.
+
+        Scenario:
+        - Internal user (in cohort) -> should be filtered out
+        - External user (not in cohort) -> should be included
+        - Anonymous user (no person record) -> should be included (the fix)
+        """
+        with self.settings(
+            USE_PRECALCULATED_CH_COHORT_PEOPLE=True,
+            PERSON_ON_EVENTS_V2_OVERRIDE=True,  # Enable PoE mode
+        ):
+            internal_user = "internal@company.com"
+            external_user = "external@customer.com"
+            anonymous_user = "anonymous_abc123"
+
+            session_internal = "session-internal"
+            session_external = "session-external"
+            session_anonymous = "session-anonymous"
+
+            # Create person records for internal and external users
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=[internal_user],
+                properties={"is_internal": True},
+            )
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=[external_user],
+                properties={"is_internal": False},
+            )
+
+            # Create internal users cohort
+            internal_cohort = Cohort.objects.create(
+                team=self.team,
+                name="internal_users",
+                groups=[{"properties": [{"key": "is_internal", "value": True, "type": "person"}]}],
+            )
+            internal_cohort.calculate_people_ch(pending_version=0)
+
+            # Create sessions for internal and external users (with person mappings)
+            for user, session_id in [
+                (internal_user, session_internal),
+                (external_user, session_external),
+            ]:
+                produce_replay_summary(
+                    distinct_id=user,
+                    session_id=session_id,
+                    first_timestamp=self.an_hour_ago,
+                    team_id=self.team.id,
+                )
+
+            # Create session for anonymous user WITHOUT creating analytics events/person mapping
+            produce_replay_summary(
+                distinct_id=anonymous_user,
+                session_id=session_anonymous,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+
+            # Test: NOT IN internal_users (simulates "filter test accounts" toggle)
+            # Should return external and anonymous users, but not internal
+            self._assert_query_matches_session_ids(
+                {
+                    "properties": [
+                        {
+                            "key": "id",
+                            "value": internal_cohort.pk,
+                            "operator": "not_in",
+                            "type": "cohort",
+                        }
+                    ]
+                },
+                [session_external, session_anonymous],
+            )
