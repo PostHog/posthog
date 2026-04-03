@@ -1054,10 +1054,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 lemonToast.error('Failed to save view')
             }
         },
-        openMaterializationModal: async ({ view }) => {
+        openMaterializationModal: async ({ view }, breakpoint) => {
             if (!view) {
                 return
             }
+
+            await breakpoint(100)
 
             if (values.materializationModalView?.id === view.id) {
                 actions.setMaterializationModalOpen(true)
@@ -1073,6 +1075,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     nextView = await api.dataWarehouseSavedQueries.get(view.id)
                 }
 
+                await breakpoint(100)
                 actions.setMaterializationModalView(nextView)
                 actions.setMaterializationModalOpen(true)
             } catch {
