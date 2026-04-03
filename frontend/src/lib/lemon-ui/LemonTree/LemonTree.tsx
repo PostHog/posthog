@@ -18,6 +18,7 @@ import React, {
     useCallback,
     useEffect,
     useImperativeHandle,
+    useMemo,
     useRef,
     useState,
 } from 'react'
@@ -181,6 +182,14 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
     /** Whether to disable the scrollable shadows. */
     disableScroll?: boolean
+    /** Whether to render only the visible rows plus an overscan buffer. */
+    virtualized?: boolean
+    /** Fixed row height to use for virtualization calculations and virtualized row layout. */
+    virtualizedRowHeight?: number
+    /** Number of rows to render before and after the viewport when virtualization is enabled. */
+    virtualizedOverscan?: number
+    /** Optional external scroll viewport that controls virtualization. */
+    virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
 }
 
 export type LemonTreeNodeProps = LemonTreeBaseProps & {
@@ -205,11 +214,38 @@ export interface LemonTreeRef {
     focusItem: (id: string) => void
 }
 
-const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
+type FlattenedTreeItem = {
+    item: TreeDataItem
+    depth: number
+    ariaSetSize: number
+    ariaPosInSet: number
+    parentId?: string
+}
+
+type VirtualWindow = {
+    startIndex: number
+    endIndex: number
+    scrollTop: number
+    viewportHeight: number
+}
+
+type ScrollDirection = 'forward' | 'backward' | 'idle'
+
+type LemonTreeItemRowProps = Omit<LemonTreeNodeProps, 'data'> & {
+    item: TreeDataItem
+    ariaSetSize: number
+    ariaPosInSet: number
+    childrenContent?: React.ReactNode
+    virtualizedRowHeight?: number
+}
+
+const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
     (
         {
+            item,
+            ariaSetSize,
+            ariaPosInSet,
             className,
-            data,
             selectedId,
             handleClick,
             renderItem,
@@ -233,56 +269,321 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             selectMode = 'default',
             onItemChecked,
             isDragging,
-            checkedItemCount,
             setFocusToElementFromId,
-            setFocusToLastFocusedElement,
+            childrenContent,
             size,
-            ...props
+            virtualizedRowHeight,
         },
         ref
     ): JSX.Element => {
         const DEPTH_OFFSET = 16 * depth
-
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
-        const getItemActiveState = (item: TreeDataItem): boolean => {
+        const displayName = item.displayName ?? item.name
+        const isFolder = (item.children && item.children.length > 0) || item.record?.type === 'folder'
+        const isEmptyFolder = item.type === 'empty-folder'
+        const folderLinesOffset = DEPTH_OFFSET
+        const emptySpaceOffset = DEPTH_OFFSET
+
+        const firstColumnOffset =
+            selectMode === 'multi' && !item.disableSelect ? emptySpaceOffset + 24 : emptySpaceOffset
+
+        const ariaLabel = isEmptyFolder ? 'empty folder' : `tree item: ${item.name}`
+
+        const getItemActiveState = (currentItem: TreeDataItem): boolean => {
             if (typeof isItemActive === 'function') {
-                return isItemActive(item)
+                return isItemActive(currentItem)
             }
             return Boolean(
-                selectedId === item.id || (showFolderActiveState && item.children && expandedItemIds?.includes(item.id))
+                selectedId === currentItem.id ||
+                (showFolderActiveState && currentItem.children && expandedItemIds?.includes(currentItem.id))
             )
         }
 
-        if (!(data instanceof Array)) {
-            data = [data]
-        }
-
         function handleContextMenuOpen(open: boolean, itemId: string): void {
-            // Set local state
             setIsContextMenuOpenForItem(open ? itemId : undefined)
-
-            // We want to focus the item when the context menu is open
             setFocusToElementFromId?.(itemId)
-
-            // When the context menu is open, disable keyboard input in the tree
             disableKeyboardInput?.(open)
         }
 
+        let button = (
+            <ContextMenu
+                onOpenChange={(open) => {
+                    handleContextMenuOpen(open, item.id)
+                }}
+            >
+                {depth !== 0 && size !== 'narrow' && (
+                    <div
+                        className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${folderLinesOffset}px` }}
+                    />
+                )}
+
+                <ContextMenuTrigger asChild>
+                    <Link
+                        data-id={item.id}
+                        data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+                        to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
+                        onClick={(e) => {
+                            if (item.disabledReason) {
+                                e.preventDefault()
+                            } else {
+                                handleClick(item, false, e)
+                            }
+                        }}
+                        disabled={isDragging}
+                        role="treeitem"
+                        buttonProps={{
+                            active: getItemActiveState(item),
+                            menuItem: true,
+                            hasSideActionRight: size === 'default',
+                            iconOnly: size === 'narrow',
+                            disabled: isEmptyFolder,
+                            className: cn(
+                                'group/lemon-tree-button gap-[5px] min-w-0 pr-0',
+                                'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3 -outline-offset-2',
+                                {
+                                    'bg-fill-button-tertiary-hover':
+                                        ((selectMode === 'folder-only' || selectMode === 'all') &&
+                                            selectedId === item.id &&
+                                            !isEmptyFolder) ||
+                                        isContextMenuOpenForItem === item.id,
+                                    'bg-fill-button-tertiary-active': getItemActiveState(item),
+                                    'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
+                                        !isEmptyFolder,
+                                    'hover:bg-transparent opacity-50 cursor-default':
+                                        (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
+                                    'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
+                                    'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
+                                        size !== 'narrow',
+                                }
+                            ),
+                        }}
+                        tabIndex={isEmptyFolder ? -1 : 0}
+                        aria-level={depth + 1}
+                        aria-setsize={ariaSetSize}
+                        aria-posinset={ariaPosInSet}
+                        aria-selected={selectedId === item.id}
+                        aria-disabled={!!item.disabledReason}
+                        aria-haspopup={!!itemContextMenu?.(item)}
+                        aria-roledescription="tree item"
+                        aria-label={ariaLabel}
+                        tooltip={isDragging || isEmptyFolder ? undefined : renderItemTooltip?.(item)}
+                        tooltipPlacement="right"
+                    >
+                        {size === 'default' && (
+                            <span
+                                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50 -ml-1.5"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    width: `${firstColumnOffset}px`,
+                                }}
+                            />
+                        )}
+
+                        {renderItemIcon ? (
+                            renderItemIcon?.(item)
+                        ) : (
+                            <TreeNodeDisplayIcon
+                                item={item}
+                                expandedItemIds={expandedItemIds ?? []}
+                                defaultNodeIcon={defaultNodeIcon}
+                                size={size}
+                            />
+                        )}
+
+                        {size === 'default' && (
+                            <span className="relative truncate text-left w-full text-secondary group-hover/lemon-tree-button:text-primary">
+                                {renderItem ? (
+                                    renderItem(
+                                        item,
+                                        <span
+                                            className={cn({
+                                                'font-semibold text-secondary group-hover/lemon-tree-button:text-primary':
+                                                    isFolder && !isEmptyFolder,
+                                            })}
+                                        >
+                                            {displayName}
+                                        </span>
+                                    )
+                                ) : (
+                                    <span
+                                        className={cn('truncate', {
+                                            'font-semibold': isFolder && !isEmptyFolder,
+                                        })}
+                                    >
+                                        {displayName}
+                                    </span>
+                                )}
+
+                                {item.record?.loading && <Spinner className="ml-1" />}
+                                {item.record?.unapplied && <IconUpload className="ml-1 text-warning" />}
+                            </span>
+                        )}
+                    </Link>
+                </ContextMenuTrigger>
+
+                {itemContextMenu?.(item) && (
+                    <ContextMenuContent loop className="max-w-[250px]">
+                        {itemContextMenu(item)}
+                    </ContextMenuContent>
+                )}
+            </ContextMenu>
+        )
+
+        if (enableDragAndDrop && isItemDraggable?.(item) && item.id) {
+            button = (
+                <TreeNodeDraggable id={item.id} enableDragging className="h-[var(--lemon-tree-button-height)]">
+                    {button}
+                </TreeNodeDraggable>
+            )
+        }
+
+        const content = (
+            <AccordionPrimitive.Root
+                type="multiple"
+                value={expandedItemIds}
+                onValueChange={(s) => {
+                    onSetExpandedItemIds?.(s)
+                }}
+                ref={ref}
+                key={item.id}
+                disabled={!!item.disabledReason}
+            >
+                <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full gap-y-px">
+                    <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
+                        <ButtonGroupPrimitive
+                            fullWidth
+                            className={cn(
+                                'group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent',
+                                className
+                            )}
+                        >
+                            <TreeNodeDisplayCheckbox
+                                item={item}
+                                handleCheckedChange={(checked, shift) => {
+                                    onItemChecked?.(item.id, checked, shift)
+                                }}
+                                className={cn('absolute z-2', {
+                                    hidden: selectMode !== 'multi',
+                                })}
+                                style={{
+                                    left: `${firstColumnOffset - 20}px`,
+                                }}
+                            />
+
+                            {isItemEditing?.(item) ? (
+                                <InlineEditField
+                                    value={item.name}
+                                    handleSubmit={(value) => {
+                                        onItemNameChange?.(item, value)
+                                        disableKeyboardInput?.(false)
+                                    }}
+                                    className="z-1"
+                                    style={{
+                                        width:
+                                            selectMode === 'multi' && !item.disableSelect
+                                                ? `${emptySpaceOffset + 26}px`
+                                                : `${emptySpaceOffset}px`,
+                                    }}
+                                >
+                                    {renderItemIcon ? (
+                                        renderItemIcon?.(item)
+                                    ) : (
+                                        <TreeNodeDisplayIcon
+                                            item={item}
+                                            expandedItemIds={expandedItemIds ?? []}
+                                            defaultNodeIcon={defaultNodeIcon}
+                                        />
+                                    )}
+                                </InlineEditField>
+                            ) : (
+                                button
+                            )}
+
+                            {itemSideAction &&
+                                itemSideAction(item) !== undefined &&
+                                !isEmptyFolder &&
+                                size === 'default' && (
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            {itemSideActionButton?.(item) ?? (
+                                                <ButtonPrimitive
+                                                    iconOnly
+                                                    isSideActionRight
+                                                    className="
+                                                        absolute right-0
+                                                        opacity-0
+                                                        group-hover/lemon-tree-button-group:opacity-100
+                                                        z-10
+                                                        data-[state=open]:opacity-100
+                                                        -outline-offset-2
+                                                        focus-visible:opacity-100
+                                                    "
+                                                >
+                                                    <IconEllipsis className="text-tertiary size-3 group-hover/lemon-tree-button-group:text-primary z-10" />
+                                                </ButtonPrimitive>
+                                            )}
+                                        </DropdownMenuTrigger>
+
+                                        {!!itemSideAction(item) && (
+                                            <DropdownMenuContent
+                                                loop
+                                                align="end"
+                                                side="bottom"
+                                                className="max-w-[250px]"
+                                            >
+                                                {itemSideAction(item)}
+                                            </DropdownMenuContent>
+                                        )}
+                                    </DropdownMenu>
+                                )}
+                        </ButtonGroupPrimitive>
+                    </AccordionPrimitive.Trigger>
+
+                    {childrenContent}
+                </AccordionPrimitive.Item>
+            </AccordionPrimitive.Root>
+        )
+
+        let wrappedContent = content
+
+        if (isItemDroppable?.(item)) {
+            wrappedContent = (
+                <TreeNodeDroppable id={item.id} isDroppable={!!isItemDroppable?.(item)}>
+                    {wrappedContent}
+                </TreeNodeDroppable>
+            )
+        }
+
+        return (
+            <div
+                key={item.id}
+                className={cn(virtualizedRowHeight && 'overflow-hidden')}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={
+                    virtualizedRowHeight
+                        ? {
+                              height: `${virtualizedRowHeight}px`,
+                          }
+                        : undefined
+                }
+            >
+                {wrappedContent}
+            </div>
+        )
+    }
+)
+LemonTreeItemRow.displayName = 'LemonTreeItemRow'
+
+const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
+    ({ className, data, depth = 0, size, ...props }, ref): JSX.Element => {
+        const items = data instanceof Array ? data : [data]
+
         return (
             <div className={cn('flex flex-col gap-y-px list-none m-0 p-0 h-full w-full', className)}>
-                {data.map((item, index) => {
-                    const displayName = item.displayName ?? item.name
-                    const isFolder = (item.children && item.children.length > 0) || item.record?.type === 'folder'
-                    const isEmptyFolder = item.type === 'empty-folder'
-                    const folderLinesOffset = DEPTH_OFFSET
-                    const emptySpaceOffset = DEPTH_OFFSET
-
-                    const firstColumnOffset =
-                        selectMode === 'multi' && !item.disableSelect ? emptySpaceOffset + 24 : emptySpaceOffset
-
-                    const ariaLabel = isEmptyFolder ? 'empty folder' : `tree item: ${item.name}`
-
+                {items.map((item, index) => {
                     if (item.type === 'separator') {
                         return (
                             <div key={item.id} className="h-1 -mx-2 flex items-center">
@@ -290,6 +591,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             </div>
                         )
                     }
+
                     if (item.type === 'category') {
                         if (size !== 'default') {
                             return null
@@ -301,305 +603,25 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         )
                     }
 
-                    let button = (
-                        <ContextMenu
-                            onOpenChange={(open) => {
-                                handleContextMenuOpen(open, item.id)
-                            }}
-                        >
-                            {/* Folder lines */}
-                            {depth !== 0 && size !== 'narrow' && (
-                                <div
-                                    className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width: `${folderLinesOffset}px` }}
-                                />
-                            )}
-
-                            <ContextMenuTrigger asChild>
-                                <Link
-                                    data-id={item.id}
-                                    data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
-                                    // When dragging, don't allow links to be clicked,
-                                    // without this drag end would fire this href causing a reload
-                                    to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
-                                    onClick={(e) => {
-                                        if (item.disabledReason) {
-                                            e.preventDefault()
-                                        } else {
-                                            handleClick(item, false, e)
-                                        }
-                                    }}
-                                    disabled={isDragging}
-                                    role="treeitem"
-                                    buttonProps={{
-                                        active: getItemActiveState(item),
-                                        menuItem: true,
-                                        hasSideActionRight: size === 'default',
-                                        iconOnly: size === 'narrow',
-                                        disabled: isEmptyFolder,
-                                        className: cn(
-                                            'group/lemon-tree-button gap-[5px] min-w-0 pr-0',
-                                            'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3 -outline-offset-2',
-                                            {
-                                                'bg-fill-button-tertiary-hover':
-                                                    ((selectMode === 'folder-only' || selectMode === 'all') &&
-                                                        selectedId === item.id &&
-                                                        !isEmptyFolder) ||
-                                                    isContextMenuOpenForItem === item.id,
-                                                'bg-fill-button-tertiary-active': getItemActiveState(item),
-                                                'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
-                                                    !isEmptyFolder,
-                                                'hover:bg-transparent opacity-50 cursor-default':
-                                                    (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
-                                                'rounded-l-[var(--radius)] justify-center [&_svg]:size-4':
-                                                    size === 'narrow',
-                                                // Only show side action on hover for default size
-                                                'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
-                                                    size !== 'narrow',
-                                            }
-                                        ),
-                                    }}
-                                    tabIndex={isEmptyFolder ? -1 : 0}
-                                    aria-level={depth + 1}
-                                    aria-setsize={data.length} // TODO: somehow get all loaded items length here in children
-                                    aria-posinset={index + 1}
-                                    aria-selected={selectedId === item.id}
-                                    aria-disabled={!!item.disabledReason}
-                                    aria-haspopup={!!itemContextMenu?.(item)}
-                                    aria-roledescription="tree item"
-                                    aria-label={ariaLabel}
-                                    tooltip={isDragging || isEmptyFolder ? undefined : renderItemTooltip?.(item)}
-                                    tooltipPlacement="right"
-                                >
-                                    {size === 'default' && (
-                                        <span
-                                            // Spacer to offset button padding
-                                            className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50 -ml-1.5"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{
-                                                width: `${firstColumnOffset}px`,
-                                            }}
-                                        />
-                                    )}
-
-                                    {renderItemIcon ? (
-                                        renderItemIcon?.(item)
-                                    ) : (
-                                        <TreeNodeDisplayIcon
-                                            item={item}
-                                            expandedItemIds={expandedItemIds ?? []}
-                                            defaultNodeIcon={defaultNodeIcon}
-                                            size={size}
-                                        />
-                                    )}
-
-                                    {size === 'default' && (
-                                        <span className="relative truncate text-left w-full text-secondary group-hover/lemon-tree-button:text-primary">
-                                            {renderItem ? (
-                                                <>
-                                                    {renderItem(
-                                                        item,
-                                                        <span
-                                                            className={cn({
-                                                                'font-semibold text-secondary group-hover/lemon-tree-button:text-primary':
-                                                                    isFolder && !isEmptyFolder,
-                                                            })}
-                                                        >
-                                                            {displayName}
-                                                        </span>
-                                                    )}
-                                                </>
-                                            ) : (
-                                                <span
-                                                    className={cn('truncate', {
-                                                        'font-semibold': isFolder && !isEmptyFolder,
-                                                    })}
-                                                >
-                                                    {displayName}
-                                                </span>
-                                            )}
-
-                                            {/* Loading state */}
-                                            {item.record?.loading && <Spinner className="ml-1" />}
-
-                                            {/* Unapplied state */}
-                                            {item.record?.unapplied && <IconUpload className="ml-1 text-warning" />}
-                                        </span>
-                                    )}
-                                </Link>
-                            </ContextMenuTrigger>
-
-                            {itemContextMenu?.(item) && (
-                                <ContextMenuContent loop className="max-w-[250px]">
-                                    {itemContextMenu(item)}
-                                </ContextMenuContent>
-                            )}
-                        </ContextMenu>
-                    )
-
-                    if (enableDragAndDrop && isItemDraggable?.(item) && item.id) {
-                        button = (
-                            <TreeNodeDraggable
-                                id={item.id}
-                                enableDragging
-                                className="h-[var(--lemon-tree-button-height)]"
-                            >
-                                {button}
-                            </TreeNodeDraggable>
-                        )
-                    }
-
-                    const content = (
-                        <AccordionPrimitive.Root
-                            type="multiple"
-                            value={expandedItemIds}
-                            onValueChange={(s) => {
-                                onSetExpandedItemIds?.(s)
-                            }}
-                            ref={ref}
+                    return (
+                        <LemonTreeItemRow
                             key={item.id}
-                            disabled={!!item.disabledReason}
-                        >
-                            <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full gap-y-px">
-                                <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
-                                    <ButtonGroupPrimitive
-                                        fullWidth
-                                        className="group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent"
-                                    >
-                                        <TreeNodeDisplayCheckbox
-                                            item={item}
-                                            handleCheckedChange={(checked, shift) => {
-                                                onItemChecked?.(item.id, checked, shift)
-                                            }}
-                                            className={cn('absolute z-2', {
-                                                // Hide checkbox when select mode is not multi
-                                                hidden: selectMode !== 'multi',
-                                            })}
-                                            style={{
-                                                left: `${firstColumnOffset - 20}px`,
-                                            }}
-                                        />
-
-                                        {isItemEditing?.(item) ? (
-                                            <InlineEditField
-                                                value={item.name}
-                                                handleSubmit={(value) => {
-                                                    onItemNameChange?.(item, value)
-                                                    disableKeyboardInput?.(false)
-                                                }}
-                                                className="z-1"
-                                                style={{
-                                                    width:
-                                                        selectMode === 'multi' && !item.disableSelect
-                                                            ? `${emptySpaceOffset + 26}px`
-                                                            : `${emptySpaceOffset}px`,
-                                                }}
-                                            >
-                                                {renderItemIcon ? (
-                                                    renderItemIcon?.(item)
-                                                ) : (
-                                                    <TreeNodeDisplayIcon
-                                                        item={item}
-                                                        expandedItemIds={expandedItemIds ?? []}
-                                                        defaultNodeIcon={defaultNodeIcon}
-                                                    />
-                                                )}
-                                            </InlineEditField>
-                                        ) : (
-                                            button
-                                        )}
-
-                                        {itemSideAction &&
-                                            itemSideAction(item) !== undefined &&
-                                            !isEmptyFolder &&
-                                            size === 'default' && (
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        {itemSideActionButton?.(item) ?? (
-                                                            <ButtonPrimitive
-                                                                iconOnly
-                                                                isSideActionRight
-                                                                className="
-                                                                    absolute right-0
-                                                                    opacity-0
-                                                                    group-hover/lemon-tree-button-group:opacity-100
-                                                                    z-10
-                                                                    data-[state=open]:opacity-100
-                                                                    -outline-offset-2
-                                                                    focus-visible:opacity-100
-                                                                "
-                                                            >
-                                                                <IconEllipsis className="text-tertiary size-3 group-hover/lemon-tree-button-group:text-primary z-10" />
-                                                            </ButtonPrimitive>
-                                                        )}
-                                                    </DropdownMenuTrigger>
-
-                                                    {/* The Dropdown content menu */}
-                                                    {!!itemSideAction(item) && (
-                                                        <DropdownMenuContent
-                                                            loop
-                                                            align="end"
-                                                            side="bottom"
-                                                            className="max-w-[250px]"
-                                                        >
-                                                            {itemSideAction(item)}
-                                                        </DropdownMenuContent>
-                                                    )}
-                                                </DropdownMenu>
-                                            )}
-                                    </ButtonGroupPrimitive>
-                                </AccordionPrimitive.Trigger>
-
-                                {item.children && (
+                            item={item}
+                            ariaSetSize={items.length}
+                            ariaPosInSet={index + 1}
+                            depth={depth}
+                            size={size}
+                            {...props}
+                            ref={ref}
+                            childrenContent={
+                                item.children ? (
                                     <AccordionPrimitive.Content className="relative">
-                                        <LemonTreeNode
-                                            data={item.children}
-                                            selectedId={selectedId}
-                                            handleClick={handleClick}
-                                            expandedItemIds={expandedItemIds}
-                                            onSetExpandedItemIds={onSetExpandedItemIds}
-                                            defaultNodeIcon={defaultNodeIcon}
-                                            showFolderActiveState={showFolderActiveState}
-                                            renderItem={renderItem}
-                                            renderItemTooltip={renderItemTooltip}
-                                            renderItemIcon={renderItemIcon}
-                                            itemSideAction={itemSideAction}
-                                            depth={depth + 1}
-                                            isItemActive={isItemActive}
-                                            isItemDraggable={isItemDraggable}
-                                            isItemDroppable={isItemDroppable}
-                                            enableDragAndDrop={enableDragAndDrop}
-                                            itemContextMenu={itemContextMenu}
-                                            selectMode={selectMode}
-                                            onItemChecked={onItemChecked}
-                                            isDragging={isDragging}
-                                            checkedItemCount={checkedItemCount}
-                                            isItemEditing={isItemEditing}
-                                            disableKeyboardInput={disableKeyboardInput}
-                                            setFocusToElementFromId={setFocusToElementFromId}
-                                            onItemNameChange={onItemNameChange}
-                                            size={size}
-                                            {...props}
-                                        />
+                                        <LemonTreeNode data={item.children} depth={depth + 1} size={size} {...props} />
                                     </AccordionPrimitive.Content>
-                                )}
-                            </AccordionPrimitive.Item>
-                        </AccordionPrimitive.Root>
+                                ) : null
+                            }
+                        />
                     )
-
-                    // Wrap content in Draggable/Droppable if needed
-                    let wrappedContent = content
-
-                    if (isItemDroppable?.(item)) {
-                        wrappedContent = (
-                            <TreeNodeDroppable id={item.id} isDroppable={isItemDroppable(item)}>
-                                {wrappedContent}
-                            </TreeNodeDroppable>
-                        )
-                    }
-
-                    return <div key={item.id}>{wrappedContent}</div>
                 })}
             </div>
         )
@@ -639,6 +661,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             emptySpaceContextMenu,
             size = 'default',
             disableScroll = false,
+            virtualized = false,
+            virtualizedRowHeight = 31,
+            virtualizedOverscan = 20,
+            virtualizationScrollContainerRef,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -659,9 +685,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         })
         const sensors = useSensors(mouseSensor, touchSensor)
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
+        const scrollRafRef = useRef<number | null>(null)
 
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
+        const scrollViewportRef = useRef<HTMLDivElement | null>(null)
+        const virtualizationAnchorRef = useRef<HTMLDivElement | null>(null)
         // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
@@ -669,6 +698,20 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [activeDragItem, setActiveDragItem] = useState<TreeDataItem | null>(null)
         const [disableKeyboardInput, setDisableKeyboardInput] = useState(false)
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
+        const [focusedItemId, setFocusedItemId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+        const [virtualWindow, setVirtualWindow] = useState<VirtualWindow>({
+            startIndex: 0,
+            endIndex: 0,
+            scrollTop: 0,
+            viewportHeight: 0,
+        })
+        const virtualWindowRef = useRef<VirtualWindow>(virtualWindow)
+        const virtualMetricsRef = useRef({
+            scrollTop: 0,
+            viewportHeight: 0,
+            scrollDirection: 'idle' as ScrollDirection,
+        })
+        const externalViewportOffsetRef = useRef<number>(0)
 
         // Add new state for type-ahead
         function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
@@ -736,35 +779,52 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [])
 
-        // Flatten visible tree items for keyboard navigation
-        const getVisibleItems = useCallback((): TreeDataItem[] => {
-            const items: TreeDataItem[] = []
+        const getFlattenedVisibleItems = useCallback((): FlattenedTreeItem[] => {
+            const items: FlattenedTreeItem[] = []
 
-            const traverse = (nodes: TreeDataItem[] | TreeDataItem): void => {
+            const traverse = (nodes: TreeDataItem[] | TreeDataItem, depth: number, parentId?: string): void => {
                 const nodeArray = nodes instanceof Array ? nodes : [nodes]
 
-                nodeArray.forEach((node) => {
+                nodeArray.forEach((node, index) => {
                     // For folder-only mode, only include folders; for other modes, include all items
                     if (selectMode === 'folder-only') {
                         // Only include folders in folder-only mode
                         if (node.record?.type === 'folder' || node.children) {
-                            items.push(node)
+                            items.push({
+                                item: node,
+                                depth,
+                                ariaSetSize: nodeArray.length,
+                                ariaPosInSet: index + 1,
+                                parentId,
+                            })
                         }
                     } else {
                         if (node.type !== 'separator' && node.type !== 'category') {
                             // Include all items in default/multi mode
-                            items.push(node)
+                            items.push({
+                                item: node,
+                                depth,
+                                ariaSetSize: nodeArray.length,
+                                ariaPosInSet: index + 1,
+                                parentId,
+                            })
                         }
                     }
                     if (node.children && expandedItemIdsState?.includes(node.id)) {
-                        traverse(node.children)
+                        traverse(node.children, depth + 1, node.id)
                     }
                 })
             }
 
-            traverse(data)
+            traverse(data, 0)
             return items
         }, [data, expandedItemIdsState, selectMode])
+
+        // Flatten visible tree items for keyboard navigation
+        const getVisibleItems = useCallback((): TreeDataItem[] => {
+            return getFlattenedVisibleItems().map(({ item }) => item)
+        }, [getFlattenedVisibleItems])
+        const flattenedVisibleItems = useMemo(() => getFlattenedVisibleItems(), [getFlattenedVisibleItems])
 
         // Focus on provided content ref
         const focusContent = useCallback(() => {
@@ -789,6 +849,56 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             }
             return []
         }, [])
+
+        const focusTreeItem = useCallback((id: string): void => {
+            setFocusedItemId(id)
+            setTimeout(() => {
+                const element = containerRef.current?.querySelector(`[data-id="${CSS.escape(id)}"]`) as HTMLElement
+                element?.focus()
+            }, 0)
+        }, [])
+
+        const computeVirtualWindow = useCallback(
+            (
+                scrollTop: number,
+                viewportHeight: number,
+                focusId?: string,
+                scrollDirection: ScrollDirection = 'idle'
+            ): VirtualWindow => {
+                const focusedIndex = focusId ? flattenedVisibleItems.findIndex(({ item }) => item.id === focusId) : -1
+                const overscanBehind =
+                    scrollDirection === 'forward'
+                        ? Math.max(1, Math.floor(virtualizedOverscan / 2))
+                        : scrollDirection === 'backward'
+                          ? virtualizedOverscan * 2
+                          : virtualizedOverscan
+                const overscanAhead =
+                    scrollDirection === 'forward'
+                        ? virtualizedOverscan * 2
+                        : scrollDirection === 'backward'
+                          ? Math.max(1, Math.floor(virtualizedOverscan / 2))
+                          : virtualizedOverscan
+                const viewportStartIndex = Math.max(0, Math.floor(scrollTop / virtualizedRowHeight) - overscanBehind)
+                const viewportEndIndex = Math.min(
+                    flattenedVisibleItems.length,
+                    Math.ceil((scrollTop + viewportHeight) / virtualizedRowHeight) + overscanAhead
+                )
+                const focusStartIndex =
+                    focusedIndex >= 0 ? Math.max(0, focusedIndex - virtualizedOverscan) : viewportStartIndex
+                const focusEndIndex =
+                    focusedIndex >= 0
+                        ? Math.min(flattenedVisibleItems.length, focusedIndex + virtualizedOverscan + 1)
+                        : viewportEndIndex
+
+                return {
+                    startIndex: Math.min(viewportStartIndex, focusStartIndex),
+                    endIndex: Math.max(viewportEndIndex, focusEndIndex),
+                    scrollTop,
+                    viewportHeight,
+                }
+            },
+            [flattenedVisibleItems, virtualizedOverscan, virtualizedRowHeight]
+        )
 
         // Add function to handle type-ahead search
         const handleTypeAhead = useCallback(
@@ -827,11 +937,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const match = searchItems.find((item) => item.name.toLowerCase().startsWith(newBuffer))
 
                 if (match) {
-                    // Focus the matching element
-                    const element = containerRef.current?.querySelector(
-                        `[data-id="${CSS.escape(match.id)}"]`
-                    ) as HTMLElement
-                    element?.focus()
+                    focusTreeItem(match.id)
 
                     // If item is in a collapsed folder, expand the path to it
                     const path = findPathToItem(Array.isArray(data) ? data : [data], match.id)
@@ -850,6 +956,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 onSetExpandedItemIds,
                 expandedItemIdsState,
                 disableKeyboardInput,
+                focusTreeItem,
             ]
         )
 
@@ -917,15 +1024,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         )
 
         /** Focus the element from the tree item ID. */
-        const focusElementFromId = useCallback((id: string) => {
-            // Timeout to ensure the element is rendered
-            setTimeout(() => {
-                // Now use the escaped ID in your query
-                const element = containerRef.current?.querySelector(`[data-id=${CSS.escape(id)}]`) as HTMLElement
-                // Focus the element
-                element?.focus()
-            }, 100)
-        }, [])
+        const focusElementFromId = useCallback(
+            (id: string) => {
+                focusTreeItem(id)
+            },
+            [focusTreeItem]
+        )
 
         // Update handleKeyDown to use native focus
         const handleKeyDown = useCallback(
@@ -972,10 +1076,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 // If folder is already expanded, focus first child
                                 const nextItem = visibleItems[currentIndex + 1]
                                 if (nextItem) {
-                                    const element = containerRef.current?.querySelector(
-                                        `[data-id="${CSS.escape(nextItem.id)}"]`
-                                    ) as HTMLElement
-                                    element?.focus()
+                                    focusTreeItem(nextItem.id)
                                 }
                             }
                         }
@@ -1026,16 +1127,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 setExpandedItemIdsState(expandedItemIdsState.filter((id) => id !== parentItem.id))
                                 onSetExpandedItemIds &&
                                     onSetExpandedItemIds(expandedItemIdsState.filter((id) => id !== parentItem.id))
-                                const element = containerRef.current?.querySelector(
-                                    `[data-id="${CSS.escape(parentItem.id)}"]`
-                                ) as HTMLElement
-                                element?.focus()
+                                focusTreeItem(parentItem.id)
                             } else {
                                 // If parent is already collapsed, just focus it
-                                const element = containerRef.current?.querySelector(
-                                    `[data-id="${CSS.escape(parentItem.id)}"]`
-                                ) as HTMLElement
-                                element?.focus()
+                                focusTreeItem(parentItem.id)
                             }
                         }
                         break
@@ -1051,18 +1146,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 (item) => item.type !== 'separator' && item.type !== 'category'
                             )
                             if (firstItem) {
-                                const element = containerRef.current?.querySelector(
-                                    `[data-id="${CSS.escape(firstItem.id)}"]`
-                                ) as HTMLElement
-                                element?.focus()
+                                focusTreeItem(firstItem.id)
                             }
                         } else {
                             const nextItem = findNextFocusableItem(visibleItems, currentIndex, 1)
                             if (nextItem) {
-                                const element = containerRef.current?.querySelector(
-                                    `[data-id="${CSS.escape(nextItem.id)}"]`
-                                ) as HTMLElement
-                                element?.focus()
+                                focusTreeItem(nextItem.id)
                             }
                         }
                         break
@@ -1078,18 +1167,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 .reverse()
                                 .find((item) => item.type !== 'separator' && item.type !== 'category')
                             if (lastItem) {
-                                const element = containerRef.current?.querySelector(
-                                    `[data-id="${CSS.escape(lastItem.id)}"]`
-                                ) as HTMLElement
-                                element?.focus()
+                                focusTreeItem(lastItem.id)
                             }
                         } else {
                             const prevItem = findNextFocusableItem(visibleItems, currentIndex, -1)
                             if (prevItem) {
-                                const element = containerRef.current?.querySelector(
-                                    `[data-id="${CSS.escape(prevItem.id)}"]`
-                                ) as HTMLElement
-                                element?.focus()
+                                focusTreeItem(prevItem.id)
                             }
                         }
                         break
@@ -1101,10 +1184,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         e.preventDefault()
                         const visibleItems = getVisibleItems()
                         if (visibleItems.length > 0) {
-                            const element = containerRef.current?.querySelector(
-                                `[data-id="${CSS.escape(visibleItems[0].id)}"]`
-                            ) as HTMLElement
-                            element?.focus()
+                            focusTreeItem(visibleItems[0].id)
                         }
                         break
                     }
@@ -1115,10 +1195,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         e.preventDefault()
                         const visibleItems = getVisibleItems()
                         if (visibleItems.length > 0) {
-                            const element = containerRef.current?.querySelector(
-                                `[data-id="${CSS.escape(visibleItems[visibleItems.length - 1].id)}"]`
-                            ) as HTMLElement
-                            element?.focus()
+                            focusTreeItem(visibleItems[visibleItems.length - 1].id)
                         }
                         break
                     }
@@ -1174,6 +1251,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 onFolderClick,
                 onSetExpandedItemIds,
                 disableKeyboardInput,
+                focusTreeItem,
             ]
         )
 
@@ -1222,20 +1300,15 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         useEffect(() => {
             // On prop change, focus the default selected item if content hasn't been focused
             if (defaultSelectedFolderOrNodeId && !hasFocusedContent) {
-                const element = containerRef.current?.querySelector(
-                    `[data-id="${CSS.escape(defaultSelectedFolderOrNodeId)}"]`
-                ) as HTMLElement
-                element?.focus()
+                focusTreeItem(defaultSelectedFolderOrNodeId)
                 setSelectedId(defaultSelectedFolderOrNodeId)
             }
-        }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
+        }, [defaultSelectedFolderOrNodeId, hasFocusedContent, focusTreeItem])
 
         useImperativeHandle(ref, () => ({
             getVisibleItems,
             focusItem: (id: string) => {
-                // Find and focus the actual DOM element
-                const element = containerRef.current?.querySelector(`[data-id="${CSS.escape(id)}"]`) as HTMLElement
-                element?.focus()
+                focusTreeItem(id)
             },
         }))
 
@@ -1244,6 +1317,188 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 setExpandedItemIdsState(expandedItemIds ?? [])
             }
         }, [expandedItemIds, expandedItemIdsState])
+
+        useEffect(() => {
+            virtualWindowRef.current = virtualWindow
+        }, [virtualWindow])
+
+        useEffect(() => {
+            const viewport = virtualizationScrollContainerRef?.current ?? scrollViewportRef.current
+            if (!viewport) {
+                return
+            }
+
+            const recomputeExternalViewportOffset = (): void => {
+                if (!virtualizationScrollContainerRef?.current || !virtualizationAnchorRef.current) {
+                    externalViewportOffsetRef.current = 0
+                    return
+                }
+
+                const viewportBounds = viewport.getBoundingClientRect()
+                const anchorBounds = virtualizationAnchorRef.current.getBoundingClientRect()
+                externalViewportOffsetRef.current = anchorBounds.top - viewportBounds.top + viewport.scrollTop
+            }
+
+            const updateViewportState = (): void => {
+                let nextScrollTop = viewport.scrollTop
+                let nextViewportHeight = viewport.clientHeight
+
+                if (virtualizationScrollContainerRef?.current && virtualizationAnchorRef.current) {
+                    const treeTopInScroll = externalViewportOffsetRef.current
+                    nextScrollTop = Math.max(0, viewport.scrollTop - treeTopInScroll)
+                    const localViewportBottom = Math.max(
+                        0,
+                        viewport.scrollTop + viewport.clientHeight - treeTopInScroll
+                    )
+                    nextViewportHeight = Math.max(0, localViewportBottom - nextScrollTop)
+                }
+
+                const previousMetrics = virtualMetricsRef.current
+                const scrollDirection: ScrollDirection =
+                    nextScrollTop > previousMetrics.scrollTop
+                        ? 'forward'
+                        : nextScrollTop < previousMetrics.scrollTop
+                          ? 'backward'
+                          : previousMetrics.scrollDirection
+
+                virtualMetricsRef.current = {
+                    scrollTop: nextScrollTop,
+                    viewportHeight: nextViewportHeight,
+                    scrollDirection,
+                }
+
+                const nextWindow = computeVirtualWindow(
+                    nextScrollTop,
+                    nextViewportHeight,
+                    focusedItemId,
+                    scrollDirection
+                )
+                const previousWindow = virtualWindowRef.current
+
+                if (
+                    nextWindow.startIndex !== previousWindow.startIndex ||
+                    nextWindow.endIndex !== previousWindow.endIndex ||
+                    nextWindow.viewportHeight !== previousWindow.viewportHeight
+                ) {
+                    setVirtualWindow(nextWindow)
+                }
+            }
+
+            const scheduleViewportStateUpdate = (): void => {
+                if (scrollRafRef.current !== null) {
+                    return
+                }
+
+                scrollRafRef.current = requestAnimationFrame(() => {
+                    scrollRafRef.current = null
+                    updateViewportState()
+                })
+            }
+
+            recomputeExternalViewportOffset()
+            updateViewportState()
+            viewport.addEventListener('scroll', scheduleViewportStateUpdate, { passive: true })
+
+            const resizeObserver = new ResizeObserver(() => {
+                recomputeExternalViewportOffset()
+                scheduleViewportStateUpdate()
+            })
+            resizeObserver.observe(viewport)
+            if (virtualizationAnchorRef.current) {
+                resizeObserver.observe(virtualizationAnchorRef.current)
+            }
+
+            return () => {
+                viewport.removeEventListener('scroll', scheduleViewportStateUpdate)
+                if (scrollRafRef.current !== null) {
+                    cancelAnimationFrame(scrollRafRef.current)
+                    scrollRafRef.current = null
+                }
+                resizeObserver.disconnect()
+            }
+        }, [computeVirtualWindow, focusedItemId, virtualizationScrollContainerRef])
+
+        useEffect(() => {
+            const nextWindow = computeVirtualWindow(
+                virtualMetricsRef.current.scrollTop,
+                virtualMetricsRef.current.viewportHeight,
+                focusedItemId,
+                virtualMetricsRef.current.scrollDirection
+            )
+            if (
+                nextWindow.startIndex !== virtualWindowRef.current.startIndex ||
+                nextWindow.endIndex !== virtualWindowRef.current.endIndex ||
+                nextWindow.viewportHeight !== virtualWindowRef.current.viewportHeight
+            ) {
+                setVirtualWindow(nextWindow)
+            }
+        }, [computeVirtualWindow, focusedItemId, flattenedVisibleItems.length])
+
+        const virtualizedStartIndex = virtualWindow.startIndex
+        const virtualizedEndIndex = virtualWindow.endIndex
+        const indexByItemId = useMemo(
+            () => new Map(flattenedVisibleItems.map((visibleItem, index) => [visibleItem.item.id, index])),
+            [flattenedVisibleItems]
+        )
+        const parentIndexesByIndex = useMemo(
+            () =>
+                flattenedVisibleItems.map((visibleItem) =>
+                    visibleItem.parentId !== undefined ? indexByItemId.get(visibleItem.parentId) : undefined
+                ),
+            [flattenedVisibleItems, indexByItemId]
+        )
+        const sortedRenderedIndexes = useMemo(() => {
+            const renderedIndexes = new Set<number>()
+
+            for (let index = virtualizedStartIndex; index < virtualizedEndIndex; index++) {
+                renderedIndexes.add(index)
+
+                let parentIndex = parentIndexesByIndex[index]
+                while (parentIndex !== undefined) {
+                    if (renderedIndexes.has(parentIndex)) {
+                        break
+                    }
+                    renderedIndexes.add(parentIndex)
+                    parentIndex = parentIndexesByIndex[parentIndex]
+                }
+            }
+
+            return [...renderedIndexes].sort((left, right) => left - right)
+        }, [parentIndexesByIndex, virtualizedEndIndex, virtualizedStartIndex])
+
+        const virtualizedSegments = useMemo((): { startIndex: number; items: FlattenedTreeItem[] }[] => {
+            const segments: { startIndex: number; items: FlattenedTreeItem[] }[] = []
+
+            if (sortedRenderedIndexes.length === 0) {
+                return segments
+            }
+
+            let segmentStart = sortedRenderedIndexes[0]
+            let previousIndex = sortedRenderedIndexes[0]
+
+            for (let index = 1; index < sortedRenderedIndexes.length; index++) {
+                const currentIndex = sortedRenderedIndexes[index]
+                if (currentIndex === previousIndex + 1) {
+                    previousIndex = currentIndex
+                    continue
+                }
+
+                segments.push({
+                    startIndex: segmentStart,
+                    items: flattenedVisibleItems.slice(segmentStart, previousIndex + 1),
+                })
+
+                segmentStart = currentIndex
+                previousIndex = currentIndex
+            }
+
+            segments.push({
+                startIndex: segmentStart,
+                items: flattenedVisibleItems.slice(segmentStart, previousIndex + 1),
+            })
+
+            return segments
+        }, [flattenedVisibleItems, sortedRenderedIndexes])
 
         const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
             for (const item of items) {
@@ -1292,11 +1547,18 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             >
                 <ScrollableShadows
                     ref={containerRef}
+                    scrollRef={scrollViewportRef}
                     direction="vertical"
                     tabIndex={-1}
                     role="tree"
                     aria-label="Tree navigation"
                     onKeyDown={handleKeyDown}
+                    onFocusCapture={(event) => {
+                        const itemId = (event.target as HTMLElement).getAttribute('data-id')
+                        if (itemId) {
+                            setFocusedItemId(itemId)
+                        }
+                    }}
                     className="flex-1"
                     innerClassName="relative overflow-x-auto"
                     disableScroll={disableScroll}
@@ -1311,40 +1573,102 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     }
                 >
                     <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} isRoot isDragging={isDragging}>
-                        <LemonTreeNode
-                            data={data}
-                            selectedId={selectedId}
-                            handleClick={handleClick}
-                            expandedItemIds={expandedItemIdsState}
-                            onSetExpandedItemIds={(ids) => {
-                                // Set local state
-                                setExpandedItemIdsState(ids)
-                                // Call prop callback if provided
-                                onSetExpandedItemIds?.(ids)
-                            }}
-                            defaultNodeIcon={defaultNodeIcon}
-                            showFolderActiveState={showFolderActiveState}
-                            itemSideAction={itemSideAction}
-                            isItemEditing={isItemEditing}
-                            onItemNameChange={onItemNameChange}
-                            className={cn('p-1', {
-                                'flex-1': isDragging,
-                            })}
-                            isItemDraggable={isItemDraggable}
-                            isItemDroppable={isItemDroppable}
-                            enableDragAndDrop={enableDragAndDrop}
-                            disableKeyboardInput={(disable) => {
-                                setDisableKeyboardInput(disable)
-                            }}
-                            itemContextMenu={itemContextMenu}
-                            selectMode={selectMode}
-                            onItemChecked={onItemChecked}
-                            isDragging={isDragging}
-                            checkedItemCount={checkedItemCount}
-                            setFocusToElementFromId={focusElementFromId}
-                            size={size}
-                            {...props}
-                        />
+                        <div ref={virtualizationAnchorRef}>
+                            {virtualized ? (
+                                <div
+                                    className={cn('relative p-1', {
+                                        'flex-1': isDragging,
+                                    })}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ height: `${flattenedVisibleItems.length * virtualizedRowHeight}px` }}
+                                >
+                                    {virtualizedSegments.map((segment) => {
+                                        return (
+                                            <div
+                                                key={`segment-${segment.startIndex}`}
+                                                className="absolute inset-x-0 top-0"
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={{
+                                                    transform: `translateY(${segment.startIndex * virtualizedRowHeight}px)`,
+                                                }}
+                                            >
+                                                {segment.items.map(({ item, depth, ariaSetSize, ariaPosInSet }) => (
+                                                    <LemonTreeItemRow
+                                                        key={item.id}
+                                                        item={item}
+                                                        ariaSetSize={ariaSetSize}
+                                                        ariaPosInSet={ariaPosInSet}
+                                                        selectedId={selectedId}
+                                                        handleClick={handleClick}
+                                                        expandedItemIds={expandedItemIdsState}
+                                                        onSetExpandedItemIds={(ids) => {
+                                                            setExpandedItemIdsState(ids)
+                                                            onSetExpandedItemIds?.(ids)
+                                                        }}
+                                                        defaultNodeIcon={defaultNodeIcon}
+                                                        showFolderActiveState={showFolderActiveState}
+                                                        itemSideAction={itemSideAction}
+                                                        isItemEditing={isItemEditing}
+                                                        onItemNameChange={onItemNameChange}
+                                                        isItemDraggable={isItemDraggable}
+                                                        isItemDroppable={isItemDroppable}
+                                                        enableDragAndDrop={enableDragAndDrop}
+                                                        disableKeyboardInput={(disable) => {
+                                                            setDisableKeyboardInput(disable)
+                                                        }}
+                                                        itemContextMenu={itemContextMenu}
+                                                        selectMode={selectMode}
+                                                        onItemChecked={onItemChecked}
+                                                        isDragging={isDragging}
+                                                        checkedItemCount={checkedItemCount}
+                                                        setFocusToElementFromId={focusElementFromId}
+                                                        depth={depth}
+                                                        size={size}
+                                                        virtualizedRowHeight={virtualizedRowHeight}
+                                                        {...props}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            ) : (
+                                <LemonTreeNode
+                                    data={data}
+                                    selectedId={selectedId}
+                                    handleClick={handleClick}
+                                    expandedItemIds={expandedItemIdsState}
+                                    onSetExpandedItemIds={(ids) => {
+                                        // Set local state
+                                        setExpandedItemIdsState(ids)
+                                        // Call prop callback if provided
+                                        onSetExpandedItemIds?.(ids)
+                                    }}
+                                    defaultNodeIcon={defaultNodeIcon}
+                                    showFolderActiveState={showFolderActiveState}
+                                    itemSideAction={itemSideAction}
+                                    isItemEditing={isItemEditing}
+                                    onItemNameChange={onItemNameChange}
+                                    className={cn('p-1', {
+                                        'flex-1': isDragging,
+                                    })}
+                                    isItemDraggable={isItemDraggable}
+                                    isItemDroppable={isItemDroppable}
+                                    enableDragAndDrop={enableDragAndDrop}
+                                    disableKeyboardInput={(disable) => {
+                                        setDisableKeyboardInput(disable)
+                                    }}
+                                    itemContextMenu={itemContextMenu}
+                                    selectMode={selectMode}
+                                    onItemChecked={onItemChecked}
+                                    isDragging={isDragging}
+                                    checkedItemCount={checkedItemCount}
+                                    setFocusToElementFromId={focusElementFromId}
+                                    size={size}
+                                    {...props}
+                                />
+                            )}
+                        </div>
                     </TreeNodeDroppable>
 
                     {/* Context menu for empty space, takes up remaining space */}

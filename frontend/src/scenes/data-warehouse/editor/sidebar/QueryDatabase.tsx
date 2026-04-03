@@ -42,7 +42,11 @@ import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
-export const QueryDatabase = (): JSX.Element => {
+export const QueryDatabase = ({
+    virtualizationScrollContainerRef,
+}: {
+    virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
+}): JSX.Element => {
     const {
         searchTerm,
         joinsByFieldName,
@@ -723,6 +727,8 @@ export const QueryDatabase = (): JSX.Element => {
                 }
                 return <TreeNodeDisplayIcon item={item} expandedItemIds={expandedItemIds} />
             }}
+            virtualized
+            virtualizationScrollContainerRef={virtualizationScrollContainerRef}
         />
     )
 }
