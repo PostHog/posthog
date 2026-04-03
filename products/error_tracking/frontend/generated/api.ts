@@ -1287,6 +1287,25 @@ export const errorTrackingSymbolSetsDestroy = async (
     })
 }
 
+/**
+ * Return a short-lived presigned GET URL for the symbol set file.
+Intended for debugging / CLI inspection.
+ */
+export const getErrorTrackingSymbolSetsDownloadUrlRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/download_url/`
+}
+
+export const errorTrackingSymbolSetsDownloadUrlRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsDownloadUrlRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/finish_upload/`
 }
@@ -1601,6 +1620,25 @@ export const errorTrackingSymbolSetsDestroy2 = async (
     return apiMutator<void>(getErrorTrackingSymbolSetsDestroy2Url(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Return a short-lived presigned GET URL for the symbol set file.
+Intended for debugging / CLI inspection.
+ */
+export const getErrorTrackingSymbolSetsDownloadUrlRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/download_url/`
+}
+
+export const errorTrackingSymbolSetsDownloadUrlRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsDownloadUrlRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
