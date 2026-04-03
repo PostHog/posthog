@@ -349,6 +349,23 @@ export const searchLogic = kea<searchLogicType>([
                             iconType: 'cohort',
                             iconColor: undefined,
                         },
+                    },
+                    {
+                        id: 'app-people',
+                        name: 'People',
+                        displayName: 'People',
+                        category: 'apps',
+                        productCategory: null,
+                        href: urls.persons(),
+                        itemType: 'persons',
+                        tags: undefined,
+                        lastViewedAt: sceneLogViewsByRef['Persons'] ?? null,
+                        searchKeywords: ['persons', 'person', 'users'],
+                        record: {
+                            type: 'persons',
+                            iconType: 'persons',
+                            iconColor: undefined,
+                        },
                     }
                 )
 
