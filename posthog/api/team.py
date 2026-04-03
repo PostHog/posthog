@@ -1207,7 +1207,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         highest_retention_entitlement = parse_feature_to_entitlement(retention_feature)
 
         if highest_retention_entitlement is None:
-            raise exceptions.APIException(detail="Invalid retention entitlement.")  # HTTP 500
+            # No entitlement configured means no billing restriction (e.g. self-hosted without a license).
+            # Allow any valid retention period rather than blocking the update entirely.
+            return
 
         # Should be validated already, but let's be extra sure to avoid IndexErrors below
         if not validate_retention_period(new_retention_period):
