@@ -1,8 +1,7 @@
 from django.core.cache import cache
 
-from ee.api.agentic_provisioning import SHARED_PAYMENT_TOKEN_CACHE_PREFIX
-from ee.api.agentic_provisioning.views import get_shared_payment_token
 from ee.api.agentic_provisioning.test.base import StripeProvisioningTestBase
+from ee.api.agentic_provisioning.views import get_shared_payment_token
 
 
 class TestSharedPaymentToken(StripeProvisioningTestBase):

@@ -42,7 +42,12 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX, SHARED_PAYMENT_TOKEN_CACHE_PREFIX
+from . import (
+    AUTH_CODE_CACHE_PREFIX,
+    PENDING_AUTH_CACHE_PREFIX,
+    RESOURCE_SERVICE_CACHE_PREFIX,
+    SHARED_PAYMENT_TOKEN_CACHE_PREFIX,
+)
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
 
