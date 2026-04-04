@@ -9,6 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { groupsModel } from '~/models/groupsModel'
 import { GoalLine as SchemaGoalLine, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
@@ -39,8 +40,22 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         currentPeriodResult,
         breakdownFilter,
         insightData,
+        trendsFilter,
+        formula,
+        isStickiness,
+        labelGroupType,
     } = useValues(trendsDataLogic(insightProps))
-    const { timezone } = useValues(teamLogic)
+    const { timezone, baseCurrency } = useValues(teamLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+
+    const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
+    const resolvedGroupTypeLabel =
+        context?.groupTypeLabel ??
+        (labelGroupType === 'people'
+            ? 'people'
+            : labelGroupType === 'none'
+              ? ''
+              : aggregationLabel(labelGroupType).plural)
 
     const labels = currentPeriodResult?.labels ?? []
 
@@ -84,7 +99,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         showCrosshair: true,
         pinnableTooltip: true,
         yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
-        percentStackView: !!showPercentStackView && !!supportsPercentStackView,
+        percentStackView: isPercentStackView,
         xTickFormatter: xTickFormatter,
         goalLines: goalLines?.map((g: SchemaGoalLine) => ({
             value: g.value,
@@ -106,6 +121,13 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                     interval={interval ?? undefined}
                     breakdownFilter={breakdownFilter ?? undefined}
                     dateRange={insightData?.resolved_date_range ?? undefined}
+                    trendsFilter={trendsFilter}
+                    formula={formula}
+                    showPercentView={isStickiness}
+                    isPercentStackView={isPercentStackView}
+                    baseCurrency={baseCurrency}
+                    groupTypeLabel={resolvedGroupTypeLabel}
+                    formatCompareLabel={context?.formatCompareLabel}
                 />
             )}
         />
