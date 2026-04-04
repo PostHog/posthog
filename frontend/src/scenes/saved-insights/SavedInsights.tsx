@@ -221,6 +221,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: false,
     },
+    [NodeKind.ExperimentActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an experiment.',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.InsightActorsQueryOptions]: {
         name: 'Persons',
         description: 'Options for InsightActorsQuery.',
