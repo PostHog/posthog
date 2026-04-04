@@ -662,6 +662,37 @@ describe('TaxonomicFilter', () => {
         expect(onChangeMock.mock.calls[0][1]).toBe(expectedFirstProperty)
     })
 
+    describe('replay group selection', () => {
+        it.each([
+            { label: 'Visited page', expectedKey: 'visited_page', expectedPropertyFilterType: 'recording' },
+            { label: 'Platform', expectedKey: 'snapshot_source', expectedPropertyFilterType: 'recording' },
+            { label: 'Console log level', expectedKey: 'level', expectedPropertyFilterType: 'log_entry' },
+            { label: 'Console log message', expectedKey: 'message', expectedPropertyFilterType: 'log_entry' },
+            { label: 'Comment text', expectedKey: 'comment_text', expectedPropertyFilterType: 'recording' },
+        ])(
+            'selecting "$label" calls onChange with key "$expectedKey" and propertyFilterType "$expectedPropertyFilterType"',
+            async ({ label, expectedKey, expectedPropertyFilterType }) => {
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Replay],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(1)
+                })
+
+                await userEvent.click(screen.getAllByText(label)[0])
+
+                await waitFor(() => {
+                    expect(onChangeMock).toHaveBeenCalledTimes(1)
+                })
+                const [group, value, item] = onChangeMock.mock.calls[0]
+                expect(group.type).toBe(TaxonomicFilterGroupType.Replay)
+                expect(value).toBe(expectedKey)
+                expect(item.propertyFilterType).toBe(expectedPropertyFilterType)
+            }
+        )
+    })
+
     describe('autocapture context', () => {
         it.each([
             {
