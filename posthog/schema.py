@@ -4342,6 +4342,64 @@ class TaskExecutionStatus(StrEnum):
     FAILED = "failed"
 
 
+class TaxonomicFilterGroupType(StrEnum):
+    METADATA = "metadata"
+    ACTIONS = "actions"
+    COHORTS = "cohorts"
+    COHORTS_WITH_ALL = "cohorts_with_all"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PROPERTIES = "data_warehouse_properties"
+    DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
+    ELEMENTS = "elements"
+    EVENTS = "events"
+    INTERNAL_EVENTS = "internal_events"
+    INTERNAL_EVENT_PROPERTIES = "internal_event_properties"
+    EVENT_PROPERTIES = "event_properties"
+    EVENT_FEATURE_FLAGS = "event_feature_flags"
+    EVENT_METADATA = "event_metadata"
+    NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
+    PERSON_PROPERTIES = "person_properties"
+    PAGEVIEW_URLS = "pageview_urls"
+    PAGEVIEW_EVENTS = "pageview_events"
+    SCREENS = "screens"
+    SCREEN_EVENTS = "screen_events"
+    EMAIL_ADDRESSES = "email_addresses"
+    AUTOCAPTURE_EVENTS = "autocapture_events"
+    CUSTOM_EVENTS = "custom_events"
+    WILDCARD = "wildcard"
+    GROUPS = "groups"
+    PERSONS = "persons"
+    FEATURE_FLAGS = "feature_flags"
+    INSIGHTS = "insights"
+    EXPERIMENTS = "experiments"
+    PLUGINS = "plugins"
+    DASHBOARDS = "dashboards"
+    NAME_GROUPS = "name_groups"
+    SESSION_PROPERTIES = "session_properties"
+    HOGQL_EXPRESSION = "hogql_expression"
+    NOTEBOOKS = "notebooks"
+    LOG_ENTRIES = "log_entries"
+    ERROR_TRACKING_ISSUES = "error_tracking_issues"
+    LOGS = "logs"
+    LOG_ATTRIBUTES = "log_attributes"
+    LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
+    SPANS = "spans"
+    SPAN_ATTRIBUTES = "span_attributes"
+    SPAN_RESOURCE_ATTRIBUTES = "span_resource_attributes"
+    REPLAY = "replay"
+    REPLAY_SAVED_FILTERS = "replay_saved_filters"
+    REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
+    RESOURCES = "resources"
+    ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
+    ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
+    MAX_AI_CONTEXT = "max_ai_context"
+    WORKFLOW_VARIABLES = "workflow_variables"
+    SUGGESTED_FILTERS = "suggested_filters"
+    RECENT_FILTERS = "recent_filters"
+    PINNED_FILTERS = "pinned_filters"
+    EMPTY = "empty"
+
+
 class TikTokAdsDefaultSources(StrEnum):
     TIKTOK = "tiktok"
 
@@ -7248,7 +7306,7 @@ class SavedInsightNode(BaseModel):
         default=None,
         description=("Show a button to configure and persist the table's default columns if possible"),
     )
-    showPropertyFilter: bool | list[str] | None = Field(
+    showPropertyFilter: bool | list[TaxonomicFilterGroupType] | None = Field(
         default=None, description="Include a property filter above the table"
     )
     showRecordingColumn: bool | None = Field(
@@ -21335,7 +21393,7 @@ class DataTableNode(BaseModel):
         default=None,
         description=("Show a button to configure and persist the table's default columns if possible"),
     )
-    showPropertyFilter: bool | list[str] | None = Field(
+    showPropertyFilter: bool | list[TaxonomicFilterGroupType] | None = Field(
         default=None, description="Include a property filter above the table"
     )
     showRecordingColumn: bool | None = Field(

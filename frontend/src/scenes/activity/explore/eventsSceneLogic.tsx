@@ -15,7 +15,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { groupsModel } from '~/models/groupsModel'
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { DataTableNode, Node } from '~/queries/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
@@ -26,15 +25,15 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
     tabAwareScene(),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags'], groupsModel, ['groupsTaxonomicTypes']],
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
     })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
     selectors({
         defaultQuery: [
-            (s) => [s.currentTeam, s.groupsTaxonomicTypes],
-            (currentTeam, groupsTaxonomicTypes): DataTableNode => {
+            (s) => [s.currentTeam],
+            (currentTeam): DataTableNode => {
                 const defaultSourceForTeam = currentTeam && getDefaultEventsQueryForTeam(currentTeam)
                 const defaultForScene = getDefaultEventsSceneQuery()
                 const base = defaultSourceForTeam
@@ -47,7 +46,6 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.EventFeatureFlags,
                         TaxonomicFilterGroupType.EventMetadata,
-                        ...(groupsTaxonomicTypes ?? []),
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.HogQLExpression,
