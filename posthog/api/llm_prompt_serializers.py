@@ -109,8 +109,11 @@ class LLMPromptPublishSerializer(serializers.Serializer):
         help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
     )
 
-    def validate_prompt(self, value: Any) -> Any:
-        return validate_prompt_payload_size(value)
+    def validate_prompt(self, value: Any) -> str:
+        validate_prompt_payload_size(value)
+        if not isinstance(value, str):
+            return json.dumps(value, ensure_ascii=False)
+        return value
 
     def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         if len(value) == 0:
@@ -189,8 +192,11 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     def validate_name(self, value: str) -> str:
         return validate_prompt_name_value(value)
 
-    def validate_prompt(self, value: Any) -> Any:
-        return validate_prompt_payload_size(value)
+    def validate_prompt(self, value: Any) -> str:
+        validate_prompt_payload_size(value)
+        if not isinstance(value, str):
+            return json.dumps(value, ensure_ascii=False)
+        return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()

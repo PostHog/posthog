@@ -844,3 +844,57 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "archived-name"
         assert response.json()["version"] == 1
+
+    @parameterized.expand(
+        [
+            (
+                "json_object",
+                {"role": "system", "content": "You are helpful"},
+                '{"role": "system", "content": "You are helpful"}',
+            ),
+            (
+                "json_array",
+                [{"role": "system", "content": "You are helpful"}],
+                '[{"role": "system", "content": "You are helpful"}]',
+            ),
+            ("string", "You are a helpful assistant.", "You are a helpful assistant."),
+            ("number", 42, "42"),
+            ("boolean", True, "true"),
+        ]
+    )
+    def test_create_prompt_normalizes_prompt_to_string(
+        self, mock_feature_enabled, _label, input_prompt, expected_stored
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": f"normalize-{_label}", "prompt": input_prompt},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["prompt"] == expected_stored
+        db_prompt = LLMPrompt.objects.get(id=response.json()["id"])
+        assert db_prompt.prompt == expected_stored
+
+    @parameterized.expand(
+        [
+            ("json_object", {"role": "system", "content": "v2"}, '{"role": "system", "content": "v2"}'),
+            ("json_array", [{"role": "system", "content": "v2"}], '[{"role": "system", "content": "v2"}]'),
+            ("string", "v2 plain string", "v2 plain string"),
+        ]
+    )
+    def test_publish_prompt_normalizes_prompt_to_string(
+        self, mock_feature_enabled, _label, input_prompt, expected_stored
+    ):
+        self.create_prompt_version(name="publish-normalize", version=1, is_latest=True, prompt="v1")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/publish-normalize/",
+            data={"prompt": input_prompt, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["prompt"] == expected_stored
+        latest = LLMPrompt.objects.get(team=self.team, name="publish-normalize", version=2, deleted=False)
+        assert latest.prompt == expected_stored
