@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
+from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_history_metadata
@@ -61,16 +62,24 @@ def apply_prompt_edits(prompt_content: Any, edits: list[dict[str, str]]) -> Any:
             )
         text = text.replace(old, new, 1)
 
-    if is_string:
-        return text
+    result = text if is_string else None
+    if result is None:
+        try:
+            result = json.loads(text)
+        except json.JSONDecodeError as err:
+            raise LLMPromptEditError(
+                message=f"Edits produced invalid JSON: {err}",
+                edit_index=len(edits) - 1,
+            ) from err
 
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as err:
+    result_bytes = len(json.dumps(result, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    if result_bytes > MAX_PROMPT_PAYLOAD_BYTES:
         raise LLMPromptEditError(
-            message=f"Edits produced invalid JSON: {err}",
+            message=f"Resulting prompt exceeds the {MAX_PROMPT_PAYLOAD_BYTES} byte size limit.",
             edit_index=len(edits) - 1,
-        ) from err
+        )
+
+    return result
 
 
 def get_active_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
