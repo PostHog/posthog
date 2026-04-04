@@ -1,5 +1,3 @@
-"""Tests for action name refreshing in experiment metrics."""
-
 from parameterized import parameterized
 from rest_framework import status
 
@@ -9,8 +7,6 @@ from ee.api.test.base import APILicensedTest
 
 
 class TestExperimentActionNameRefresh(APILicensedTest):
-    """Test that experiment metrics show current action names when actions are renamed."""
-
     @parameterized.expand(
         [
             ("primary_metrics", "metrics"),
@@ -18,7 +14,6 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         ]
     )
     def test_inline_metric_refreshes_action_names(self, _name, metrics_field):
-        """Test that inline metrics show current action names when actions are renamed."""
         # Create an action
         action = Action.objects.create(team=self.team, name="Original Action Name")
 
@@ -75,7 +70,6 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         ]
     )
     def test_inline_metric_with_different_id_types(self, _name, id_type):
-        """Test that inline metrics work when action ID is stored as int or string."""
         # Create an action
         action = Action.objects.create(team=self.team, name="Action Name")
 
@@ -124,7 +118,6 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         self.assertEqual(metrics[0]["source"]["name"], "Action Name Renamed")
 
     def test_inline_metric_preserves_name_for_deleted_action(self):
-        """Test that inline metrics preserve old names when actions are deleted."""
         # Create an action
         action = Action.objects.create(team=self.team, name="Action to Delete")
         action_id = action.id
@@ -175,8 +168,13 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         # ID can be int or string depending on how it was stored
         self.assertIn(metrics[0]["source"]["id"], [action_id, str(action_id)])
 
-    def test_funnel_metric_refreshes_action_names(self):
-        """Test that funnel metrics with actions refresh their names."""
+    @parameterized.expand(
+        [
+            ("primary_metrics", "metrics"),
+            ("secondary_metrics", "metrics_secondary"),
+        ]
+    )
+    def test_funnel_metric_refreshes_action_names(self, _name, metrics_field):
         # Create two actions for funnel steps
         action1 = Action.objects.create(team=self.team, name="Funnel Step 1 Original")
         action2 = Action.objects.create(team=self.team, name="Funnel Step 2 Original")
@@ -185,17 +183,17 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
-                "name": "Test Funnel Experiment",
+                "name": f"Test Funnel Experiment {metrics_field}",
                 "description": "Test experiment with funnel action metrics",
                 "type": "web",
-                "feature_flag_key": "test-flag-funnel",
+                "feature_flag_key": f"test-flag-funnel-{metrics_field}",
                 "parameters": {
                     "feature_flag_variants": [
                         {"key": "control", "name": "Control", "rollout_percentage": 50},
                         {"key": "test", "name": "Test", "rollout_percentage": 50},
                     ]
                 },
-                "metrics": [
+                metrics_field: [
                     {
                         "kind": "ExperimentMetric",
                         "metric_type": "funnel",
@@ -230,14 +228,19 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify both action names were refreshed
-        metrics = response.json()["metrics"]
+        metrics = response.json()[metrics_field]
         self.assertEqual(len(metrics), 1)
         self.assertEqual(len(metrics[0]["series"]), 2)
         self.assertEqual(metrics[0]["series"][0]["name"], "Funnel Step 1 Renamed")
         self.assertEqual(metrics[0]["series"][1]["name"], "Funnel Step 2 Renamed")
 
-    def test_ratio_metric_refreshes_action_names(self):
-        """Test that ratio metrics with actions refresh their names."""
+    @parameterized.expand(
+        [
+            ("primary_metrics", "metrics"),
+            ("secondary_metrics", "metrics_secondary"),
+        ]
+    )
+    def test_ratio_metric_refreshes_action_names(self, _name, metrics_field):
         # Create two actions for numerator and denominator
         numerator_action = Action.objects.create(team=self.team, name="Numerator Original")
         denominator_action = Action.objects.create(team=self.team, name="Denominator Original")
@@ -246,17 +249,17 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
-                "name": "Test Ratio Experiment",
+                "name": f"Test Ratio Experiment {metrics_field}",
                 "description": "Test experiment with ratio action metrics",
                 "type": "web",
-                "feature_flag_key": "test-flag-ratio",
+                "feature_flag_key": f"test-flag-ratio-{metrics_field}",
                 "parameters": {
                     "feature_flag_variants": [
                         {"key": "control", "name": "Control", "rollout_percentage": 50},
                         {"key": "test", "name": "Test", "rollout_percentage": 50},
                     ]
                 },
-                "metrics": [
+                metrics_field: [
                     {
                         "kind": "ExperimentMetric",
                         "metric_type": "ratio",
@@ -289,7 +292,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify both action names were refreshed
-        metrics = response.json()["metrics"]
+        metrics = response.json()[metrics_field]
         self.assertEqual(len(metrics), 1)
         self.assertEqual(metrics[0]["numerator"]["name"], "Numerator Renamed")
         self.assertEqual(metrics[0]["denominator"]["name"], "Denominator Renamed")
