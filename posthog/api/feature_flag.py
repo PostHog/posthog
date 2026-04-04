@@ -55,6 +55,7 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
+from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.models import FeatureFlag, Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -3268,6 +3269,41 @@ def handle_feature_flag_change(
             trigger=trigger,
         ),
     )
+
+    # Emit a dedicated internal event for feature flag changes
+    # so users can trigger HogFunctions (webhooks, Slack, etc.) on flag changes
+    try:
+        produce_internal_event(
+            team_id=after_update.team_id,
+            event=InternalEventEvent(
+                event="$feature_flag_changed",
+                distinct_id=(
+                    after_update.last_modified_by.distinct_id
+                    if after_update.last_modified_by
+                    else f"team_{after_update.team_id}"
+                ),
+                properties={
+                    "flag_key": after_update.key,
+                    "flag_name": after_update.name or after_update.key,
+                    "flag_id": after_update.id,
+                    "active": after_update.active,
+                    "activity": resolved_activity,
+                    "changed_by": after_update.last_modified_by.email if after_update.last_modified_by else None,
+                    "changes": [change.field for change in changes] if changes else [],
+                },
+            ),
+            person=(
+                InternalEventPerson(
+                    id=str(after_update.last_modified_by.id),
+                    properties={"email": after_update.last_modified_by.email},
+                )
+                if after_update.last_modified_by
+                else None
+            ),
+        )
+    except Exception:
+        # Don't let event emission failures block the flag change
+        pass
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):

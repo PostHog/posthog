@@ -90,6 +90,27 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             r.delete(key)
         return super().setUp()
 
+    @patch("posthog.api.feature_flag.produce_internal_event")
+    def test_feature_flag_change_emits_internal_event(self, mock_produce_internal_event):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "test-flag", "name": "Test Flag", "filters": {"groups": [{"rollout_percentage": 100}]}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_produce_internal_event.assert_called_once()
+
+        _, kwargs = mock_produce_internal_event.call_args
+        event = kwargs["event"]
+
+        self.assertEqual(kwargs["team_id"], self.team.id)
+        self.assertEqual(event.event, "$feature_flag_changed")
+        self.assertEqual(event.properties["flag_key"], "test-flag")
+        self.assertEqual(event.properties["flag_name"], "Test Flag")
+        self.assertEqual(event.properties["activity"], "created")
+        self.assertIn("active", event.properties)
+
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         count = FeatureFlag.objects.count()
