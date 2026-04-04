@@ -266,3 +266,28 @@ tools:
     error-tracking-symbol-sets-bulk-delete-create:
         operation: error_tracking_symbol_sets_bulk_delete_create
         enabled: false
+
+# Query wrapper tools — execute ErrorTrackingQuery via the query API.
+wrappers:
+    query-error-tracking-issues:
+        schema_ref: AssistantErrorTrackingQuery
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query error tracking issues
+        description_file: ./prompts/query-error-tracking-issues.md
+        ui_resource_uri: ui://posthog/error-issue-list.html
+        url_prefix: /error_tracking
+        property_defaults:
+            limit: 50
+            orderBy: occurrences
+            volumeResolution: 1
+            dateRange:
+                date_from: '-7d'
+            filterTestAccounts: true
+            status: active
+            orderDirection: DESC

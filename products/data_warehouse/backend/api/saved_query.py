@@ -366,6 +366,17 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             before_update = None
 
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
+
+        if sync_frequency and posthoganalytics.feature_enabled(
+            "data-modeling-backend-v2",
+            str(instance.team.uuid),
+            groups={
+                "organization": str(instance.team.organization_id),
+                "project": str(instance.team.id),
+            },
+        ):
+            raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
+
         soft_update = validated_data.pop("soft_update", False)
 
         with transaction.atomic():

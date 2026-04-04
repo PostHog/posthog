@@ -194,14 +194,20 @@ impl ParsedAppleSymbols {
         Ok(buffer)
     }
 
-    pub fn lookup(&self, addr: u64) -> Result<Option<SymbolInfo>, ResolveError> {
+    /// Look up all logical frames for an address, including inlined frames.
+    ///
+    /// The symcache iterator returns frames innermost-first:
+    /// - index 0 is the deepest inlined function (the actual code running at `addr`)
+    /// - last index is the outermost physical function that contains the address
+    ///
+    /// Returns an empty `Vec` when the address is not found in the symcache.
+    pub fn lookup(&self, addr: u64) -> Result<Vec<SymbolInfo>, ResolveError> {
         let symcache = SymCache::parse(&self.symcache_data)
             .map_err(|e| AppleError::ParseError(e.to_string()))?;
 
-        let lookup_result = symcache.lookup(addr).next();
-
-        match lookup_result {
-            Some(result) => {
+        let results = symcache
+            .lookup(addr)
+            .map(|result| {
                 let raw_name = result.function().name_for_demangling();
 
                 // Short name (no params/return type) for display as resolved_name
@@ -215,19 +221,19 @@ impl ParsedAppleSymbols {
                     .unwrap_or_else(|| raw_name.to_string());
 
                 let full_path = result.file().map(|f| f.full_path());
-
                 let filename = full_path.as_ref().and_then(|path| extract_filename(path));
 
-                Ok(Some(SymbolInfo {
+                SymbolInfo {
                     display_name,
                     full_name,
                     filename,
                     full_path,
                     line: result.line(),
-                }))
-            }
-            None => Ok(None),
-        }
+                }
+            })
+            .collect();
+
+        Ok(results)
     }
 }
 

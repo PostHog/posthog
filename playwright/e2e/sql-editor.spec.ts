@@ -61,7 +61,25 @@ test.describe('SQL Editor', () => {
         })
 
         test('Materialize view pane', async ({ page }) => {
-            await page.getByText('Materialization').click()
+            await expect(page.locator('[data-attr=hogql-query-editor]')).toBeVisible()
+            await page.locator('[data-attr=hogql-query-editor]').click()
+            await page.locator('[data-attr=hogql-query-editor]').pressSequentially('SELECT 1')
+            await page.locator('[data-attr=sql-editor-run-button]').click()
+            await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
+
+            await expect(page.locator('[data-attr=sql-editor-save-options-button]')).toBeEnabled()
+            await page.locator('[data-attr=sql-editor-save-options-button]').click()
+            await page.getByText('Save as view', { exact: true }).click()
+
+            const uniqueViewName = `materialized_test_view_${Date.now()}`
+            const nameInput = page.locator('[data-attr=sql-editor-input-save-view-name]')
+            await expect(nameInput).toBeVisible()
+            await nameInput.fill(uniqueViewName)
+            await page.getByRole('button', { name: 'Submit' }).click()
+            await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
+
+            await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
+            await page.locator('[data-attr=sql-editor-materialization-button]').click()
             await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
         })
 

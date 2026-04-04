@@ -1,1 +1,1 @@
-1082_oauth_cimd_fields
+1083_alter_integration_kind

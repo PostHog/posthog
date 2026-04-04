@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from rest_framework.exceptions import ValidationError
@@ -7,9 +8,15 @@ from posthog.schema import PropertyOperator
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex, Property
+from posthog.models.property import GroupTypeIndex, Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+
+
+@dataclass
+class BlastRadiusResult:
+    affected: int
+    total: int
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -45,14 +52,15 @@ def get_user_blast_radius(
     team: Team,
     feature_flag_condition: dict,
     group_type_index: Optional[GroupTypeIndex] = None,
-):
+) -> BlastRadiusResult:
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
     cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
     if group_type_index is not None:
-        return _get_group_blast_radius(team, cleaned_filter, group_type_index)
+        affected, total = _get_group_blast_radius(team, cleaned_filter, group_type_index)
     else:
-        return _get_person_blast_radius(team, cleaned_filter)
+        affected, total = _get_person_blast_radius(team, cleaned_filter)
+    return BlastRadiusResult(affected=affected, total=total)
 
 
 def get_user_blast_radius_persons(
@@ -377,8 +385,6 @@ def _build_group_query(
 
     # Add regular property filters using property_to_expr (only if there are any)
     if regular_properties:
-        from posthog.models.property import PropertyGroup
-
         regular_filter = Filter(
             data={"properties": PropertyGroup(type=filter.property_groups.type, values=regular_properties).to_dict()},
             team=team,

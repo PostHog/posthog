@@ -157,7 +157,6 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service embedding-worker
-        autostart: false
         capability: embedding_service
         ready_pattern: 'Generated embedding'
 
