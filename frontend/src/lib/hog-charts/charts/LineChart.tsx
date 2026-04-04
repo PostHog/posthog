@@ -3,8 +3,8 @@ import React, { useCallback, useMemo, useRef } from 'react'
 import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
 import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
-import { computePercentStackData, createScales as createLineScales } from '../core/scales'
-import type { ScaleSet } from '../core/scales'
+import { computePercentStackData, computeStackData, createScales as createLineScales } from '../core/scales'
+import type { ScaleSet, StackedBand } from '../core/scales'
 import type {
     ChartDimensions,
     ChartDrawArgs,
@@ -40,12 +40,17 @@ export function LineChart({
 }: LineChartProps): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false, goalLines } = config ?? {}
 
-    const stackedData = useMemo(() => {
-        if (!percentStackView) {
-            return undefined
+    const hasAreaFill = useMemo(() => series.some((s) => s.fillArea), [series])
+
+    const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
+        if (percentStackView) {
+            return computePercentStackData(series, labels)
         }
-        return computePercentStackData(series, labels)
-    }, [percentStackView, series, labels])
+        if (hasAreaFill) {
+            return computeStackData(series, labels)
+        }
+        return undefined
+    }, [percentStackView, hasAreaFill, series, labels])
 
     const chartConfig = useMemo(() => {
         if (!percentStackView || config?.yTickFormatter) {
@@ -63,7 +68,16 @@ export function LineChart({
 
     const createScales: CreateScalesFn = useCallback(
         (coloredSeries: Series[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
-            const d3Scales = createLineScales(coloredSeries, scaleLabels, dimensions, {
+            // When stacking (non-percent), use stacked top values so the y-domain
+            // reflects the cumulative totals rather than individual series values
+            let seriesForScale = coloredSeries
+            if (stackedData && !percentStackView) {
+                seriesForScale = coloredSeries.map((s) => {
+                    const band = stackedData.get(s.key)
+                    return band ? { ...s, data: band.top } : s
+                })
+            }
+            const d3Scales = createLineScales(seriesForScale, scaleLabels, dimensions, {
                 scaleType: yScaleType,
                 percentStack: percentStackView,
             })
@@ -74,7 +88,7 @@ export function LineChart({
                 yTicks: () => d3Scales.y.ticks?.() ?? [],
             }
         },
-        [yScaleType, percentStackView]
+        [yScaleType, percentStackView, stackedData]
     )
 
     const draw = useCallback(
@@ -103,10 +117,11 @@ export function LineChart({
                     continue
                 }
 
-                const yValues = stackedData?.get(s.key)
+                const band = stackedData?.get(s.key)
+                const yValues = band?.top
 
                 if (s.fillArea) {
-                    drawArea(drawCtx, s, yValues)
+                    drawArea(drawCtx, s, yValues, band?.bottom)
                 }
                 drawLine(drawCtx, s, yValues)
                 drawPoints(drawCtx, s, yValues)
@@ -117,7 +132,7 @@ export function LineChart({
                     if (s.hidden) {
                         continue
                     }
-                    const data = stackedData?.get(s.key) ?? s.data
+                    const data = stackedData?.get(s.key)?.top ?? s.data
                     const x = scales.x(drawLabels[hoverIndex])
                     const y = scales.y(data[hoverIndex])
                     if (x != null && isFinite(y)) {
@@ -133,7 +148,8 @@ export function LineChart({
         if (!stackedData) {
             return undefined
         }
-        return (s: Series, dataIndex: number): number => stackedData.get(s.key)?.[dataIndex] ?? s.data[dataIndex] ?? 0
+        return (s: Series, dataIndex: number): number =>
+            stackedData.get(s.key)?.top[dataIndex] ?? s.data[dataIndex] ?? 0
     }, [stackedData])
 
     return (
