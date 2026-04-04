@@ -72,7 +72,10 @@ posthog:prompt-get
 { "prompt_name": "my-new-skill" }
 ```
 
-Then update using the version from the response:
+Then update using the version from the response.
+You can either send the full prompt, or use `edits` for incremental find/replace changes:
+
+### Full replacement
 
 ```json
 posthog:prompt-update
@@ -82,6 +85,24 @@ posthog:prompt-update
   "base_version": 1
 }
 ```
+
+### Incremental edits
+
+For small changes, use `edits` instead of resending the entire prompt.
+Each edit's `old` text must match exactly once in the current version:
+
+```json
+posthog:prompt-update
+{
+  "prompt_name": "my-new-skill",
+  "edits": [
+    { "old": "old text to find", "new": "replacement text" }
+  ],
+  "base_version": 1
+}
+```
+
+Only one of `prompt` or `edits` may be provided, not both.
 
 ## Porting a local skill
 
