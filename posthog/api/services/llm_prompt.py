@@ -51,7 +51,7 @@ def apply_prompt_edits(prompt_content: Any, edits: list[dict[str, str]]) -> Any:
         count = text.count(old)
         if count == 0:
             raise LLMPromptEditError(
-                message=f"Text to replace was not found in the prompt.",
+                message="Text to replace was not found in the prompt.",
                 edit_index=i,
             )
         if count > 1:
