@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react'
+import { renderHook, type RenderHookResult } from '@testing-library/react'
 import { act } from 'react'
 
 import type { ChartDimensions, ChartScales } from '../types'
@@ -93,7 +93,7 @@ describe('useChartInteraction — tooltip pinning', () => {
         }
     })
 
-    function renderInteraction(pinnable = true): ReturnType<typeof renderHook<ReturnType<typeof useChartInteraction>>> {
+    function renderInteraction(pinnable = true): RenderHookResult<ReturnType<typeof useChartInteraction>, unknown> {
         return renderHook(() =>
             useChartInteraction({
                 scales,
