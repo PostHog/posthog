@@ -101,6 +101,50 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('drawArea — stacked bands', () => {
+        it('traces bottom values in reverse when bottomValues is provided', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's1', data: [0, 0, 0] })
+            const drawCtx = makeDrawContext(ctx, labels)
+            const yValues = [80, 90, 70]
+            const bottomValues = [20, 30, 10]
+
+            drawArea(drawCtx, series, yValues, bottomValues)
+
+            expect(ctx.fill).toHaveBeenCalledTimes(1)
+            // Top edge: moveTo(a, 80) → lineTo(b, 90) → lineTo(c, 70)
+            // Bottom edge in reverse: lineTo(c, 10) → lineTo(b, 30) → lineTo(a, 20)
+            const lineToArgs = ctx.lineTo.mock.calls.map(([, y]: [number, number]) => y)
+            const moveToArgs = ctx.moveTo.mock.calls.map(([, y]: [number, number]) => y)
+
+            const yScale = drawCtx.yScale
+            // First point is moveTo (top of first point)
+            expect(moveToArgs[0]).toBe(yScale(80))
+            // lineTo calls: top[1], top[2], bottom[2], bottom[1], bottom[0]
+            expect(lineToArgs[0]).toBe(yScale(90))
+            expect(lineToArgs[1]).toBe(yScale(70))
+            expect(lineToArgs[2]).toBe(yScale(10))
+            expect(lineToArgs[3]).toBe(yScale(30))
+            expect(lineToArgs[4]).toBe(yScale(20))
+        })
+
+        it('falls back to baseline when bottomValues is not provided', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b']
+            const series = makeSeries({ key: 's1', data: [50, 80] })
+            const drawCtx = makeDrawContext(ctx, labels)
+            const baseline = dimensions.plotTop + dimensions.plotHeight
+
+            drawArea(drawCtx, series)
+
+            const lineToArgs = ctx.lineTo.mock.calls.map(([, y]: [number, number]) => y)
+            // Last two lineTo calls should be at the baseline
+            expect(lineToArgs[lineToArgs.length - 1]).toBe(baseline)
+            expect(lineToArgs[lineToArgs.length - 2]).toBe(baseline)
+        })
+    })
+
     describe('drawArea — gap handling', () => {
         it.each([
             {
