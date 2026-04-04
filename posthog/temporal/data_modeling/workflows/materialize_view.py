@@ -32,6 +32,14 @@ from posthog.temporal.data_modeling.metrics import (
     get_duckgres_shadow_duration_metric,
     get_duckgres_shadow_finished_metric,
     get_duckgres_shadow_row_count_match_metric,
+    get_duckgres_shadow_rows_materialized_metric,
+    get_duckgres_shadow_storage_delta_mib_metric,
+    get_duckgres_shadow_storage_mib_metric,
+    get_node_duration_metric,
+    get_node_finished_metric,
+    get_node_rows_materialized_metric,
+    get_node_storage_delta_mib_metric,
+    get_node_total_storage_mib_metric,
 )
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
@@ -113,12 +121,15 @@ class MaterializeViewWorkflow(PostHogWorkflow):
     async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
         temporalio.workflow.logger.info("Starting MaterializeViewWorkflow", extra=inputs.properties_to_log)
         start_time = temporalio.workflow.now()
+        parent_info = temporalio.workflow.info().parent
+        parent_workflow_id = parent_info.workflow_id if parent_info else None
         job_id = await temporalio.workflow.execute_activity(
             create_data_modeling_job_activity,
             CreateDataModelingJobInputs(
                 team_id=inputs.team_id,
                 node_id=inputs.node_id,
                 dag_id=inputs.dag_id,
+                parent_workflow_id=parent_workflow_id,
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
         )
@@ -131,6 +142,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 node_id=inputs.node_id,
                 dag_id=inputs.dag_id,
                 engine=DataModelingJobEngine.DUCKGRES,
+                parent_workflow_id=parent_workflow_id,
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
         )
@@ -173,7 +185,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 )
 
                 # prepare files for querying and create DataWarehouseTable
-                await temporalio.workflow.execute_activity(
+                storage_result = await temporalio.workflow.execute_activity(
                     prepare_queryable_table_activity,
                     PrepareQueryableTableInputs(
                         team_id=inputs.team_id,
@@ -255,6 +267,16 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         **inputs.properties_to_log,
                     },
                 )
+
+                # node-level metrics
+                get_node_finished_metric("completed").add(1)
+                get_node_duration_metric().record(duration_seconds)
+                get_node_rows_materialized_metric().record(materialize_result.row_count)
+                if storage_result.storage_delta_mib is not None and storage_result.storage_delta_mib >= 0:
+                    get_node_storage_delta_mib_metric().record(storage_result.storage_delta_mib)
+                if storage_result.total_storage_mib is not None:
+                    get_node_total_storage_mib_metric().record(storage_result.total_storage_mib)
+
                 return MaterializeViewWorkflowResult(
                     job_id=job_id,
                     node_id=inputs.node_id,
@@ -298,6 +320,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         f"Failed to mark job as failed: {str(fail_err)}",
                         extra=inputs.properties_to_log,
                     )
+                get_node_finished_metric("cancelled" if cancelled else "failed").add(1)
                 raise
 
         # await the duckgres shadow activity so the parent workflow's concurrency
@@ -403,7 +426,14 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             get_clickhouse_materialization_duration_metric().record(clickhouse_duration_seconds)
             if shadow_result.error is None:
                 get_duckgres_shadow_duration_metric().record(shadow_result.duration_seconds)
+                get_duckgres_shadow_rows_materialized_metric().record(shadow_result.row_count)
                 get_duckgres_shadow_row_count_match_metric(row_count_matched).add(1)
+                if shadow_result.file_size_bytes > 0:
+                    get_duckgres_shadow_storage_mib_metric().record(shadow_result.file_size_bytes / (1024 * 1024))
+                    if shadow_result.file_size_delta_bytes >= 0:
+                        get_duckgres_shadow_storage_delta_mib_metric().record(
+                            shadow_result.file_size_delta_bytes / (1024 * 1024)
+                        )
 
             # structured log for detailed comparison
             temporalio.workflow.logger.info(

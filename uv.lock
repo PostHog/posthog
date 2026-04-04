@@ -7,6 +7,13 @@ resolution-markers = [
     "sys_platform == 'emscripten'",
 ]
 
+[options]
+exclude-newer = "2026-03-25T10:46:17.625983536Z"
+exclude-newer-span = "P7D"
+
+[options.exclude-newer-package]
+hogql-parser = false
+
 [[package]]
 name = "aioboto3"
 version = "15.4.0"
@@ -1046,6 +1053,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2f/6d/0534780537175dd09aa4322119ab919acddfda404771b9e61b0bad00a955/cramjam-2.10.0-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:3a94fe7024137ed8bf200308000d106874afe52ff203f852f43b3547eddfa10e", size = 2132883, upload-time = "2025-04-12T17:58:09.141Z" },
     { url = "https://files.pythonhosted.org/packages/5d/2d/990b77c8257ff30ec5cf75fc110248f00a236dd8180410362ed6a32846ad/cramjam-2.10.0-cp312-cp312-win32.whl", hash = "sha256:ce11be5722c9d433c5e1eb3980f16eb7d80828b9614f089e28f4f1724fc8973f", size = 1597254, upload-time = "2025-04-12T17:58:10.728Z" },
     { url = "https://files.pythonhosted.org/packages/26/c7/baf6b960403313f9df3217f7b8039bb2e403559c95641e23a0b0056283c2/cramjam-2.10.0-cp312-cp312-win_amd64.whl", hash = "sha256:a01e89e99ba066dfa2df40fe99a2371565f4a3adc6811a73c8019d9929a312e8", size = 1699580, upload-time = "2025-04-12T17:58:12.586Z" },
+]
+
+[[package]]
+name = "croniter"
+version = "6.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+    { name = "pytz" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ad/2f/44d1ae153a0e27be56be43465e5cb39b9650c781e001e7864389deb25090/croniter-6.0.0.tar.gz", hash = "sha256:37c504b313956114a983ece2c2b07790b1f1094fe9d81cc94739214748255577", size = 64481, upload-time = "2024-12-17T17:17:47.32Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/4b/290b4c3efd6417a8b0c284896de19b1d5855e6dbdb97d2a35e68fa42de85/croniter-6.0.0-py2.py3-none-any.whl", hash = "sha256:2f878c3856f17896979b2a4379ba1f09c83e374931ea15cc835c5dd2eee9b368", size = 25468, upload-time = "2024-12-17T17:17:45.359Z" },
 ]
 
 [[package]]
@@ -3017,15 +3037,14 @@ wheels = [
 
 [[package]]
 name = "hypothesis"
-version = "6.130.13"
+version = "6.151.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "attrs" },
     { name = "sortedcontainers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/3f/c6e05264670316c42259410e1f52c06a82114a0c9dd4352d026024c6b88b/hypothesis-6.130.13.tar.gz", hash = "sha256:71208d5ca5368fbbfd233243eb119a4bc918a32303f5c8f2b5dbc7a37417abd4", size = 430360, upload-time = "2025-04-09T17:54:13.647Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/e1/ef365ff480903b929d28e057f57b76cae51a30375943e33374ec9a165d9c/hypothesis-6.151.9.tar.gz", hash = "sha256:2f284428dda6c3c48c580de0e18470ff9c7f5ef628a647ee8002f38c3f9097ca", size = 463534, upload-time = "2026-02-16T22:59:23.09Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/29/02e25088fee4fe284f36dbee752c1ffe480f63e38a5c04be3868317f5f70/hypothesis-6.130.13-py3-none-any.whl", hash = "sha256:2a2f97adf0090db5cbf4987584549b96b233f37318209fbd8dbe1e42ea7c02fb", size = 495504, upload-time = "2025-04-09T17:54:09.67Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/f7/5cc291d701094754a1d327b44d80a44971e13962881d9a400235726171da/hypothesis-6.151.9-py3-none-any.whl", hash = "sha256:7b7220585c67759b1b1ef839b1e6e9e3d82ed468cfc1ece43c67184848d7edd9", size = 529307, upload-time = "2026-02-16T22:59:20.443Z" },
 ]
 
 [[package]]
@@ -4969,6 +4988,7 @@ dependencies = [
     { name = "clickhouse-driver" },
     { name = "clickhouse-pool" },
     { name = "confluent-kafka" },
+    { name = "croniter" },
     { name = "cryptography" },
     { name = "css-inline" },
     { name = "dagster" },
@@ -5225,6 +5245,7 @@ requires-dist = [
     { name = "clickhouse-driver", specifier = "==0.2.9" },
     { name = "clickhouse-pool", specifier = "==0.5.3" },
     { name = "confluent-kafka", specifier = ">=2.13.0" },
+    { name = "croniter", specifier = "~=6.0.0" },
     { name = "cryptography", specifier = "==46.0.5" },
     { name = "css-inline", specifier = "==0.18.0" },
     { name = "dagster", specifier = "==1.10.18" },
@@ -5396,7 +5417,7 @@ dev = [
     { name = "fakeredis", extras = ["lua"], specifier = "==2.23.3" },
     { name = "freezegun", specifier = "==1.2.2" },
     { name = "grpcio-tools", specifier = "~=1.71.0" },
-    { name = "hypothesis", specifier = "~=6.130.0" },
+    { name = "hypothesis", specifier = "~=6.151.9" },
     { name = "ipython", specifier = "~=9.3.0" },
     { name = "mypy", specifier = "~=1.19.1" },
     { name = "mypy-baseline", specifier = "~=0.7.3" },

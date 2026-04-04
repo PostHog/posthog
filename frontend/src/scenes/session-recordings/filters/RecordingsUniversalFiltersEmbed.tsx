@@ -5,10 +5,12 @@ import { useEffect, useState } from 'react'
 
 import {
     IconAsterisk,
+    IconCheck,
     IconClock,
     IconEye,
     IconFilter,
     IconHide,
+    IconPencil,
     IconPlus,
     IconRefresh,
     IconRevert,
@@ -35,6 +37,7 @@ import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -47,7 +50,12 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { PropertyOperator, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
+import {
+    PropertyOperator,
+    RecordingUniversalFilters,
+    SessionRecordingPlaylistType,
+    UniversalFiltersGroup,
+} from '~/types'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -208,6 +216,7 @@ interface ReplayUniversalFiltersEmbedProps {
     totalFiltersCount?: number
     className?: string
     allowReplayHogQLFilters?: boolean
+    pinnedFilters?: UniversalFiltersGroup
 }
 
 export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
@@ -261,8 +270,10 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
 
 const RecordingsUniversalFilterGroup = ({
     hideAddFilterButton = false,
+    pinnedFilters,
 }: {
     hideAddFilterButton?: boolean
+    pinnedFilters?: UniversalFiltersGroup
 }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
@@ -275,7 +286,10 @@ const RecordingsUniversalFilterGroup = ({
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup hideAddFilterButton={hideAddFilterButton} />
+                        <RecordingsUniversalFilterGroup
+                            hideAddFilterButton={hideAddFilterButton}
+                            pinnedFilters={pinnedFilters}
+                        />
 
                         {!hideAddFilterButton && (
                             <Popover
@@ -306,7 +320,11 @@ const RecordingsUniversalFilterGroup = ({
                         key={index}
                         index={index}
                         filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
+                        onRemove={
+                            pinnedFilters?.values.some((pv) => equal(pv, filterOrGroup))
+                                ? undefined
+                                : () => removeGroupValue(index)
+                        }
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen}
                         metadataSource={{ kind: NodeKind.RecordingsQuery }}
@@ -388,6 +406,82 @@ const SaveFiltersModal = ({
     )
 }
 
+function SavedFilterNameEditor({
+    appliedSavedFilter,
+    hasFilterChanges,
+    onClose,
+    onRenamed,
+}: {
+    appliedSavedFilter: SessionRecordingPlaylistType
+    hasFilterChanges: boolean
+    onClose: () => void
+    onRenamed: (updatedFilter: SessionRecordingPlaylistType) => void
+}): JSX.Element {
+    const [isRenaming, setIsRenaming] = useState(false)
+    const [name, setName] = useState('')
+
+    const doRename = async (): Promise<void> => {
+        const trimmed = name.trim()
+        if (!trimmed) {
+            return
+        }
+        try {
+            const f = await updatePlaylist(
+                appliedSavedFilter.short_id,
+                { name: trimmed, filters: appliedSavedFilter.filters },
+                false
+            )
+            onRenamed(f)
+            setIsRenaming(false)
+        } catch {
+            lemonToast.error('Failed to rename saved filter')
+        }
+    }
+
+    if (isRenaming) {
+        return (
+            <div className="flex items-center gap-1 basis-full min-w-0">
+                <LemonInput
+                    value={name}
+                    onChange={setName}
+                    size="small"
+                    autoFocus
+                    fullWidth
+                    onPressEnter={() => void doRename()}
+                />
+                <LemonButton size="xsmall" icon={<IconCheck />} onClick={() => void doRename()} tooltip="Save name" />
+                <LemonButton size="xsmall" icon={<IconX />} onClick={() => setIsRenaming(false)} tooltip="Cancel" />
+            </div>
+        )
+    }
+
+    return (
+        <>
+            <LemonTag
+                type={hasFilterChanges ? 'option' : 'primary'}
+                icon={hasFilterChanges ? <IconAsterisk /> : undefined}
+                closable
+                onClose={onClose}
+                className="min-w-0"
+            >
+                <span className="truncate">
+                    {appliedSavedFilter.name || appliedSavedFilter.derived_name || 'Unnamed'}
+                    {hasFilterChanges && ' (edited)'}
+                </span>
+            </LemonTag>
+            <LemonButton
+                size="xsmall"
+                icon={<IconPencil />}
+                onClick={() => {
+                    setName(appliedSavedFilter.name || appliedSavedFilter.derived_name || '')
+                    setIsRenaming(true)
+                }}
+                tooltip="Rename saved filter"
+            />
+        </>
+    )
+}
+
 const ReplayFiltersTab = ({
     filters,
     setFilters,
@@ -395,6 +489,7 @@ const ReplayFiltersTab = ({
     className,
     totalFiltersCount,
     allowReplayHogQLFilters = false,
+    pinnedFilters,
 }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
@@ -474,26 +569,23 @@ const ReplayFiltersTab = ({
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
             {appliedSavedFilter && (
                 <div className="border-b px-2 py-3 flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-medium whitespace-nowrap flex-shrink-0">Loaded saved filter:</span>
-                        <LemonTag
-                            type={hasFilterChanges ? 'option' : 'primary'}
-                            icon={hasFilterChanges ? <IconAsterisk /> : undefined}
-                            closable
+                    <div className="flex items-center gap-2 min-w-0 flex-1 basis-3/5">
+                        <span className="font-medium whitespace-nowrap shrink-0">Loaded saved filter:</span>
+                        <SavedFilterNameEditor
+                            appliedSavedFilter={appliedSavedFilter}
+                            hasFilterChanges={hasFilterChanges}
                             onClose={() => {
                                 resetFilters?.()
                                 setAppliedSavedFilter(null)
                             }}
-                            className="max-w-xs"
-                        >
-                            <span className="truncate">
-                                {appliedSavedFilter.name || appliedSavedFilter.derived_name || 'Unnamed'}
-                                {hasFilterChanges && ' (edited)'}
-                            </span>
-                        </LemonTag>
+                            onRenamed={(updatedFilter) => {
+                                loadSavedFilters()
+                                setAppliedSavedFilter(updatedFilter)
+                            }}
+                        />
                     </div>
                     {hasFilterChanges && (
-                        <div className="flex gap-2 ml-auto">
+                        <div className="flex gap-2 ml-auto shrink-0">
                             <LemonButton
                                 data-attr="replay-filters-discard-changes-button"
                                 type="secondary"
@@ -648,7 +740,7 @@ const ReplayFiltersTab = ({
                             pageKey="session-recordings"
                             size="small"
                         />
-                        <RecordingsUniversalFilterGroup hideAddFilterButton={true} />
+                        <RecordingsUniversalFilterGroup hideAddFilterButton={true} pinnedFilters={pinnedFilters} />
                     </div>
                 </div>
             </UniversalFilters>

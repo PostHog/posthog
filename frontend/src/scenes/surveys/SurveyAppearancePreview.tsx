@@ -21,7 +21,10 @@ const DEFAULT_POSITION_STYLES: React.CSSProperties = {
     top: 'unset',
     bottom: 'unset',
     transform: 'unset',
+    width: 'var(--ph-survey-max-width)',
     maxWidth: '100%',
+    minWidth: 'min(300px, 100%)',
+    boxSizing: 'border-box',
 }
 
 export function SurveyAppearancePreview({
@@ -64,5 +67,5 @@ export function SurveyAppearancePreview({
         }
     }, [survey, previewPageIndex, onPreviewSubmit, positionStyles]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    return <div ref={surveyPreviewRef} />
+    return <div ref={surveyPreviewRef} className="flex w-full min-w-0 justify-center" />
 }

@@ -14,10 +14,12 @@ import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
 import { batchExportDataLogic } from './batchExportDataLogic'
+import { BatchExportContext } from './types'
 import { dayOptions } from './utils'
 
 export interface BatchExportBackfillModalLogicProps {
     id: string
+    context?: BatchExportContext
 }
 
 /**
@@ -147,6 +149,10 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         ],
     }),
     selectors({
+        isHogFunction: [
+            () => [(_, props) => props],
+            (props: BatchExportBackfillModalLogicProps): boolean => props.context === 'hog_function',
+        ],
         interval: [
             (s) => [s.batchExportConfig],
             (batchExportConfig: BatchExportConfiguration | null): string | undefined => batchExportConfig?.interval,

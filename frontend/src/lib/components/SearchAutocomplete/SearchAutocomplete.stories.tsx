@@ -1,12 +1,12 @@
 import type { Meta } from '@storybook/react'
 
-import { SearchAutocomplete } from './SearchAutocomplete'
+import { SearchAutocomplete, SearchAutocompleteProps } from './SearchAutocomplete'
 
 const meta = {
     title: 'UI/SearchAutocomplete',
     component: SearchAutocomplete as any,
     tags: ['autodocs'],
-} satisfies Meta<typeof SearchAutocomplete>
+} satisfies Meta<SearchAutocompleteProps>
 
 export default meta
 

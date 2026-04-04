@@ -109,26 +109,32 @@ class TestTrafficTypeFunctions:
 
 
 class TestIsBotFunction:
-    def test_is_bot_returns_or_expression(self):
+    def test_is_bot_returns_compare_operation(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
 
-        assert isinstance(result, ast.Or)
-        # Should have len(BOT_DEFINITIONS) + 1 (empty UA) match conditions
-        assert len(result.exprs) == len(BOT_DEFINITIONS) + 1
+        assert isinstance(result, ast.CompareOperation)
+        assert result.op == ast.CompareOperationOp.NotEq
 
-    def test_is_bot_uses_match_calls(self):
+    def test_is_bot_uses_multiMatchAnyIndex(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
+        assert isinstance(result, ast.CompareOperation)
+        assert isinstance(result.left, ast.Call)
+        assert result.left.name == "multiMatchAnyIndex"
 
-        for expr in result.exprs:
-            assert isinstance(expr, ast.Call)
-            assert expr.name == "match"
+    def test_is_bot_compares_against_zero(self):
+        node = ast.Call(name="__preview_isBot", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+
+        result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.CompareOperation)
+        assert isinstance(result.right, ast.Constant)
+        assert result.right.value == 0
 
 
 class TestGetBotTypeFunction:
@@ -268,15 +274,14 @@ class TestTrafficTypeFunctionPatterns:
         user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
-
-        for expr in result.exprs:
-            assert isinstance(expr, ast.Call)
-            # User agent is wrapped in ifNull(user_agent, '')
-            safe_user_agent = expr.args[0]
-            assert isinstance(safe_user_agent, ast.Call)
-            assert safe_user_agent.name == "ifNull"
-            assert safe_user_agent.args[0] == user_agent_arg
+        assert isinstance(result, ast.CompareOperation)
+        index_call = result.left
+        assert isinstance(index_call, ast.Call)
+        assert index_call.name == "multiMatchAnyIndex"
+        safe_user_agent = index_call.args[0]
+        assert isinstance(safe_user_agent, ast.Call)
+        assert safe_user_agent.name == "ifNull"
+        assert safe_user_agent.args[0] == user_agent_arg
 
 
 class TestNullHandling:
@@ -307,18 +312,17 @@ class TestNullHandling:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
+        assert isinstance(result, ast.CompareOperation)
 
-        # All match calls should use ifNull(user_agent, '')
-        for match_call in result.exprs:
-            assert isinstance(match_call, ast.Call)
-            safe_user_agent = match_call.args[0]
-            assert isinstance(safe_user_agent, ast.Call)
-            assert safe_user_agent.name == "ifNull"
-            assert safe_user_agent.args[0] == user_agent_arg
-            empty_string_arg = safe_user_agent.args[1]
-            assert isinstance(empty_string_arg, ast.Constant)
-            assert empty_string_arg.value == ""
+        index_call = result.left
+        assert isinstance(index_call, ast.Call)
+        safe_user_agent = index_call.args[0]
+        assert isinstance(safe_user_agent, ast.Call)
+        assert safe_user_agent.name == "ifNull"
+        assert safe_user_agent.args[0] == user_agent_arg
+        empty_string_arg = safe_user_agent.args[1]
+        assert isinstance(empty_string_arg, ast.Constant)
+        assert empty_string_arg.value == ""
 
 
 class TestBotDefinitionsDataStructure:

@@ -478,6 +478,24 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
+
+        # auth_method is a nested config - deep-merge to preserve sensitive fields (stripe_secret_key)
+        existing_auth_method = existing_job_inputs.get("auth_method")
+        incoming_auth_method = incoming_job_inputs.get("auth_method")
+        if incoming_auth_method is not None and not isinstance(incoming_auth_method, dict):
+            raise ValidationError({"job_inputs": {"auth_method": "Must be an object."}})
+        if isinstance(existing_auth_method, dict) and isinstance(incoming_auth_method, dict):
+            selection_changed = existing_auth_method.get("selection") != incoming_auth_method.get("selection")
+            if selection_changed:
+                # Auth method switched (e.g. api_key→oauth) — use only incoming, don't carry over old secrets
+                new_job_inputs["auth_method"] = incoming_auth_method
+            else:
+                merged_auth_method = {**existing_auth_method, **incoming_auth_method}
+                for key in sensitive_fields:
+                    if existing_auth_method.get(key) and not incoming_auth_method.get(key):
+                        merged_auth_method[key] = existing_auth_method[key]
+                new_job_inputs["auth_method"] = merged_auth_method
+
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
             # Deep-merge: start with existing, overlay incoming top-level keys
@@ -685,6 +703,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         schema_names = [schema.name for schema in source_schemas]
+        schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
         if not payload_schemas or not isinstance(payload_schemas, list):
@@ -757,6 +776,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     else {"schema_metadata": schema_metadata}
                 ),
                 description=source_schema.description if source_schema else None,
+                label=schema_label_by_name.get(schema_name),
             )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -928,7 +948,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if instance.is_direct_postgres
                 else instance.connection_metadata
             )
-            schema_names = [s.name for s in schemas]
+            schema_names = {s.name: s.label for s in schemas}
             logger.info(
                 "refresh_schemas fetched from source",
                 source_id=str(instance.id),
@@ -1187,7 +1207,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
-                external_status = source.get_external_webhook_info(config, webhook_url)
+                external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
             except Exception as e:
                 capture_exception(e)
 

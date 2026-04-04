@@ -1,0 +1,6 @@
+version: v2
+plugins:
+    - local: ../nodejs/node_modules/.bin/protoc-gen-es
+      out: ../nodejs/src/generated/personhog
+      opt:
+          - target=ts

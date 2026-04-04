@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PersonActorType } from '~/types'
+import { FilterLogicalOperator, PersonActorType } from '~/types'
 
 import { personsModalLogic } from './personsModalLogic'
 
@@ -130,6 +130,105 @@ describe('personsModalLogic', () => {
             expectLogic(logic).toMatchValues({
                 sessionIdsFromLoadedActors: [],
             })
+        })
+    })
+
+    describe('recordingFilters', () => {
+        it('uses session IDs for InsightActorsQuery when available', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    },
+                    includeRecordings: true,
+                } as any,
+                url: '/api/environments/1/persons?',
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+            })
+            logic.mount()
+
+            logic.actions.loadActorsSuccess({
+                results: [
+                    {
+                        count: 1,
+                        people: [
+                            {
+                                type: 'person',
+                                id: 'person-1',
+                                distinct_ids: ['user-1'],
+                                is_identified: true,
+                                properties: {},
+                                created_at: '2024-01-01',
+                                matched_recordings: [{ session_id: 'session-1', events: [] }],
+                                value_at_data_point: null,
+                            },
+                        ],
+                    },
+                ],
+                missing_persons: 0,
+            })
+
+            expectLogic(logic).toMatchValues({
+                recordingFilters: {
+                    session_ids: ['session-1'],
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: FilterLogicalOperator.And, values: [] }],
+                    },
+                    duration: [],
+                },
+            })
+        })
+
+        it('falls back to event filters when no session IDs are available', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, event: '$pageview' },
+                            { kind: NodeKind.EventsNode, event: 'sign_up' },
+                        ],
+                    },
+                    includeRecordings: true,
+                } as any,
+                url: '/api/environments/1/persons?',
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+            })
+            logic.mount()
+
+            logic.actions.loadActorsSuccess({
+                results: [
+                    {
+                        count: 1,
+                        people: [
+                            {
+                                type: 'person',
+                                id: 'person-1',
+                                distinct_ids: ['user-1'],
+                                is_identified: true,
+                                properties: {},
+                                created_at: '2024-01-01',
+                                matched_recordings: [],
+                                value_at_data_point: null,
+                            },
+                        ],
+                    },
+                ],
+                missing_persons: 0,
+            })
+
+            const filters = logic.values.recordingFilters
+            const innerValues = (filters.filter_group as any)?.values?.[0]?.values
+            expect(innerValues).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ id: '$pageview', type: 'events' }),
+                    expect.objectContaining({ id: 'sign_up', type: 'events' }),
+                ])
+            )
         })
     })
 })

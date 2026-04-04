@@ -8,6 +8,7 @@ import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transfo
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
+import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
@@ -50,7 +51,10 @@ describe('HogTransformer', () => {
         const team = await getFirstTeam(hub.postgres)
         teamId = team.id
 
-        hogTransformer = createHogTransformerService(hub, hub)
+        hogTransformer = createHogTransformerService(hub, {
+            ...hub,
+            monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+        })
     })
 
     afterEach(async () => {

@@ -1,0 +1,117 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Experiments
+feature: experiments
+url_prefix: /experiments
+ui_apps:
+    experiment:
+        type: detail
+        view_prop: experiment
+    experiment-list:
+        type: list
+        detail_tool: experiment-get
+        detail_args: '{ experimentId: item.id }'
+    experiment-results:
+        type: detail
+        view_prop: data
+tools:
+    experiment-holdouts-list:
+        operation: experiment_holdouts_list
+        enabled: false
+    experiment-holdouts-create:
+        operation: experiment_holdouts_create
+        enabled: false
+    experiment-holdouts-retrieve:
+        operation: experiment_holdouts_retrieve
+        enabled: false
+    experiment-holdouts-update:
+        operation: experiment_holdouts_update
+        enabled: false
+    experiment-holdouts-partial-update:
+        operation: experiment_holdouts_partial_update
+        enabled: false
+    experiment-holdouts-destroy:
+        operation: experiment_holdouts_destroy
+        enabled: false
+    experiments-list:
+        operation: experiments_list
+        enabled: false
+    experiments-create:
+        operation: experiments_create
+        enabled: false
+    experiments-retrieve:
+        operation: experiments_retrieve
+        enabled: false
+    experiments-update:
+        operation: experiments_update
+        enabled: false
+    experiments-partial-update:
+        operation: experiments_partial_update
+        enabled: false
+    experiments-destroy:
+        operation: experiments_destroy
+        enabled: false
+    experiments-create-exposure-cohort-for-experiment-create:
+        operation: experiments_create_exposure_cohort_for_experiment_create
+        enabled: false
+    experiments-duplicate-create:
+        operation: experiments_duplicate_create
+        enabled: false
+    experiments-recalculate-timeseries-create:
+        operation: experiments_recalculate_timeseries_create
+        enabled: false
+    experiments-timeseries-results-retrieve:
+        operation: experiments_timeseries_results_retrieve
+        enabled: false
+    experiments-eligible-feature-flags-retrieve:
+        operation: experiments_eligible_feature_flags_retrieve
+        enabled: false
+    experiments-requires-flag-implementation-retrieve:
+        operation: experiments_requires_flag_implementation_retrieve
+        enabled: false
+    experiments-stats-retrieve:
+        operation: experiments_stats_retrieve
+        enabled: false
+    experiment-saved-metrics-list:
+        operation: experiment_saved_metrics_list
+        enabled: false
+    experiment-saved-metrics-create:
+        operation: experiment_saved_metrics_create
+        enabled: false
+    experiment-saved-metrics-retrieve:
+        operation: experiment_saved_metrics_retrieve
+        enabled: false
+    experiment-saved-metrics-update:
+        operation: experiment_saved_metrics_update
+        enabled: false
+    experiment-saved-metrics-partial-update:
+        operation: experiment_saved_metrics_partial_update
+        enabled: false
+    experiment-saved-metrics-destroy:
+        operation: experiment_saved_metrics_destroy
+        enabled: false
+    experiments-archive-create:
+        operation: experiments_archive_create
+        enabled: false
+    experiments-end-create:
+        operation: experiments_end_create
+        enabled: false
+    experiments-launch-create:
+        operation: experiments_launch_create
+        enabled: false
+    experiments-pause-create:
+        operation: experiments_pause_create
+        enabled: false
+    experiments-reset-create:
+        operation: experiments_reset_create
+        enabled: false
+    experiments-resume-create:
+        operation: experiments_resume_create
+        enabled: false
+    experiments-ship-variant-create:
+        operation: experiments_ship_variant_create
+        enabled: false
