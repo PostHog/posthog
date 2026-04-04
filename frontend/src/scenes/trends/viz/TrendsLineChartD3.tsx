@@ -56,7 +56,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
 
     const hogSeries: Series[] = indexedResults
         .filter((r: IndexedTrendResult) => r.count !== 0)
-        .map((r: IndexedTrendResult, idx: number) => ({
+        .map((r: IndexedTrendResult) => ({
             key: `${r.id}`,
             label: r.label ?? '',
             data: r.data,
@@ -67,7 +67,8 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                 breakdown_value: r.breakdown_value,
                 compare_label: r.compare_label,
                 days: r.days,
-                order: r.action?.order ?? idx,
+                // Fall back to the pre-filter index (r.id) so ordering is stable when earlier series are dropped.
+                order: r.action?.order ?? r.id,
                 filter: r.filter,
             },
         }))

@@ -35,7 +35,7 @@ export function TrendsTooltip({
             id: idx,
             dataIndex: context.dataIndex,
             datasetIndex: idx,
-            order: (meta.order as number) ?? idx,
+            order: typeof meta.order === 'number' ? meta.order : idx,
             label: entry.series.label,
             color: entry.color,
             count: entry.value,
