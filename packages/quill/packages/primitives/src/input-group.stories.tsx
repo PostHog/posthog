@@ -1,10 +1,28 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-
-import { CheckIcon, Copy, CreditCardIcon, EyeOffIcon, InfoIcon, LucideArrowUpRight, MailIcon, RefreshCcwIcon, SearchIcon, Star, StarIcon } from 'lucide-react'
+import {
+    CheckIcon,
+    Copy,
+    CreditCardIcon,
+    EyeOffIcon,
+    InfoIcon,
+    LucideArrowUpRight,
+    MailIcon,
+    RefreshCcwIcon,
+    SearchIcon,
+    Star,
+    StarIcon,
+} from 'lucide-react'
 import { useState } from 'react'
+
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './field'
-import { Input } from './input'
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupText, InputGroupTextarea } from './input-group'
+import {
+    InputGroup,
+    InputGroupAddon,
+    InputGroupButton,
+    InputGroupInput,
+    InputGroupText,
+    InputGroupTextarea,
+} from './input-group'
 import { Kbd } from './kbd'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import { Spinner } from './spinner'
@@ -16,7 +34,6 @@ const meta = {
 
 export default meta
 type Story = StoryObj<typeof meta>
-
 
 export const Default: Story = {
     render: () => (
@@ -35,11 +52,7 @@ export const InlineEnd: Story = {
         <Field className="max-w-sm">
             <FieldLabel htmlFor="inline-end-input">Input</FieldLabel>
             <InputGroup>
-                <InputGroupInput
-                    id="inline-end-input"
-                    type="password"
-                    placeholder="Enter password"
-                />
+                <InputGroupInput id="inline-end-input" type="password" placeholder="Enter password" />
                 <InputGroupAddon align="inline-end">
                     <EyeOffIcon />
                 </InputGroupAddon>
@@ -53,11 +66,7 @@ export const BlockEnd: Story = {
         <Field className="max-w-sm">
             <FieldLabel htmlFor="inline-end-input">Input</FieldLabel>
             <InputGroup>
-                <InputGroupInput
-                    id="inline-end-input"
-                    type="password"
-                    placeholder="Enter password"
-                />
+                <InputGroupInput id="inline-end-input" type="password" placeholder="Enter password" />
                 <InputGroupAddon align="inline-end">
                     <EyeOffIcon />
                 </InputGroupAddon>
@@ -74,10 +83,7 @@ export const InlineBlockEnd: Story = {
                 <Field>
                     <FieldLabel htmlFor="block-end-textarea">Textarea</FieldLabel>
                     <InputGroup>
-                        <InputGroupTextarea
-                            id="block-end-textarea"
-                            placeholder="Write a comment..."
-                        />
+                        <InputGroupTextarea id="block-end-textarea" placeholder="Write a comment..." />
                         <InputGroupAddon align="block-end">
                             <InputGroupText>0/280</InputGroupText>
                             <InputGroupButton variant="primary" className="ml-auto">
@@ -85,12 +91,9 @@ export const InlineBlockEnd: Story = {
                             </InputGroupButton>
                         </InputGroupAddon>
                     </InputGroup>
-                    <FieldDescription>
-                        Footer positioned below the textarea.
-                    </FieldDescription>
+                    <FieldDescription>Footer positioned below the textarea.</FieldDescription>
                 </Field>
             </FieldGroup>
-
         </div>
     ),
 } satisfies Story
@@ -130,7 +133,6 @@ export const Icons: Story = {
     ),
 } satisfies Story
 
-
 export const Buttons: Story = {
     render: () => {
         const [isFavorite, setIsFavorite] = useState(false)
@@ -157,32 +159,26 @@ export const Buttons: Story = {
                 <InputGroup className="[--radius:9999px]">
                     <Popover>
                         <InputGroupAddon>
-                            <PopoverTrigger render={
-                                <InputGroupButton size="icon-xs">
-                                    <InfoIcon />
-                                </InputGroupButton>
-                            } />
+                            <PopoverTrigger
+                                render={
+                                    <InputGroupButton size="icon-xs">
+                                        <InfoIcon />
+                                    </InputGroupButton>
+                                }
+                            />
                         </InputGroupAddon>
 
-                        <PopoverContent
-                            align="start"
-                            className="flex flex-col gap-1 rounded-xl text-sm"
-                        >
+                        <PopoverContent align="start" className="flex flex-col gap-1 rounded-xl text-sm">
                             <p className="font-medium text-sm">Your connection is not secure.</p>
                             <p className="text-xs">You should not enter any sensitive information on this site.</p>
                         </PopoverContent>
                     </Popover>
 
-                    <InputGroupAddon className="pl-1.5 text-muted-foreground">
-                        https://
-                    </InputGroupAddon>
+                    <InputGroupAddon className="pl-1.5 text-muted-foreground">https://</InputGroupAddon>
 
                     <InputGroupInput id="input-secure-19" />
                     <InputGroupAddon align="inline-end">
-                        <InputGroupButton
-                            onClick={() => setIsFavorite(!isFavorite)}
-                            size="icon-xs"
-                        >
+                        <InputGroupButton onClick={() => setIsFavorite(!isFavorite)} size="icon-xs">
                             <Star
                                 data-favorite={isFavorite}
                                 className="data-[favorite=true]:fill-blue-600 data-[favorite=true]:stroke-blue-600"
@@ -224,7 +220,7 @@ export const Invalid: Story = {
                     <InputGroupAddon>
                         <MailIcon />
                     </InputGroupAddon>
-                    <InputGroupInput placeholder="Oops"  aria-invalid="true" />
+                    <InputGroupInput placeholder="Oops" aria-invalid="true" />
                 </InputGroup>
 
                 <InputGroup>
@@ -264,17 +260,12 @@ export const KBD: Story = {
     },
 } satisfies Story
 
-
 export const Textarea: Story = {
     render: () => {
         return (
             <div className="grid w-full max-w-md gap-4">
                 <InputGroup>
-                    <InputGroupTextarea
-                        id="textarea-code-32"
-                        placeholder="Normal textarea"
-                        className="min-h-[100px]"
-                    />
+                    <InputGroupTextarea id="textarea-code-32" placeholder="Normal textarea" className="min-h-[100px]" />
                 </InputGroup>
 
                 <InputGroup>
@@ -305,9 +296,7 @@ export const Textarea: Story = {
                     </InputGroupAddon>
 
                     <InputGroupAddon align="block-start" className="border-b border-input/30">
-                        <InputGroupText className="font-mono font-medium">
-                            script.js
-                        </InputGroupText>
+                        <InputGroupText className="font-mono font-medium">script.js</InputGroupText>
                         <InputGroupButton className="ml-auto" size="icon-xs">
                             <RefreshCcwIcon />
                         </InputGroupButton>

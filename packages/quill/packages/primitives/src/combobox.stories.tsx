@@ -1,9 +1,24 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './collapsible'
-import { Combobox, ComboboxList, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxChip, ComboboxChipsInput, ComboboxValue, ComboboxChips, useComboboxAnchor, ComboboxGroup, ComboboxLabel, ComboboxCollection, ComboboxSeparator } from './combobox'
 import React from 'react'
-import { Item, ItemTitle, ItemContent, ItemDescription } from './item'
+
+import {
+    Combobox,
+    ComboboxChip,
+    ComboboxChips,
+    ComboboxChipsInput,
+    ComboboxCollection,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxGroup,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxLabel,
+    ComboboxList,
+    ComboboxSeparator,
+    ComboboxValue,
+    useComboboxAnchor,
+} from './combobox'
+import { Item, ItemContent, ItemDescription, ItemTitle } from './item'
 
 const meta = {
     title: 'Primitives/Combobox',
@@ -14,18 +29,10 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-
-const frameworks = [
-    "Next.js",
-    "SvelteKit",
-    "Nuxt.js",
-    "Remix",
-    "Astro",
-] as const
+const frameworks = ['Next.js', 'SvelteKit', 'Nuxt.js', 'Remix', 'Astro'] as const
 
 export const Default: Story = {
     render: () => {
-        const [open, setOpen] = React.useState(true)
         return (
             <div className="max-w-xs">
                 <Combobox items={frameworks}>
@@ -46,20 +53,12 @@ export const Default: Story = {
     },
 } satisfies Story
 
-
 export const Multiple: Story = {
     render: () => {
         const anchor = useComboboxAnchor()
-        const [open, setOpen] = React.useState(true)
         return (
             <div className="max-w-xs">
-
-                <Combobox
-                    multiple
-                    autoHighlight
-                    items={frameworks}
-                    defaultValue={[frameworks[0]]}
-                >
+                <Combobox multiple autoHighlight items={frameworks} defaultValue={[frameworks[0]]}>
                     <ComboboxChips ref={anchor} className="max-w-xs">
                         <ComboboxValue>
                             {(values) => (
@@ -90,7 +89,6 @@ export const Multiple: Story = {
 
 export const Clearable: Story = {
     render: () => {
-        const [open, setOpen] = React.useState(true)
         return (
             <div className="max-w-xs">
                 <Combobox items={frameworks} defaultValue={frameworks[0]}>
@@ -113,46 +111,44 @@ export const Clearable: Story = {
 
 export const GroupsAndSeparators: Story = {
     render: () => {
-        const [open, setOpen] = React.useState(true)
         const timezones = [
             {
-                value: "Americas",
+                value: 'Americas',
                 items: [
-                    "(GMT-5) New York",
-                    "(GMT-8) Los Angeles",
-                    "(GMT-6) Chicago",
-                    "(GMT-5) Toronto",
-                    "(GMT-8) Vancouver",
-                    "(GMT-3) São Paulo",
+                    '(GMT-5) New York',
+                    '(GMT-8) Los Angeles',
+                    '(GMT-6) Chicago',
+                    '(GMT-5) Toronto',
+                    '(GMT-8) Vancouver',
+                    '(GMT-3) São Paulo',
                 ],
             },
             {
-                value: "Europe",
+                value: 'Europe',
                 items: [
-                    "(GMT+0) London",
-                    "(GMT+1) Paris",
-                    "(GMT+1) Berlin",
-                    "(GMT+1) Rome",
-                    "(GMT+1) Madrid",
-                    "(GMT+1) Amsterdam",
+                    '(GMT+0) London',
+                    '(GMT+1) Paris',
+                    '(GMT+1) Berlin',
+                    '(GMT+1) Rome',
+                    '(GMT+1) Madrid',
+                    '(GMT+1) Amsterdam',
                 ],
             },
             {
-                value: "Asia/Pacific",
+                value: 'Asia/Pacific',
                 items: [
-                    "(GMT+9) Tokyo",
-                    "(GMT+8) Shanghai",
-                    "(GMT+8) Singapore",
-                    "(GMT+4) Dubai",
-                    "(GMT+11) Sydney",
-                    "(GMT+9) Seoul",
+                    '(GMT+9) Tokyo',
+                    '(GMT+8) Shanghai',
+                    '(GMT+8) Singapore',
+                    '(GMT+4) Dubai',
+                    '(GMT+11) Sydney',
+                    '(GMT+9) Seoul',
                 ],
             },
-        ] as const;
+        ] as const
 
         return (
             <div className="max-w-xs">
-
                 <Combobox items={timezones}>
                     <ComboboxInput placeholder="Select a timezone" className="max-w-xs" />
                     <ComboboxContent>
@@ -181,65 +177,63 @@ export const GroupsAndSeparators: Story = {
 
 export const CustomItems: Story = {
     render: () => {
-        const [open, setOpen] = React.useState(true)
         const countries = [
-            { code: "", value: "", continent: "", label: "Select country" },
+            { code: '', value: '', continent: '', label: 'Select country' },
             {
-                code: "ar",
-                value: "argentina",
-                label: "Argentina",
-                continent: "South America",
+                code: 'ar',
+                value: 'argentina',
+                label: 'Argentina',
+                continent: 'South America',
             },
-            { code: "au", value: "australia", label: "Australia", continent: "Oceania" },
-            { code: "br", value: "brazil", label: "Brazil", continent: "South America" },
-            { code: "ca", value: "canada", label: "Canada", continent: "North America" },
-            { code: "cn", value: "china", label: "China", continent: "Asia" },
+            { code: 'au', value: 'australia', label: 'Australia', continent: 'Oceania' },
+            { code: 'br', value: 'brazil', label: 'Brazil', continent: 'South America' },
+            { code: 'ca', value: 'canada', label: 'Canada', continent: 'North America' },
+            { code: 'cn', value: 'china', label: 'China', continent: 'Asia' },
             {
-                code: "co",
-                value: "colombia",
-                label: "Colombia",
-                continent: "South America",
+                code: 'co',
+                value: 'colombia',
+                label: 'Colombia',
+                continent: 'South America',
             },
-            { code: "eg", value: "egypt", label: "Egypt", continent: "Africa" },
-            { code: "fr", value: "france", label: "France", continent: "Europe" },
-            { code: "de", value: "germany", label: "Germany", continent: "Europe" },
-            { code: "it", value: "italy", label: "Italy", continent: "Europe" },
-            { code: "jp", value: "japan", label: "Japan", continent: "Asia" },
-            { code: "ke", value: "kenya", label: "Kenya", continent: "Africa" },
-            { code: "mx", value: "mexico", label: "Mexico", continent: "North America" },
+            { code: 'eg', value: 'egypt', label: 'Egypt', continent: 'Africa' },
+            { code: 'fr', value: 'france', label: 'France', continent: 'Europe' },
+            { code: 'de', value: 'germany', label: 'Germany', continent: 'Europe' },
+            { code: 'it', value: 'italy', label: 'Italy', continent: 'Europe' },
+            { code: 'jp', value: 'japan', label: 'Japan', continent: 'Asia' },
+            { code: 'ke', value: 'kenya', label: 'Kenya', continent: 'Africa' },
+            { code: 'mx', value: 'mexico', label: 'Mexico', continent: 'North America' },
             {
-                code: "nz",
-                value: "new-zealand",
-                label: "New Zealand",
-                continent: "Oceania",
+                code: 'nz',
+                value: 'new-zealand',
+                label: 'New Zealand',
+                continent: 'Oceania',
             },
-            { code: "ng", value: "nigeria", label: "Nigeria", continent: "Africa" },
+            { code: 'ng', value: 'nigeria', label: 'Nigeria', continent: 'Africa' },
             {
-                code: "za",
-                value: "south-africa",
-                label: "South Africa",
-                continent: "Africa",
+                code: 'za',
+                value: 'south-africa',
+                label: 'South Africa',
+                continent: 'Africa',
             },
-            { code: "kr", value: "south-korea", label: "South Korea", continent: "Asia" },
+            { code: 'kr', value: 'south-korea', label: 'South Korea', continent: 'Asia' },
             {
-                code: "gb",
-                value: "united-kingdom",
-                label: "United Kingdom",
-                continent: "Europe",
+                code: 'gb',
+                value: 'united-kingdom',
+                label: 'United Kingdom',
+                continent: 'Europe',
             },
             {
-                code: "us",
-                value: "united-states",
-                label: "United States",
-                continent: "North America",
+                code: 'us',
+                value: 'united-states',
+                label: 'United States',
+                continent: 'North America',
             },
         ]
 
         return (
             <div className="max-w-xs">
-
                 <Combobox
-                    items={countries.filter((country) => country.code !== "")}
+                    items={countries.filter((country) => country.code !== '')}
                     itemToStringValue={(country: (typeof countries)[number]) => country.label}
                 >
                     <ComboboxInput placeholder="Search countries..." className="max-w-xs" />
@@ -250,9 +244,7 @@ export const CustomItems: Story = {
                                 <ComboboxItem key={country.code} value={country} className="h-auto">
                                     <Item size="xs" className="p-0">
                                         <ItemContent variant="menuItem">
-                                            <ItemTitle className="whitespace-nowrap">
-                                                {country.label}
-                                            </ItemTitle>
+                                            <ItemTitle className="whitespace-nowrap">{country.label}</ItemTitle>
                                             <ItemDescription>
                                                 {country.continent} ({country.code})
                                             </ItemDescription>
@@ -267,7 +259,6 @@ export const CustomItems: Story = {
         )
     },
 } satisfies Story
-
 
 export const Invalid: Story = {
     render: () => {

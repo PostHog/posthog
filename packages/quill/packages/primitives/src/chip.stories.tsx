@@ -72,11 +72,13 @@ export const Sizes: Story = {
 export const Group: Story = {
     render: () => (
         <ChipGroup>
-            <Chip>React
-            <ChipClose />
+            <Chip>
+                React
+                <ChipClose />
             </Chip>
-            <Chip>TypeScript
-            <ChipClose />
+            <Chip>
+                TypeScript
+                <ChipClose />
             </Chip>
             <Chip>
                 Tailwind

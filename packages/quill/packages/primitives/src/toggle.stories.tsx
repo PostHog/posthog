@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
+import { Bold, Italic, XIcon } from 'lucide-react'
 
-import { Bold, Italic, Underline, XIcon } from 'lucide-react'
-import { ToggleGroup, ToggleGroupItem } from './toggle-group'
 import { Toggle } from './toggle'
 
 const meta = {
@@ -16,7 +15,7 @@ type Story = StoryObj<typeof meta>
 export const Default: Story = {
     render: () => {
         return (
-            <Toggle variant="outline" size='icon'>
+            <Toggle variant="outline" size="icon">
                 <Bold />
             </Toggle>
         )

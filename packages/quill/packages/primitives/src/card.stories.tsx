@@ -1,11 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
+import { UserIcon } from 'lucide-react'
 
 import { Button } from './button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './card'
-import { Item, ItemTitle, ItemContent, ItemSeparator, ItemDescription, ItemMedia, ItemGroup } from './item'
-import { UserIcon } from 'lucide-react'
-import { Label } from './label'
-import { Field, FieldLabel } from './field'
+import { Field } from './field'
+import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from './item'
 
 const meta = {
     title: 'Primitives/Card',
@@ -91,26 +90,36 @@ export const CardWithItems: Story = {
             <CardContent>
                 <Field>
                     <ItemGroup combined>
-                        <Item variant="pressable" render={
-                            // eslint-disable-next-line react/forbid-elements
-                            <a href="#">
-                                <ItemMedia variant="icon"><UserIcon /></ItemMedia>
-                                <ItemContent>
-                                    <ItemTitle>Alice</ItemTitle>
-                                    <ItemDescription>Admin</ItemDescription>
-                                </ItemContent>
-                            </a>
-                        }/>
-                        <Item variant="pressable" render={
-                            // eslint-disable-next-line react/forbid-elements
-                            <a href="#">
-                                <ItemMedia variant="icon"><UserIcon /></ItemMedia>
-                                <ItemContent>
-                                    <ItemTitle>Bob</ItemTitle>
-                                    <ItemDescription>Member</ItemDescription>
-                                </ItemContent>
-                            </a>
-                        }/>
+                        <Item
+                            variant="pressable"
+                            render={
+                                // eslint-disable-next-line react/forbid-elements
+                                <a href="#">
+                                    <ItemMedia variant="icon">
+                                        <UserIcon />
+                                    </ItemMedia>
+                                    <ItemContent>
+                                        <ItemTitle>Alice</ItemTitle>
+                                        <ItemDescription>Admin</ItemDescription>
+                                    </ItemContent>
+                                </a>
+                            }
+                        />
+                        <Item
+                            variant="pressable"
+                            render={
+                                // eslint-disable-next-line react/forbid-elements
+                                <a href="#">
+                                    <ItemMedia variant="icon">
+                                        <UserIcon />
+                                    </ItemMedia>
+                                    <ItemContent>
+                                        <ItemTitle>Bob</ItemTitle>
+                                        <ItemDescription>Member</ItemDescription>
+                                    </ItemContent>
+                                </a>
+                            }
+                        />
                     </ItemGroup>
                 </Field>
             </CardContent>

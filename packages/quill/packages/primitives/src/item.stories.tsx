@@ -3,6 +3,7 @@ import { BadgeCheckIcon, ChevronRightIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from './combobox'
 import {
     DropdownMenu,
     DropdownMenuGroup,
@@ -13,9 +14,19 @@ import {
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
 } from './dropdown-menu'
-import { Item, ItemContent, ItemDescription, ItemTitle, ItemActions, ItemMedia, ItemGroup, ItemCheckbox, ItemRadio, ItemMenuItem } from './item'
+import {
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemTitle,
+    ItemActions,
+    ItemMedia,
+    ItemGroup,
+    ItemCheckbox,
+    ItemRadio,
+    ItemMenuItem,
+} from './item'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from './select'
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from './combobox'
 
 const meta = {
     title: 'Primitives/Item',
@@ -301,17 +312,15 @@ export const SelectInItem: Story = {
                         open={open}
                         onOpenChange={setOpen}
                         defaultValue={people[0]}
-                        itemToStringLabel={(person: typeof people[number]) => person.username}
-                        itemToStringValue={(person: typeof people[number]) => person.username}
+                        itemToStringLabel={(person: (typeof people)[number]) => person.username}
+                        itemToStringValue={(person: (typeof people)[number]) => person.username}
                     >
                         <SelectTrigger render={(props) => <Button variant="outline" {...props} className="h-min" />}>
                             <SelectValue>
-                                {(person: typeof people[number]) => (
+                                {(person: (typeof people)[number]) => (
                                     <ItemContent variant="menuItem">
                                         <ItemTitle>{person.username}</ItemTitle>
-                                        <ItemDescription className="leading-none">
-                                            {person.email}
-                                        </ItemDescription>
+                                        <ItemDescription className="leading-none">{person.email}</ItemDescription>
                                     </ItemContent>
                                 )}
                             </SelectValue>
@@ -319,16 +328,10 @@ export const SelectInItem: Story = {
                         <SelectContent className="min-w-(--anchor-width)" align="end" sideOffset={8}>
                             <SelectGroup>
                                 {people.map((person) => (
-                                    <SelectItem
-                                        key={person.username}
-                                        value={person}
-                                        className="py-0"
-                                    >
+                                    <SelectItem key={person.username} value={person} className="py-0">
                                         <ItemContent variant="menuItem">
                                             <ItemTitle>{person.username}</ItemTitle>
-                                            <ItemDescription className="leading-none">
-                                                {person.email}
-                                            </ItemDescription>
+                                            <ItemDescription className="leading-none">{person.email}</ItemDescription>
                                         </ItemContent>
                                     </SelectItem>
                                 ))}
@@ -352,34 +355,30 @@ export const ComboboxInItem: Story = {
                     <ItemDescription>A simple item with title and description.</ItemDescription>
                 </ItemContent>
                 <ItemActions>
-                <Combobox
-                    items={people.filter((person) => person.username !== "")}
-                    itemToStringLabel={(person: (typeof people)[number]) => person.username}
-                    itemToStringValue={(person: (typeof people)[number]) => person.username}
-                    open={open}
-                    onOpenChange={setOpen}
-                >
-                    <ComboboxInput placeholder="Search people..." className="max-w-xs" />
-                    <ComboboxContent>
-                        <ComboboxEmpty>No people found.</ComboboxEmpty>
-                        <ComboboxList>
-                            {(person) => (
-                                <ComboboxItem key={person.username} value={person} className="h-auto">
-                                    <Item size="xs" className="p-0">
-                                        <ItemContent variant="menuItem">
-                                            <ItemTitle className="whitespace-nowrap">
-                                                {person.username}
-                                            </ItemTitle>
-                                            <ItemDescription>
-                                                {person.email}
-                                            </ItemDescription>
-                                        </ItemContent>
-                                    </Item>
-                                </ComboboxItem>
-                            )}
-                        </ComboboxList>
-                    </ComboboxContent>
-                </Combobox>
+                    <Combobox
+                        items={people.filter((person) => person.username !== '')}
+                        itemToStringLabel={(person: (typeof people)[number]) => person.username}
+                        itemToStringValue={(person: (typeof people)[number]) => person.username}
+                        open={open}
+                        onOpenChange={setOpen}
+                    >
+                        <ComboboxInput placeholder="Search people..." className="max-w-xs" />
+                        <ComboboxContent>
+                            <ComboboxEmpty>No people found.</ComboboxEmpty>
+                            <ComboboxList>
+                                {(person) => (
+                                    <ComboboxItem key={person.username} value={person} className="h-auto">
+                                        <Item size="xs" className="p-0">
+                                            <ItemContent variant="menuItem">
+                                                <ItemTitle className="whitespace-nowrap">{person.username}</ItemTitle>
+                                                <ItemDescription>{person.email}</ItemDescription>
+                                            </ItemContent>
+                                        </Item>
+                                    </ComboboxItem>
+                                )}
+                            </ComboboxList>
+                        </ComboboxContent>
+                    </Combobox>
                 </ItemActions>
             </Item>
         )

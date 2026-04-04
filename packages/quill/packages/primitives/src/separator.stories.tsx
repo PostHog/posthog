@@ -17,14 +17,10 @@ export const Default: Story = {
             <div className="flex max-w-sm flex-col gap-4 text-sm">
                 <div className="flex flex-col gap-1.5">
                     <div className="leading-none font-medium">quill/primitives</div>
-                    <div className="text-muted-foreground">
-                        Bringing unity to PostHog UI universe
-                    </div>
+                    <div className="text-muted-foreground">Bringing unity to PostHog UI universe</div>
                 </div>
                 <Separator />
-                <div>
-                    A separator is a line that separates content.
-                </div>
+                <div>A separator is a line that separates content.</div>
             </div>
         )
     },

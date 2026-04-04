@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Copy, MoreVertical, Pencil, TrashIcon } from 'lucide-react'
+import { useState } from 'react'
 
 import { Button } from './button'
 import {
@@ -16,7 +17,6 @@ import {
     ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from './context-menu'
-import { useState } from 'react'
 
 const meta = {
     title: 'Primitives/ContextMenu',
@@ -64,7 +64,6 @@ export const Default: Story = {
     ),
 } satisfies Story
 
-
 export const Checkboxes: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
@@ -81,17 +80,13 @@ export const Checkboxes: Story = {
                         <ContextMenuCheckboxItem checked={checkedTwo} onCheckedChange={setCheckedTwo}>
                             Checkbox Item 2
                         </ContextMenuCheckboxItem>
-                        <ContextMenuCheckboxItem disabled>
-                            Checkbox Item 2
-                        </ContextMenuCheckboxItem>
+                        <ContextMenuCheckboxItem disabled>Checkbox Item 2</ContextMenuCheckboxItem>
                     </ContextMenuGroup>
                 </ContextMenuContent>
             </ContextMenu>
         )
     },
 } satisfies Story
-
-
 
 export const Radios: Story = {
     render: () => {
@@ -105,7 +100,9 @@ export const Radios: Story = {
                         <ContextMenuRadioGroup value={radioValue} onValueChange={setRadioValue}>
                             <ContextMenuRadioItem value="radioOne">Radio Item 1</ContextMenuRadioItem>
                             <ContextMenuRadioItem value="radioTwo">Radio Item 2</ContextMenuRadioItem>
-                            <ContextMenuRadioItem value="radioThree" disabled>Radio Item 3</ContextMenuRadioItem>
+                            <ContextMenuRadioItem value="radioThree" disabled>
+                                Radio Item 3
+                            </ContextMenuRadioItem>
                         </ContextMenuRadioGroup>
                     </ContextMenuGroup>
                 </ContextMenuContent>

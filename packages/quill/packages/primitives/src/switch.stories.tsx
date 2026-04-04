@@ -29,9 +29,7 @@ export const Description: Story = {
         return (
             <Field orientation="horizontal" className="max-w-sm">
                 <FieldContent>
-                    <FieldLabel htmlFor="switch-focus-mode">
-                        Share across devices
-                    </FieldLabel>
+                    <FieldLabel htmlFor="switch-focus-mode">Share across devices</FieldLabel>
                     <FieldDescription>
                         Focus is shared across devices, and turns off when you leave the app.
                     </FieldDescription>
@@ -51,8 +49,7 @@ export const ChoiceCard: Story = {
                         <FieldContent>
                             <FieldTitle>Share across devices</FieldTitle>
                             <FieldDescription>
-                                Focus is shared across devices, and turns off when you leave the
-                                app.
+                                Focus is shared across devices, and turns off when you leave the app.
                             </FieldDescription>
                         </FieldContent>
                         <Switch id="switch-share" />
@@ -74,7 +71,6 @@ export const ChoiceCard: Story = {
     },
 } satisfies Story
 
-
 export const Disabled: Story = {
     render: () => {
         return (
@@ -90,16 +86,12 @@ export const Invalid: Story = {
     render: () => {
         return (
             <Field orientation="horizontal" className="max-w-sm" data-invalid>
-      <FieldContent>
-        <FieldLabel htmlFor="switch-terms">
-          Accept terms and conditions
-        </FieldLabel>
-        <FieldDescription>
-          You must accept the terms and conditions to continue.
-        </FieldDescription>
-      </FieldContent>
-      <Switch id="switch-terms" aria-invalid />
-    </Field>
+                <FieldContent>
+                    <FieldLabel htmlFor="switch-terms">Accept terms and conditions</FieldLabel>
+                    <FieldDescription>You must accept the terms and conditions to continue.</FieldDescription>
+                </FieldContent>
+                <Switch id="switch-terms" aria-invalid />
+            </Field>
         )
     },
 } satisfies Story

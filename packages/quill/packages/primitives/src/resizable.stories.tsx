@@ -1,4 +1,3 @@
-
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
@@ -14,10 +13,7 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
     render: () => (
-        <ResizablePanelGroup
-            orientation="horizontal"
-            className="max-w-sm rounded-lg border"
-        >
+        <ResizablePanelGroup orientation="horizontal" className="max-w-sm rounded-lg border">
             <ResizablePanel defaultSize="50%">
                 <div className="flex h-[200px] items-center justify-center p-6">
                     <span className="font-semibold">One</span>

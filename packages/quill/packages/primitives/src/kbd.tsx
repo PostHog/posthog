@@ -1,7 +1,7 @@
 import * as React from 'react'
 
-import { cn } from './lib/utils'
 import { buttonVariants } from './button'
+import { cn } from './lib/utils'
 
 function Kbd({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {
     return (

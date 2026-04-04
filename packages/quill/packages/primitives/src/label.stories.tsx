@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
 import { Checkbox } from './checkbox'
-import { Label } from './label'
 import { Field, FieldLabel } from './field'
 import { Input } from './input'
+import { Label } from './label'
 
 const meta = {
     title: 'Primitives/Label',
@@ -13,7 +13,6 @@ const meta = {
 
 export default meta
 type Story = StoryObj<typeof meta>
-
 
 export const Default: Story = {
     render: () => {

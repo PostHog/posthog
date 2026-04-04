@@ -1,9 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-
-import { Progress, ProgressLabel, ProgressValue } from './progress'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './empty'
-import { Button } from './button'
 import { ArrowRightIcon, Folder } from 'lucide-react'
+
+import { Button } from './button'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './empty'
 
 const meta: Meta<typeof Empty> = {
     title: 'Primitives/Empty',
@@ -24,15 +23,23 @@ export const Default: Story = {
                     </EmptyMedia>
                     <EmptyTitle>No Projects yet</EmptyTitle>
                     <EmptyDescription>
-                        You haven't created any projects yet. Get started by creating
-                        your first project.
+                        You haven't created any projects yet. Get started by creating your first project.
                     </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent className="flex-row justify-center gap-2">
                     <Button>Create Project</Button>
                     <Button variant="outline">Import Project</Button>
                 </EmptyContent>
-                <Button variant="link-muted" size="sm" render={<a href="#">Learn More <ArrowRightIcon /></a>} />
+                <Button
+                    variant="link-muted"
+                    size="sm"
+                    render={
+                        // eslint-disable-next-line react/forbid-elements
+                        <a href="#">
+                            Learn More <ArrowRightIcon />
+                        </a>
+                    }
+                />
             </Empty>
         )
     },

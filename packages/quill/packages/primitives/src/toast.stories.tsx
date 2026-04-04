@@ -28,52 +28,38 @@ export const Default: Story = {
                 <Button onClick={() => toast({ title: 'Hello world' })}>Show toast</Button>
             </div>
             <div className="flex flex-col gap-2 max-w-[360px]">
-                <ToastCard
-                    toastTitle="Title only"
-                    onDismiss={() => { }}
-                />
-                <ToastCard
-                    toastTitle="Title only, no dismiss"
-                />
-                <ToastCard
-                    toastDescription="Description only, no dismiss"
-                />
-                <ToastCard
-                    toastDescription="Description only, not really used"
-                    onDismiss={() => { }}
-                />
+                <ToastCard toastTitle="Title only" onDismiss={() => {}} />
+                <ToastCard toastTitle="Title only, no dismiss" />
+                <ToastCard toastDescription="Description only, no dismiss" />
+                <ToastCard toastDescription="Description only, not really used" onDismiss={() => {}} />
                 <ToastCard
                     toastTitle="Title and description"
                     toastDescription="The event has been removed."
-                    onDismiss={() => { }}
+                    onDismiss={() => {}}
                 />
                 <ToastCard
                     toastTitle="Title, description, and action"
                     toastDescription="The event has been removed."
-                    onDismiss={() => { }}
+                    onDismiss={() => {}}
                     action={{
                         label: 'Undo',
-                        onClick: () => {
-                            console.log('Undo')
-                        },
+                        onClick: () => {},
                     }}
                 />
                 <ToastCard
                     toastTitle="Title and description, with icon"
                     toastDescription="The event has been removed."
                     icon={toastIconMap.success}
-                    onDismiss={() => { }}
+                    onDismiss={() => {}}
                 />
                 <ToastCard
                     toastTitle="Title and description, with icon and action"
                     toastDescription="The event has been removed."
                     icon={toastIconMap.success}
-                    onDismiss={() => { }}
+                    onDismiss={() => {}}
                     action={{
                         label: 'Undo',
-                        onClick: () => {
-                            console.log('Undo')
-                        },
+                        onClick: () => {},
                     }}
                 />
             </div>
@@ -81,55 +67,63 @@ export const Default: Story = {
     ),
 } satisfies Story
 
-const longDescription = "Some long description here to see how it wraps around the icon"
+const longDescription = 'Some long description here to see how it wraps around the icon'
 
 export const Types: Story = {
     render: () => {
         return (
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => toast({ title: 'Default toast' })}>Default</Button>
-                    <Button variant="outline" onClick={() => toast.success({ title: 'Operation completed' })}>Success</Button>
-                    <Button variant="outline" onClick={() => toast.info({ title: 'Something to know' })}>Info</Button>
-                    <Button variant="outline" onClick={() => toast.warning({ title: 'Be careful' })}>Warning</Button>
-                    <Button variant="outline" onClick={() => toast.error({ title: 'Something went wrong' })}>Error</Button>
-                    <Button variant="outline" onClick={() => toast.loading({ title: 'Processing...' })}>Loading</Button>
+                    <Button variant="outline" onClick={() => toast({ title: 'Default toast' })}>
+                        Default
+                    </Button>
+                    <Button variant="outline" onClick={() => toast.success({ title: 'Operation completed' })}>
+                        Success
+                    </Button>
+                    <Button variant="outline" onClick={() => toast.info({ title: 'Something to know' })}>
+                        Info
+                    </Button>
+                    <Button variant="outline" onClick={() => toast.warning({ title: 'Be careful' })}>
+                        Warning
+                    </Button>
+                    <Button variant="outline" onClick={() => toast.error({ title: 'Something went wrong' })}>
+                        Error
+                    </Button>
+                    <Button variant="outline" onClick={() => toast.loading({ title: 'Processing...' })}>
+                        Loading
+                    </Button>
                 </div>
                 <div className="flex flex-wrap gap-2 w-[360px] [&>*]:w-full">
-                    <ToastCard
-                        toastTitle="Default toast"
-                        toastDescription={longDescription}
-                        onDismiss={() => { }}
-                    />
+                    <ToastCard toastTitle="Default toast" toastDescription={longDescription} onDismiss={() => {}} />
                     <ToastCard
                         toastTitle="Success toast"
                         toastDescription={longDescription}
                         icon={toastIconMap.success}
-                        onDismiss={() => { }}
+                        onDismiss={() => {}}
                     />
                     <ToastCard
                         toastTitle="Info toast"
                         toastDescription={longDescription}
                         icon={toastIconMap.info}
-                        onDismiss={() => { }}
+                        onDismiss={() => {}}
                     />
                     <ToastCard
                         toastTitle="Warning toast"
                         toastDescription={longDescription}
                         icon={toastIconMap.warning}
-                        onDismiss={() => { }}
+                        onDismiss={() => {}}
                     />
                     <ToastCard
                         toastTitle="Error toast"
                         toastDescription={longDescription}
                         icon={toastIconMap.error}
-                        onDismiss={() => { }}
+                        onDismiss={() => {}}
                     />
                     <ToastCard
                         toastTitle="Loading toast"
                         toastDescription={longDescription}
                         icon={toastIconMap.loading}
-                        onDismiss={() => { }}
+                        onDismiss={() => {}}
                     />
                 </div>
             </div>
@@ -162,7 +156,6 @@ export const WithTitle: Story = {
                     Error with title
                 </Button>
             </div>
-
         </div>
     ),
 } satisfies Story
@@ -197,7 +190,6 @@ export const WithAction: Story = {
                         {deleted ? 'Deleted (click Undo in toast)' : 'Not deleted'}
                     </span>
                 </div>
-
             </div>
         )
     },
@@ -213,7 +205,6 @@ export const UpdateToast: Story = {
                         title: 'Upload complete',
                         description: 'Your file has been uploaded.',
                         type: 'success',
-
                     })
                 }, 2000)
             }}

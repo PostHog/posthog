@@ -31,21 +31,18 @@ const tabsListVariants = cva(
     }
 )
 
-const tabsIndicatorVariants = cva(
-    'absolute transition-all duration-200 ease-in-out',
-    {
-        variants: {
-            variant: {
-                default:
-                    'z-[-1] rounded-sm bg-background group-data-horizontal/tabs:top-1/2 group-data-horizontal/tabs:left-0 group-data-horizontal/tabs:h-7 group-data-horizontal/tabs:w-[var(--active-tab-width)] group-data-horizontal/tabs:translate-x-[var(--active-tab-left)] group-data-horizontal/tabs:-translate-y-1/2 group-data-vertical/tabs:left-1/2 group-data-vertical/tabs:top-0 group-data-vertical/tabs:w-[calc(100%-6px)] group-data-vertical/tabs:h-[var(--active-tab-height)] group-data-vertical/tabs:translate-y-[var(--active-tab-top)] group-data-vertical/tabs:-translate-x-1/2',
-                line: 'z-0 bg-foreground group-data-horizontal/tabs:bottom-0 group-data-horizontal/tabs:left-0 group-data-horizontal/tabs:h-0.5 group-data-horizontal/tabs:w-[var(--active-tab-width)] group-data-horizontal/tabs:translate-x-[var(--active-tab-left)] group-data-vertical/tabs:top-0 group-data-vertical/tabs:right-0 group-data-vertical/tabs:w-0.5 group-data-vertical/tabs:h-[var(--active-tab-height)] group-data-vertical/tabs:translate-y-[var(--active-tab-top)]',
-            },
+const tabsIndicatorVariants = cva('absolute transition-all duration-200 ease-in-out', {
+    variants: {
+        variant: {
+            default:
+                'z-[-1] rounded-sm bg-background group-data-horizontal/tabs:top-1/2 group-data-horizontal/tabs:left-0 group-data-horizontal/tabs:h-7 group-data-horizontal/tabs:w-[var(--active-tab-width)] group-data-horizontal/tabs:translate-x-[var(--active-tab-left)] group-data-horizontal/tabs:-translate-y-1/2 group-data-vertical/tabs:left-1/2 group-data-vertical/tabs:top-0 group-data-vertical/tabs:w-[calc(100%-6px)] group-data-vertical/tabs:h-[var(--active-tab-height)] group-data-vertical/tabs:translate-y-[var(--active-tab-top)] group-data-vertical/tabs:-translate-x-1/2',
+            line: 'z-0 bg-foreground group-data-horizontal/tabs:bottom-0 group-data-horizontal/tabs:left-0 group-data-horizontal/tabs:h-0.5 group-data-horizontal/tabs:w-[var(--active-tab-width)] group-data-horizontal/tabs:translate-x-[var(--active-tab-left)] group-data-vertical/tabs:top-0 group-data-vertical/tabs:right-0 group-data-vertical/tabs:w-0.5 group-data-vertical/tabs:h-[var(--active-tab-height)] group-data-vertical/tabs:translate-y-[var(--active-tab-top)]',
         },
-        defaultVariants: {
-            variant: 'default',
-        },
-    }
-)
+    },
+    defaultVariants: {
+        variant: 'default',
+    },
+})
 
 function TabsList({
     className,

@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
-import { Input } from './input'
 import { Field, FieldDescription, FieldLabel } from './field'
 import { Textarea } from './textarea'
 
@@ -52,11 +51,7 @@ export const Invalid: Story = {
     render: () => (
         <Field data-invalid>
             <FieldLabel htmlFor="textarea-invalid">Message</FieldLabel>
-            <Textarea
-                id="textarea-invalid"
-                placeholder="Type your message here."
-                aria-invalid
-            />
+            <Textarea id="textarea-invalid" placeholder="Type your message here." aria-invalid />
             <FieldDescription>Please enter a valid message.</FieldDescription>
         </Field>
     ),

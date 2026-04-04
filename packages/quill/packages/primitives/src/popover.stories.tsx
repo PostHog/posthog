@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
+import { useState } from 'react'
 
 import { Button } from './button'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
-import { useState } from 'react'
 
 const meta = {
     title: 'Primitives/Popover',
@@ -12,7 +12,6 @@ const meta = {
 
 export default meta
 type Story = StoryObj<typeof meta>
-
 
 export const Default: Story = {
     render: () => {

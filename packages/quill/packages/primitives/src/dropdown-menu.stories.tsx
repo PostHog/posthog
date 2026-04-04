@@ -85,9 +85,7 @@ export const Labels: Story = {
                 <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>Click me</DropdownMenuTrigger>
                 <DropdownMenuContent>
                     <DropdownMenuGroup>
-                        <DropdownMenuLabel>
-                            Group label
-                        </DropdownMenuLabel>
+                        <DropdownMenuLabel>Group label</DropdownMenuLabel>
                         <DropdownMenuItem>
                             <Copy />
                             Copy
@@ -142,9 +140,7 @@ export const Checkboxes: Story = {
                         <DropdownMenuCheckboxItem checked={checkedTwo} onCheckedChange={setCheckedTwo}>
                             Checkbox Item 2
                         </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem disabled>
-                            Checkbox Item 2
-                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem disabled>Checkbox Item 2</DropdownMenuCheckboxItem>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
@@ -164,7 +160,9 @@ export const Radios: Story = {
                         <DropdownMenuRadioGroup value={radioValue} onValueChange={setRadioValue}>
                             <DropdownMenuRadioItem value="radioOne">Radio Item 1</DropdownMenuRadioItem>
                             <DropdownMenuRadioItem value="radioTwo">Radio Item 2</DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="radioThree" disabled>Radio Item 3</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="radioThree" disabled>
+                                Radio Item 3
+                            </DropdownMenuRadioItem>
                         </DropdownMenuRadioGroup>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>

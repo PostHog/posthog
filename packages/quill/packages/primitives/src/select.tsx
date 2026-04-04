@@ -93,12 +93,7 @@ function SelectContent({
 
 function SelectGroupLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props): React.ReactElement {
     return (
-        <SelectPrimitive.GroupLabel
-            data-slot="select-label"
-            className={className}
-            render={<MenuLabel />}
-            {...props}
-        />
+        <SelectPrimitive.GroupLabel data-slot="select-label" className={className} render={<MenuLabel />} {...props} />
     )
 }
 

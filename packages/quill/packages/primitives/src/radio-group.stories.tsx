@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldLegend, FieldSet, FieldTitle } from './field'
 import { Label } from './label'
 import { RadioGroup, RadioGroupItem } from './radio-group'
-import { Field, FieldContent, FieldDescription, FieldLabel, FieldLegend, FieldSet, FieldTitle } from './field'
 
 const meta = {
     title: 'Primitives/Radio Group',
@@ -42,9 +42,7 @@ export const Description: Story = {
                     <RadioGroupItem value="default" id="desc-r1" />
                     <FieldContent>
                         <FieldLabel htmlFor="desc-r1">Default</FieldLabel>
-                        <FieldDescription>
-                            Standard spacing for most use cases.
-                        </FieldDescription>
+                        <FieldDescription>Standard spacing for most use cases.</FieldDescription>
                     </FieldContent>
                 </Field>
                 <Field orientation="horizontal">
@@ -58,9 +56,7 @@ export const Description: Story = {
                     <RadioGroupItem value="compact" id="desc-r3" />
                     <FieldContent>
                         <FieldLabel htmlFor="desc-r3">Compact</FieldLabel>
-                        <FieldDescription>
-                            Minimal spacing for dense layouts.
-                        </FieldDescription>
+                        <FieldDescription>Minimal spacing for dense layouts.</FieldDescription>
                     </FieldContent>
                 </Field>
             </RadioGroup>
@@ -76,9 +72,7 @@ export const ChoiceCard: Story = {
                     <Field orientation="horizontal">
                         <FieldContent>
                             <FieldTitle>Plus</FieldTitle>
-                            <FieldDescription>
-                                For individuals and small teams.
-                            </FieldDescription>
+                            <FieldDescription>For individuals and small teams.</FieldDescription>
                         </FieldContent>
                         <RadioGroupItem value="plus" id="plus-plan" />
                     </Field>
@@ -96,9 +90,7 @@ export const ChoiceCard: Story = {
                     <Field orientation="horizontal">
                         <FieldContent>
                             <FieldTitle>Enterprise</FieldTitle>
-                            <FieldDescription>
-                                For large teams and enterprises.
-                            </FieldDescription>
+                            <FieldDescription>For large teams and enterprises.</FieldDescription>
                         </FieldContent>
                         <RadioGroupItem value="enterprise" id="enterprise-plan" />
                     </Field>
@@ -113,9 +105,7 @@ export const Field_Set: Story = {
         return (
             <FieldSet className="w-full max-w-xs">
                 <FieldLegend variant="label">Subscription Plan</FieldLegend>
-                <FieldDescription>
-                    Yearly and lifetime plans offer significant savings.
-                </FieldDescription>
+                <FieldDescription>Yearly and lifetime plans offer significant savings.</FieldDescription>
                 <RadioGroup defaultValue="monthly">
                     <Field orientation="horizontal">
                         <RadioGroupItem value="monthly" id="plan-monthly" />
@@ -141,30 +131,29 @@ export const Field_Set: Story = {
     },
 } satisfies Story
 
-
 export const Disabled: Story = {
     render: () => {
         return (
             <RadioGroup defaultValue="option2" className="w-fit">
-      <Field orientation="horizontal" data-disabled>
-        <RadioGroupItem value="option1" id="disabled-1" disabled />
-        <FieldLabel htmlFor="disabled-1" className="font-normal">
-          Disabled
-        </FieldLabel>
-      </Field>
-      <Field orientation="horizontal">
-        <RadioGroupItem value="option2" id="disabled-2" />
-        <FieldLabel htmlFor="disabled-2" className="font-normal">
-          Option 2
-        </FieldLabel>
-      </Field>
-      <Field orientation="horizontal">
-        <RadioGroupItem value="option3" id="disabled-3" />
-        <FieldLabel htmlFor="disabled-3" className="font-normal">
-          Option 3
-        </FieldLabel>
-      </Field>
-    </RadioGroup>
+                <Field orientation="horizontal" data-disabled>
+                    <RadioGroupItem value="option1" id="disabled-1" disabled />
+                    <FieldLabel htmlFor="disabled-1" className="font-normal">
+                        Disabled
+                    </FieldLabel>
+                </Field>
+                <Field orientation="horizontal">
+                    <RadioGroupItem value="option2" id="disabled-2" />
+                    <FieldLabel htmlFor="disabled-2" className="font-normal">
+                        Option 2
+                    </FieldLabel>
+                </Field>
+                <Field orientation="horizontal">
+                    <RadioGroupItem value="option3" id="disabled-3" />
+                    <FieldLabel htmlFor="disabled-3" className="font-normal">
+                        Option 3
+                    </FieldLabel>
+                </Field>
+            </RadioGroup>
         )
     },
 } satisfies Story
@@ -173,31 +162,29 @@ export const Invalid: Story = {
     render: () => {
         return (
             <FieldSet className="w-full max-w-xs">
-      <FieldLegend variant="label">Notification Preferences</FieldLegend>
-      <FieldDescription>
-        Choose how you want to receive notifications.
-      </FieldDescription>
-      <RadioGroup defaultValue="email">
-        <Field orientation="horizontal" data-invalid>
-          <RadioGroupItem value="email" id="invalid-email" aria-invalid />
-          <FieldLabel htmlFor="invalid-email" className="font-normal">
-            Email only
-          </FieldLabel>
-        </Field>
-        <Field orientation="horizontal" data-invalid>
-          <RadioGroupItem value="sms" id="invalid-sms" aria-invalid />
-          <FieldLabel htmlFor="invalid-sms" className="font-normal">
-            SMS only
-          </FieldLabel>
-        </Field>
-        <Field orientation="horizontal" data-invalid>
-          <RadioGroupItem value="both" id="invalid-both" aria-invalid />
-          <FieldLabel htmlFor="invalid-both" className="font-normal">
-            Both Email & SMS
-          </FieldLabel>
-        </Field>
-      </RadioGroup>
-    </FieldSet>
+                <FieldLegend variant="label">Notification Preferences</FieldLegend>
+                <FieldDescription>Choose how you want to receive notifications.</FieldDescription>
+                <RadioGroup defaultValue="email">
+                    <Field orientation="horizontal" data-invalid>
+                        <RadioGroupItem value="email" id="invalid-email" aria-invalid />
+                        <FieldLabel htmlFor="invalid-email" className="font-normal">
+                            Email only
+                        </FieldLabel>
+                    </Field>
+                    <Field orientation="horizontal" data-invalid>
+                        <RadioGroupItem value="sms" id="invalid-sms" aria-invalid />
+                        <FieldLabel htmlFor="invalid-sms" className="font-normal">
+                            SMS only
+                        </FieldLabel>
+                    </Field>
+                    <Field orientation="horizontal" data-invalid>
+                        <RadioGroupItem value="both" id="invalid-both" aria-invalid />
+                        <FieldLabel htmlFor="invalid-both" className="font-normal">
+                            Both Email & SMS
+                        </FieldLabel>
+                    </Field>
+                </RadioGroup>
+            </FieldSet>
         )
     },
 } satisfies Story

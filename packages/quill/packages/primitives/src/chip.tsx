@@ -26,22 +26,21 @@ const Chip = React.forwardRef<HTMLButtonElement, ChipProps>(
 )
 Chip.displayName = 'Chip'
 
-const ChipClose = React.forwardRef<
-    HTMLButtonElement,
-    React.ComponentProps<typeof Button>
->(({ className, children, ...props }, ref) => {
-    return (
-        <Button
-            ref={ref}
-            data-slot="chip-close"
-            size="icon-xs"
-            className={cn('opacity-50 hover:opacity-100', className)}
-            {...props}
-        >
-            {children ?? <XIcon />}
-        </Button>
-    )
-})
+const ChipClose = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeof Button>>(
+    ({ className, children, ...props }, ref) => {
+        return (
+            <Button
+                ref={ref}
+                data-slot="chip-close"
+                size="icon-xs"
+                className={cn('opacity-50 hover:opacity-100', className)}
+                {...props}
+            >
+                {children ?? <XIcon />}
+            </Button>
+        )
+    }
+)
 ChipClose.displayName = 'ChipClose'
 
 function ChipGroup({

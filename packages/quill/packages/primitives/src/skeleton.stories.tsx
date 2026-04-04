@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-
-import { Skeleton } from './skeleton'
 import { useState } from 'react'
-import { Card, CardTitle, CardHeader } from './card'
+
 import { Button } from './button'
+import { Card, CardTitle, CardHeader } from './card'
+import { Skeleton } from './skeleton'
 
 const meta = {
     title: 'Primitives/Skeleton',
@@ -21,7 +21,8 @@ export const Default: Story = {
         return (
             <div className="flex flex-col gap-2 ">
                 <div className="w-full max-w-sm">
-                    Wrap the content in a Skeleton component to animate the opacity of the children when the loading state changes. The container shouldn't change in size when the loading state changes.
+                    Wrap the content in a Skeleton component to animate the opacity of the children when the loading
+                    state changes. The container shouldn't change in size when the loading state changes.
                 </div>
                 <Button className="self-start" variant="outline" onClick={() => setIsLoading(!isLoading)}>
                     {isLoading ? 'Stop Loading' : 'Start Loading'}
@@ -30,18 +31,14 @@ export const Default: Story = {
                     <Skeleton className="w-full max-w-sm">
                         <Card>
                             <CardHeader>
-                                <CardTitle>
-                                    Not visible
-                                </CardTitle>
+                                <CardTitle>Not visible</CardTitle>
                             </CardHeader>
                         </Card>
                     </Skeleton>
                 ) : (
                     <Card className="w-full max-w-sm">
                         <CardHeader>
-                            <CardTitle>
-                                Hello
-                            </CardTitle>
+                            <CardTitle>Hello</CardTitle>
                         </CardHeader>
                     </Card>
                 )}
@@ -49,4 +46,3 @@ export const Default: Story = {
         )
     },
 } satisfies Story
-

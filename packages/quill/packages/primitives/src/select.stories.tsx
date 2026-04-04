@@ -76,7 +76,6 @@ export const Default: Story = {
 export const GroupsAndSeparators: Story = {
     render: () => (
         <div className="max-w-48 mt-32">
-
             <Select items={allItems}>
                 <SelectTrigger className="w-full max-w-48" render={<Button variant="outline" />}>
                     <SelectValue />
@@ -108,7 +107,6 @@ export const GroupsAndSeparators: Story = {
 export const Disabled: Story = {
     render: () => (
         <div className="max-w-48 mt-32">
-
             <Select items={allItems}>
                 <SelectTrigger className="w-full max-w-48" render={<Button variant="outline" disabled />}>
                     <SelectValue />

@@ -41,9 +41,10 @@ const itemVariants = cva(
             variant: {
                 default: 'border-card',
                 outline: 'border-border',
-                pressable: 'transition-colors hover:border-secondary/20 hover:shadow hover:z-1 hover:group-data-[combined=true]/item-group:shadow-none hover:group-data-[combined=true]/item-group:border-border',
+                pressable:
+                    'transition-colors hover:border-secondary/20 hover:shadow hover:z-1 hover:group-data-[combined=true]/item-group:shadow-none hover:group-data-[combined=true]/item-group:border-border',
                 muted: 'border-transparent bg-muted/50',
-                menuItem: 'hover:bg-fill-hover hover:text-foreground border-none'
+                menuItem: 'hover:bg-fill-hover hover:text-foreground border-none',
             },
             size: {
                 default: 'gap-2.5 px-3 py-2.5',
@@ -71,7 +72,7 @@ function Item({
         props: mergeProps<'div'>(
             {
                 className: cn(itemVariants({ variant, size, className })),
-                'role': variant === 'pressable' ? 'link' : undefined
+                role: variant === 'pressable' ? 'link' : undefined,
             },
             props
         ),
@@ -84,16 +85,10 @@ function Item({
     })
 }
 
-const ItemMenuItem = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemMenuItem(
-    {
-        className,
-        variant = 'default',
-        size = 'default',
-        render,
-        ...props
-    },
-    ref
-) {
+const ItemMenuItem = React.forwardRef<
+    HTMLButtonElement,
+    useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>
+>(function ItemMenuItem({ className, variant = 'default', size = 'default', render, ...props }, ref) {
     return useRender({
         defaultTagName: 'button',
         props: mergeProps<'button'>(
@@ -113,17 +108,10 @@ const ItemMenuItem = React.forwardRef<HTMLButtonElement, useRender.ComponentProp
     })
 })
 
-const ItemCheckbox = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemCheckbox(
-    {
-        className,
-        variant = 'default',
-        size = 'default',
-        render,
-        children,
-        ...props
-    },
-    ref
-) {
+const ItemCheckbox = React.forwardRef<
+    HTMLButtonElement,
+    useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>
+>(function ItemCheckbox({ className, variant = 'default', size = 'default', render, children, ...props }, ref) {
     const checked = props['aria-checked'] === true || props['aria-checked'] === 'true'
     const element = useRender({
         defaultTagName: 'button',
@@ -142,20 +130,20 @@ const ItemCheckbox = React.forwardRef<HTMLButtonElement, useRender.ComponentProp
             size,
         },
     })
-    return React.cloneElement(element, {}, <ItemMedia variant="checkbox" className="-mr-2"><CheckboxIndicator checked={checked} /></ItemMedia>, children)
+    return React.cloneElement(
+        element,
+        {},
+        <ItemMedia variant="checkbox" className="-mr-2">
+            <CheckboxIndicator checked={checked} />
+        </ItemMedia>,
+        children
+    )
 })
 
-const ItemRadio = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemRadio(
-    {
-        className,
-        variant = 'default',
-        size = 'default',
-        render,
-        children,
-        ...props
-    },
-    ref
-) {
+const ItemRadio = React.forwardRef<
+    HTMLButtonElement,
+    useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>
+>(function ItemRadio({ className, variant = 'default', size = 'default', render, children, ...props }, ref) {
     const checked = props['aria-checked'] === true || props['aria-checked'] === 'true'
     const element = useRender({
         defaultTagName: 'button',
@@ -174,7 +162,14 @@ const ItemRadio = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'
             size,
         },
     })
-    return React.cloneElement(element, {}, <ItemMedia variant="checkbox" className="-mr-2"><RadioIndicator checked={checked} /></ItemMedia>, children)
+    return React.cloneElement(
+        element,
+        {},
+        <ItemMedia variant="checkbox" className="-mr-2">
+            <RadioIndicator checked={checked} />
+        </ItemMedia>,
+        children
+    )
 })
 
 const itemMediaVariants = cva(
@@ -204,10 +199,7 @@ function ItemMedia({
         <div
             data-slot="item-media"
             data-variant={variant}
-            className={cn(
-                itemMediaVariants({ variant, className }),
-                'group-[&[role=link]:hover]/item:text-primary'
-            )}
+            className={cn(itemMediaVariants({ variant, className }), 'group-[&[role=link]:hover]/item:text-primary')}
             {...props}
         />
     )
@@ -219,7 +211,7 @@ const itemContentVariants = cva(
         variants: {
             variant: {
                 default: '',
-                menuItem: "w-full py-1 px-1.5 has-data-[slot=item-media]:pl-0",
+                menuItem: 'w-full py-1 px-1.5 has-data-[slot=item-media]:pl-0',
             },
         },
         defaultVariants: {
@@ -228,18 +220,15 @@ const itemContentVariants = cva(
     }
 )
 
-function ItemContent({ 
-    className, 
-    variant = 'default', 
-    ...props 
+function ItemContent({
+    className,
+    variant = 'default',
+    ...props
 }: React.ComponentProps<'div'> & VariantProps<typeof itemContentVariants>): React.ReactElement {
     return (
         <div
             data-slot="item-content"
-            className={cn(
-                itemContentVariants({ variant, className }),
-                className
-            )}
+            className={cn(itemContentVariants({ variant, className }), className)}
             {...props}
         />
     )

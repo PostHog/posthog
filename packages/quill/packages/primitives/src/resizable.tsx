@@ -7,7 +7,10 @@ function ResizablePanelGroup({ className, ...props }: ResizablePrimitive.GroupPr
     return (
         <ResizablePrimitive.Group
             data-slot="resizable-panel-group"
-            className={cn('group/resizable-panel-group flex h-full w-full aria-[orientation=vertical]:flex-col', className)}
+            className={cn(
+                'group/resizable-panel-group flex h-full w-full aria-[orientation=vertical]:flex-col',
+                className
+            )}
             {...props}
         />
     )
@@ -28,7 +31,9 @@ function ResizableHandle({
 
     React.useEffect(() => {
         const el = elementRef.current
-        if (!el) return
+        if (!el) {
+            return
+        }
         const handlePointerUp = (): void => {
             el.blur()
         }

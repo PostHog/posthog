@@ -1,9 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
-import { Checkbox } from './checkbox'
-import { Kbd, KbdGroup, KbdText } from './kbd'
 import { Field, FieldLabel } from './field'
 import { Input } from './input'
+import { Kbd, KbdGroup, KbdText } from './kbd'
 
 const meta = {
     title: 'Primitives/Kbd',
@@ -13,7 +12,6 @@ const meta = {
 
 export default meta
 type Story = StoryObj<typeof meta>
-
 
 export const Default: Story = {
     render: () => {

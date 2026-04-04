@@ -67,7 +67,7 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                     'box-border select-none cursor-default relative',
                     'rounded-sm border border-border bg-popover text-popover-foreground p-2 px-3',
                     'bg-clip-padding',
-                    className,
+                    className
                 )}
                 {...props}
             >
@@ -77,15 +77,15 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         style={{ height: 'calc(var(--gap) + 1px)' }}
                     />
                 )}
-                <div className={cn("flex items-center gap-3", onDismiss && "pe-8")}>
-                    {icon && <span className={cn("shrink-0 self-start mt-1", !toastTitle && toastDescription && 'mt-0')}>{icon}</span>}
+                <div className={cn('flex items-center gap-3', onDismiss && 'pe-8')}>
+                    {icon && (
+                        <span className={cn('shrink-0 self-start mt-1', !toastTitle && toastDescription && 'mt-0')}>
+                            {icon}
+                        </span>
+                    )}
                     <div className="flex-1 min-w-0">
-                        {toastTitle && (
-                            <div className="text-xs font-medium leading-snug">{toastTitle}</div>
-                        )}
-                        {toastDescription && (
-                            <div className="text-xs text-muted-foreground">{toastDescription}</div>
-                        )}
+                        {toastTitle && <div className="text-xs font-medium leading-snug">{toastTitle}</div>}
+                        {toastDescription && <div className="text-xs text-muted-foreground">{toastDescription}</div>}
                     </div>
                 </div>
                 {action && (
@@ -101,14 +101,21 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                     </div>
                 )}
                 {onDismiss && (
-                    <Button size="icon-sm" className={cn("absolute right-2", (onlyTitle && "top-1.5") || (onlyDescription && "top-1.5") || "top-2")} onClick={onDismiss}>
+                    <Button
+                        size="icon-sm"
+                        className={cn(
+                            'absolute right-2',
+                            (onlyTitle && 'top-1.5') || (onlyDescription && 'top-1.5') || 'top-2'
+                        )}
+                        onClick={onDismiss}
+                    >
                         <XIcon className="size-3.5" />
                     </Button>
                 )}
                 {children}
             </div>
         )
-    },
+    }
 )
 ToastCard.displayName = 'ToastCard'
 
@@ -174,13 +181,17 @@ function ToastViewport(): React.ReactElement {
                                     toastDescription={t.description}
                                     icon={toastType ? toastIconMap[toastType] : undefined}
                                     showGapHitArea
-                                    action={t.data?.action ? {
-                                        label: t.data.action.label,
-                                        onClick: () => {
-                                            toastManager.close(t.id)
-                                            t.data?.action?.onClick()
-                                        },
-                                    } : undefined}
+                                    action={
+                                        t.data?.action
+                                            ? {
+                                                  label: t.data.action.label,
+                                                  onClick: () => {
+                                                      toastManager.close(t.id)
+                                                      t.data?.action?.onClick()
+                                                  },
+                                              }
+                                            : undefined
+                                    }
                                     onDismiss={() => toastManager.close(t.id)}
                                     className={cn(
                                         'm-0 p-3',
@@ -189,7 +200,7 @@ function ToastViewport(): React.ReactElement {
                                         'data-[starting-style]:![transform:translateY(150%)]',
                                         'data-[ending-style]:![transform:translateY(150%)]',
                                         'data-[ending-style]:opacity-0',
-                                        'data-[limited]:opacity-0',
+                                        'data-[limited]:opacity-0'
                                     )}
                                 />
                             }
@@ -209,15 +220,8 @@ function AnchoredToastViewport(): React.ReactElement {
         <Toast.Portal>
             <Toast.Viewport className="fixed z-[100]">
                 {manager.toasts.map((t) => {
-                    const toastType = t.type as ToastType | undefined
-
                     return (
-                        <Toast.Positioner
-                            key={t.id}
-                            toast={t}
-                            side="top"
-                            sideOffset={8}
-                        >
+                        <Toast.Positioner key={t.id} toast={t} side="top" sideOffset={8}>
                             <Toast.Root
                                 toast={t}
                                 render={
@@ -227,7 +231,7 @@ function AnchoredToastViewport(): React.ReactElement {
                                         className={cn(
                                             'data-[starting-style]:opacity-0 data-[starting-style]:scale-95',
                                             'data-[ending-style]:opacity-0 data-[ending-style]:scale-95',
-                                            'transition-[opacity,transform] duration-200 ease-out',
+                                            'transition-[opacity,transform] duration-200 ease-out'
                                         )}
                                     />
                                 }
@@ -322,5 +326,16 @@ anchoredToast.dismiss = (id: string): void => {
     anchoredToastManager.close(id)
 }
 
-export { anchoredToast, anchoredToastManager, toast, ToastCard, toastIconMap, toastManager, ToastProvider, type AnchoredToastOptions, type ToastCardProps, type ToastOptions, type ToastType }
-
+export {
+    anchoredToast,
+    anchoredToastManager,
+    toast,
+    ToastCard,
+    toastIconMap,
+    toastManager,
+    ToastProvider,
+    type AnchoredToastOptions,
+    type ToastCardProps,
+    type ToastOptions,
+    type ToastType,
+}

@@ -1,9 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
-import { Skeleton } from './skeleton'
-import { useState } from 'react'
-import { Card, CardTitle, CardHeader } from './card'
-import { Button } from './button'
 import { Slider } from './slider'
 
 const meta = {
@@ -17,40 +13,18 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
     render: () => {
-        return (
-            <Slider
-                defaultValue={[75]}
-                max={100}
-                step={1}
-                className="mx-auto w-full max-w-xs"
-            />
-        )
+        return <Slider defaultValue={[75]} max={100} step={1} className="mx-auto w-full max-w-xs" />
     },
 } satisfies Story
 
 export const Range: Story = {
     render: () => {
-        return (
-            <Slider
-                defaultValue={[75, 25]}
-                max={100}
-                step={1}
-                className="mx-auto w-full max-w-md"
-            />
-        )
+        return <Slider defaultValue={[75, 25]} max={100} step={1} className="mx-auto w-full max-w-md" />
     },
 } satisfies Story
 
 export const Disabled: Story = {
     render: () => {
-        return (
-            <Slider
-                defaultValue={[75, 25]}
-                max={100}
-                step={1}
-                className="mx-auto w-full max-w-md"
-                disabled
-            />
-        )
+        return <Slider defaultValue={[75, 25]} max={100} step={1} className="mx-auto w-full max-w-md" disabled />
     },
 } satisfies Story

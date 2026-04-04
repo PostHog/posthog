@@ -1,7 +1,5 @@
-
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
 import { Field, FieldContent, FieldDescription, FieldError, FieldLabel } from './field'
 import { Input } from './input'
 

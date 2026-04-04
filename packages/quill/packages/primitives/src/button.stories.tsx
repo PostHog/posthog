@@ -151,9 +151,7 @@ export const Sizes = {
 export const Disabled = {
     render: () => (
         <div className="flex items-center gap-2">
-            <Button disabled>
-                Default
-            </Button>
+            <Button disabled>Default</Button>
             <Button variant="primary" disabled>
                 Primary
             </Button>
@@ -170,12 +168,15 @@ export const Disabled = {
     ),
 } satisfies Story
 
-
 export const Misc = {
     render: () => (
         <div className="max-w-sm">
-            <Button left className="w-full">Aligned left</Button>
-            <Button left className="w-full"><TrashIcon /> Aligned left</Button>
+            <Button left className="w-full">
+                Aligned left
+            </Button>
+            <Button left className="w-full">
+                <TrashIcon /> Aligned left
+            </Button>
         </div>
     ),
 } satisfies Story

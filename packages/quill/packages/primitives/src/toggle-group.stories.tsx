@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { ToggleGroup, ToggleGroupItem } from './toggle-group'
 import { Filter, Heart, ArrowDownAZ } from 'lucide-react'
+
+import { ToggleGroup, ToggleGroupItem } from './toggle-group'
 
 const meta = {
     title: 'Primitives/Toggle Group',
@@ -26,7 +27,7 @@ export const Default: Story = {
                         <ArrowDownAZ />
                     </ToggleGroupItem>
                 </ToggleGroup>
-                <ToggleGroup variant="outline" multiple size='sm'>
+                <ToggleGroup variant="outline" multiple size="sm">
                     <ToggleGroupItem value="bold" aria-label="Toggle bold">
                         <Filter />
                     </ToggleGroupItem>
@@ -37,7 +38,7 @@ export const Default: Story = {
                         <ArrowDownAZ />
                     </ToggleGroupItem>
                 </ToggleGroup>
-                <ToggleGroup variant="outline" multiple size='lg'>
+                <ToggleGroup variant="outline" multiple size="lg">
                     <ToggleGroupItem value="bold" aria-label="Toggle bold">
                         <Filter />
                     </ToggleGroupItem>

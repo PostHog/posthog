@@ -1,10 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
-import { useState } from 'react'
-import { Card, CardTitle, CardHeader } from './card'
-import { Button } from './button'
 import { InfoIcon } from 'lucide-react'
+import { useState } from 'react'
+
+import { Button } from './button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
 
 const meta = {
     title: 'Primitives/Tooltips',
@@ -22,10 +21,14 @@ export const Default: Story = {
                 <div className="max-w-sm flex gap-2 min-h-96 items-center justify-center border">
                     <div className="flex flex-col gap-2 items-center">
                         <Tooltip>
-                            <TooltipTrigger render={<Button className="self-start" variant="outline">Hover me</Button>} />
-                            <TooltipContent>
-                                The tooltip is hoverable and focusable.
-                            </TooltipContent>
+                            <TooltipTrigger
+                                render={
+                                    <Button className="self-start" variant="outline">
+                                        Hover me
+                                    </Button>
+                                }
+                            />
+                            <TooltipContent>The tooltip is hoverable and focusable.</TooltipContent>
                         </Tooltip>
                     </div>
                 </div>
@@ -43,10 +46,14 @@ export const Controlled: Story = {
                 <div className="max-w-sm flex gap-2 min-h-96 items-center justify-center border">
                     <div className="flex flex-col gap-2 items-center">
                         <Tooltip open={isVisible} onOpenChange={setIsVisible}>
-                            <TooltipTrigger render={<Button className="self-start" variant="outline">Default open</Button>} />
-                            <TooltipContent>
-                                The tooltip is open by default.
-                            </TooltipContent>
+                            <TooltipTrigger
+                                render={
+                                    <Button className="self-start" variant="outline">
+                                        Default open
+                                    </Button>
+                                }
+                            />
+                            <TooltipContent>The tooltip is open by default.</TooltipContent>
                         </Tooltip>
                     </div>
                 </div>
@@ -109,11 +116,16 @@ export const IconOnlyTriggers: Story = {
                         <Tooltip>
                             <div className="flex flex-col gap-2 items-center">
                                 Delay 0
-                                <TooltipTrigger delay={0} render={<Button size="icon" variant="outline"><InfoIcon className="size-4" /></Button>} />
+                                <TooltipTrigger
+                                    delay={0}
+                                    render={
+                                        <Button size="icon" variant="outline">
+                                            <InfoIcon className="size-4" />
+                                        </Button>
+                                    }
+                                />
                             </div>
-                            <TooltipContent>
-                                Icon only tooltip trigger should open immediately.
-                            </TooltipContent>
+                            <TooltipContent>Icon only tooltip trigger should open immediately.</TooltipContent>
                         </Tooltip>
                     </div>
                 </div>

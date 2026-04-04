@@ -141,7 +141,7 @@ export const AllColors: Story = {
                         ]}
                         usages={['Main background of the app']}
                     />
-                    
+
                     <ColorSwatch
                         name="Secondary"
                         items={[
@@ -198,7 +198,7 @@ export const AllColors: Story = {
                         ]}
                         usages={['Accent (used for hover states, etc.)`']}
                     />
-                    
+
                     <ColorSwatch
                         name="Destructive"
                         items={[
@@ -217,7 +217,7 @@ export const AllColors: Story = {
                         ]}
                         usages={['Destructive (used for destructive actions, errors, etc.)`']}
                     />
-                    
+
                     <ColorSwatch
                         name="Success"
                         items={[
@@ -255,7 +255,7 @@ export const AllColors: Story = {
                         ]}
                         usages={['Warning (used for warning actions, warnings, etc.)`']}
                     />
-                    
+
                     <ColorSwatch
                         name="Info"
                         items={[

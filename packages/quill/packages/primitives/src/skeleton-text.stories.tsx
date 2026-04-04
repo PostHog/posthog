@@ -2,8 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useState } from 'react'
 
 import { Button } from './button'
-import { SkeletonText } from './skeleton-text'
 import { Card } from './card'
+import { SkeletonText } from './skeleton-text'
 
 const meta = {
     title: 'Primitives/SkeletonText',
@@ -26,7 +26,7 @@ export const Default: Story = {
                 <Button className="self-start" variant="outline" onClick={() => setIsLoading(!isLoading)}>
                     {isLoading ? 'Stop Loading' : 'Start Loading'}
                 </Button>{' '}
-                <hr />  
+                <hr />
                 <Card className="max-w-sm border border-border rounded-md p-2 text-base">
                     {isLoading ? (
                         <SkeletonText lines={1} className="text-base" />
