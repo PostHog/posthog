@@ -192,14 +192,14 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
 
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
-        name = data.get("name")
+        name = attrs.get("name")
 
         if self.instance is None:
             if name and LLMPrompt.objects.filter(name=name, team=team, deleted=False).exists():
                 raise serializers.ValidationError({"name": "A prompt with this name already exists."}, code="unique")
-            return data
+            return attrs
 
         if name is not None and self.instance.name != name:
             raise serializers.ValidationError(
@@ -207,13 +207,13 @@ class LLMPromptSerializer(serializers.ModelSerializer):
                 code="immutable",
             )
 
-        if "prompt" in data:
+        if "prompt" in attrs:
             raise serializers.ValidationError(
                 {"prompt": "Prompt content is versioned and cannot be updated in place. Create a new version instead."},
                 code="immutable",
             )
 
-        return data
+        return attrs
 
     def create(self, validated_data: dict[str, Any]) -> LLMPrompt:
         request = self.context["request"]

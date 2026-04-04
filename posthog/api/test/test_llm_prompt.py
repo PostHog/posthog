@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -48,7 +50,7 @@ class TestLLMPromptAPI(APIBaseTest):
         self,
         *,
         name: str = "my-prompt",
-        prompt: str = "Prompt content",
+        prompt: Any = "Prompt content",
         version: int = 1,
         is_latest: bool = True,
         deleted: bool = False,
