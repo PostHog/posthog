@@ -11,8 +11,8 @@ export async function capturePlayback(
     player: PlayerController,
     captureConfig: CaptureConfig,
     outputPath: string,
-    log: Logger = createLogger(),
-    onProgress?: () => void
+    onProgress: () => void,
+    log: Logger = createLogger()
 ): Promise<
     Pick<RecordingResult, 'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'timings'>
 > {
@@ -55,7 +55,7 @@ export async function capturePlayback(
                 },
                 'capture progress'
             )
-            onProgress?.()
+            onProgress()
         }
     })
 

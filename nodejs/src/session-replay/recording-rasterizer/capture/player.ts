@@ -17,7 +17,10 @@ import { RequestInterceptor } from './request-interceptor'
  * so the capture loop can poll it without touching browser globals.
  */
 export class PlayerController {
+    private capturePage: CapturePage
+    private log: Logger
     private interceptor: RequestInterceptor
+    private onProgress: () => void
 
     private state = {
         ended: false,
@@ -30,11 +33,15 @@ export class PlayerController {
     private resetStaleTimer: (() => void) | null = null
 
     constructor(
-        private capturePage: CapturePage,
+        capturePage: CapturePage,
         blockProxy: BlockProxy,
-        private log: Logger = createLogger()
+        onProgress: () => void,
+        log: Logger = createLogger()
     ) {
-        this.interceptor = new RequestInterceptor(capturePage, blockProxy, log)
+        this.capturePage = capturePage
+        this.log = log
+        this.onProgress = onProgress
+        this.interceptor = new RequestInterceptor(capturePage, blockProxy, this.log)
     }
 
     get page(): Page {
@@ -60,6 +67,7 @@ export class PlayerController {
         switch (msg.type) {
             case 'loading_progress':
                 this.resetStaleTimer?.()
+                this.onProgress()
                 this.log.info({ loaded: msg.loaded, total: msg.total }, 'loading blocks')
                 break
             case 'started':
