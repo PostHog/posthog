@@ -43,6 +43,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                 return {
                     ...base,
                     showPropertyFilter: [
+                        TaxonomicFilterGroupType.SuggestedFilters,
                         TaxonomicFilterGroupType.EventProperties,
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.EventFeatureFlags,
