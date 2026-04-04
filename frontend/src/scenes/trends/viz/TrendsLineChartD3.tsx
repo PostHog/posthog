@@ -16,6 +16,7 @@ import { ChartDisplayType } from '~/types'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
+import { TrendsTooltip } from './TrendsTooltip'
 
 interface TrendsLineChartD3Props {
     context?: QueryContext<InsightVizNode>
@@ -36,6 +37,8 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         goalLines,
         getTrendsColor,
         currentPeriodResult,
+        breakdownFilter,
+        insightData,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone } = useValues(teamLogic)
 
@@ -53,12 +56,20 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
 
     const hogSeries: Series[] = indexedResults
         .filter((r: IndexedTrendResult) => r.count !== 0)
-        .map((r: IndexedTrendResult) => ({
+        .map((r: IndexedTrendResult, idx: number) => ({
             key: `${r.id}`,
             label: r.label ?? '',
             data: r.data,
             color: getTrendsColor(r),
             fillArea: display === ChartDisplayType.ActionsAreaGraph,
+            meta: {
+                action: r.action,
+                breakdown_value: r.breakdown_value,
+                compare_label: r.compare_label,
+                days: r.days,
+                order: r.action?.order ?? idx,
+                filter: r.filter,
+            },
         }))
 
     const xTickFormatter = createXAxisTickCallback({
@@ -70,6 +81,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
     const chartConfig: LineChartConfig = {
         showGrid: true,
         showCrosshair: true,
+        pinnableTooltip: true,
         yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
         percentStackView: !!showPercentStackView && !!supportsPercentStackView,
         xTickFormatter: xTickFormatter,
@@ -80,5 +92,21 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         })),
     }
 
-    return <LineChart series={hogSeries} labels={labels} config={chartConfig} theme={theme} />
+    return (
+        <LineChart
+            series={hogSeries}
+            labels={labels}
+            config={chartConfig}
+            theme={theme}
+            tooltip={(ctx) => (
+                <TrendsTooltip
+                    context={ctx}
+                    timezone={timezone}
+                    interval={interval ?? undefined}
+                    breakdownFilter={breakdownFilter ?? undefined}
+                    dateRange={insightData?.resolved_date_range ?? undefined}
+                />
+            )}
+        />
+    )
 }

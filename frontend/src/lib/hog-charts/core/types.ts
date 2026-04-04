@@ -20,6 +20,10 @@ export interface Series {
     hidden?: boolean
     /** Radius in px for data point dots. Set to 0 or omit to hide dots. */
     pointRadius?: number
+    /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
+     *  so custom tooltip components can access domain-specific information (e.g. breakdown
+     *  values, comparison labels, anomaly scores) without the library needing to know about them. */
+    meta?: Record<string, unknown>
 }
 
 /** A horizontal reference line drawn across the chart at a fixed y-value. */
