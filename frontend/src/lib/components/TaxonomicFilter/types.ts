@@ -147,6 +147,8 @@ export interface TaxonomicFilterGroup {
     localItemsSearch?: (items: TaxonomicDefinitionTypes[], q: string) => TaxonomicDefinitionTypes[]
     /** Local-only groups don't participate in server-search mechanics (top matches, skeletons). */
     isLocalOnly?: boolean
+    /** Meta groups (Suggested, Recent, Pinned) are excluded from loading indicators, top matches, auto-tab-away, and definition popovers. */
+    isMetaGroup?: boolean
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
@@ -238,8 +240,19 @@ export enum TaxonomicFilterGroupType {
     WorkflowVariables = 'workflow_variables',
     SuggestedFilters = 'suggested_filters',
     RecentFilters = 'recent_filters',
+    PinnedFilters = 'pinned_filters',
     Empty = 'empty',
 }
+
+export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.RecentFilters,
+    TaxonomicFilterGroupType.PinnedFilters,
+    TaxonomicFilterGroupType.Empty,
+    TaxonomicFilterGroupType.Wildcards,
+    TaxonomicFilterGroupType.MaxAIContext,
+])
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType

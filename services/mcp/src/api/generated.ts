@@ -9255,6 +9255,7 @@ export namespace Schemas {
       WorkflowVariables: 'workflow_variables',
       SuggestedFilters: 'suggested_filters',
       RecentFilters: 'recent_filters',
+      PinnedFilters: 'pinned_filters',
       Empty: 'empty',
     } as const;
 

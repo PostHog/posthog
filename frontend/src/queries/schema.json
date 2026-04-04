@@ -34987,6 +34987,7 @@
                 "workflow_variables",
                 "suggested_filters",
                 "recent_filters",
+                "pinned_filters",
                 "empty"
             ],
             "type": "string"
