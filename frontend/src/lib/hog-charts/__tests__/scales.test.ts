@@ -148,12 +148,15 @@ describe('hog-charts scales', () => {
             expect(result.size).toBe(0)
         })
 
-        it('normalizes a single series so each value equals 1.0', () => {
+        it('normalizes a single series so each top value equals 1.0', () => {
             const series = [makeSeries({ key: 's1', data: [10, 50, 200] })]
             const result = computePercentStackData(series, ['a', 'b', 'c'])
-            const values = result.get('s1')!
-            for (const v of values) {
+            const band = result.get('s1')!
+            for (const v of band.top) {
                 expect(v).toBeCloseTo(1, 5)
+            }
+            for (const v of band.bottom) {
+                expect(v).toBeCloseTo(0, 5)
             }
         })
 
@@ -161,8 +164,8 @@ describe('hog-charts scales', () => {
             const s1 = makeSeries({ key: 's1', data: [30, 70] })
             const s2 = makeSeries({ key: 's2', data: [70, 30] })
             const result = computePercentStackData([s1, s2], ['a', 'b'])
-            const s2Values = result.get('s2')!
-            for (const v of s2Values) {
+            const s2Band = result.get('s2')!
+            for (const v of s2Band.top) {
                 expect(v).toBeCloseTo(1, 5)
             }
         })
@@ -173,8 +176,8 @@ describe('hog-charts scales', () => {
             const result = computePercentStackData([visible, hidden], ['a', 'b'])
             expect(result.has('h')).toBe(false)
             expect(result.has('v')).toBe(true)
-            const values = result.get('v')!
-            for (const v of values) {
+            const band = result.get('v')!
+            for (const v of band.top) {
                 expect(v).toBeCloseTo(1, 5)
             }
         })
@@ -184,7 +187,7 @@ describe('hog-charts scales', () => {
             const result = computePercentStackData(series, ['a', 'b'])
             // at index 0, s1 is treated as 0 so s2 contributes 100%
             const s2 = result.get('s2')!
-            expect(s2[0]).toBeCloseTo(1, 5)
+            expect(s2.top[0]).toBeCloseTo(1, 5)
         })
 
         it('handles all-zero data without throwing', () => {
