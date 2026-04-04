@@ -2,7 +2,7 @@ import * as fs from 'fs/promises'
 import { CDPSession, Page } from 'puppeteer'
 
 import { config as defaultConfig } from '../config'
-import { type Logger } from '../logger'
+import { type Logger, createLogger } from '../logger'
 
 export const playerHtmlCache = {
     _html: null as string | null,
@@ -83,7 +83,8 @@ export class CapturePage {
     installCDPGuards(
         screenshotFormat: 'jpeg' | 'png',
         screenshotQuality: number | undefined,
-        waitForRequestsSettled: () => Promise<void>
+        waitForRequestsSettled: () => Promise<void>,
+        log: Logger = createLogger()
     ): void {
         const page = this.page
         const originalCreateCDPSession = page.createCDPSession.bind(page)
@@ -102,7 +103,27 @@ export class CapturePage {
 
                     await waitForRequestsSettled()
 
-                    return originalSend(method as any, params)
+                    let timedOut = false
+                    const timeout = new Promise<never>((_, reject) =>
+                        setTimeout(() => {
+                            timedOut = true
+                            reject(new Error('beginFrame timeout (30s)'))
+                        }, 30_000)
+                    )
+                    try {
+                        return await Promise.race([originalSend(method as any, params), timeout])
+                    } catch (err) {
+                        if (timedOut) {
+                            log.warn({ params }, 'beginFrame timed out, detaching CDP session')
+                            try {
+                                await session.detach()
+                            } catch {
+                                // session may already be disconnected
+                            }
+                            throw new Error('beginFrame timeout (30s) — compositor deadlock')
+                        }
+                        throw err
+                    }
                 }
                 return originalSend(method as any, ...args)
             }

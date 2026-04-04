@@ -141,7 +141,7 @@ export class PlayerController {
      * after the player is loaded and before captureVideo().
      */
     prepareBrowserForCapture(screenshotFormat: 'jpeg' | 'png', screenshotQuality: number | undefined): void {
-        this.capturePage.installCDPGuards(screenshotFormat, screenshotQuality, () => this.waitForSettled())
+        this.capturePage.installCDPGuards(screenshotFormat, screenshotQuality, () => this.waitForSettled(), this.log)
     }
 
     /** Install request interception, set up the message bridge, and navigate. */
