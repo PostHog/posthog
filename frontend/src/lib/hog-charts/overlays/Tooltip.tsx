@@ -1,4 +1,4 @@
-import { flip, offset, shift, useFloating } from '@floating-ui/react'
+import { flip, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
 import React, { useMemo } from 'react'
 
 import type { TooltipContext } from '../core/types'
@@ -9,18 +9,20 @@ interface TooltipProps {
 }
 
 export function Tooltip({ context, renderTooltip }: TooltipProps): React.ReactElement {
-    const virtualReference = useMemo(
+    const virtualReference = useMemo<VirtualElement>(
         () => ({
             getBoundingClientRect() {
+                const x = context.canvasBounds.left + context.position.x
+                const y = context.canvasBounds.top + context.position.y
                 return {
-                    x: context.canvasBounds.left + context.position.x,
-                    y: context.canvasBounds.top + context.position.y,
+                    x,
+                    y,
                     width: 0,
                     height: 0,
-                    top: context.canvasBounds.top + context.position.y,
-                    right: context.canvasBounds.left + context.position.x,
-                    bottom: context.canvasBounds.top + context.position.y,
-                    left: context.canvasBounds.left + context.position.x,
+                    top: y,
+                    right: x,
+                    bottom: y,
+                    left: x,
                 }
             },
         }),
@@ -39,7 +41,7 @@ export function Tooltip({ context, renderTooltip }: TooltipProps): React.ReactEl
             ref={refs.setFloating}
             style={{
                 ...floatingStyles,
-                pointerEvents: 'none',
+                pointerEvents: context.isPinned ? 'auto' : 'none',
                 width: 'max-content',
                 zIndex: 10,
             }}
