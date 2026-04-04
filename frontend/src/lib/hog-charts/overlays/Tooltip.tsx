@@ -46,7 +46,7 @@ export function Tooltip({ context, renderTooltip }: TooltipProps): React.ReactEl
             ref={refs.setFloating}
             style={{
                 ...floatingStyles,
-                pointerEvents: 'none',
+                pointerEvents: context.isPinned ? 'auto' : 'none',
                 width: 'max-content',
                 zIndex: 10,
             }}
