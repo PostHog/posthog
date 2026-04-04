@@ -3306,6 +3306,10 @@
                     "description": "Whether to show alert threshold lines on the chart.",
                     "type": "boolean"
                 },
+                "showBoxPlotOutliers": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "showLabelsOnSeries": {
                     "default": false,
                     "description": "Whether to show labels on each series.",
@@ -35818,6 +35822,10 @@
                     "description": "Customizations for the appearance of result datasets."
                 },
                 "showAlertThresholdLines": {
+                    "default": false,
+                    "type": "boolean"
+                },
+                "showBoxPlotOutliers": {
                     "default": false,
                     "type": "boolean"
                 },

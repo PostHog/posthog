@@ -7984,6 +7984,7 @@ class TrendsFilter(BaseModel):
         )
     )
     showAlertThresholdLines: bool | None = False
+    showBoxPlotOutliers: bool | None = False
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None
     showLegend: bool | None = False

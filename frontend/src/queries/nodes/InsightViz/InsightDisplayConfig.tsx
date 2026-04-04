@@ -4,7 +4,7 @@ import { ReactNode } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
@@ -124,9 +124,37 @@ export function InsightDisplayConfig(): JSX.Element {
                           </h5>
                       ),
                       items: isBoxPlot
-                          ? hasLegend
-                              ? [{ label: () => <ShowLegendFilter /> }]
-                              : []
+                          ? [
+                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                {
+                                    label: () => (
+                                        <LemonCheckbox
+                                            label={
+                                                <span className="font-normal">
+                                                    Show outliers{' '}
+                                                    <Tooltip title="When enabled, the y-axis extends to show extreme values beyond the whiskers. When disabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles.">
+                                                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                                                    </Tooltip>
+                                                </span>
+                                            }
+                                            className="p-1 px-2"
+                                            size="small"
+                                            checked={!!trendsFilter?.showBoxPlotOutliers}
+                                            onChange={(checked) => {
+                                                if (isTrendsQuery(querySource)) {
+                                                    updateQuerySource({
+                                                        ...querySource,
+                                                        trendsFilter: {
+                                                            ...trendsFilter,
+                                                            showBoxPlotOutliers: checked,
+                                                        },
+                                                    })
+                                                }
+                                            }}
+                                        />
+                                    ),
+                                },
+                            ]
                           : [
                                 ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                 ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),

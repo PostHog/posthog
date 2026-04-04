@@ -194,6 +194,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
                 return null
             }
 
+            const showOutliers = !!trendsFilter?.showBoxPlotOutliers
             const datasets = seriesGroups.map((group) => {
                 const seriesColor = getSeriesColor(group.seriesIndex)
                 return {
@@ -208,6 +209,8 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
                     meanRadius: 3,
                     outlierBackgroundColor: `${seriesColor}80`,
                     outlierBorderColor: seriesColor,
+                    minStats: showOutliers ? ('min' as const) : ('whiskerMin' as const),
+                    maxStats: showOutliers ? ('max' as const) : ('whiskerMax' as const),
                 }
             })
 
