@@ -1,5 +1,5 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
-import { IconChevronRight } from '@posthog/icons'
+import { ChevronRightIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
@@ -126,7 +126,7 @@ function DropdownMenuSubTrigger({
             {...props}
         >
             {children}
-            <IconChevronRight className="rtl:rotate-180 ms-auto" />
+            <ChevronRightIcon className="rtl:rotate-180 ms-auto" />
         </MenuPrimitive.SubmenuTrigger>
     )
 }

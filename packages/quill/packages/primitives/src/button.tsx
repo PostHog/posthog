@@ -9,7 +9,7 @@ const buttonVariants = cva(
     {
         variants: {
             variant: {
-                default: 'hover:bg-fill-hover hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-fill-hover border-none not-hover:aria-selected:bg-fill-selected not-hover:aria-[checked=true]:bg-fill-selected',
+                default: 'hover:bg-fill-hover hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-fill-hover border-none not-hover:aria-selected:bg-fill-selected not-hover:aria-[checked=true]:bg-fill-selected data-highlighted:bg-fill-hover',
                 primary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
                 outline:
                     'bg-accent/30 border-foreground/10 dark:border-foreground/15 hover:bg-fill-active hover:text-foreground dark:hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-input/50',

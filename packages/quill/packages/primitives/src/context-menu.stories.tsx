@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { IconCopy, IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
+import { Copy, MoreVertical, Pencil, TrashIcon } from 'lucide-react'
 
 import { Button } from './button'
 import {
@@ -34,27 +34,27 @@ export const Default: Story = {
             <ContextMenuContent>
                 <ContextMenuGroup>
                     <ContextMenuItem>
-                        <IconCopy />
+                        <Copy />
                         Copy
                     </ContextMenuItem>
                     <ContextMenuItem>
-                        <IconPencil />
+                        <Pencil />
                         Rename
                     </ContextMenuItem>
                     <ContextMenuItem variant="destructive">
-                        <IconTrash />
+                        <TrashIcon />
                         Delete
                     </ContextMenuItem>
                 </ContextMenuGroup>
                 <ContextMenuSeparator />
                 <ContextMenuSub>
                     <ContextMenuSubTrigger>
-                        <IconEllipsis />
+                        <MoreVertical />
                         More
                     </ContextMenuSubTrigger>
                     <ContextMenuSubContent>
                         <ContextMenuItem>
-                            <IconCopy />
+                            <Copy />
                             Copy
                         </ContextMenuItem>
                     </ContextMenuSubContent>

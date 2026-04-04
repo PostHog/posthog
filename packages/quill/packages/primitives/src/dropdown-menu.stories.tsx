@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { IconCopy, IconExpand, IconFolder, IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
+import { Copy, ExpandIcon, Folder, MoreVertical, Pencil, TrashIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -39,33 +39,33 @@ export const Default: Story = {
                 <DropdownMenuContent>
                     <DropdownMenuGroup>
                         <DropdownMenuItem>
-                            <IconCopy />
+                            <Copy />
                             Copy
                             <Kbd>⌘C</Kbd>
                         </DropdownMenuItem>
                         <DropdownMenuItem>
-                            <IconPencil />
+                            <Pencil />
                             Rename
                         </DropdownMenuItem>
                         <DropdownMenuItem variant="destructive">
-                            <IconTrash />
+                            <TrashIcon />
                             Delete
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuSub open={subOpen} onOpenChange={setSubOpen}>
                         <DropdownMenuSubTrigger>
-                            <IconEllipsis />
+                            <MoreVertical />
                             More
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
                             <DropdownMenuItem>
-                                <IconFolder />
+                                <Folder />
                                 Open in folder
                                 <Kbd>⌘O</Kbd>
                             </DropdownMenuItem>
                             <DropdownMenuItem>
-                                <IconExpand />
+                                <ExpandIcon />
                                 Expand
                             </DropdownMenuItem>
                         </DropdownMenuSubContent>
@@ -89,33 +89,33 @@ export const Labels: Story = {
                             Group label
                         </DropdownMenuLabel>
                         <DropdownMenuItem>
-                            <IconCopy />
+                            <Copy />
                             Copy
                             <Kbd>⌘C</Kbd>
                         </DropdownMenuItem>
                         <DropdownMenuItem>
-                            <IconPencil />
+                            <Pencil />
                             Rename
                         </DropdownMenuItem>
                         <DropdownMenuItem variant="destructive">
-                            <IconTrash />
+                            <TrashIcon />
                             Delete
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuSub open={subOpen} onOpenChange={setSubOpen}>
                         <DropdownMenuSubTrigger>
-                            <IconEllipsis />
+                            <MoreVertical />
                             More
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
                             <DropdownMenuItem>
-                                <IconFolder />
+                                <Folder />
                                 Open in folder
                                 <Kbd>⌘O</Kbd>
                             </DropdownMenuItem>
                             <DropdownMenuItem>
-                                <IconExpand />
+                                <ExpandIcon />
                                 Expand
                             </DropdownMenuItem>
                         </DropdownMenuSubContent>

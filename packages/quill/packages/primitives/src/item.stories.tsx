@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
+import { BadgeCheckIcon, ChevronRightIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -14,6 +14,7 @@ import {
     DropdownMenuRadioItem,
 } from './dropdown-menu'
 import { Item, ItemContent, ItemDescription, ItemTitle, ItemActions, ItemMedia, ItemGroup, ItemCheckbox, ItemRadio, ItemMenuItem } from './item'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from './select'
 
 const meta = {
     title: 'Primitives/Item',
@@ -54,14 +55,14 @@ export const Pressable: Story = {
                 // eslint-disable-next-line react/forbid-elements
                 <a href="#">
                     <ItemMedia variant="icon">
-                        <IconCheckCircle className="size-5" />
+                        <BadgeCheckIcon className="size-5" />
                     </ItemMedia>
                     <ItemContent>
                         <ItemTitle>Your profile has been verified.</ItemTitle>
                         <ItemDescription>A simple item with title and description.</ItemDescription>
                     </ItemContent>
                     <ItemActions>
-                        <IconChevronRight className="size-4" />
+                        <ChevronRightIcon className="size-4" />
                     </ItemActions>
                 </a>
             }
@@ -278,6 +279,63 @@ export const ItemRadiosInDropdown: Story = {
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                </ItemActions>
+            </Item>
+        )
+    },
+} satisfies Story
+
+export const ItemInSelect: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+
+        return (
+            <Item variant="outline" className="max-w-sm mt-32">
+                <ItemContent>
+                    <ItemTitle>Basic Item</ItemTitle>
+                    <ItemDescription>A simple item with title and description.</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <Select
+                        open={open}
+                        onOpenChange={setOpen}
+                        defaultValue={people[0]}
+                        itemToStringLabel={(person: typeof people[number]) => person.username}
+                        itemToStringValue={(person: typeof people[number]) => person.username}
+                    >
+                        <SelectTrigger render={(props) => <Button variant="outline" {...props} className="h-min" />}>
+                            <SelectValue>
+                                {(person: typeof people[number]) => (
+                                    <ItemContent className="gap-0 py-1 px-1.5">
+                                        <ItemTitle>{person.username}</ItemTitle>
+                                        <ItemDescription className="leading-none">
+                                            {person.email}
+                                        </ItemDescription>
+                                    </ItemContent>
+                                )}
+                            </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="min-w-(--anchor-width)" align="end" sideOffset={8}>
+                            <SelectGroup>
+                                {people.map((person) => (
+                                    <SelectItem
+                                        key={person.username}
+                                        value={person}
+                                        render={(props) => (
+                                            <ItemMenuItem size="xs" className="w-full p-0" {...props}>
+                                                <ItemContent className="gap-0">
+                                                    <ItemTitle>{person.username}</ItemTitle>
+                                                    <ItemDescription className="leading-none">
+                                                        {person.email}
+                                                    </ItemDescription>
+                                                </ItemContent>
+                                            </ItemMenuItem>
+                                        )}
+                                    />
+                                ))}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
                 </ItemActions>
             </Item>
         )

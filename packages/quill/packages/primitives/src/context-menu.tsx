@@ -1,5 +1,5 @@
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
-import { IconChevronRight } from '@posthog/icons'
+import { ChevronRightIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
@@ -128,7 +128,7 @@ function ContextMenuSubTrigger({
             {...props}
         >
             {children}
-            <IconChevronRight className="rtl:rotate-180 ms-auto" />
+            <ChevronRightIcon className="rtl:rotate-180 ms-auto" />
         </ContextMenuPrimitive.SubmenuTrigger>
     )
 }

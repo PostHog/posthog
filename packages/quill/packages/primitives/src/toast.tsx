@@ -1,5 +1,5 @@
 import { Toast } from '@base-ui/react/toast'
-import { IconCheckCircle, IconInfo, IconX, IconWarning } from '@posthog/icons'
+import { CircleCheckIcon, InfoIcon, XIcon, TriangleAlertIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
@@ -34,10 +34,10 @@ type ToastOptions = {
 
 // ── Icon map ──────────────────────────────────────────────────────────
 const toastIconMap: Record<ToastType, React.ReactNode> = {
-    success: <IconCheckCircle className="size-6 bg-success/50 text-success-foreground p-1 rounded-sm" />,
-    info: <IconInfo className="size-6 bg-info/50 text-info-foreground p-1 rounded-sm" />,
-    warning: <IconWarning className="size-6 bg-warning/50 text-warning-foreground p-1 rounded-sm" />,
-    error: <IconX className="size-6 bg-destructive/50 text-destructive-foreground p-1 rounded-sm" />,
+    success: <CircleCheckIcon className="size-6 bg-success/50 text-success-foreground p-1 rounded-sm" />,
+    info: <InfoIcon className="size-6 bg-info/50 text-info-foreground p-1 rounded-sm" />,
+    warning: <TriangleAlertIcon className="size-6 bg-warning/50 text-warning-foreground p-1 rounded-sm" />,
+    error: <XIcon className="size-6 bg-destructive/50 text-destructive-foreground p-1 rounded-sm" />,
     loading: <Spinner className="size-6 text-foreground/60 p-1 rounded-sm" />,
 }
 
@@ -100,7 +100,7 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                 )}
                 {onDismiss && (
                     <Button size="icon-sm" className={cn("absolute top-2 right-2", !toastTitle && toastDescription && "top-1.5")} onClick={onDismiss}>
-                        <IconX className="size-3.5" />
+                        <XIcon className="size-3.5" />
                     </Button>
                 )}
                 {children}

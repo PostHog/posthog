@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { ToggleGroup, ToggleGroupItem } from './toggle-group'
-import { IconFilter, IconHeart, IconSortAlpha } from '@posthog/icons'
+import { Filter, Heart, ArrowDownAZ } from 'lucide-react'
 
 const meta = {
     title: 'Primitives/Toggle Group',
@@ -17,35 +17,35 @@ export const Default: Story = {
             <div className="flex gap-2">
                 <ToggleGroup variant="outline" multiple>
                     <ToggleGroupItem value="bold" aria-label="Toggle bold">
-                        <IconFilter />
+                        <Filter />
                     </ToggleGroupItem>
                     <ToggleGroupItem value="italic" aria-label="Toggle italic">
-                        <IconHeart />
+                        <Heart />
                     </ToggleGroupItem>
                     <ToggleGroupItem value="strikethrough" aria-label="Toggle strikethrough">
-                        <IconSortAlpha />
+                        <ArrowDownAZ />
                     </ToggleGroupItem>
                 </ToggleGroup>
                 <ToggleGroup variant="outline" multiple size='sm'>
                     <ToggleGroupItem value="bold" aria-label="Toggle bold">
-                        <IconFilter />
+                        <Filter />
                     </ToggleGroupItem>
                     <ToggleGroupItem value="italic" aria-label="Toggle italic">
-                        <IconHeart />
+                        <Heart />
                     </ToggleGroupItem>
                     <ToggleGroupItem value="strikethrough" aria-label="Toggle strikethrough">
-                        <IconSortAlpha />
+                        <ArrowDownAZ />
                     </ToggleGroupItem>
                 </ToggleGroup>
                 <ToggleGroup variant="outline" multiple size='lg'>
                     <ToggleGroupItem value="bold" aria-label="Toggle bold">
-                        <IconFilter />
+                        <Filter />
                     </ToggleGroupItem>
                     <ToggleGroupItem value="italic" aria-label="Toggle italic">
-                        <IconHeart />
+                        <Heart />
                     </ToggleGroupItem>
                     <ToggleGroupItem value="strikethrough" aria-label="Toggle strikethrough">
-                        <IconSortAlpha />
+                        <ArrowDownAZ />
                     </ToggleGroupItem>
                 </ToggleGroup>
             </div>

@@ -1,5 +1,5 @@
 import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox'
-import { IconCheck } from '@posthog/icons'
+import { CheckIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
@@ -14,7 +14,7 @@ function CheckboxIndicator({ checked, className }: { checked?: boolean; classNam
                 className
             )}
         >
-            {checked && <IconCheck className="size-4" />}
+            {checked && <CheckIcon className="size-3" />}
         </span>
     )
 }
