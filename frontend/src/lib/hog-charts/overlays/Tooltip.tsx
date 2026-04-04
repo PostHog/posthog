@@ -1,5 +1,5 @@
 import { flip, offset, shift, useFloating } from '@floating-ui/react'
-import React, { useEffect, useMemo } from 'react'
+import React, { useMemo } from 'react'
 
 import type { TooltipContext } from '../core/types'
 
@@ -31,11 +31,8 @@ export function Tooltip({ context, renderTooltip }: TooltipProps): React.ReactEl
         placement: 'right',
         strategy: 'fixed',
         middleware: [offset(12), flip(), shift({ padding: 8 })],
+        elements: { reference: virtualReference },
     })
-
-    useEffect(() => {
-        refs.setPositionReference(virtualReference)
-    }, [virtualReference, refs])
 
     return (
         <div
