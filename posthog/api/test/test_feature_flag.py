@@ -90,25 +90,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             r.delete(key)
         return super().setUp()
 
+    @parameterized.expand(
+        [
+            ("created", "post", None, "created"),
+            ("updated", "patch", {"active": False}, "updated"),
+        ]
+    )
     @patch("posthog.api.feature_flag.produce_internal_event")
-    def test_feature_flag_change_emits_internal_event(self, mock_produce_internal_event):
-        response = self.client.post(
+    def test_feature_flag_change_emits_internal_event(
+        self, _name, method, update_payload, expected_activity, mock_produce_internal_event
+    ):
+        # Create the flag first
+        create_response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {"key": "test-flag", "name": "Test Flag", "filters": {"groups": [{"rollout_percentage": 100}]}},
             format="json",
         )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        if method == "patch":
+            # Reset mock to only capture the update event
+            mock_produce_internal_event.reset_mock()
+            flag_id = create_response.json()["id"]
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+                update_payload,
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         mock_produce_internal_event.assert_called_once()
-
         _, kwargs = mock_produce_internal_event.call_args
         event = kwargs["event"]
 
         self.assertEqual(kwargs["team_id"], self.team.id)
         self.assertEqual(event.event, "$feature_flag_changed")
         self.assertEqual(event.properties["flag_key"], "test-flag")
-        self.assertEqual(event.properties["flag_name"], "Test Flag")
-        self.assertEqual(event.properties["activity"], "created")
+        self.assertEqual(event.properties["activity"], expected_activity)
         self.assertIn("active", event.properties)
 
     def test_cant_create_flag_with_duplicate_key(self):

@@ -3301,9 +3301,9 @@ def handle_feature_flag_change(
                 else None
             ),
         )
-    except Exception:
+    except Exception as e:
         # Don't let event emission failures block the flag change
-        pass
+        capture_exception(e)
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
