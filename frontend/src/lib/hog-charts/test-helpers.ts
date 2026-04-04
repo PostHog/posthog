@@ -1,4 +1,4 @@
-import type { ChartDimensions, Series } from '../core/types'
+import type { ChartDimensions, Series } from './core/types'
 
 export const dimensions: ChartDimensions = {
     width: 800,
