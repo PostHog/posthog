@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,6 +27,50 @@ class LLMPromptVersionConflictError(Exception):
 @dataclass
 class LLMPromptVersionLimitError(Exception):
     max_version: int
+
+
+@dataclass
+class LLMPromptEditError(Exception):
+    message: str
+    edit_index: int
+
+
+def apply_prompt_edits(prompt_content: Any, edits: list[dict[str, str]]) -> Any:
+    """Apply sequential find/replace edits to a prompt.
+
+    If the prompt is a string, edits operate on it directly.
+    If it's a JSON structure, it's serialized to a string for editing then parsed back.
+    Each edit's 'old' text must match exactly once.
+    """
+    is_string = isinstance(prompt_content, str)
+    text = prompt_content if is_string else json.dumps(prompt_content, indent=2, ensure_ascii=False)
+
+    for i, edit in enumerate(edits):
+        old = edit["old"]
+        new = edit["new"]
+        count = text.count(old)
+        if count == 0:
+            raise LLMPromptEditError(
+                message=f"Text to replace was not found in the prompt.",
+                edit_index=i,
+            )
+        if count > 1:
+            raise LLMPromptEditError(
+                message=f"Text to replace matches {count} times — provide more context to make it unique.",
+                edit_index=i,
+            )
+        text = text.replace(old, new, 1)
+
+    if is_string:
+        return text
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as err:
+        raise LLMPromptEditError(
+            message=f"Edits produced invalid JSON: {err}",
+            edit_index=len(edits) - 1,
+        ) from err
 
 
 def get_active_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
@@ -89,7 +134,8 @@ def publish_prompt_version(
     *,
     user: User,
     prompt_name: str,
-    prompt_payload: Any,
+    prompt_payload: Any | None = None,
+    edits: list[dict[str, str]] | None = None,
     base_version: int,
 ) -> LLMPrompt:
     with transaction.atomic():
@@ -107,11 +153,16 @@ def publish_prompt_version(
         if current_latest.version >= MAX_PROMPT_VERSION:
             raise LLMPromptVersionLimitError(max_version=MAX_PROMPT_VERSION)
 
+        if edits is not None:
+            resolved_payload = apply_prompt_edits(current_latest.prompt, edits)
+        else:
+            resolved_payload = prompt_payload
+
         LLMPrompt.objects.filter(pk=current_latest.pk).update(is_latest=False)
         published_prompt = LLMPrompt.objects.create(
             team=team,
             name=current_latest.name,
-            prompt=prompt_payload,
+            prompt=resolved_payload,
             version=current_latest.version + 1,
             is_latest=True,
             created_by=user,
