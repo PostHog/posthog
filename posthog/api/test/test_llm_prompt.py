@@ -309,9 +309,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert LLMPrompt.objects.filter(team=self.team, name="publish-prompt", deleted=False).count() == 1
 
     def test_update_prompt_by_name_with_edits_applies_find_replace(self, mock_feature_enabled):
-        self.create_prompt_version(
-            name="edit-prompt", version=1, is_latest=True, prompt="You are a helpful assistant."
-        )
+        self.create_prompt_version(name="edit-prompt", version=1, is_latest=True, prompt="You are a helpful assistant.")
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/llm_prompts/name/edit-prompt/",
@@ -328,9 +326,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert latest.prompt == "You are a expert coding assistant."
 
     def test_update_prompt_by_name_with_multiple_edits_applies_sequentially(self, mock_feature_enabled):
-        self.create_prompt_version(
-            name="multi-edit", version=1, is_latest=True, prompt="Hello world. Goodbye world."
-        )
+        self.create_prompt_version(name="multi-edit", version=1, is_latest=True, prompt="Hello world. Goodbye world.")
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/llm_prompts/name/multi-edit/",
