@@ -11988,7 +11988,7 @@
                         },
                         {
                             "items": {
-                                "$ref": "#/definitions/TaxonomicFilterGroupType"
+                                "type": "string"
                             },
                             "type": "array"
                         }
@@ -32606,7 +32606,7 @@
                         },
                         {
                             "items": {
-                                "$ref": "#/definitions/TaxonomicFilterGroupType"
+                                "type": "string"
                             },
                             "type": "array"
                         }
@@ -34930,66 +34930,6 @@
         },
         "TaskExecutionStatus": {
             "enum": ["pending", "in_progress", "completed", "failed"],
-            "type": "string"
-        },
-        "TaxonomicFilterGroupType": {
-            "enum": [
-                "metadata",
-                "actions",
-                "cohorts",
-                "cohorts_with_all",
-                "data_warehouse",
-                "data_warehouse_properties",
-                "data_warehouse_person_properties",
-                "elements",
-                "events",
-                "internal_events",
-                "internal_event_properties",
-                "event_properties",
-                "event_feature_flags",
-                "event_metadata",
-                "numerical_event_properties",
-                "person_properties",
-                "pageview_urls",
-                "pageview_events",
-                "screens",
-                "screen_events",
-                "email_addresses",
-                "autocapture_events",
-                "custom_events",
-                "wildcard",
-                "groups",
-                "persons",
-                "feature_flags",
-                "insights",
-                "experiments",
-                "plugins",
-                "dashboards",
-                "name_groups",
-                "session_properties",
-                "hogql_expression",
-                "notebooks",
-                "log_entries",
-                "error_tracking_issues",
-                "logs",
-                "log_attributes",
-                "log_resource_attributes",
-                "spans",
-                "span_attributes",
-                "span_resource_attributes",
-                "replay",
-                "replay_saved_filters",
-                "revenue_analytics_properties",
-                "resources",
-                "error_tracking_properties",
-                "activity_log_properties",
-                "max_ai_context",
-                "workflow_variables",
-                "suggested_filters",
-                "recent_filters",
-                "pinned_filters",
-                "empty"
-            ],
             "type": "string"
         },
         "TeamTaxonomyItem": {

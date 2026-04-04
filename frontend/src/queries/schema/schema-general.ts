@@ -1,6 +1,5 @@
 import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
@@ -1193,7 +1192,7 @@ interface DataTableNodeViewProps {
     /** Include a free text search field (PersonsNode only) */
     showSearch?: boolean
     /** Include a property filter above the table */
-    showPropertyFilter?: boolean | TaxonomicFilterGroupType[]
+    showPropertyFilter?: boolean | string[]
     /** Show filter to exclude test accounts */
     showTestAccountFilters?: boolean
     /** Include a HogQL query editor above HogQL tables */
