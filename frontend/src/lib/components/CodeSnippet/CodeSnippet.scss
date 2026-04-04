@@ -144,9 +144,8 @@
         font-size: 0.8125rem;
 
         .CodeSnippet__actions {
-            top: 50%;
+            top: 0.375rem;
             right: 0.375rem;
-            transform: translateY(-50%);
         }
 
         pre {
@@ -157,12 +156,11 @@
 
     .CodeSnippet__actions {
         position: absolute;
-        top: 50%;
+        top: 0.75rem;
         right: 0.5rem;
         display: flex;
         gap: 0.5rem;
         background: var(--color-bg-surface-primary) !important; // so that you can see button when over unwrapped text
-        transform: translateY(-50%);
     }
 
     pre {
