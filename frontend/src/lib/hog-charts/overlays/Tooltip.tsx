@@ -1,5 +1,5 @@
 import { flip, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
-import React, { useMemo } from 'react'
+import React, { useLayoutEffect, useMemo } from 'react'
 
 import type { TooltipContext } from '../core/types'
 
@@ -33,15 +33,20 @@ export function Tooltip({ context, renderTooltip }: TooltipProps): React.ReactEl
         placement: 'right',
         strategy: 'fixed',
         middleware: [offset(12), flip(), shift({ padding: 8 })],
-        elements: { reference: virtualReference },
     })
+
+    // useLayoutEffect runs synchronously before paint, so floating-ui has the
+    // virtual reference ready by the first frame — no positioning flash.
+    useLayoutEffect(() => {
+        refs.setPositionReference(virtualReference)
+    }, [virtualReference, refs])
 
     return (
         <div
             ref={refs.setFloating}
             style={{
                 ...floatingStyles,
-                pointerEvents: context.isPinned ? 'auto' : 'none',
+                pointerEvents: 'none',
                 width: 'max-content',
                 zIndex: 10,
             }}
