@@ -99,6 +99,11 @@ export async function capturePlayback(
         const vp = page.viewport()
         log.info({ fps: captureConfig.captureFps, width: vp?.width, height: vp?.height }, 'capture started')
 
+        // Install after recorder.start() — puppeteer-capture overrides rAF/setTimeout/setInterval
+        // during start(), and this wraps those overrides with try/catch so individual player JS
+        // errors are swallowed instead of killing the entire capture.
+        await player.installCallbackErrorGuards()
+
         await player.startPlayback()
         log.info('playback started')
 

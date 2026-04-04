@@ -130,6 +130,11 @@ export class PlayerController {
         })
     }
 
+    /** Wrap timer/rAF callbacks in try/catch so player JS errors don't kill capture. */
+    async installCallbackErrorGuards(): Promise<void> {
+        await this.capturePage.installCallbackErrorGuards()
+    }
+
     /** Resolves when all tracked stylesheet requests have a response. */
     waitForSettled(): Promise<void> {
         return this.interceptor.waitForSettled()

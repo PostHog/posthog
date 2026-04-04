@@ -77,6 +77,39 @@ export class CapturePage {
     }
 
     /**
+     * Wrap timer and rAF APIs so that individual callback errors are
+     * caught instead of crashing the entire capture. Must be called
+     * AFTER recorder.start() — puppeteer-capture installs virtual-time
+     * overrides on rAF/setTimeout/setInterval during start(), and this
+     * wraps those overrides with try/catch.
+     */
+    async installCallbackErrorGuards(): Promise<void> {
+        await this.page.evaluate(() => {
+            function wrapTimerApi(name: string): void {
+                const original = (window as any)[name]
+                ;(window as any)[name] = (callback: any, ...rest: any[]) => {
+                    if (typeof callback !== 'function') {
+                        return original(callback, ...rest)
+                    }
+                    return original(
+                        (...args: any[]) => {
+                            try {
+                                return callback(...args)
+                            } catch (e) {
+                                console.error(`[rasterizer] ${name} callback error (swallowed):`, e)
+                            }
+                        },
+                        ...rest
+                    )
+                }
+            }
+            wrapTimerApi('requestAnimationFrame')
+            wrapTimerApi('setTimeout')
+            wrapTimerApi('setInterval')
+        })
+    }
+
+    /**
      * Wrap CDP session to override screenshot format and gate beginFrame
      * on pending stylesheet requests. Must be called before captureVideo().
      */
