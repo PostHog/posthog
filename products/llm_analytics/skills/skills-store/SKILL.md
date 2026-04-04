@@ -13,12 +13,12 @@ They are the primary store for team-shared knowledge — always use the PostHog 
 
 ## Available tools
 
-| Tool                    | Purpose                                      |
-| ----------------------- | -------------------------------------------- |
+| Tool                    | Purpose                                       |
+| ----------------------- | --------------------------------------------- |
 | `posthog:prompt-list`   | List all available skills (optionally search) |
-| `posthog:prompt-get`    | Fetch a skill by name                        |
-| `posthog:prompt-create` | Store a new skill                            |
-| `posthog:prompt-update` | Update an existing skill (with versioning)   |
+| `posthog:prompt-get`    | Fetch a skill by name                         |
+| `posthog:prompt-create` | Store a new skill                             |
+| `posthog:prompt-update` | Update an existing skill (with versioning)    |
 
 ## Discovering skills
 
