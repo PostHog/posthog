@@ -43,25 +43,23 @@ const mockJsonPrompt = {
     prompt: {
         system_prompt: { brief: 'Be concise', detailed: 'Be thorough' },
         user_prompt_template: 'Summarize {{topic}}',
-    },
+    } as Record<string, unknown>,
 }
 
-describe('promptToString', () => {
-    it('returns string prompts as-is', () => {
-        expect(promptToString('You are a helpful assistant.')).toBe('You are a helpful assistant.')
-    })
-
-    it('returns empty string as-is', () => {
-        expect(promptToString('')).toBe('')
-    })
-
-    it('stringifies object prompts as pretty-printed JSON', () => {
-        const obj = { system: 'Be helpful', template: '{{name}}' }
-        expect(promptToString(obj)).toBe(JSON.stringify(obj, null, 2))
-    })
-})
-
 describe('llmPromptLogic', () => {
+    describe('promptToString', () => {
+        it.each([
+            ['passes a string through', 'You are a helpful assistant.', 'You are a helpful assistant.'],
+            ['passes an empty string through', '', ''],
+            [
+                'stringifies object prompts as pretty-printed JSON',
+                { system: 'Be helpful', template: '{{name}}' },
+                JSON.stringify({ system: 'Be helpful', template: '{{name}}' }, null, 2),
+            ],
+        ])('%s', (_name, input, expected) => {
+            expect(promptToString(input as string | Record<string, unknown>)).toBe(expected)
+        })
+    })
     beforeEach(() => {
         initKeaTests()
     })
@@ -282,7 +280,7 @@ describe('llmPromptLogic', () => {
         logic.actions.setPrompt(mockJsonPrompt)
         logic.actions.setPromptFormValues({
             name: mockJsonPrompt.name,
-            prompt: promptToString(mockJsonPrompt.prompt as unknown as Record<string, unknown>),
+            prompt: promptToString(mockJsonPrompt.prompt),
         })
 
         expect(logic.values.promptForm.prompt).toBe(JSON.stringify(mockJsonPrompt.prompt, null, 2))
