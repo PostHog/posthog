@@ -186,6 +186,10 @@ class EndpointVersionResponseSerializer(EndpointResponseSerializer):
     version_created_at = serializers.CharField(
         help_text="ISO 8601 timestamp when this version was created.",
     )
+    version_updated_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO 8601 timestamp when this version was last updated.",
+    )
     version_created_by = UserBasicSerializer(
         read_only=True,
         allow_null=True,
