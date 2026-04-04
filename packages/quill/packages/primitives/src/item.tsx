@@ -213,12 +213,31 @@ function ItemMedia({
     )
 }
 
-function ItemContent({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+const itemContentVariants = cva(
+    'flex flex-1 flex-col gap-1 group-data-[size=xs]/item:gap-0.5 [&+[data-slot=item-content]]:flex-none',
+    {
+        variants: {
+            variant: {
+                default: '',
+                menuItem: "w-full py-1 px-1.5 has-data-[slot=item-media]:pl-0",
+            },
+        },
+        defaultVariants: {
+            variant: 'default',
+        },
+    }
+)
+
+function ItemContent({ 
+    className, 
+    variant = 'default', 
+    ...props 
+}: React.ComponentProps<'div'> & VariantProps<typeof itemContentVariants>): React.ReactElement {
     return (
         <div
             data-slot="item-content"
             className={cn(
-                'flex flex-1 flex-col gap-1 group-data-[size=xs]/item:gap-0.5 [&+[data-slot=item-content]]:flex-none',
+                itemContentVariants({ variant, className }),
                 className
             )}
             {...props}

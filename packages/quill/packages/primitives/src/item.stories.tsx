@@ -171,7 +171,7 @@ export const ItemInDropdown: Story = {
                                         key={person.username}
                                         render={
                                             <ItemMenuItem size="xs" className="w-full">
-                                                <ItemContent className="gap-0 py-1 px-1.5">
+                                                <ItemContent variant="menuItem">
                                                     <ItemTitle>{person.username}</ItemTitle>
                                                     <ItemDescription className="leading-none">
                                                         {person.email}
@@ -222,8 +222,8 @@ export const ItemCheckboxInDropdown: Story = {
                                         checked={checked[person.username]}
                                         onCheckedChange={() => handleCheckedChange(person.username)}
                                         render={(props) => (
-                                            <ItemCheckbox size="xs" className="w-full" {...props}>
-                                                <ItemContent className="gap-0 py-1 px-1.5">
+                                            <ItemCheckbox size="xs" {...props}>
+                                                <ItemContent variant="menuItem">
                                                     <ItemTitle>{person.username}</ItemTitle>
                                                     <ItemDescription className="leading-none">
                                                         {person.email}
@@ -265,8 +265,8 @@ export const ItemRadiosInDropdown: Story = {
                                         key={person.username}
                                         value={person.username}
                                         render={(props) => (
-                                            <ItemRadio size="xs" className="w-full" {...props}>
-                                                <ItemContent className="gap-0 py-1 px-1.5">
+                                            <ItemRadio size="xs" {...props}>
+                                                <ItemContent variant="menuItem">
                                                     <ItemTitle>{person.username}</ItemTitle>
                                                     <ItemDescription className="leading-none">
                                                         {person.email}
@@ -306,7 +306,7 @@ export const ItemInSelect: Story = {
                         <SelectTrigger render={(props) => <Button variant="outline" {...props} className="h-min" />}>
                             <SelectValue>
                                 {(person: typeof people[number]) => (
-                                    <ItemContent className="gap-0 py-1 px-1.5">
+                                    <ItemContent variant="menuItem">
                                         <ItemTitle>{person.username}</ItemTitle>
                                         <ItemDescription className="leading-none">
                                             {person.email}
@@ -321,8 +321,9 @@ export const ItemInSelect: Story = {
                                     <SelectItem
                                         key={person.username}
                                         value={person}
+                                        className="py-0"
                                     >
-                                        <ItemContent className="gap-0">
+                                        <ItemContent variant="menuItem">
                                             <ItemTitle>{person.username}</ItemTitle>
                                             <ItemDescription className="leading-none">
                                                 {person.email}

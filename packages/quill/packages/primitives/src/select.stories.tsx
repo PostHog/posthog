@@ -53,58 +53,86 @@ const allItems = [{ label: 'Select a fruit', value: null }, ...fruits, ...vegeta
 
 export const Default: Story = {
     render: () => (
-        <Select items={allItems}>
-            <SelectTrigger className="w-full max-w-48" render={<Button variant="outline" />}>
-                <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectGroup>
-                    <SelectGroupLabel>Fruits</SelectGroupLabel>
-                    {fruits.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                        </SelectItem>
-                    ))}
-                </SelectGroup>
-                <SelectSeparator />
-                <SelectGroup>
-                    <SelectGroupLabel>Vegetables</SelectGroupLabel>
-                    {vegetables.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                        </SelectItem>
-                    ))}
-                </SelectGroup>
-            </SelectContent>
-        </Select>
+        <div className="max-w-48 mt-32">
+            <Select items={allItems}>
+                <SelectTrigger className="w-full max-w-48" render={<Button variant="outline" />}>
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectGroup>
+                        <SelectGroupLabel>Fruits</SelectGroupLabel>
+                        {fruits.slice(0, 5).map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                </SelectContent>
+            </Select>
+        </div>
+    ),
+} satisfies Story
+
+export const GroupsAndSeparators: Story = {
+    render: () => (
+        <div className="max-w-48 mt-32">
+
+            <Select items={allItems}>
+                <SelectTrigger className="w-full max-w-48" render={<Button variant="outline" />}>
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectGroup>
+                        <SelectGroupLabel>Fruits</SelectGroupLabel>
+                        {fruits.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                    <SelectSeparator />
+                    <SelectGroup>
+                        <SelectGroupLabel>Vegetables</SelectGroupLabel>
+                        {vegetables.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                </SelectContent>
+            </Select>
+        </div>
     ),
 } satisfies Story
 
 export const Disabled: Story = {
     render: () => (
-        <Select items={allItems}>
-            <SelectTrigger className="w-full max-w-48" render={<Button variant="outline" disabled />}>
-                <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectGroup>
-                    <SelectGroupLabel>Fruits</SelectGroupLabel>
-                    {fruits.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                        </SelectItem>
-                    ))}
-                </SelectGroup>
-                <SelectSeparator />
-                <SelectGroup>
-                    <SelectGroupLabel>Vegetables</SelectGroupLabel>
-                    {vegetables.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                        </SelectItem>
-                    ))}
-                </SelectGroup>
-            </SelectContent>
-        </Select>
+        <div className="max-w-48 mt-32">
+
+            <Select items={allItems}>
+                <SelectTrigger className="w-full max-w-48" render={<Button variant="outline" disabled />}>
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectGroup>
+                        <SelectGroupLabel>Fruits</SelectGroupLabel>
+                        {fruits.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                    <SelectSeparator />
+                    <SelectGroup>
+                        <SelectGroupLabel>Vegetables</SelectGroupLabel>
+                        {vegetables.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                </SelectContent>
+            </Select>
+        </div>
     ),
 } satisfies Story
