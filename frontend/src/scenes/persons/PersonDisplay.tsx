@@ -2,10 +2,11 @@ import './PersonDisplay.scss'
 
 import clsx from 'clsx'
 import { router } from 'kea-router'
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
@@ -87,8 +88,20 @@ export function PersonDisplay({
 }: PersonDisplayProps): JSX.Element {
     const display = displayName || asDisplay(person, maxLength)
     const [visible, setVisible] = useState(false)
+    const [contextMenuVisible, setContextMenuVisible] = useState(false)
 
     const notebookNode = useNotebookNode()
+
+    const handleContextMenu = useCallback(
+        (e: React.MouseEvent): void => {
+            if (!withCopyButton) {
+                return
+            }
+            e.preventDefault()
+            setContextMenuVisible(true)
+        },
+        [withCopyButton]
+    )
 
     const handleClick = (e: React.MouseEvent): void => {
         if (visible && href && !noLink && person?.properties) {
@@ -161,13 +174,28 @@ export function PersonDisplay({
             showArrow
         >
             {withCopyButton ? (
-                <div className="flex flex-row items-center justify-between gap-2 min-w-0">
-                    <span className="min-w-0 flex-1">{content}</span>
-                    <IconCopy
-                        className="text-lg cursor-pointer shrink-0"
-                        onClick={() => void copyToClipboard(display)}
-                    />
-                </div>
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Copy display name',
+                            icon: <IconCopy />,
+                            onClick: () => void copyToClipboard(display),
+                        },
+                    ]}
+                    visible={contextMenuVisible}
+                    onVisibilityChange={setContextMenuVisible}
+                >
+                    <div
+                        className="flex flex-row items-center gap-1 min-w-0"
+                        onContextMenu={handleContextMenu}
+                    >
+                        <span className="min-w-0 truncate">{content}</span>
+                        <IconCopy
+                            className="text-lg cursor-pointer shrink-0"
+                            onClick={() => void copyToClipboard(display)}
+                        />
+                    </div>
+                </LemonMenu>
             ) : (
                 <span>{content}</span>
             )}
