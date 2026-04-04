@@ -6,7 +6,6 @@ import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
-import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
@@ -295,5 +294,4 @@ export type TaxonomicDefinitionTypes =
     | PersonProperty
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
-    | ReplayTaxonomicFilterProperty
     | QuickFilterItem
