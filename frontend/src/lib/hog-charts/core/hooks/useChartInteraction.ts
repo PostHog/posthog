@@ -131,7 +131,8 @@ export function useChartInteraction({
     }, [isPinned, clearTooltip])
 
     const onClick = useCallback(() => {
-        if (hoverIndexRef.current < 0) {
+        const currentIndex = hoverIndexRef.current
+        if (currentIndex < 0) {
             return
         }
 
