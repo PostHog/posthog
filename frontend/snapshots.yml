@@ -1414,6 +1414,10 @@ snapshots:
         hash: v1.k794b7964.5a498eba3a22e7c98afca88f3140d2a86541b4a3b44cbe257fdd5d305f823b09.bUgVAF82cxgdnNFCruY3UKB2b7NstGwVTk0zHofzhwg
     filters-taxonomic-filter--properties--light:
         hash: v1.k794b7964.22d28104148c170cd7042f7c790095cb26be77b53ff8613e7fb039f5fa292534.VSEPlwj0DNNO6MyWBNiipXE4_jPrntBeo2RzySjn1ks
+    filters-taxonomic-filter--six-groups-default-layout--dark:
+        hash: v1.k794b7964.ea2c4ff2a16e845bff9e7f05537f201dfcf990014990d784b5173356e6d5ac63.EtS3AIDJ0rZBWVhgtkyM4H2yMjhugqCsOXWlm7Ud5cY
+    filters-taxonomic-filter--six-groups-default-layout--light:
+        hash: v1.k794b7964.40a1477efad3a30fa1e4b5c55f2c35babe4c6a6cca4786f278e11d62e2b36f89.EeU4m6YTuHPcT4VchQCzY2F425y5PfD8gMoYQCo7VSI
     filters-taxonomic-filter--suggested-filters-five-recents-with-truncation--dark:
         hash: v1.k794b7964.4402be7d0d3878223e81a29082dc40438e0e00c3e728ea4fec585b6db1544b49.185aoBwNzduxwGkSwQ8QeAnnvDEBio6tuHRcfpCfJBo
     filters-taxonomic-filter--suggested-filters-five-recents-with-truncation--light:
@@ -1430,6 +1434,10 @@ snapshots:
         hash: v1.k794b7964.55bff2ea0d41c2e0d1ad1037b04f37e0cefb99eb7be2e72b1efa577f4a0ca4e5.9pNF1nRgQ2RvcVCWAzg6NPKau5D2-rYEnplajGxaURE
     filters-taxonomic-filter--suggested-filters-one-recent--light:
         hash: v1.k794b7964.a5810c50ca57e5d0349569377b2f3e79bf74a60f28e647ba5b8012774c124db4.mZ-MXVbYdR_ocWKgTIj0x4tOuBVb-9k9NOSpUZ-xALI
+    filters-taxonomic-filter--three-groups-default-layout--dark:
+        hash: v1.k794b7964.aec0faf9f59d25d22b8e515f554c1e435c5bfee9340e55f0849a5b339c68ba03.Ba1Lx0EHhwi6bScat-wwvhfXQyXhsJI3mp0TIoRVl6U
+    filters-taxonomic-filter--three-groups-default-layout--light:
+        hash: v1.k794b7964.9c7ea7eb57e212b2c0f2faa4fef4528406b4bc3ad25dfbdb6dc29a452d8a1332.WBSok1zn98Xs9UKfhpE2JLGGdlxoC3fOW5EhOPVM8p0
     filters-taxonomicpopover--multiple-categories--dark:
         hash: v1.k794b7964.6378ff79fb307a6d1fd9ce1d8661cec0a226ec3930ff40587a52ffbacffbf152.LzZ6hnqtCW00R9vHVaf5BBtpA7wqbfil8yEZ1pdyogo
     filters-taxonomicpopover--multiple-categories--light:
