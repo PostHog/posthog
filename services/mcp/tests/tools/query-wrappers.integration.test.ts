@@ -91,8 +91,8 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             )
             const result = (await tool.handler(context, {
                 retentionFilter: {
-                    targetEntity: { id: '$pageview', type: 'events' },
-                    returningEntity: { id: '$pageview', type: 'events' },
+                    targetEntity: { name: '$pageview', type: 'events' },
+                    returningEntity: { name: '$pageview', type: 'events' },
                     period: 'Day',
                     totalIntervals: 7,
                 },
@@ -104,11 +104,126 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
     })
 
-    describe('query-traces-list', () => {
+    describe('query-stickiness', () => {
+        it('should execute a basic stickiness query and return formatted results', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-stickiness'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-7d' },
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
+        })
+
+        it('should generate a valid PostHog URL with StickinessQuery kind', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-stickiness'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-7d' },
+            })) as any
+
+            expect(result._posthogUrl).toContain('/insights/new?q=')
+            const url = new URL(result._posthogUrl)
+            const queryParam = url.searchParams.get('q')
+            expect(queryParam).toBeTruthy()
+            const parsed = JSON.parse(decodeURIComponent(queryParam!))
+            expect(parsed.kind).toBe('StickinessQuery')
+        })
+    })
+
+    describe('query-paths', () => {
+        it('should execute a basic paths query and return formatted results', async () => {
+            const tool = getToolByName(GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>, 'query-paths')
+            const result = (await tool.handler(context, {
+                pathsFilter: {
+                    includeEventTypes: ['$pageview'],
+                    stepLimit: 5,
+                },
+                dateRange: { date_from: '-7d' },
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
+            expect(result._posthogUrl).toMatch(/\/insights\/new\?q=/)
+        })
+
+        it('should execute a paths query with start point', async () => {
+            const tool = getToolByName(GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>, 'query-paths')
+            const result = (await tool.handler(context, {
+                pathsFilter: {
+                    includeEventTypes: ['$pageview'],
+                    startPoint: '/',
+                    stepLimit: 5,
+                },
+                dateRange: { date_from: '-7d' },
+                filterTestAccounts: true,
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
+        })
+    })
+
+    describe('query-lifecycle', () => {
+        it('should execute a basic lifecycle query and return formatted results', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-lifecycle'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-30d' },
+                interval: 'day',
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
+        })
+
+        it('should execute lifecycle with toggled lifecycles filter', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-lifecycle'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-30d' },
+                interval: 'day',
+                lifecycleFilter: {
+                    toggledLifecycles: ['new', 'dormant'],
+                },
+            })) as any
+
+            expect(result).toHaveProperty('results')
+        })
+
+        it('should execute lifecycle with weekly interval', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-lifecycle'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-90d' },
+                interval: 'week',
+            })) as any
+
+            expect(result).toHaveProperty('results')
+        })
+    })
+
+    describe('query-llm-traces-list', () => {
         it('should execute a traces query and return formatted results', async () => {
             const tool = getToolByName(
                 GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
-                'query-traces-list'
+                'query-llm-traces-list'
             )
             const result = (await tool.handler(context, {
                 dateRange: { date_from: '-7d' },

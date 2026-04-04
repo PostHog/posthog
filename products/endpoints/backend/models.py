@@ -9,10 +9,13 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
+from posthog.schema import ProductKey
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
 
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -94,6 +97,12 @@ class EndpointVersion(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        null=True,
+        help_text="Team this version belongs to (denormalized from endpoint for HogQL system table access)",
+    )
     version = models.IntegerField()
     query = models.JSONField(help_text="Immutable query snapshot")
     description = models.TextField(blank=True, default="", help_text="Optional description for this endpoint version")
@@ -251,6 +260,8 @@ class EndpointVersion(models.Model):
         if not clickhouse_sql:
             return []
 
+        tag_queries(product=ProductKey.ENDPOINTS, feature=Feature.SCHEMA_INTROSPECTION)
+
         # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
         rows = sync_execute(
             f"DESCRIBE TABLE ({clickhouse_sql})",
@@ -352,6 +363,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
             columns = None
         version = EndpointVersion.objects.create(
             endpoint=self,
+            team=self.team,
             version=self.current_version,
             query=query,
             created_by=user,

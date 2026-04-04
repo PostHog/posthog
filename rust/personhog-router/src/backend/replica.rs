@@ -19,6 +19,8 @@ use std::time::Duration;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
 
+use personhog_common::grpc::current_client_name;
+
 use super::retry::with_retry;
 use super::PersonHogBackend;
 use crate::config::RetryConfig;
@@ -37,6 +39,8 @@ impl ReplicaBackend {
         retry_config: RetryConfig,
         keepalive_interval: Option<Duration>,
         keepalive_timeout: Option<Duration>,
+        max_send_message_size: usize,
+        max_recv_message_size: usize,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut endpoint = Channel::from_shared(url.to_string())?.timeout(timeout);
         if let Some(interval) = keepalive_interval {
@@ -50,23 +54,29 @@ impl ReplicaBackend {
         let channel = endpoint.connect_lazy();
 
         Ok(Self {
-            client: PersonHogReplicaClient::new(channel),
+            client: PersonHogReplicaClient::new(channel)
+                .max_encoding_message_size(max_send_message_size)
+                .max_decoding_message_size(max_recv_message_size),
             retry_config,
         })
     }
 }
 
 /// Wraps a gRPC call with retry logic. Clones the request for each attempt.
+/// Forwards the `x-client-name` header so the downstream service can
+/// attribute metrics to the originating client.
 macro_rules! retry_call {
     ($self:expr, $method:ident, $request:expr) => {
         with_retry(&$self.retry_config, stringify!($method), || {
             let mut client = $self.client.clone();
             let req = $request.clone();
+            let client_name = current_client_name();
             async move {
-                client
-                    .$method(Request::new(req))
-                    .await
-                    .map(|r| r.into_inner())
+                let mut request = Request::new(req);
+                if let Ok(val) = client_name.parse() {
+                    request.metadata_mut().insert("x-client-name", val);
+                }
+                client.$method(request).await.map(|r| r.into_inner())
             }
         })
         .await

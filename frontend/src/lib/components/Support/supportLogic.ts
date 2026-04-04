@@ -146,6 +146,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Data ingestion',
             },
             {
+                value: 'health_overview',
+                'data-attr': `support-form-target-area-health_overview`,
+                label: 'Health overview',
+            },
+            {
                 value: 'data_management',
                 'data-attr': `support-form-target-area-data_management`,
                 label: 'Data management (incl. events, actions, properties)',
@@ -333,6 +338,7 @@ export type SupportTicketTargetArea =
     | 'max-ai'
     | 'customer-analytics'
     | 'logs'
+    | 'health_overview'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 

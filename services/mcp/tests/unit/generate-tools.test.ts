@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { composeToolSchema, extractPathParams, generateToolCode } from '../../scripts/generate-tools'
+import {
+    composeToolSchema,
+    extractPathParams,
+    generateQueryWrapperFile,
+    generateToolCode,
+} from '../../scripts/generate-tools'
 import type { OpenApiSpec, ResolvedOperation } from '../../scripts/generate-tools'
-import { ToolConfigSchema } from '../../scripts/yaml-config-schema'
+import { QueryWrapperToolConfigSchema, ToolConfigSchema } from '../../scripts/yaml-config-schema'
 import type { ToolConfig } from '../../scripts/yaml-config-schema'
-
-// ------------------------------------------------------------------
-// Helpers
-// ------------------------------------------------------------------
 
 function makeSpec(overrides: Partial<OpenApiSpec> = {}): OpenApiSpec {
     return {
@@ -35,10 +36,6 @@ const defaultCategory = {
     url_prefix: '/things',
     tools: {},
 }
-
-// ------------------------------------------------------------------
-// extractPathParams
-// ------------------------------------------------------------------
 
 describe('extractPathParams', () => {
     const cases = [
@@ -68,10 +65,6 @@ describe('extractPathParams', () => {
         expect(extractPathParams(url)).toEqual(expected)
     })
 })
-
-// ------------------------------------------------------------------
-// composeToolSchema — input_schema in param_overrides
-// ------------------------------------------------------------------
 
 describe('composeToolSchema', () => {
     it('returns empty toolInputsImports when no param_overrides have input_schema', () => {
@@ -171,10 +164,6 @@ describe('composeToolSchema', () => {
     })
 })
 
-// ------------------------------------------------------------------
-// generateToolCode — tool-level input_schema
-// ------------------------------------------------------------------
-
 describe('generateToolCode with input_schema', () => {
     it('uses custom schema import when input_schema is set', () => {
         const config: ToolConfig = {
@@ -197,7 +186,7 @@ describe('generateToolCode with input_schema', () => {
 
         expect(result.toolInputsImports).toEqual(['ThingCreateSchema'])
         expect(result.orvalImports).toEqual([])
-        expect(result.code).toContain('const ThingsCreateSchema = ThingCreateSchema')
+        expect(result.code).toMatchSnapshot()
     })
 
     it('generates body forwarding for POST with input_schema', () => {
@@ -298,8 +287,7 @@ describe('generateToolCode with input_schema', () => {
             new Set<string>()
         )
 
-        expect(result.code).toContain('_posthogUrl:')
-        expect(result.code).toContain('getProjectBaseUrl')
+        expect(result.code).toMatchSnapshot()
     })
 
     it('applies list enrichment with input_schema', () => {
@@ -313,15 +301,9 @@ describe('generateToolCode with input_schema', () => {
         const resolved = makeResolved({ method: 'GET' })
 
         const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
-
-        expect(result.code).toContain('.results ?? result')
-        expect(result.code).toContain('.map(')
+        expect(result.code).toMatchSnapshot()
     })
 })
-
-// ------------------------------------------------------------------
-// generateToolCode — without input_schema (standard path)
-// ------------------------------------------------------------------
 
 describe('generateToolCode without input_schema', () => {
     it('returns orvalImports and no toolInputsImports', () => {
@@ -389,10 +371,6 @@ describe('generateToolCode without input_schema', () => {
         expect(result.code).toContain('.extend({ steps: StepsSchema })')
     })
 })
-
-// ------------------------------------------------------------------
-// rename_params
-// ------------------------------------------------------------------
 
 describe('rename_params', () => {
     it('swaps field names in schema expression and tracks renames', () => {
@@ -469,9 +447,84 @@ describe('rename_params', () => {
     })
 })
 
-// ------------------------------------------------------------------
-// ToolConfigSchema — input_schema conflicts
-// ------------------------------------------------------------------
+describe('QueryWrapperToolConfigSchema validation', () => {
+    it('accepts response_format: json', () => {
+        const result = QueryWrapperToolConfigSchema.safeParse({
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            response_format: 'json',
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('rejects unknown response_format values', () => {
+        const result = QueryWrapperToolConfigSchema.safeParse({
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            response_format: 'xml',
+        })
+        expect(result.success).toBe(false)
+    })
+})
+
+describe('generateQueryWrapperFile with response_format', () => {
+    const minimalQuerySchema = {
+        definitions: {
+            AssistantTestQuery: {
+                type: 'object' as const,
+                properties: {
+                    kind: { const: 'TestQuery', type: 'string' as const },
+                },
+                required: ['kind'],
+            },
+        },
+    }
+
+    it('emits responseFormat in createQueryWrapper call when response_format is set', () => {
+        const { code } = generateQueryWrapperFile(
+            {
+                category: 'Test',
+                feature: 'test',
+                wrappers: {
+                    'query-test': {
+                        schema_ref: 'AssistantTestQuery',
+                        enabled: true,
+                        scopes: ['query:read'],
+                        annotations: { readOnly: true, destructive: false, idempotent: true },
+                        response_format: 'json',
+                    },
+                },
+            },
+            'test.yaml',
+            minimalQuerySchema
+        )
+
+        expect(code).toContain("responseFormat: 'json'")
+    })
+
+    it('omits responseFormat when response_format is not set', () => {
+        const { code } = generateQueryWrapperFile(
+            {
+                category: 'Test',
+                feature: 'test',
+                wrappers: {
+                    'query-test': {
+                        schema_ref: 'AssistantTestQuery',
+                        enabled: true,
+                        scopes: ['query:read'],
+                        annotations: { readOnly: true, destructive: false, idempotent: true },
+                    },
+                },
+            },
+            'test.yaml',
+            minimalQuerySchema
+        )
+
+        expect(code).not.toContain('responseFormat')
+    })
+})
 
 describe('ToolConfigSchema validation', () => {
     const validBase = {

@@ -924,13 +924,9 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Detector configuration types')
         .nullish(),
     calculation_interval: zod
-        .union([
-            zod
-                .enum(['hourly', 'daily', 'weekly', 'monthly'])
-                .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'),
-            zod.literal(null),
-        ])
-        .nullish()
+        .enum(['hourly', 'daily', 'weekly', 'monthly'])
+        .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
+        .optional()
         .describe(
             'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
@@ -1880,13 +1876,9 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Detector configuration types')
         .nullish(),
     calculation_interval: zod
-        .union([
-            zod
-                .enum(['hourly', 'daily', 'weekly', 'monthly'])
-                .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'),
-            zod.literal(null),
-        ])
-        .nullish()
+        .enum(['hourly', 'daily', 'weekly', 'monthly'])
+        .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
+        .optional()
         .describe(
             'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),

@@ -266,12 +266,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         // insights
+        reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
+        reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
+        reportDashboardMetadataAiGenerated: (payload: { dashboardId: number }) => payload,
+        reportDashboardMetadataAiGenerationFailed: (payload: { dashboardId: number }) => payload,
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
             query: Node | null,
-            isNewInsight: boolean
-        ) => ({ insight, query, isNewInsight }),
+            isNewInsight: boolean,
+            saveType: 'save' | 'save_as'
+        ) => ({ insight, query, isNewInsight, saveType }),
         reportInsightViewed: (
             insightModel: Partial<QueryBasedInsightModel>,
             query: Node | null,
@@ -317,6 +322,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportPropertyGroupFilterAdded: true,
+        reportPropertyGroupFilterRemoved: true,
+        reportPropertyGroupFilterDuplicated: true,
+        reportInsightDateRangeChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightBreakdownChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightCompareChanged: (queryKind: string | undefined) => ({ queryKind }),
         reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
             type,
             groupsLength,
@@ -448,6 +458,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightId: number,
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
+        /** Empty-state AI prompt chips (ai-first empty dashboard only). */
+        reportDashboardEmptyAiPromptClicked: (promptLabel: string, dashboardId: number | undefined) => ({
+            promptLabel,
+            dashboardId,
+        }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -490,8 +505,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
         reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
-        reportExperimentStopped: (experiment: Experiment) => ({ experiment }),
-        reportExperimentReset: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (
             experiment: Experiment,
             metadata?: { creation_source?: string; has_linked_flag?: boolean }
@@ -552,24 +565,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             newEndDate,
         }),
-        reportExperimentCompleted: (
-            experiment: Experiment,
-            endDate: Dayjs,
-            duration: number,
-            significant: boolean
-        ) => ({
-            experiment,
-            endDate,
-            duration,
-            significant,
-        }),
         reportExperimentExposureCohortCreated: (experiment: Experiment, cohort: CohortType) => ({ experiment, cohort }),
         reportExperimentExposureCohortEdited: (existingCohort: CohortType, newCohort: CohortType) => ({
             existingCohort,
             newCohort,
         }),
         reportExperimentInsightLoadFailed: true,
-        reportExperimentVariantShipped: (experiment: Experiment) => ({ experiment }),
         reportExperimentVariantScreenshotUploaded: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => ({ experimentId }),
@@ -1081,12 +1082,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             posthog.capture('insight created', { ...sanitizeQuery(query), source: 'web' })
         },
-        reportInsightSaved: async ({ insight, query, isNewInsight }) => {
+        reportInsightMetadataAiGenerated: async ({ queryKind }) => {
+            posthog.capture('insight metadata ai generated', { query_kind: queryKind })
+        },
+        reportInsightMetadataAiGenerationFailed: async ({ queryKind }) => {
+            posthog.capture('insight metadata ai generation failed', { query_kind: queryKind })
+        },
+        reportDashboardMetadataAiGenerated: async ({ dashboardId }) => {
+            posthog.capture('dashboard metadata ai generated', { dashboard_id: dashboardId })
+        },
+        reportDashboardMetadataAiGenerationFailed: async ({ dashboardId }) => {
+            posthog.capture('dashboard metadata ai generation failed', { dashboard_id: dashboardId })
+        },
+        reportInsightSaved: async ({ insight, query, isNewInsight, saveType }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
                 ...sanitizeQuery(query),
                 insight: sanitizeInsight(insight),
                 is_new_insight: isNewInsight,
+                save_type: saveType,
             })
         },
         reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
@@ -1328,6 +1342,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
+        reportDashboardEmptyAiPromptClicked: async ({ promptLabel, dashboardId }) => {
+            posthog.capture('dashboard empty ai prompt clicked', {
+                prompt_label: promptLabel,
+                dashboard_id: dashboardId,
+                source: 'web',
+            })
+        },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
         },
@@ -1444,16 +1465,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 })
             }
         },
-        reportExperimentStopped: ({ experiment }) => {
-            posthog.capture('experiment stopped', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
-        },
-        reportExperimentReset: ({ experiment }) => {
-            posthog.capture('experiment reset', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
-        },
         reportExperimentWizardStarted: ({ guideVisible }) => {
             posthog.capture('experiment wizard started', {
                 guide_visible: guideVisible,
@@ -1540,14 +1551,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 new_end_date: newEndDate,
             })
         },
-        reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
-            posthog.capture('experiment completed', {
-                ...getEventPropertiesForExperiment(experiment),
-                end_date: endDate.toISOString(),
-                duration,
-                significant,
-            })
-        },
         reportExperimentExposureCohortCreated: ({ experiment, cohort }) => {
             posthog.capture('experiment exposure cohort created', {
                 experiment_id: experiment.id,
@@ -1563,14 +1566,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentInsightLoadFailed: () => {
             posthog.capture('experiment load insight failed')
-        },
-        reportExperimentVariantShipped: ({ experiment }) => {
-            posthog.capture('experiment variant shipped', {
-                name: experiment.name,
-                id: experiment.id,
-                parameters: experiment.parameters,
-                secondary_metrics_count: experiment.secondary_metrics.length,
-            })
         },
         reportExperimentVariantScreenshotUploaded: ({ experimentId }) => {
             posthog.capture('experiment variant screenshot uploaded', {
@@ -1709,6 +1704,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
+        },
+        reportPropertyGroupFilterRemoved: () => {
+            posthog.capture('property group filter removed')
+        },
+        reportPropertyGroupFilterDuplicated: () => {
+            posthog.capture('property group filter duplicated')
+        },
+        reportInsightDateRangeChanged: ({ queryKind }) => {
+            posthog.capture('insight date range changed', { query_kind: queryKind })
+        },
+        reportInsightBreakdownChanged: ({ queryKind }) => {
+            posthog.capture('insight breakdown changed', { query_kind: queryKind })
+        },
+        reportInsightCompareChanged: ({ queryKind }) => {
+            posthog.capture('insight compare changed', { query_kind: queryKind })
         },
         reportChangeOuterPropertyGroupFiltersType: ({ type, groupsLength }) => {
             posthog.capture('outer match property groups type changed', { type, groupsLength })

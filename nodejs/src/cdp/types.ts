@@ -116,7 +116,7 @@ export type HogFunctionInvocationGlobals = {
  * These variables can be used to store loop state or pass data between actions
  *
  * Action's can read and write to these variables. Any value stored in the variables
- * map must be JSON serializable, and limited to 1KB in size.
+ * map must be JSON serializable, and limited to 5KB in size.
  *
  * After execution, every action will have a corresponding entry in the map with
  * the key `$action/{actionId}` containing the result of the action.
@@ -226,6 +226,7 @@ export type MinimalAppMetric = {
         | 'billable_invocation'
         | 'dropped'
         | 'email_sent'
+        | 'email_delivered'
         | 'email_failed'
         | 'email_opened'
         | 'email_link_clicked'
@@ -395,6 +396,7 @@ export type HogFunctionType = {
 export type HogFunctionMappingTemplate = HogFunctionMappingType & {
     name: string
     include_by_default?: boolean
+    use_all_events_by_default?: boolean
 }
 
 export type HogFunctionTemplate = {

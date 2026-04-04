@@ -218,7 +218,6 @@ export interface MinimalFeatureFlagApi {
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
-    readonly evaluation_tags: readonly string[]
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -250,9 +249,9 @@ export const ExperimentTypeEnumApi = {
  * `stopped_early` - Stopped Early
  * `invalid` - Invalid
  */
-export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
+export type ExperimentConclusionEnumApi = (typeof ExperimentConclusionEnumApi)[keyof typeof ExperimentConclusionEnumApi]
 
-export const ConclusionEnumApi = {
+export const ExperimentConclusionEnumApi = {
     Won: 'won',
     Lost: 'lost',
     Inconclusive: 'inconclusive',
@@ -315,12 +314,13 @@ export interface ExperimentApi {
     stats_config?: unknown | null
     scheduling_config?: unknown | null
     _create_in_folder?: string
-    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi | null
+    conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
@@ -380,18 +380,70 @@ export interface PatchedExperimentApi {
     stats_config?: unknown | null
     scheduling_config?: unknown | null
     _create_in_folder?: string
-    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi | null
+    conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+/**
+ * * `won` - won
+ * `lost` - lost
+ * `inconclusive` - inconclusive
+ * `stopped_early` - stopped_early
+ * `invalid` - invalid
+ */
+export type ConclusionF33EnumApi = (typeof ConclusionF33EnumApi)[keyof typeof ConclusionF33EnumApi]
+
+export const ConclusionF33EnumApi = {
+    Won: 'won',
+    Lost: 'lost',
+    Inconclusive: 'inconclusive',
+    StoppedEarly: 'stopped_early',
+    Invalid: 'invalid',
+} as const
+
+export interface EndExperimentApi {
+    /** The conclusion of the experiment.
+
+* `won` - won
+* `lost` - lost
+* `inconclusive` - inconclusive
+* `stopped_early` - stopped_early
+* `invalid` - invalid */
+    conclusion?: ConclusionF33EnumApi | NullEnumApi | null
+    /**
+     * Optional comment about the experiment conclusion.
+     * @nullable
+     */
+    conclusion_comment?: string | null
+}
+
+export interface ShipVariantApi {
+    /** The conclusion of the experiment.
+
+* `won` - won
+* `lost` - lost
+* `inconclusive` - inconclusive
+* `stopped_early` - stopped_early
+* `invalid` - invalid */
+    conclusion?: ConclusionF33EnumApi | NullEnumApi | null
+    /**
+     * Optional comment about the experiment conclusion.
+     * @nullable
+     */
+    conclusion_comment?: string | null
+    /** The key of the variant to ship to 100% of users. */
+    variant_key: string
 }
 
 export type ExperimentHoldoutsListParams = {

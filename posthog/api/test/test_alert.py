@@ -13,9 +13,9 @@ from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):
@@ -474,6 +474,54 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in str(response.content).lower()
 
+    @parameterized.expand(
+        [
+            (
+                "null_interval_rejected",
+                {"calculation_interval": None},
+                status.HTTP_400_BAD_REQUEST,
+                "weekly",
+                None,
+            ),
+            (
+                "omitted_interval_preserves_existing",
+                {"name": "renamed alert"},
+                status.HTTP_200_OK,
+                "weekly",
+                "renamed alert",
+            ),
+            (
+                "updated_interval_applied",
+                {"calculation_interval": "hourly"},
+                status.HTTP_200_OK,
+                "hourly",
+                "alert name",
+            ),
+        ]
+    )
+    def test_patch_calculation_interval(self, _name, patch_payload, expected_status, expected_interval, expected_name):
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+            "calculation_interval": "weekly",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        assert alert["calculation_interval"] == "weekly"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            patch_payload,
+            content_type="application/json",
+        )
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_200_OK:
+            assert response.json()["calculation_interval"] == expected_interval
+            assert response.json()["name"] == expected_name
+
 
 class TestAlertSimulate(APIBaseTest):
     def setUp(self):
@@ -493,7 +541,7 @@ class TestAlertSimulate(APIBaseTest):
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
 
-    @mock.patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @mock.patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_simulate_returns_valid_response(self, mock_calculate) -> None:
         mock_calculate.return_value = mock.MagicMock(
             result=[
@@ -534,9 +582,9 @@ class TestAlertSimulate(APIBaseTest):
         assert "interval" in data
         assert "total_points" in data
         assert "anomaly_count" in data
-        assert data["total_points"] == 35
+        assert data["total_points"] == 34  # 35 mock points minus 1 dropped incomplete interval
         assert isinstance(data["scores"], list)
-        assert len(data["scores"]) == 35
+        assert len(data["scores"]) == 34
 
     def test_simulate_missing_detector_config_returns_400(self) -> None:
         response = self.client.post(
@@ -559,7 +607,7 @@ class TestAlertSimulate(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @mock.patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    @mock.patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
     def test_simulate_does_not_create_alert_check_records(self, mock_calculate) -> None:
         mock_calculate.return_value = mock.MagicMock(
             result=[

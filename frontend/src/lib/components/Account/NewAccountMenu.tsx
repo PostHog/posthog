@@ -15,6 +15,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -51,6 +52,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { canAccessBilling } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
@@ -287,7 +289,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
 
-                                {isCloudOrDev ? (
+                                {isCloudOrDev && canAccessBilling ? (
                                     <Menu.Item
                                         render={(props) => (
                                             <Link

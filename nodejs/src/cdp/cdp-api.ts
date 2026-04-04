@@ -3,6 +3,8 @@ import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
+import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/ingestion/common/outputs'
+import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -80,7 +82,25 @@ export class CdpApi {
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
 
         // API-only services
-        this.hogTransformer = createHogTransformerService(config, deps)
+        this.hogTransformer = createHogTransformerService(config, {
+            ...deps,
+            monitoringOutputs: new IngestionOutputs({
+                [APP_METRICS_OUTPUT]: [
+                    {
+                        producer: deps.kafkaProducer,
+                        topic: config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+                        producerName: 'default',
+                    },
+                ],
+                [LOG_ENTRIES_OUTPUT]: [
+                    {
+                        producer: deps.kafkaProducer,
+                        topic: config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
+                        producerName: 'default',
+                    },
+                ],
+            }),
+        })
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
@@ -650,14 +670,14 @@ export class CdpApi {
 
     private getEmailTrackingPixel =
         () =>
-        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            await this.emailTrackingService.handleEmailTrackingPixel(req, res)
+        (req: ModifiedRequest, res: express.Response): any => {
+            this.emailTrackingService.handleEmailTrackingPixel(req, res)
         }
 
     private getEmailTrackingRedirect =
         () =>
-        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            await this.emailTrackingService.handleEmailTrackingRedirect(req, res)
+        (req: ModifiedRequest, res: express.Response): any => {
+            this.emailTrackingService.handleEmailTrackingRedirect(req, res)
         }
 
     private generatePreferencesToken =

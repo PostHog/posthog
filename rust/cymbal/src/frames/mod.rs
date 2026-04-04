@@ -17,6 +17,7 @@ use crate::{
         java::RawJavaFrame,
         js::RawJSFrame,
         node::RawNodeFrame,
+        php::RawPHPFrame,
         python::RawPythonFrame,
         ruby::RawRubyFrame,
     },
@@ -43,6 +44,8 @@ pub enum RawFrame {
     JavaScriptNode(RawNodeFrame),
     #[serde(rename = "go")]
     Go(RawGoFrame),
+    #[serde(rename = "php")]
+    Php(RawPHPFrame),
     #[serde(rename = "hermes")]
     Hermes(RawHermesFrame),
     #[serde(rename = "java")]
@@ -80,10 +83,10 @@ impl RawFrame {
             }
 
             RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
-            RawFrame::Apple(frame) => (
-                to_vec(frame.resolve(team_id, catalog, debug_images).await),
-                "apple",
-            ),
+            RawFrame::Apple(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "apple")
+            }
+            RawFrame::Php(frame) => (to_vec(Ok(frame.into())), "php"),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
@@ -92,7 +95,7 @@ impl RawFrame {
             RawFrame::Java(frame) => (frame.resolve(team_id, catalog).await, "java"),
         };
 
-        // The raw id of the frame is set after it's resolved
+        // The raw id of the frame is set after it's resolved.
         let res = res.map(|mut fs| {
             fs.iter_mut()
                 .enumerate()
@@ -142,6 +145,7 @@ impl RawFrame {
             RawFrame::Java(frame) => frame.symbol_set_ref(),
             // Frames with no symbol sets
             RawFrame::Python(_)
+            | RawFrame::Php(_)
             | RawFrame::Ruby(_)
             | RawFrame::Go(_)
             | RawFrame::Dart(_)
@@ -154,6 +158,7 @@ impl RawFrame {
         let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
+            RawFrame::Php(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
             RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),

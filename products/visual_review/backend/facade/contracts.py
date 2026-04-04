@@ -34,7 +34,12 @@ class CreateRunInput:
     branch: str
     snapshots: list[SnapshotManifestItem]
     pr_number: int | None = None
+    # Deprecated: backend fetches baselines from GitHub. Kept for old CLI compat.
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    # Deprecated: backend computes from RunSnapshot rows at complete time.
+    unchanged_count: int = 0
+    removed_identifiers: list[str] = field(default_factory=list)
+    purpose: str = "review"
     # Run-level metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
 
@@ -59,7 +64,8 @@ class ApproveSnapshotInput:
 class ApproveRunRequestInput:
     """Request body for approving a run. run_id and user_id come from URL and auth."""
 
-    snapshots: list[ApproveSnapshotInput]
+    snapshots: list[ApproveSnapshotInput] = field(default_factory=list)
+    approve_all: bool = False
     commit_to_github: bool = True
 
 
@@ -83,6 +89,22 @@ class UploadTarget:
     content_hash: str
     url: str
     fields: dict[str, str]
+
+
+@dataclass(frozen=True)
+class AddSnapshotsInput:
+    """Batch of snapshots to add to an existing run (shard-based flow)."""
+
+    snapshots: list[SnapshotManifestItem]
+    baseline_hashes: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AddSnapshotsResult:
+    """Result of adding snapshots to a run."""
+
+    added: int
+    uploads: list[UploadTarget]
 
 
 @dataclass(frozen=True)
@@ -170,6 +192,7 @@ class UpdateRepoRequestInput:
     """Request body for updating a repo. repo_id comes from URL."""
 
     baseline_file_paths: dict[str, str] | None = None
+    enable_pr_comments: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -178,6 +201,7 @@ class UpdateRepoInput:
 
     repo_id: UUID
     baseline_file_paths: dict[str, str] | None = None
+    enable_pr_comments: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -200,4 +224,5 @@ class Repo:
     repo_external_id: int
     repo_full_name: str
     baseline_file_paths: dict[str, str]
+    enable_pr_comments: bool
     created_at: datetime

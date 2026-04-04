@@ -46,6 +46,11 @@ class PostgresPrinter(HogQLPrinter):
 
         return self.visit(node.type)
 
+    def visit_keyword(self, node: ast.Keyword):
+        if not node.name.isidentifier():
+            raise QueryError(f"Invalid keyword name: {node.name}")
+        return node.name.upper()
+
     def visit_call(self, node: ast.Call):
         if node.name.lower() in {"percentile_cont", "percentile_disc"}:
             return super().visit_call(node)
@@ -133,6 +138,8 @@ class PostgresPrinter(HogQLPrinter):
 
     def _print_table_sql(self, table) -> str:
         if isinstance(table, DirectPostgresTable):
+            return table.to_printed_postgres(self.context)
+        if hasattr(table, "to_printed_postgres"):
             return table.to_printed_postgres(self.context)
         return table.to_printed_clickhouse(self.context)
 
@@ -236,6 +243,15 @@ class PostgresPrinter(HogQLPrinter):
         else:
             right = self.visit(node.right)
 
+        if (
+            node.is_null_comparison_style
+            and isinstance(node.right, ast.Constant)
+            and node.right.value is None
+            and node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq)
+        ):
+            not_kw = " NOT" if node.op == ast.CompareOperationOp.NotEq else ""
+            return f"({left} IS{not_kw} NULL)"
+
         return self._get_compare_op(node.op, left, right)
 
     def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
@@ -319,6 +335,8 @@ class PostgresPrinter(HogQLPrinter):
                 f"{escape_postgres_identifier(table.postgres_schema)}."
                 f"{escape_postgres_identifier(table.postgres_table_name)}"
             )
+        if hasattr(table, "to_printed_postgres"):
+            return table.to_printed_postgres(self.context)
         return table.to_printed_clickhouse(self.context)
 
     def visit_property_type(self, type: ast.PropertyType):

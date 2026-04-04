@@ -99,8 +99,8 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 render: PromptVersionIdColumn,
             },
             person: llmAnalyticsColumnRenderers.person,
-            sentiment: llmAnalyticsColumnRenderers.sentiment,
-            tools: llmAnalyticsColumnRenderers.tools,
+            __llm_sentiment: llmAnalyticsColumnRenderers.__llm_sentiment,
+            __llm_tools: llmAnalyticsColumnRenderers.__llm_tools,
             errors: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
@@ -266,7 +266,13 @@ ErrorsColumn.displayName = 'ErrorsColumn'
 
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    const inputNormalized = normalizeMessages(row.inputState?.messages, 'user')
+    let inputNormalized
+    try {
+        inputNormalized = normalizeMessages(row.inputState?.messages, 'user')
+    } catch (e) {
+        console.warn('Error normalizing trace inputState', e)
+        return <>–</>
+    }
     if (!inputNormalized.length) {
         return <>–</>
     }
@@ -286,7 +292,13 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
             </LemonTag>
         )
     }
-    const outputNormalized = normalizeMessages(row.outputState?.messages, 'assistant')
+    let outputNormalized
+    try {
+        outputNormalized = normalizeMessages(row.outputState?.messages, 'assistant')
+    } catch (e) {
+        console.warn('Error normalizing trace outputState', e)
+        return <>–</>
+    }
     if (!outputNormalized.length) {
         return <>–</>
     }

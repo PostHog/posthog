@@ -8,12 +8,12 @@ import { createTestPluginEvent } from '../../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '../../analytics/outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newPipelineBuilder } from '../../pipelines/builders'
-import { createContext } from '../../pipelines/helpers'
-import { PipelineResultType, ok } from '../../pipelines/results'
+import { createOkContext } from '../../pipelines/helpers'
+import { PipelineResultType } from '../../pipelines/results'
 import { AiEventSubpipelineConfig, AiEventSubpipelineInput, createAiEventSubpipeline } from './ai-event-subpipeline'
 
 const team = createTestTeam()
@@ -70,24 +70,46 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: true,
             PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
             PERSON_MERGE_ASYNC_ENABLED: false,
-            PERSON_MERGE_ASYNC_TOPIC: '',
             PERSON_MERGE_SYNC_BATCH_SIZE: 0,
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
         },
         outputs: new IngestionOutputs({
-            [EVENTS_OUTPUT]: {
-                topic: 'events_topic',
-                producer: { produce: mockProduce } as any,
-            },
-            [AI_EVENTS_OUTPUT]: {
-                topic: 'ai_events_topic',
-                producer: { produce: mockProduce } as any,
-            },
-            [INGESTION_WARNINGS_OUTPUT]: {
-                topic: 'ingestion_warnings_topic',
-                producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
-            },
+            [EVENTS_OUTPUT]: [
+                {
+                    topic: 'events_topic',
+                    producer: { produce: mockProduce } as any,
+                    producerName: 'test',
+                },
+            ],
+            [AI_EVENTS_OUTPUT]: [
+                {
+                    topic: 'ai_events_topic',
+                    producer: { produce: mockProduce } as any,
+                    producerName: 'test',
+                },
+            ],
+            [INGESTION_WARNINGS_OUTPUT]: [
+                {
+                    topic: 'ingestion_warnings_topic',
+                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
+                    producerName: 'test',
+                },
+            ],
+            [PERSONS_OUTPUT]: [
+                {
+                    topic: 'persons_topic',
+                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
+                    producerName: 'test',
+                },
+            ],
+            [PERSON_DISTINCT_IDS_OUTPUT]: [
+                {
+                    topic: 'person_distinct_ids_topic',
+                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
+                    producerName: 'test',
+                },
+            ],
         }),
         teamManager: {
             setTeamIngestedEvent: jest.fn().mockResolvedValue(undefined),
@@ -105,10 +127,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
         } as any,
         groupStore: {} as any,
-        kafkaProducer: {
-            queueMessages: jest.fn().mockResolvedValue(undefined),
-        } as any,
-        splitAiEventsConfig: { enabled: false, enabledTeams: '*' },
+        splitAiEventsConfig: { enabled: false, enabledTeams: '*', stripHeavyProperties: false },
         groupId: 'test-group',
         topHog: (step) => step,
         ...configOverrides,
@@ -165,7 +184,7 @@ describe('AI event subpipeline integration', () => {
             } as any,
         })
 
-        const result = await pipeline.process(createContext(ok(createInput(event))))
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
         expect(result.result.type).toBe(PipelineResultType.OK)
 
         const { topic, event: produced, properties } = getProduceCall(mockProduce)
@@ -207,7 +226,7 @@ describe('AI event subpipeline integration', () => {
         })
 
         const { pipeline, mockProduce } = buildPipeline()
-        const result = await pipeline.process(createContext(ok(createInput(event))))
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
         expect(result.result.type).toBe(PipelineResultType.OK)
 
         const { event: produced, properties } = getProduceCall(mockProduce)
@@ -229,7 +248,7 @@ describe('AI event subpipeline integration', () => {
             } as any,
         })
 
-        const result = await pipeline.process(createContext(ok(createInput(event))))
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
         expect(result.result.type).toBe(PipelineResultType.DROP)
         expect(mockProduce).not.toHaveBeenCalled()
     })

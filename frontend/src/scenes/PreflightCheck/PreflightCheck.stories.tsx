@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { PreflightCheck } from './PreflightCheck'
 
@@ -10,4 +10,9 @@ const meta: Meta = {
     },
 }
 export default meta
-export const Preflight = (): JSX.Element => <PreflightCheck />
+
+type Story = StoryObj<{}>
+
+export const Preflight: Story = {
+    render: () => <PreflightCheck />,
+}
