@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
-import { getApiErrorDetail, llmPromptLogic } from '../prompts/llmPromptLogic'
+import { getApiErrorDetail, llmPromptLogic, promptToString } from '../prompts/llmPromptLogic'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { normalizeRole } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
@@ -679,7 +679,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             ? { version: payload.sourcePromptVersion }
                             : undefined
                         const fetchedPrompt = await api.llmPrompts.getByName(payload.sourcePromptName, versionParam)
-                        actions.setSystemPrompt(fetchedPrompt.prompt || DEFAULT_SYSTEM_PROMPT, promptId)
+                        actions.setSystemPrompt(promptToString(fetchedPrompt.prompt) || DEFAULT_SYSTEM_PROMPT, promptId)
                         actions.setSourceNames(fetchedPrompt.name ?? null, null, promptId)
                         const sourceParams: Record<string, string> = {
                             source_prompt_name: payload.sourcePromptName,

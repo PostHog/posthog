@@ -18,19 +18,19 @@ const mockPrompt = {
     deleted: false,
     created_at: '2024-01-02T00:00:00Z',
     updated_at: '2024-01-02T00:00:00Z',
-    created_by: { id: 1, email: 'test@example.com' },
+    created_by: { id: 1, uuid: '1', distinct_id: '1', first_name: 'Test', email: 'test@example.com' },
     versions: [
         {
             id: 'prompt-version-2',
             version: 2,
-            created_by: { id: 1, email: 'test@example.com' },
+            created_by: { id: 1, uuid: '1', distinct_id: '1', first_name: 'Test', email: 'test@example.com' },
             created_at: '2024-01-02T00:00:00Z',
             is_latest: true,
         },
         {
             id: 'prompt-version-1',
             version: 1,
-            created_by: { id: 1, email: 'test@example.com' },
+            created_by: { id: 1, uuid: '1', distinct_id: '1', first_name: 'Test', email: 'test@example.com' },
             created_at: '2024-01-01T00:00:00Z',
             is_latest: false,
         },
