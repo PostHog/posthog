@@ -15,7 +15,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
-import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
@@ -56,7 +55,6 @@ const LogsSceneContent = (): JSX.Element => {
                 actions={
                     <>
                         {hasLogs && <LogsSceneFeedbackButton />}
-                        <SavedViewsButton id={tabId} />
                         <LemonButton size="small" type="secondary" icon={<IconGear />} onClick={openLogsSettings}>
                             Settings
                         </LemonButton>
@@ -78,7 +76,7 @@ const LogsSceneContent = (): JSX.Element => {
             )}
             <LogsSetupPrompt>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    <LogsViewer id={tabId} />
+                    <LogsViewer id={tabId} showSavedViewsButton />
                 </div>
             </LogsSetupPrompt>
         </>
@@ -97,12 +95,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
-                actions={
-                    <>
-                        {hasLogs && <LogsSceneFeedbackButton />}
-                        <SavedViewsButton id={tabId} />
-                    </>
-                }
+                actions={<>{hasLogs && <LogsSceneFeedbackButton />}</>}
             />
             {teamHasLogsCheckFailed && (
                 <LemonBanner
@@ -129,7 +122,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
             {activeTab === 'viewer' && (
                 <LogsSetupPrompt>
                     <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                        <LogsViewer id={tabId} />
+                        <LogsViewer id={tabId} showSavedViewsButton />
                     </div>
                 </LogsSetupPrompt>
             )}
